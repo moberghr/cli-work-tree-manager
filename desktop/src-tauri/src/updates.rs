@@ -279,15 +279,80 @@ pub fn spawn(log: fn(&str), work_dir: Option<PathBuf>) -> Sender<Request> {
     asks
 }
 
-fn check_once(um: &UpdateManager, reporter: &Reporter, log: fn(&str)) {
-    if let Some(asset) = um.get_update_pending_restart() {
-        reporter.set(&State::Ready(asset.Version.clone()));
-        return; // downloaded already: applies on the next start, or on Restart
+/// What a check leads to: download the latest release, or stay as it is (an update waiting for
+/// Restart, or none). Pure.
+#[derive(Debug, PartialEq)]
+enum AfterCheck {
+    Download(String),
+    Ready(String),
+    Current,
+}
+
+/// One waiting for Restart doesn't stop a newer one: it's downloaded in its place, so Restart
+/// goes straight to the newest (2.5.3 waited, 2.6.0 came out: two restarts, two updates).
+fn after_check(pending: Option<&str>, latest: Option<&str>) -> AfterCheck {
+    match (pending, latest) {
+        (Some(p), Some(l)) if is_newer(l, p) => AfterCheck::Download(l.to_string()),
+        (Some(p), _) => AfterCheck::Ready(p.to_string()),
+        (None, Some(l)) => AfterCheck::Download(l.to_string()),
+        (None, None) => AfterCheck::Current,
     }
-    reporter.set(&State::Checking);
-    match um.check_for_updates() {
-        Ok(UpdateCheck::UpdateAvailable(info)) => {
-            let to = info.TargetFullRelease.Version.clone();
+}
+
+/// `a` is a later version than `b` ("2.6.0" > "2.5.3"; a release > its pre-release; numbers, not
+/// text: "2.10.0" > "2.9.0"). Unreadable parts count as 0.
+fn is_newer(a: &str, b: &str) -> bool {
+    fn parts(v: &str) -> (Vec<u64>, Option<&str>) {
+        let v = v.trim().trim_start_matches('v');
+        let (core, pre) = match v.split_once('-') {
+            Some((c, p)) => (c, Some(p)),
+            None => (v, None),
+        };
+        let core = core.split('+').next().unwrap_or("");
+        (core.split('.').map(|n| n.parse().unwrap_or(0)).collect(), pre)
+    }
+    let ((ac, ap), (bc, bp)) = (parts(a), parts(b));
+    let len = ac.len().max(bc.len());
+    for i in 0..len {
+        let (x, y) = (ac.get(i).copied().unwrap_or(0), bc.get(i).copied().unwrap_or(0));
+        if x != y {
+            return x > y;
+        }
+    }
+    match (ap, bp) {
+        (None, Some(_)) => true,
+        (Some(x), Some(y)) => x > y,
+        _ => false,
+    }
+}
+
+fn check_once(um: &UpdateManager, reporter: &Reporter, log: fn(&str)) {
+    // One already downloaded keeps its Restart on screen while this looks for a newer one.
+    let pending = um.get_update_pending_restart().map(|a| a.Version.clone());
+    if pending.is_none() {
+        reporter.set(&State::Checking);
+    }
+    let found = match um.check_for_updates() {
+        Ok(UpdateCheck::UpdateAvailable(info)) => Some(info),
+        Ok(_) => None,
+        Err(e) => {
+            log(&format!("updates: check failed: {e}"));
+            match &pending {
+                Some(p) => reporter.set(&State::Ready(p.clone())), // what's waiting still applies
+                None => reporter.set(&State::Failed(format!("checking: {e}"))),
+            }
+            return;
+        }
+    };
+    let latest = found.as_ref().map(|i| i.TargetFullRelease.Version.clone());
+    match after_check(pending.as_deref(), latest.as_deref()) {
+        AfterCheck::Current => reporter.set(&State::Current),
+        AfterCheck::Ready(p) => reporter.set(&State::Ready(p)),
+        AfterCheck::Download(to) => {
+            let info = found.expect("a version to download comes from a check that found one");
+            if let Some(p) = &pending {
+                log(&format!("updates: {to} is out since {p} was downloaded; downloading {to} instead"));
+            }
             reporter.set(&State::Downloading(to.clone(), 0));
             // Velopack reports how far (0-100) as it goes: each new percent goes to the window.
             let (tx, rx) = mpsc::channel::<i16>();
@@ -311,14 +376,13 @@ fn check_once(um: &UpdateManager, reporter: &Reporter, log: fn(&str)) {
                 }
                 Err(e) => {
                     log(&format!("updates: downloading {to} failed: {e}"));
-                    reporter.set(&State::Failed(format!("downloading {to}: {e}")));
+                    // The one downloaded before still applies; say failed only when there's none.
+                    match um.get_update_pending_restart() {
+                        Some(a) => reporter.set(&State::Ready(a.Version.clone())),
+                        None => reporter.set(&State::Failed(format!("downloading {to}: {e}"))),
+                    }
                 }
             }
-        }
-        Ok(_) => reporter.set(&State::Current),
-        Err(e) => {
-            log(&format!("updates: check failed: {e}"));
-            reporter.set(&State::Failed(format!("checking: {e}")));
         }
     }
 }
@@ -364,6 +428,29 @@ mod tests {
         // work web's own pages navigate as usual.
         assert_eq!(page_ask(Some("127.0.0.1"), "/restart"), None);
         assert_eq!(page_ask(None, "/restart"), None);
+    }
+
+    #[test]
+    fn a_newer_release_replaces_the_one_waiting_for_restart() {
+        // 2.5.3 downloaded, 2.6.0 out since: download 2.6.0 — one restart, straight to it.
+        assert_eq!(after_check(Some("2.5.3"), Some("2.6.0")), AfterCheck::Download("2.6.0".into()));
+        // The latest is the one waiting: nothing to download again.
+        assert_eq!(after_check(Some("2.6.0"), Some("2.6.0")), AfterCheck::Ready("2.6.0".into()));
+        assert_eq!(after_check(Some("2.6.0"), None), AfterCheck::Ready("2.6.0".into()));
+        assert_eq!(after_check(None, Some("2.6.0")), AfterCheck::Download("2.6.0".into()));
+        assert_eq!(after_check(None, None), AfterCheck::Current);
+    }
+
+    #[test]
+    fn versions_compare_as_numbers() {
+        assert!(is_newer("2.6.0", "2.5.3"));
+        assert!(is_newer("2.10.0", "2.9.9"));
+        assert!(is_newer("3.0.0", "2.99.99"));
+        assert!(is_newer("2.6.0", "2.6.0-beta.1"));
+        assert!(!is_newer("2.6.0-beta.1", "2.6.0"));
+        assert!(!is_newer("2.6.0", "2.6.0"));
+        assert!(!is_newer("2.5.3", "2.6.0"));
+        assert!(is_newer("v2.6.1", "2.6.0"));
     }
 
     #[test]

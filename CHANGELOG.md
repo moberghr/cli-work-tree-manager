@@ -3,6 +3,14 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.6.1 — 2026-10-28
+
+- **One update, not two.** When an update had downloaded and was waiting
+  for Restart, the desktop app stopped looking for a newer one: with 2.5.3
+  waiting and 2.6.0 out, you restarted into 2.5.3, then updated again. It now
+  keeps looking and downloads the newer release in its place, so Restart goes
+  straight to the newest. (It takes effect from the update after this one.)
+
 ## 2.6.0 — 2026-10-28
 
 - **Two signals per session: what its Claude is doing, and what waits on
