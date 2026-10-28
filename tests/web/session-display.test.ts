@@ -12,7 +12,9 @@ import {
   ageBucket,
   formatDiffStat,
   lastActiveAt,
+  owedBadge,
   prsForSession,
+  sessionBucket,
   stableSessionOrder,
   statusBucket,
 } from '../../src/web/src/state/session-display.js';
@@ -91,14 +93,23 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(displayStatus(s({ id: 'a', attention: att('working', true) }))).toBe('working');
   });
 
-  it('unresolved review comments make a session "Review comments" unless its Claude wants you or is mid-turn', () => {
+  it('two signals: the status is what its Claude is doing; what waits on you (threads, replies) is its own, beside it', () => {
     const r = { openReviewThreads: 2 };
-    expect(displayStatus(s({ id: 'a', ...r }))).toBe('review'); // no hook status at all
-    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', true) }))).toBe('review'); // was grey "Idle"
+    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', true) }))).toBe('quiet');
     expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', false) }))).toBe('done');
     expect(displayStatus(s({ id: 'a', ...r, attention: att('working', true) }))).toBe('working');
     expect(displayStatus(s({ id: 'a', ...r, attention: att('needs_input', false) }))).toBe('needs_input');
-    expect(statusBucket('review')).toBe('needs');
+    for (const st of [att('idle', true), att('working', true), att('needs_input', false)])
+      expect(owedBadge(s({ id: 'a', ...r, attention: st }))).toMatchObject({ text: '2 threads' });
+    // A reply to post alone (reported: it read Idle with nothing beside it).
+    expect(owedBadge(s({ id: 'a', replyDrafts: 1, attention: att('idle', true) }))).toEqual({
+      text: '1 reply',
+      title: 'Needs you: 1 reply to post',
+    });
+    expect(owedBadge(s({ id: 'a', attention: att('idle', true) }))).toBeNull();
+    // The Sessions filter and the age sections count it as wanting you.
+    expect(sessionBucket(s({ id: 'a', ...r, attention: att('working', true) }))).toBe('needs');
+    expect(sessionBucket(s({ id: 'a', attention: att('working', true) }))).toBe('working');
     expect(ageBucket(s({ id: 'a', ...r, lastAccessedAt: minsAgo(30 * 24 * 60) }))).toBe('now');
   });
 

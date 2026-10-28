@@ -3,6 +3,25 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.6.0 — 2026-10-28
+
+- **Two signals per session: what its Claude is doing, and what waits on
+  you.** The status icon now says only what Claude is doing (working, needs
+  your input, done, idle…). What waits on *you* is a pink badge on the right
+  of its row — "1 reply", "2 threads", "merge", "CI", "conflict" (hover for
+  all of it) — whatever Claude is doing. A session with nothing left but a
+  reply to post used to read Idle and stayed out of the Inbox; it now shows
+  the badge and is in the Inbox's **Needs you** section. A PR that only waits
+  on reviewers says "in review", quietly. The header's Needs you line, the
+  Sessions table and `work sessions` read the same list, and now include
+  "ready to merge".
+- **Copying from the terminal comes out clean.** Lines Claude Code wrapped at
+  the screen's edge are joined back, and its indent, padding and markers are
+  gone. A table you select pastes into Teams, Outlook or Word as a table.
+- **Copy Claude's last reply** (⋯ menu, or ⇧Y): the reply as Claude wrote it,
+  from the conversation, not the screen — and formatted, so tables, lists and
+  code paste into Teams as such.
+
 ## 2.5.3 — 2026-10-28
 
 - **Archiving and restoring show.** A session being archived — by you, by

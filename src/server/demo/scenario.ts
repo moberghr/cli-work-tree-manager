@@ -759,6 +759,11 @@ export class DemoScenario {
     this.assistantView = text;
   }
 
+  /** Its Claude's newest message: the demo has only the summary line. */
+  lastReply(id: string): string | null {
+    return this.sessions.get(id)?.attention?.summary ?? null;
+  }
+
   screen(id: string): string {
     if (id === 'assistant') return this.assistantLines.join('\r\n') + '\r\n> ';
     return (this.sessions.get(id)?.transcript ?? []).join('\r\n') + '\r\n';

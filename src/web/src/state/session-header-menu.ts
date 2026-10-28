@@ -15,6 +15,8 @@ export interface HeaderMenuActions {
   reconnectTerminal: () => void;
   ship: () => void;
   catchUp: () => void;
+  /** Its agent's newest message, as written, to the clipboard (not the terminal's wrapped drawing of it). */
+  copyReply: () => void;
   /** How it got here (its prompts, turns, commits, PRs) and how long its Claude worked. */
   timeline: () => void;
   sendPrompt: () => void;
@@ -50,6 +52,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
   return [
     ...live,
     { label: 'Catch me up', hint: sessionKey('catchup'), run: a.catchUp },
+    { label: 'Copy Claude’s last reply', hint: sessionKey('copy-reply'), run: a.copyReply },
     { label: 'Timeline', hint: sessionKey('timeline'), run: a.timeline },
     ...(archived ? [] : [{ label: 'Send a prompt…', hint: sessionKey('prompt'), run: a.sendPrompt }]),
     { label: session.hasNote ? 'Notes •' : 'Notes', hint: sessionKey('notes'), run: a.notes },

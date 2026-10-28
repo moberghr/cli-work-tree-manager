@@ -1269,3 +1269,8 @@ export interface RestartWire {
 export interface ScreenWire {
   text: string | null;
 }
+
+/** GET /api/sessions/:id/last-reply: its agent's newest message as written (last-reply.ts); null when there is none. */
+export interface LastReplyWire {
+  text: string | null;
+}

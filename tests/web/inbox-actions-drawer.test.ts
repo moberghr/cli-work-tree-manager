@@ -50,7 +50,7 @@ describe('Inbox: a pull request that wants you', () => {
     prs: [{ repo: 'api', number: 209, url: 'https://github.com/o/api/pull/209', kind }],
   });
 
-  it('ready to merge is a row of its own (its stage, the terminal, Mark seen with the stage); in review only counts in the closing line', () => {
+  it('ready to merge is a Needs you row (what waits on you, the PR tab, Mark seen with the stage); in review only counts in the closing line', () => {
     const onOpen = vi.fn();
     const onMarkSeen = vi.fn(() => Promise.resolve());
     const sessions = [
@@ -60,12 +60,13 @@ describe('Inbox: a pull request that wants you', () => {
     act(() => root.render(createElement(InboxTab, { sessions, onOpenSession: onOpen, onMarkSeen })));
     const items = [...container.querySelectorAll('.wd-inbox-item')];
     expect(items).toHaveLength(1);
-    expect(text(items[0])).toContain('PR #209 · approved, ready to merge');
-    expect(items[0].querySelector('.wd-rail-dot-pr')).not.toBeNull();
+    expect(text(items[0])).toContain('ready to merge');
+    // Its icon is what its Claude is doing (finished, seen): the row says what waits on you.
+    expect(items[0].querySelector('.wd-rail-dot-quiet')).not.toBeNull();
     const btn = (label: string) =>
       [...items[0].querySelectorAll<HTMLButtonElement>('.wd-inbox-actions button')].find((b) => b.textContent === label)!;
     act(() => btn('Open').click());
-    expect(onOpen).toHaveBeenCalledWith('ready', 'term', undefined);
+    expect(onOpen).toHaveBeenCalledWith('ready', 'pr', undefined);
     act(() => btn('Mark seen').click());
     expect(onMarkSeen).toHaveBeenCalledWith('ready', expect.objectContaining({ kind: 'ready', key: 'ready:api@abc' }));
     expect(text(container.querySelector('.wd-inbox-rest'))).toContain('1 in review');

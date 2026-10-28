@@ -54,8 +54,57 @@ export interface InboxSubject {
   openReviewThreads?: number;
   /** What it waits on that isn't done yet (session-blocks.ts): out of the Inbox meanwhile. */
   blockedBy?: readonly unknown[];
+  /** Replies to PR review threads drafted and waiting for your Post (pr-replies.ts). */
+  replyDrafts?: number;
   /** Where its pull request stands (pr-stage.ts); `seen` once you looked at it there. */
-  prStage?: { kind: string; seen?: boolean } | null;
+  prStage?: { kind: string; seen?: boolean; prs?: ReadonlyArray<{ kind: string; checks?: string }> } | null;
+}
+
+/**
+ * What waits on YOU about a session, apart from what its Claude is doing —
+ * the second of a session's two signals (its status icon is the first, and
+ * says only what Claude is doing). Most pressing first:
+ *   reply    — replies drafted to its PR's review threads, waiting for your Post
+ *   thread   — review threads on its open PRs whose last word isn't yours
+ *   conflict — a PR of it conflicts with its base
+ *   checks   — a PR of it fails its checks
+ *   merge    — its PRs are approved with checks passing: ready to merge
+ * Every view reads this one list (the rail's badge, the header's Needs you
+ * line, the Sessions table, the Inbox), so they can't disagree.
+ */
+export type OwedKind = 'reply' | 'thread' | 'conflict' | 'checks' | 'merge';
+export interface Owed {
+  kind: OwedKind;
+  count: number;
+}
+
+const OPEN_PR = (k: string) => k !== 'merged' && k !== 'closed';
+
+export function owedToYou(s: Pick<InboxSubject, 'openReviewThreads' | 'replyDrafts' | 'prStage'>): Owed[] {
+  const out: Owed[] = [];
+  if ((s.replyDrafts ?? 0) > 0) out.push({ kind: 'reply', count: s.replyDrafts! });
+  if ((s.openReviewThreads ?? 0) > 0) out.push({ kind: 'thread', count: s.openReviewThreads! });
+  const stage = s.prStage;
+  if (!stage) return out;
+  // Each PR's own stage when the row has them (a group: one conflicts, another fails); else the stage's.
+  const prs = stage.prs?.length ? stage.prs : [{ kind: stage.kind }];
+  const conflicts = prs.filter((p) => p.kind === 'conflict').length;
+  const failing = prs.filter(
+    (p) => p.kind !== 'conflict' && OPEN_PR(p.kind) && (p.kind === 'checks_failing' || p.checks === 'fail'),
+  ).length;
+  if (conflicts) out.push({ kind: 'conflict', count: conflicts });
+  if (failing) out.push({ kind: 'checks', count: failing });
+  if (stage.kind === 'ready') out.push({ kind: 'merge', count: Math.max(1, prs.filter((p) => p.kind === 'ready').length) });
+  return out;
+}
+
+/**
+ * It wants you in the Inbox for what it owes you: replies to post and
+ * unanswered threads until they're done; its PR's state (ready, conflict,
+ * failing) until you've looked at that stage (`prWantsYou`).
+ */
+export function owedInInbox(s: InboxSubject): boolean {
+  return (s.replyDrafts ?? 0) > 0 || (s.openReviewThreads ?? 0) > 0 || prWantsYou(s);
 }
 
 /**
@@ -74,9 +123,10 @@ export function prWantsYou(s: Pick<InboxSubject, 'prStage'>): boolean {
  * vocabulary colours by (session-view.ts `displayStatus`):
  *   0 needs input      — blocked on you
  *   1 done, unseen     — finished a turn you haven't looked at
- *   2 review comments  — reviewers left unresolved comments on its PR(s),
- *                        or its PR is ready to merge, conflicts or fails its
- *                        checks (unseen), and its Claude isn't mid-turn
+ *   2 needs you        — something on its PRs waits on you (`owedInInbox`:
+ *                        replies to post, unanswered review threads, a PR
+ *                        ready to merge, conflicting or failing — unseen),
+ *                        whatever its Claude is doing
  *   3 working
  *   4 quiet
  *   5 no status, no review comments
@@ -89,7 +139,7 @@ export function inboxRank(s: InboxSubject): number {
   if (s.blockedBy?.length && a?.state !== 'needs_input') return 7;
   if (a?.state === 'needs_input') return 0;
   if (a?.state === 'idle' && !a.seen) return 1;
-  if (a?.state !== 'working' && ((s.openReviewThreads ?? 0) > 0 || prWantsYou(s))) return 2;
+  if (owedInInbox(s)) return 2;
   if (a?.state === 'working') return 3;
   return a ? 4 : 5;
 }
@@ -109,7 +159,7 @@ export function waitsOnYou(s: InboxSubject): boolean {
   return inboxRank(s) === 0;
 }
 
-/** Wants you now — what the Inbox badge counts: needs input, done unseen, review comments, a PR that wants you. */
+/** Wants you now — what the Inbox badge counts: needs input, done unseen, what it owes you (`owedInInbox`). */
 export function wantsYou(s: InboxSubject): boolean {
   return inboxRank(s) <= 2;
 }

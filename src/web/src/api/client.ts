@@ -1,5 +1,5 @@
 import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
-import type { SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
+import type { LastReplyWire, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
 import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
 export type { DiffPoint } from '../../../core/diff/diff-points.js';
 export type { SessionCommit } from '../../../core/api-types.js';
@@ -310,6 +310,11 @@ export function fetchActivity(): Promise<import('../../../core/api-types.js').Ac
 }
 
 /** The live sessions; with `withArchived`, the archived ones too (they're asked for only where shown). */
+/** Its agent's newest message as it wrote it (GET …/last-reply), or null when there is none. */
+export function fetchLastReply(sessionId: string): Promise<string | null> {
+  return getJson<LastReplyWire>(`/api/sessions/${encodeURIComponent(sessionId)}/last-reply`).then((r) => r.text);
+}
+
 export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
   return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
 }

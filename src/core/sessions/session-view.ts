@@ -1,5 +1,6 @@
 import type { SessionAttention, ActivityState } from '../api-types.js';
-import { STAGE_WANTS_YOU, stageWaiting, type PrStageKind } from '../pr/pr-stage.js';
+import { stageWaiting, type PrStageKind } from '../pr/pr-stage.js';
+import { owedToYou, type Owed } from '../status/attention.js';
 
 /** What the status vocabulary reads from a session: a dashboard row or
  *  a `work sessions` row (both are SessionWire-shaped). */
@@ -10,8 +11,10 @@ export interface SessionLike {
   attention?: SessionAttention | null;
   /** Unresolved review threads on its open PRs (SessionWire). */
   openReviewThreads?: number;
+  /** Replies drafted to its review threads, waiting for your Post (SessionWire). */
+  replyDrafts?: number;
   /** Where its pull request stands (SessionWire, pr-stage.ts). */
-  prStage?: { kind: PrStageKind; text: string; seen?: boolean } | null;
+  prStage?: { kind: PrStageKind; text: string; seen?: boolean; prs?: ReadonlyArray<{ kind: PrStageKind; checks?: string }> } | null;
   /** Being archived right now (SessionWire.archiving). */
   archiving?: boolean;
   /** Being restored right now (SessionWire.restoring). */
@@ -34,11 +37,6 @@ export interface SessionLike {
  *   working     — mid-turn
  *   background  — its turn ended, a background agent that turn started is
  *                 still at it: still busy, but its prompt is free
- *   review      — nothing running for you to answer, but reviewers left
- *                 unresolved comments on its open PR(s)
- *   pr          — its PR wants you: approved with checks passing (ready
- *                 to merge), a merge conflict or failing checks; unseen
- *   in_review   — finished, its PR waits on reviewers or checks
  *   quiet       — finished, and you've seen it
  *   active/open/recent/stale — no hook status yet (its Claude has not
  *     taken a turn since the dashboard's hooks went in, or runs a tool
@@ -46,20 +44,7 @@ export interface SessionLike {
  *     Idle (recent) within a day, Stale after that.
  */
 export type DisplayKind =
-  | 'archiving'
-  | 'restoring'
-  | 'needs_input'
-  | 'done'
-  | 'working'
-  | 'background'
-  | 'review'
-  | 'pr'
-  | 'in_review'
-  | 'quiet'
-  | 'active'
-  | 'open'
-  | 'recent'
-  | 'stale';
+  'archiving' | 'restoring' | 'needs_input' | 'done' | 'working' | 'background' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
 
 /** Used today = not stale, whatever the hooks know. */
 export const RECENT_MS = 24 * 3_600_000;
@@ -81,10 +66,6 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
     if (a.state === 'working') return a.background ? 'background' : 'working';
     if (!a.seen) return 'done';
   }
-  if ((s.openReviewThreads ?? 0) > 0) return 'review';
-  // Seen or not: a PR that's yours to merge (or fix) keeps saying so; seen only takes it out of the Inbox.
-  if (s.prStage && STAGE_WANTS_YOU.has(s.prStage.kind)) return 'pr';
-  if (stageWaiting(s.prStage)) return 'in_review';
   if (a) return 'quiet';
   if (s.activityState === 'active') return 'active';
   if (s.activityState === 'open') return 'open';
@@ -98,9 +79,6 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   done: 'Done',
   working: 'Working',
   background: 'In background',
-  review: 'Review comments',
-  pr: 'Pull request',
-  in_review: 'In review',
   quiet: 'Idle',
   active: 'Active',
   open: 'Open',
@@ -119,10 +97,6 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
   working: 'Its Claude is working on your last instruction right now.',
   background:
     'Its Claude finished its turn, and a background agent that turn started is still at work. Its prompt is free: you can talk to it. The agent’s result comes back as a new turn.',
-  review: "Reviewers left comments on its pull request that you haven't answered or resolved.",
-  pr: 'Its pull request needs you: approved with checks passing (ready to merge), a merge conflict, or failing checks. In the Inbox until you have looked.',
-  in_review:
-    'Its pull request is open and waiting on reviewers or checks. It comes back to the Inbox when comments arrive, checks fail, or it is approved.',
   quiet: "Its Claude finished, and you've seen it. Nothing to do.",
   active: "Its Claude wrote in the last 30 seconds (it isn't reporting its status, so this is from its transcript).",
   open: 'Its Claude wrote in the last 5 minutes, or is open and idle at its prompt.',
@@ -134,13 +108,10 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
 export const LEGEND_KINDS: readonly DisplayKind[] = [
   'needs_input',
   'done',
-  'review',
-  'pr',
   'working',
   'background',
   'archiving',
   'restoring',
-  'in_review',
   'active',
   'open',
   'quiet',
@@ -171,6 +142,7 @@ export const WEEK_MS = 7 * 24 * 3_600_000;
  *  used within 7 days. Older: everything else — cleanup material. */
 export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
   const kind = displayStatus(s, now);
+  if (owedToYou(s).length) return 'now';
   if (
     kind === 'needs_input' ||
     kind === 'done' ||
@@ -178,8 +150,6 @@ export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
     kind === 'background' ||
     kind === 'archiving' ||
     kind === 'restoring' ||
-    kind === 'review' ||
-    kind === 'pr' ||
     kind === 'active' ||
     kind === 'open'
   )
@@ -196,8 +166,6 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
   switch (kind) {
     case 'needs_input':
     case 'done':
-    case 'review':
-    case 'pr':
       return 'needs';
     case 'working':
     case 'background':
@@ -206,7 +174,6 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
     case 'active':
       return 'working';
     case 'quiet':
-    case 'in_review':
     case 'open':
     case 'recent':
       return 'idle';
@@ -228,4 +195,53 @@ export const NO_HOOKS_HINT =
 /** The hint for a status that comes from activity only; undefined otherwise. */
 export function statusHint(kind: DisplayKind): string | undefined {
   return kind === 'active' || kind === 'open' || kind === 'recent' || kind === 'stale' ? NO_HOOKS_HINT : undefined;
+}
+
+/**
+ * The second signal: what waits on you about a session, beside what its
+ * Claude is doing (attention.ts `owedToYou`), in words. The rail's badge is
+ * the first thing ("1 reply", "merge"; "+1" when there's more), its tooltip
+ * all of them; the Sessions table and the Inbox say the same.
+ */
+export const OWED_SHORT: Record<Owed['kind'], (n: number) => string> = {
+  reply: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`,
+  thread: (n) => `${n} ${n === 1 ? 'thread' : 'threads'}`,
+  conflict: () => 'conflict',
+  checks: () => 'CI',
+  merge: () => 'merge',
+};
+export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
+  reply: (n) => `${n} ${n === 1 ? 'reply' : 'replies'} to post`,
+  thread: (n) => `${n} review ${n === 1 ? 'thread' : 'threads'} with no answer`,
+  conflict: (n) => (n === 1 ? 'a merge conflict' : `${n} PRs with merge conflicts`),
+  checks: (n) => (n === 1 ? 'checks failing' : `${n} PRs with checks failing`),
+  merge: () => 'ready to merge',
+};
+
+export interface OwedBadge {
+  /** "1 reply", "merge +1". */
+  text: string;
+  /** "Needs you: 1 reply to post · ready to merge". */
+  title: string;
+}
+
+/** The badge for what waits on you, or null when nothing does. */
+export function owedBadge(s: SessionLike): OwedBadge | null {
+  const owed = owedToYou(s);
+  if (!owed.length) return null;
+  const [first, ...more] = owed;
+  return {
+    text: OWED_SHORT[first.kind](first.count) + (more.length ? ` +${more.length}` : ''),
+    title: `Needs you: ${owed.map((o) => OWED_LONG[o.kind](o.count)).join(' · ')}`,
+  };
+}
+
+/** Nothing waits on you, and its PR waits on others (reviewers, checks): "in review", said quietly. */
+export function waitingOnOthers(s: SessionLike): boolean {
+  return !owedToYou(s).length && stageWaiting(s.prStage);
+}
+
+/** The Sessions table's status filter: what waits on you counts as "needs you", whatever Claude is doing. */
+export function sessionBucket(s: SessionLike, now: number = Date.now()): StatusBucket {
+  return owedToYou(s).length ? 'needs' : statusBucket(displayStatus(s, now));
 }

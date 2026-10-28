@@ -91,6 +91,7 @@ describe('runSessionKey', () => {
       'header reconnect',
       'editor',
       'copy',
+      'header copy-reply',
       'fork',
       'add-repo',
       'header dev',
@@ -118,6 +119,7 @@ describe('runSessionKey', () => {
       'ship',
       'terminal',
       'reconnect',
+      'copy-reply',
       'dev',
     ]);
   });

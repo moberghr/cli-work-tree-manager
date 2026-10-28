@@ -16,7 +16,16 @@ import {
 } from '../../../api/client.js';
 import { removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import { DISPLAY_LABEL, displayStatus, isArchived, statusBucket, CONTEXT_WARN, type StatusBucket } from '../../../state/session-display.js';
+import {
+  DISPLAY_LABEL,
+  displayStatus,
+  isArchived,
+  owedBadge,
+  sessionBucket,
+  waitingOnOthers,
+  CONTEXT_WARN,
+  type StatusBucket,
+} from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
@@ -227,9 +236,7 @@ export function SessionsTab({
 
   const filtered = useMemo(() => {
     const pool = scope === 'archived' ? archivedOnly : scope === 'all' ? sessions : live;
-    const matched = pool.filter(
-      (s) => (filter === 'all' || statusBucket(displayStatus(s)) === filter) && inRail(s) && sessionMatches(s, query),
-    );
+    const matched = pool.filter((s) => (filter === 'all' || sessionBucket(s) === filter) && inRail(s) && sessionMatches(s, query));
     return [...matched].sort((a, b) => {
       if (sort === 'name') {
         const an = (a.branch || a.target).toLowerCase();
@@ -712,6 +719,7 @@ interface RowProps {
 /** One session: status, name, project, summary, changes, when. Click opens it; ⋯ (or right-click) for the rest. */
 function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag, onRestore, archivedView = false }: RowProps) {
   const kind = displayStatus(s);
+  const owed = owedBadge(s);
   const archived = isArchived(s);
   const repos = groupRepoNames(s);
   const archiving = useArchivePending(s.id); // also one started elsewhere (the session header)
@@ -723,7 +731,7 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
       className={
         'wd-session-row' +
         (archived ? ' wd-session-row-archived' : '') +
-        (kind === 'needs_input' || kind === 'done' ? ' wd-session-row-unseen' : '')
+        (kind === 'needs_input' || kind === 'done' || (owed && !archived) ? ' wd-session-row-unseen' : '')
       }
       onClick={onOpen}
       onContextMenu={(e) => {
@@ -755,6 +763,16 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           <StatusIcon kind={kind} muted={!!s.snoozed} />
           <span className="wd-st-label">{DISPLAY_LABEL[kind]}</span>
         </span>
+        {/* What waits on you, beside what its Claude is doing (the rail's badge). */}
+        {owed && !archived ? (
+          <span className="wd-rail-slot-owed wd-st-owed" title={owed.title}>
+            {owed.text}
+          </span>
+        ) : !archived && waitingOnOthers(s) ? (
+          <span className="wd-rail-slot-waiting wd-st-owed" title={s.prStage?.text}>
+            in review
+          </span>
+        ) : null}
       </td>
       <td className="wd-st-session">
         <span className="wd-st-branch" title={named ? `${s.title} (${s.branch})` : s.branch}>

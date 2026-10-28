@@ -12,7 +12,7 @@ import {
   type StagePr,
 } from '../../../src/core/pr/pr-stage.js';
 import { inboxRank, prWantsYou, PR_STAGES_WANTING, wantsYou } from '../../../src/core/status/attention.js';
-import { displayStatus } from '../../../src/core/sessions/session-view.js';
+import { displayStatus, owedBadge, waitingOnOthers } from '../../../src/core/sessions/session-view.js';
 import { prStageWire, stageSeenKey } from '../../../src/core/sessions/session-wire.js';
 import { snoozeActive, snoozeFor, statusKey } from '../../../src/core/rail/snooze.js';
 
@@ -105,19 +105,22 @@ describe('what a stage does to the Inbox', () => {
     expect(inboxRank({ attention: quiet, prStage: ready })).toBe(2);
     expect(wantsYou({ attention: quiet, prStage: { ...ready, seen: true } })).toBe(false);
     expect(wantsYou({ attention: quiet, prStage: waiting })).toBe(false);
-    // Its Claude at work comes first: it shows working.
-    expect(inboxRank({ attention: { ...quiet, state: 'working' }, prStage: ready })).toBe(3);
+    // Whatever its Claude is doing: what waits on you is in the Inbox (its icon says Claude is working).
+    expect(inboxRank({ attention: { ...quiet, state: 'working' }, prStage: ready })).toBe(2);
     expect(prWantsYou({ prStage: null })).toBe(false);
   });
 
-  it('the status word: Pull request while it wants you (looked at too), In review while it waits; review comments and a finished turn come first', () => {
+  it('the icon says only what its Claude is doing; the PR is the badge: merge (looked at too), in review while it waits', () => {
     const row = { lastAccessedAt: '2026-10-01T10:00:00Z', attention: { ...quiet, updatedAt: quiet.since, stale: false } };
-    expect(displayStatus({ ...row, prStage: ready })).toBe('pr');
-    expect(displayStatus({ ...row, prStage: waiting })).toBe('in_review');
+    expect(displayStatus({ ...row, prStage: ready })).toBe('quiet');
+    expect(owedBadge({ ...row, prStage: ready })).toMatchObject({ text: 'merge' });
     // Looked at: out of the Inbox, but still yours to merge (reported: approved PRs read Idle on the rail).
-    expect(displayStatus({ ...row, prStage: { ...ready, seen: true } })).toBe('pr');
+    expect(owedBadge({ ...row, prStage: { ...ready, seen: true } })).toMatchObject({ text: 'merge' });
     expect(prWantsYou({ prStage: { ...ready, seen: true } })).toBe(false);
-    expect(displayStatus({ ...row, prStage: ready, openReviewThreads: 1 })).toBe('review');
+    expect(owedBadge({ ...row, prStage: waiting })).toBeNull();
+    expect(waitingOnOthers({ ...row, prStage: waiting })).toBe(true);
+    expect(waitingOnOthers({ ...row, prStage: waiting, openReviewThreads: 1 })).toBe(false);
+    expect(owedBadge({ ...row, prStage: ready, openReviewThreads: 1 })).toMatchObject({ text: '1 thread +1' });
     expect(displayStatus({ ...row, attention: { ...row.attention, seen: false }, prStage: waiting })).toBe('done');
   });
 

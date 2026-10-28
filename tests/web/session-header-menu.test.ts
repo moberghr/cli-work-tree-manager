@@ -9,6 +9,7 @@ const actions = (): HeaderMenuActions => ({
   reconnectTerminal: vi.fn(),
   ship: vi.fn(),
   catchUp: vi.fn(),
+  copyReply: vi.fn(),
   timeline: vi.fn(),
   sendPrompt: vi.fn(),
   notes: vi.fn(),
@@ -29,6 +30,18 @@ const dev = (over: Partial<DevServerState> = {}): DevServerState => ({
 const labels = (s: SessionSummary, d: DevServerState | null) => sessionHeaderItems(s, d, actions()).map((i) => i.label + (i.hint ?? ''));
 
 describe('session header ⋯ menu', () => {
+  it("Copy Claude's last reply (⇧Y) is there for every session, after Catch me up", () => {
+    for (const s of [session(), session({ archivedAt: '2026-10-01T00:00:00Z' })]) {
+      const a = actions();
+      const items = sessionHeaderItems(s, null, a);
+      const i = items.findIndex((x) => x.label === 'Copy Claude’s last reply');
+      expect(items[i - 1].label).toBe('Catch me up');
+      expect(items[i].hint).toBe('⇧Y');
+      items[i].run();
+      expect(a.copyReply).toHaveBeenCalled();
+    }
+  });
+
   it('Reconnect terminal (⇧R) comes first, beside Open in terminal; an archived session has neither', () => {
     const a = actions();
     const items = sessionHeaderItems(session(), null, a);
@@ -77,7 +90,7 @@ describe('session header ⋯ menu', () => {
 
 describe('Needs you (the header line, from the session row: no fetch)', () => {
   const pr = (repo: string, number: number, kind: string) => ({ repo, number, url: `u${number}`, kind });
-  it("says what waits on GitHub: open threads, drafts to post, a PR's failing checks or conflict", () => {
+  it("says what waits on GitHub: drafts to post, open threads, a PR's failing checks, conflict or merge — the rail badge's list", () => {
     expect(
       prNeedsLine({
         openReviewThreads: 6,
@@ -90,10 +103,12 @@ describe('Needs you (the header line, from the session row: no fetch)', () => {
         },
         isGroup: true,
       } as never),
-    ).toBe('6 open review threads · 2 replies to post · frontend #1927 checks failing');
+    ).toBe('2 replies to post · 6 open review threads · frontend #1927 checks failing');
     expect(
       prNeedsLine({ openReviewThreads: 1, prStage: { kind: 'conflict', text: '', key: '', prs: [pr('api', 7, 'conflict')] } } as never),
     ).toBe('1 open review thread · #7 merge conflict');
+    // Ready to merge is something you do too (it was left out, so the line and the rail disagreed).
+    expect(prNeedsLine({ prStage: { kind: 'ready', text: '', key: '', prs: [pr('api', 9, 'ready')] } } as never)).toBe('#9 ready to merge');
   });
 
   it("a draft's failing checks count too: its stage says draft, its checks say failing", () => {

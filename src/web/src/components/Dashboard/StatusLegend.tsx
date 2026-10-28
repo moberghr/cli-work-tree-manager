@@ -52,7 +52,7 @@ export function StatusLegend() {
           aria-label="What the icons mean"
           style={{ top: open.top, left: open.left }}
         >
-          <h3 className="wd-legend-title">What the icons mean</h3>
+          <h3 className="wd-legend-title">What its Claude is doing</h3>
           <ul className="wd-legend-list">
             {LEGEND_KINDS.map((k) => (
               <li key={k} className="wd-legend-row">
@@ -65,13 +65,19 @@ export function StatusLegend() {
           <h3 className="wd-legend-title">On a row</h3>
           <ul className="wd-legend-list wd-legend-marks">
             <li>
-              <b>Bold</b> — it wants you (needs input, done, review comments, its pull request). The Inbox lists these in order;{' '}
+              <b>Bold</b> — it wants you (its Claude needs input or finished, or something waits on you). The Inbox lists these in order;{' '}
               <kbd>n</kbd> jumps to the next.
             </li>
             <li>
-              On the right: <span className="wd-rail-slot-needs">4m</span> waiting that long for you ·{' '}
-              <span className="wd-rail-slot-done">4m</span> finished that long ago · <span className="wd-rail-slot-review">2</span>{' '}
-              unresolved review comments · <span className="wd-rail-slot-review">merge</span> its PR is ready to merge
+              On the right, what waits on <i>you</i>, whatever its Claude is doing: <span className="wd-rail-slot-owed">1 reply</span> a
+              reply to post · <span className="wd-rail-slot-owed">2 threads</span> review threads with no answer ·{' '}
+              <span className="wd-rail-slot-owed">merge</span> its PR is ready to merge · <span className="wd-rail-slot-owed">CI</span>{' '}
+              checks failing · <span className="wd-rail-slot-owed">conflict</span> a merge conflict
+            </li>
+            <li>
+              Otherwise: <span className="wd-rail-slot-needs">4m</span> waiting that long for you ·{' '}
+              <span className="wd-rail-slot-done">4m</span> finished that long ago · <span className="wd-rail-slot-waiting">in review</span>{' '}
+              its PR waits on reviewers or checks
             </li>
             <li>
               <span className="wd-pr-chip">#212</span> an open pull request (click to open it)

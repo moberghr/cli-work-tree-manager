@@ -363,9 +363,22 @@
 .wd-rail-slot-background {
   color: var(--background-fg);
 }
-.wd-rail-slot-review {
+/* What waits on you (owedBadge): a pink pill, whatever its Claude is doing. */
+.wd-rail-slot-owed {
   color: var(--review-fg);
   font-weight: 600;
+  background: color-mix(in srgb, var(--review-fg) 14%, transparent);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+/* Its PR waits on reviewers or checks: said, quietly. */
+.wd-st-owed {
+  margin-left: 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.wd-rail-slot-waiting {
+  color: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
 }
 .wd-rail-slot-archiving {
   font-style: italic;
@@ -428,13 +441,6 @@
 .wd-rail-dot-open {
   background: #d29922;
 } /* amber */
-.wd-rail-dot-review,
-.wd-rail-dot-pr {
-  background: var(--review-fg);
-} /* purple: reviewers are waiting on you, or the PR is */
-.wd-rail-dot-in_review {
-  background: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
-}
 .wd-rail-dot-quiet,
 .wd-rail-dot-recent,
 .wd-rail-dot-stale {
@@ -478,13 +484,6 @@
 }
 .wd-status-icon.wd-rail-dot-open {
   color: #d29922;
-}
-.wd-status-icon.wd-rail-dot-review,
-.wd-status-icon.wd-rail-dot-pr {
-  color: var(--review-fg);
-}
-.wd-status-icon.wd-rail-dot-in_review {
-  color: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
 }
 .wd-status-icon.wd-rail-dot-stale {
   color: #6e7681;

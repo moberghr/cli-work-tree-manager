@@ -282,9 +282,10 @@ describe('attention ordering', () => {
     expect(order).toEqual(['blockedOld', 'blockedNew', 'done', 'working-new', 'working-old', 'none']);
   });
 
-  it('the inbox puts review comments after done and before working, and counts them as wanting you', () => {
+  it('the inbox puts what waits on you (threads, replies to post) after done and before working, whatever its Claude is doing', () => {
     const items = [
-      { id: 'working', attention: s('working', true, 40), openReviewThreads: 2 }, // mid-turn: working, not review
+      { id: 'working', attention: s('working', true, 40), openReviewThreads: 2 }, // mid-turn: the threads still wait on you
+      { id: 'reply', attention: s('idle', true, 30), replyDrafts: 1 }, // a reply to post (reported: it read Idle, out of the Inbox)
       { id: 'review-quiet', attention: s('idle', true, 10), openReviewThreads: 1 },
       { id: 'review-untracked', attention: null, openReviewThreads: 3 },
       { id: 'quiet', attention: s('idle', true, 20) },
@@ -297,6 +298,7 @@ describe('attention ordering', () => {
       'done',
       'review-untracked',
       'review-quiet',
+      'reply',
       'working',
       'quiet',
       'none',
@@ -306,7 +308,7 @@ describe('attention ordering', () => {
         .filter(wantsYou)
         .map((x) => x.id)
         .sort(),
-    ).toEqual(['blocked', 'done', 'review-quiet', 'review-untracked']);
+    ).toEqual(['blocked', 'done', 'reply', 'review-quiet', 'review-untracked', 'working']);
     expect(inboxRank({ attention: null })).toBe(5);
   });
 });

@@ -1,5 +1,6 @@
 import type { FailingCheck, OpenReviewThread, PrReply, SessionCi } from '../../../core/api-types.js';
 import { prsBeyondStage, stageOfPr, stagePhrase, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
+import { owedToYou } from '../../../core/status/attention.js';
 import type { PrInfo } from '../api/panes.js';
 
 /**
@@ -167,18 +168,31 @@ export function prTabButton(s: SessionPrFacts, listed: PrInfo[]): { label: strin
 }
 
 /**
- * The header's one line for what waits on you on GitHub: "6 open review
- * threads · 2 replies to post · #1927 checks failing"; null when nothing does.
- * It points into the PR tab, where all of it is.
+ * The header's one line for what waits on you on GitHub: "2 replies to post
+ * · 6 open review threads · #1927 checks failing · #212 ready to merge";
+ * null when nothing does. The same list as the rail's badge (attention.ts
+ * `owedToYou`), with each PR named. It points into the PR tab, where all of
+ * it is.
  */
 export function prNeedsLine(s: SessionPrFacts): string | null {
-  const parts: string[] = [];
-  const threads = s.openReviewThreads ?? 0;
-  if (threads) parts.push(`${threads} open review thread${threads === 1 ? '' : 's'}`);
-  const drafts = s.replyDrafts ?? 0;
-  if (drafts) parts.push(`${drafts} ${drafts === 1 ? 'reply' : 'replies'} to post`);
-  for (const p of s.prStage?.prs ?? []) {
-    if (pressingPr(p)) parts.push(`${prName(p, !!s.isGroup)} ${stagePhrase(p.kind === 'conflict' ? 'conflict' : 'checks_failing')}`);
-  }
+  const prs = s.prStage?.prs ?? [];
+  const named = (want: (p: PrStage['prs'][number]) => boolean, kind: PrStageKind) => {
+    const these = prs.filter(want);
+    return these.length ? these.map((p) => `${prName(p, !!s.isGroup)} ${stagePhrase(kind)}`) : [stagePhrase(kind)];
+  };
+  const parts = owedToYou(s).flatMap((o) => {
+    switch (o.kind) {
+      case 'reply':
+        return [`${o.count} ${o.count === 1 ? 'reply' : 'replies'} to post`];
+      case 'thread':
+        return [`${o.count} open review thread${o.count === 1 ? '' : 's'}`];
+      case 'conflict':
+        return named((p) => p.kind === 'conflict', 'conflict');
+      case 'checks':
+        return named((p) => p.kind !== 'conflict' && pressingPr(p), 'checks_failing');
+      case 'merge':
+        return named((p) => p.kind === 'ready', 'ready');
+    }
+  });
   return parts.length ? parts.join(' · ') : null;
 }

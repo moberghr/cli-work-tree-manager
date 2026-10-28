@@ -28,6 +28,7 @@ export type SessionAction =
   | 'reconnect'
   | 'editor'
   | 'copy'
+  | 'copy-reply'
   | 'fork'
   | 'add-repo'
   | 'dev'
@@ -58,6 +59,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   reconnect: { key: 'r', shift: true, label: 'Reconnect its terminal' },
   editor: { key: 'o', label: 'Open in editor' },
   copy: { key: 'y', label: 'Copy branch name' },
+  'copy-reply': { key: 'y', shift: true, label: "Copy Claude's last reply" },
   fork: { key: 'f', label: 'Fork…' },
   'add-repo': { key: 'a', shift: true, label: 'Add a repo… (a session folder)' },
   dev: { key: 'd', shift: true, label: 'Start / stop the dev server' },

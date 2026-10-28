@@ -385,7 +385,7 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
 }) => {
   await page.goto(`${url}#/inbox`);
   const ready = page.locator('.wd-inbox-rank-2 .wd-inbox-item', { hasText: 'feat/order-history' });
-  await expect(ready).toContainText('PR #209 · approved, ready to merge');
+  await expect(ready).toContainText('#209 ready to merge');
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/tax-report' })).toHaveCount(0);
   await expect(page.locator('.wd-inbox-rest')).toContainText('in review');
   await ready.getByRole('button', { name: 'Open' }).click();
@@ -394,7 +394,9 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
   await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-pr-chip')).toHaveText('#209');
   await page.goto(`${url}#/inbox`);
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/order-history' })).toHaveCount(0);
-  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-dot-in_review')).toHaveCount(1);
+  // Seen: out of the Inbox, but the rail still says it's yours to merge (the badge), and the waiting one says in review.
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-rail-slot-owed')).toHaveText('merge');
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-slot-waiting')).toHaveText('in review');
 });
 
 test('Welcome walks the first run: folders, repos inline, the tools, then New worktree', async ({ page }) => {

@@ -8,7 +8,9 @@ import { readStatus } from '../../core/status/session-status.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
 import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
 import { sendToSession, type SendDeps } from '../../core/sessions/session-control.js';
-import type { AgentControlWire, ScreenWire, SendWire } from '../../core/api-types.js';
+import type { AgentControlWire, LastReplyWire, ScreenWire, SendWire } from '../../core/api-types.js';
+import { agentOf } from '../../core/agents/index.js';
+import { lastReplyOf } from '../../core/conversations/last-reply.js';
 
 /**
  * Driving a session from outside its terminal (session-control.ts), for
@@ -18,6 +20,7 @@ import type { AgentControlWire, ScreenWire, SendWire } from '../../core/api-type
  *   POST /api/sessions/:id/agent/start  {force?}       → AgentControlWire (resumes its conversation)
  *   POST /api/sessions/:id/agent/stop                  → AgentControlWire
  *   GET  /api/sessions/:id/screen                      → ScreenWire (the terminal as text; nothing started)
+ *   GET  /api/sessions/:id/last-reply                  → LastReplyWire (its agent's newest message, as written)
  *
  * Answering a permission prompt is the existing POST …/answer (status-routes.ts).
  */
@@ -26,6 +29,8 @@ export interface ControlDeps extends SendDeps {
   resume: (id: string) => Promise<boolean>;
   stop: (id: string) => Promise<void>;
   screen: (id: string) => Promise<string | null>;
+  /** Its agent's newest message as written (null: none yet), or why it can't be read. */
+  lastReply: (id: string) => { text: string | null } | { error: string };
 }
 
 function realDeps(app: Hono): ControlDeps {
@@ -53,6 +58,12 @@ function realDeps(app: Hono): ControlDeps {
     archived: (id) => !!findSession(id)?.archivedAt,
     stop: disposePty,
     screen: readPtyScreen,
+    lastReply: (id) => {
+      const s = findSession(id);
+      const agent = s ? agentOf(s) : null;
+      if (!s || !agent?.conversation) return { error: `work can't read ${agent?.name ?? 'its agent'}'s conversations yet` };
+      return { text: lastReplyOf(agent.conversation.read(s, { last: 40 })) };
+    },
   };
 }
 
@@ -114,5 +125,13 @@ export function mountSessionControlRoutes(
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
     return c.json({ text: deps.hostRuns(id) ? await deps.screen(id) : null } satisfies ScreenWire);
+  });
+
+  // A read too: "Copy Claude's last reply" — the Markdown it wrote, not the terminal's wrapped drawing of it.
+  app.get('/api/sessions/:id/last-reply', (c) => {
+    const id = c.req.param('id');
+    if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const r = deps.lastReply(id);
+    return 'error' in r ? c.json({ error: r.error }, 409) : c.json({ text: r.text } satisfies LastReplyWire);
   });
 }

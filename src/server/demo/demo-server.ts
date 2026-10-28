@@ -579,6 +579,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
   app.post('/api/sessions/:id/agent/start', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'running' }) : notFound(c)));
   app.post('/api/sessions/:id/agent/stop', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'stopped' }) : notFound(c)));
+  app.get('/api/sessions/:id/last-reply', (c) =>
+    scenario.comments(c.req.param('id')) ? c.json({ text: scenario.lastReply(c.req.param('id')) }) : notFound(c),
+  );
   app.get('/api/sessions/:id/screen', (c) =>
     scenario.comments(c.req.param('id')) ? c.json({ text: scenario.screen(c.req.param('id')) }) : notFound(c),
   );

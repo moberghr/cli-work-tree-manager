@@ -26,6 +26,10 @@ const h = vi.hoisted(() => {
     disposed = false;
     /** The hidden input xterm types into (paste and focus arrive on it). */
     textarea = document.createElement('textarea');
+    /** Its root (the browser's copy event arrives on it). */
+    element = document.createElement('div');
+    /** Where the selection starts (its column: the first line's text began there). */
+    selectionStart = { x: 0, y: 0 };
     constructor(readonly opts: unknown) {
       terms.push(this);
     }
@@ -62,6 +66,9 @@ const h = vi.hoisted(() => {
     }
     getSelection() {
       return this.selection;
+    }
+    getSelectionPosition() {
+      return this.selection ? { start: this.selectionStart, end: this.selectionStart } : undefined;
     }
     clearSelection() {
       this.selection = '';
@@ -395,6 +402,30 @@ describe('PtyView', () => {
     expect(writeText).toHaveBeenCalledWith('copied text');
     expect(term.hasSelection()).toBe(false);
     expect(ws.sent.length).toBe(sent);
+  });
+
+  it("what's copied is put back together: Claude Code's wrapping, indent and padding taken out (Ctrl+C and the browser's copy)", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { term } = mount();
+    // Claude's reply as drawn on an 80-column terminal, selected from just after its "● ".
+    const drawn = ['A sentence that Claude Code wrapped at the edge of the screen, right before   ', '  the end.', '  - a list item'].join(
+      '\n',
+    );
+    const whole = ['A sentence that Claude Code wrapped at the edge of the screen, right before the end.', '- a list item'].join('\n');
+    term.selection = drawn;
+    term.selectionStart = { x: 2, y: 0 };
+    term.cols = 80;
+    term.keyHandler!(key({ key: 'c', ctrlKey: true }));
+    expect(writeText).toHaveBeenCalledWith(whole);
+    term.selection = drawn;
+    const data = new Map<string, string>();
+    const ev = Object.assign(new Event('copy', { bubbles: true, cancelable: true }), {
+      clipboardData: { setData: (t: string, v: string) => data.set(t, v) },
+    });
+    term.element.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(data.get('text/plain')).toBe(whole);
   });
 
   it('leaves Ctrl+V to the browser (it pastes; xterm would have sent ^V and swallowed the key)', () => {
