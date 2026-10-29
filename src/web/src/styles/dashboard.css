@@ -3193,6 +3193,142 @@ a.wd-pr-chip:hover {
   opacity: 1;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn-fg) 25%, transparent);
 }
+/* Usage (UsageMeter): the nearest plan limit as a small button, and a panel with the windows and tokens. */
+.wd-usage {
+  position: relative;
+  margin-right: 8px;
+}
+.wd-usage-meter {
+  appearance: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wd-usage-meter:hover,
+.wd-usage-meter[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--fg);
+}
+.wd-usage-warn {
+  color: var(--warn-fg);
+  border-color: var(--warn-fg);
+}
+.wd-usage-meter.wd-usage-full {
+  color: var(--del-fg);
+  border-color: var(--del-fg);
+}
+.wd-usage-short {
+  display: none;
+}
+@media (max-width: 900px) {
+  .wd-usage-meter .wd-usage-long {
+    display: none;
+  }
+  .wd-usage-meter .wd-usage-short {
+    display: inline;
+  }
+}
+.wd-usage-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  width: min(420px, calc(100vw - 16px));
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px 14px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.wd-usage-note,
+.wd-usage-muted {
+  color: var(--muted);
+}
+.wd-usage-note {
+  margin: 0 0 6px;
+}
+.wd-usage-stale,
+.wd-usage-error {
+  color: var(--warn-fg);
+}
+.wd-usage-account {
+  margin-bottom: 8px;
+}
+.wd-usage-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 38px 112px;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0;
+}
+.wd-usage-label {
+  white-space: nowrap;
+}
+.wd-usage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.wd-usage-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.wd-usage-fill-warn {
+  background: var(--warn-fg);
+}
+.wd-usage-fill-full {
+  background: var(--del-fg);
+}
+.wd-usage-pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wd-usage-reset {
+  min-width: 84px;
+  text-align: right;
+}
+.wd-usage-tokens {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.wd-usage-tokens th,
+.wd-usage-tokens td {
+  padding: 1px 0;
+  text-align: right;
+  font-weight: normal;
+}
+.wd-usage-tokens th[scope='row'] {
+  text-align: left;
+  white-space: nowrap;
+}
+.wd-usage-tokens thead th {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.wd-usage-top {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+}
+
 /* Help (HelpMenu): version, updates, what's new, shortcuts — the top bar's "v2.0.0". */
 .wd-help {
   position: relative;

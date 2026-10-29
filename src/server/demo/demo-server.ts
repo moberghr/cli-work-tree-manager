@@ -33,7 +33,9 @@ import type {
   ReleaseNote,
   SessionHistoryWire,
   PrStartWire,
+  UsageWire,
 } from '../../core/api-types.js';
+import { demoUsage } from './demo-usage.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
 import { demoCodeFile, demoCodeFiles, demoCodeSearch } from './demo-code.js';
@@ -829,6 +831,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     available: null,
     whatsNew: demoSeen === '2.1.0' ? null : '2.1.0',
   });
+  app.get('/api/usage', (c) => c.json(demoUsage() satisfies UsageWire));
   app.get('/api/updates', (c) => c.json(demoUpdates()));
   app.post('/api/updates/check', (c) => c.json(demoUpdates()));
   app.post('/api/updates/restart', (c) => c.json({ error: 'No downloaded update to restart into.' }, 409));

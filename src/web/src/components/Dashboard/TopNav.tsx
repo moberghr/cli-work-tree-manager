@@ -16,6 +16,8 @@ interface Props {
   /** Opens / closes the Ctrl+K assistant. */
   onAssistant?: () => void;
   assistantOpen?: boolean;
+  /** Plan limits and token use (UsageMeter): a small button with the nearest limit. */
+  usage?: React.ReactNode;
   /** What work is doing in the background (ActivityIndicator): a small dot. */
   activity?: React.ReactNode;
   /** The Tasks button and its panel (TasksPanel). */
@@ -65,6 +67,7 @@ export function TopNav({
   railOpen = false,
   onAssistant,
   assistantOpen = false,
+  usage,
   activity,
   tasks,
   help,
@@ -126,6 +129,7 @@ export function TopNav({
           Ask <kbd>Ctrl K</kbd>
         </button>
       )}
+      {usage}
       {activity}
       {help}
       <ThemeToggle />

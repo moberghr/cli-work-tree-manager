@@ -50,6 +50,7 @@ import { isArchived, prsForSession, railGroups, type PrLookup } from '../state/s
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
+import { UsageMeter } from '../components/Dashboard/UsageMeter.js';
 import { HelpMenu } from '../components/Dashboard/HelpMenu.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
 import { StartTab } from '../components/Dashboard/tabs/StartTab.js';
@@ -906,6 +907,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         inboxCount={inboxCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
+        usage={<UsageMeter onOpenSession={(id) => openSession(id)} />}
         activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
         help={
           <HelpMenu

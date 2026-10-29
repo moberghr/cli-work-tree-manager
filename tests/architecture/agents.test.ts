@@ -13,6 +13,12 @@ import { describe, expect, it } from 'vitest';
 const ROOT = path.resolve(__dirname, '../..');
 const CLAUDE_DIR = 'src/core/agents/claude/';
 const REGISTRY = 'src/core/agents/index.ts';
+/**
+ * The one exception, as an importer → target pair: Claude's status line command runs on every refresh of every Claude,
+ * so bin.ts loads its module directly rather than the registry (every adapter, config, the launcher). Nothing else of
+ * bin.ts, and nothing else of Claude's, is allowed by it.
+ */
+const ALLOWED = new Set(['src/bin.ts → src/core/agents/claude/statusline-hook.ts']);
 const IMPORT_RE = /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -34,8 +40,9 @@ describe('agents', () => {
       for (const m of fs.readFileSync(abs, 'utf8').matchAll(IMPORT_RE)) {
         const spec = m[1] ?? m[2];
         if (!spec?.startsWith('.')) continue;
-        const target = rel(path.resolve(path.dirname(abs), spec));
-        if (target.startsWith(CLAUDE_DIR)) offenders.push(`${file} → ${target}`);
+        const target = rel(path.resolve(path.dirname(abs), spec)).replace(/\.js$/, '.ts');
+        const pair = `${file} → ${target}`;
+        if (target.startsWith(CLAUDE_DIR) && !ALLOWED.has(pair)) offenders.push(pair);
       }
     }
     expect(offenders).toEqual([]);

@@ -97,9 +97,14 @@ function lineEntries(e: TranscriptEntry): ConversationEntry[] {
   const u = e.message?.usage;
   const usage =
     u && typeof u === 'object'
-      ? { prompt: num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens), reply: num(u.output_tokens) }
+      ? {
+          prompt: num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens),
+          reply: num(u.output_tokens),
+          ...(num(u.cache_read_input_tokens) ? { cached: num(u.cache_read_input_tokens) } : {}),
+        }
       : null;
   const model = typeof e.message?.model === 'string' ? e.message.model : undefined;
+  const messageId = typeof e.message?.id === 'string' && e.message.id ? e.message.id : undefined;
   // A meta line (Claude Code's own) is Claude's line for work time, but no message of its.
   out.push({
     ...base,
@@ -107,6 +112,7 @@ function lineEntries(e: TranscriptEntry): ConversationEntry[] {
     text: meta ? '' : text,
     ...(usage && usage.prompt + usage.reply > 0 ? { usage } : {}),
     ...(model ? { model } : {}),
+    ...(messageId ? { message: messageId } : {}),
   });
   for (const b of blocks) {
     if (b.type === 'tool_use' && typeof b.name === 'string')

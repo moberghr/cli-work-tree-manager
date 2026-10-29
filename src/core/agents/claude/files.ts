@@ -18,6 +18,35 @@ export function listTranscripts(session: WorktreeSession): ConversationFile[] {
   return out;
 }
 
+/**
+ * Its transcripts and their subagents' (`<conversation>/subagents/agent-*.jsonl`, beside `<conversation>.jsonl`):
+ * a subagent's tokens are spent on the plan too, though its lines aren't in the conversation's file.
+ */
+export function listUsageFiles(session: WorktreeSession): ConversationFile[] {
+  const out: ConversationFile[] = [];
+  for (const t of listTranscripts(session)) {
+    out.push(t);
+    const dir = path.join(t.file.replace(/\.jsonl$/, ''), 'subagents');
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      continue; // no subagents in this one
+    }
+    for (const name of names) {
+      if (!name.startsWith('agent-') || !name.endsWith('.jsonl')) continue;
+      const file = path.join(dir, name);
+      try {
+        const st = fs.statSync(file);
+        out.push({ file, mtimeMs: st.mtimeMs, size: st.size });
+      } catch {
+        /* gone meanwhile */
+      }
+    }
+  }
+  return out;
+}
+
 /** The newest transcript Claude wrote for this session. */
 export function latestTranscript(session: WorktreeSession): ConversationFile | null {
   let best: ConversationFile | null = null;

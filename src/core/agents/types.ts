@@ -3,6 +3,7 @@ import type { AiToolSpec } from '../platform/ai-launcher.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { StatusEvent } from '../status/status-event.js';
 import type { PermissionRequest } from '../api-types.js';
+import type { UsageAccount } from '../usage/usage.js';
 
 /**
  * What work needs from a coding agent (Claude Code today; Codex, Copilot CLI
@@ -31,8 +32,10 @@ export interface ConversationEntry {
   id?: string;
   /** A subagent's line: its own context, not the session's conversation. */
   sidechain?: true;
-  /** On an agent message: the size of the request that produced it (prompt incl. cached) and of the reply, in tokens. */
-  usage?: { prompt: number; reply: number };
+  /** On an agent message: the size of the request that produced it (prompt incl. cached) and of the reply, in tokens. `cached` is the cache-read part of `prompt`. */
+  usage?: { prompt: number; reply: number; cached?: number };
+  /** The agent's id for the message this line is part of: several lines (one per content block) repeat one message's usage, so a token count takes it once per id. */
+  message?: string;
   /** On an agent message: the model that wrote it. */
   model?: string;
   /** The agent's own bookkeeping (a meta line, a compaction summary): no message of yours or its, and no turn's work. */
@@ -51,6 +54,8 @@ export interface ConversationFile {
 export interface AgentConversation {
   /** Where its conversations about this session are kept: one file per conversation, one JSON value per line. */
   files(session: WorktreeSession): ConversationFile[];
+  /** The files whose token usage counts: its conversations and what they handed to subagents (kept apart, not in `files`). Absent: `files`. */
+  usageFiles?(session: WorktreeSession): ConversationFile[];
   /** A file's parsed lines (in order) as conversation entries. */
   entries(lines: readonly unknown[]): ConversationEntry[];
   /** Its context window for a model, given how much a request used (some models have a larger one). */
@@ -171,6 +176,18 @@ export interface AgentSkills {
   install(o: { skillsDir: string | null }): Promise<{ ok: boolean; message: string }>;
 }
 
+/** Its plan limits (5-hour, weekly), as the last readings work recorded per account. */
+export interface AgentUsageSource {
+  read(): UsageAccount[];
+  /**
+   * Work web's start: put in place (or, `enabled: false`, take away) what records the readings (Claude: its status line).
+   * A lean server passes `lean` and expects nothing changed. Loaded lazily: the hook processes import the adapter too.
+   */
+  setup?(o: { enabled: boolean; lean: boolean }): Promise<string>;
+  /** `work usage --restore`: give the agent's own setting back now. */
+  restore?(): Promise<{ ok: boolean; message: string }>;
+}
+
 export interface AgentAdapter {
   /** The agent's binary name (`claude`, `codex`, …). */
   id: string;
@@ -198,6 +215,8 @@ export interface AgentAdapter {
   skills?: AgentSkills;
   /** Its settings in a folder work runs it in (the Ctrl+K assistant); absent: only the instructions file is written, and it asks before every command. */
   workspace?: AgentWorkspace;
+  /** Its usage limits; absent: the meter has nothing for this agent. */
+  usage?: AgentUsageSource;
 }
 
 /** A background agent at work after its turn ended: what it is, in its own words (its description), when it says. */

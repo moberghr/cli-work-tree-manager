@@ -42,6 +42,8 @@ export interface WorkConfig {
   };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
   stacks?: { autoUpdate?: boolean };
+  /** Usage meters: `statusLine: false` leaves Claude's status line alone (work otherwise wraps it to read the rate limits). */
+  usage?: { statusLine?: boolean };
   /** The agent that writes work's own summaries — checkpoint names, catch-up, archive summaries, the Jira watch's choice (default `claude`; one without one-shot runs writes none). */
   internalAgent?: string;
   /** The agent the Ctrl+K assistant runs (an adapter's id; Claude Code by default). */
@@ -300,6 +302,7 @@ export function loadConfig(): WorkConfig | null {
             }
           : undefined,
       stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
+      usage: parsed.usage && typeof parsed.usage === 'object' ? { statusLine: parsed.usage.statusLine !== false } : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
       hostEnv: Array.isArray(parsed.hostEnv)

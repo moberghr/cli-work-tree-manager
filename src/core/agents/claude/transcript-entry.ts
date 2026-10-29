@@ -10,6 +10,7 @@ export interface TranscriptEntry {
   timestamp?: string;
   message?: {
     role?: string;
+    id?: string;
     model?: string;
     content?: unknown;
     usage?: Record<string, unknown>;

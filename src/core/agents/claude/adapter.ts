@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { backgroundWorkSince, listTranscripts } from './files.js';
+import { backgroundWorkSince, listTranscripts, listUsageFiles } from './files.js';
 import { backgroundCommandsRunning } from './background-commands.js';
 import { getAiTool } from '../../platform/ai-launcher.js';
 import { claudeProjectsRoot, encodeProjectDir, getClaudeActivityMs, hasClaudeConversation, resolveResumeLaunch } from './activity.js';
@@ -13,6 +13,7 @@ import { typeThenEnter } from '../typing.js';
 import { internalClaudeSpawn } from './internal.js';
 import { claudeWorkspace } from './workspace.js';
 import { claudeSkills } from './skills.js';
+import { claudeUsage } from './usage.js';
 
 /** A few words (checkpoint names, once per changed turn): a small model does. */
 export const CLAUDE_SMALL_MODEL = 'haiku';
@@ -47,6 +48,7 @@ export const claudeAgent: AgentAdapter = {
   },
   conversation: {
     files: (s) => listTranscripts(s),
+    usageFiles: (s) => listUsageFiles(s),
     entries: claudeEntries,
     contextWindow: claudeContextWindow,
     read(session, { last }) {
@@ -83,4 +85,5 @@ export const claudeAgent: AgentAdapter = {
   instructionsImport: (relPath) => `@${relPath}`,
   workspace: claudeWorkspace,
   skills: claudeSkills,
+  usage: claudeUsage,
 };

@@ -9,7 +9,7 @@ import { claudeAgent } from './claude/adapter.js';
 import type { AgentAdapter, AgentConversation, LiveAgent } from './types.js';
 import { typeThenEnter } from './typing.js';
 
-export type { AgentAdapter, AgentLaunch, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
+export type { AgentAdapter, AgentLaunch, AgentUsageSource, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
 export type AgentSettings = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags' | 'internalAgent' | 'assistantAgent'>;

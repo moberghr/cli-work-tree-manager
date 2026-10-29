@@ -24,6 +24,8 @@ interface Props {
   /** Opens / closes the Ctrl+K assistant (the top-nav button). */
   onAssistant?: () => void;
   assistantOpen?: boolean;
+  /** The top bar's plan-limit and token meter. */
+  usage?: React.ReactNode;
   /** The top bar's background-activity indicator. */
   activity?: React.ReactNode;
   /** The top bar's Help button: version, updates, what's new, shortcuts (HelpMenu). */
@@ -68,6 +70,7 @@ export function DashboardLayout({
   prsFor,
   onAssistant,
   assistantOpen,
+  usage,
   activity,
   help,
   tasks,
@@ -111,6 +114,7 @@ export function DashboardLayout({
         railOpen={railOpen}
         onAssistant={onAssistant}
         assistantOpen={assistantOpen}
+        usage={usage}
         activity={activity}
         help={help}
         tasks={tasks}

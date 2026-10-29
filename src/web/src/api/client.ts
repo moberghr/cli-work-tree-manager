@@ -311,6 +311,11 @@ export function fetchActivity(): Promise<import('../../../core/api-types.js').Ac
   return getJson('/api/activity');
 }
 
+/** Each agent's plan limits as last read, and the tokens used today and this week (GET /api/usage). */
+export function fetchUsage(): Promise<import('../../../core/api-types.js').UsageWire> {
+  return getJson('/api/usage');
+}
+
 /** The live sessions; with `withArchived`, the archived ones too (they're asked for only where shown). */
 /** Its agent's newest message as it wrote it (GET …/last-reply), or null when there is none. */
 export function fetchLastReply(sessionId: string): Promise<string | null> {

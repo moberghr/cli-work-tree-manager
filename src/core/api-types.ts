@@ -1,4 +1,5 @@
 import type { AttentionLike } from './status/attention.js';
+import type { AgentUsage } from './usage/usage.js';
 
 /**
  * Wire types shared by the server (core) and the browser SPA — ONE
@@ -1025,6 +1026,31 @@ export interface CodeFileWire {
   /** null with `reason`: not shown as text. */
   text: string | null;
   reason?: 'binary' | 'too-large';
+}
+
+// ---- agent usage (core/usage/) -----------------------------------------------------
+
+/** Tokens, with what was read from the prompt cache apart: `input` is the rest of the prompt. */
+export interface TokenTotals {
+  input: number;
+  cached: number;
+  output: number;
+}
+
+/** One agent in GET /api/usage: its readings, one `UsageAccount` per account, aged to the answer's time. */
+export type UsageAgentWire = AgentUsage;
+
+/** GET /api/usage: each agent's plan limits as last read, and the tokens work saw in the sessions' transcripts. */
+export interface UsageWire {
+  agents: UsageAgentWire[];
+  tokens: {
+    today: TokenTotals;
+    /** The last 7 local days, today included. */
+    week: TokenTotals;
+    byModel: Array<{ model: string; today: TokenTotals; week: TokenTotals }>;
+    topSessions: Array<{ id: string; label: string; week: TokenTotals }>;
+  };
+  at: string;
 }
 
 // ---- time per session (work-time.ts) ---------------------------------------------

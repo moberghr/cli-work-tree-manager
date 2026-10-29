@@ -27,6 +27,7 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['note'], load: async () => (await import('./commands/note.js')).noteCommand },
   { names: ['block'], load: async () => (await import('./commands/block.js')).blockCommand },
   { names: ['time'], load: async () => (await import('./commands/time.js')).timeCommand },
+  { names: ['usage'], load: async () => (await import('./commands/usage.js')).usageCommand },
   { names: ['read'], load: async () => (await import('./commands/read.js')).readCommand },
   { names: ['screen'], load: async () => (await import('./commands/screen.js')).screenCommand },
   { names: ['send'], load: async () => (await import('./commands/send.js')).sendCommand },

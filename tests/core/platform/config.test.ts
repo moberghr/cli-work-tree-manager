@@ -82,6 +82,23 @@ describe('loadConfig', () => {
     expect(loadConfig()?.launchViaHost).toBeUndefined();
   });
 
+  it('loads usage.statusLine: off only for false, on for anything else in a usage object', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (usage: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', usage }));
+    write({ statusLine: false });
+    expect(loadConfig()?.usage).toEqual({ statusLine: false });
+    write({ statusLine: true });
+    expect(loadConfig()?.usage).toEqual({ statusLine: true });
+    write({ statusLine: 'no' });
+    expect(loadConfig()?.usage).toEqual({ statusLine: true });
+    write({});
+    expect(loadConfig()?.usage).toEqual({ statusLine: true });
+    write(undefined);
+    expect(loadConfig()?.usage).toBeUndefined();
+  });
+
   it('loads sessionFolders only as a real boolean (the switch is off unless it is true)', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });

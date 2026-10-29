@@ -2,6 +2,8 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../server/web-server.js';
 import { knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
+import { setupAgentUsage } from '../core/usage/usage-setup.js';
+import { loadConfig } from '../core/platform/config.js';
 import { openUrl } from '../core/platform/launch.js';
 import { configurePtyPool, resumePersistedSessions } from '../core/pty/pty-pool.js';
 import { resolveWorkBinPath } from '../core/platform/work-bin.js';
@@ -272,6 +274,9 @@ export const webCommand: CommandModule = {
     // the full dashboard puts delivery, status and checkpoints in one hook
     // per turn edge; the lean `wd` server only needs the checkpoints.
     await installAgentHooks(lean, (name) => swallow(`install ${name} hooks`));
+    // Each agent's usage readings (Claude's come only through its status line, which this wraps; config
+    // usage.statusLine: false gives it back). Not undone on shutdown — the wrapper passes the user's own line through.
+    await setupAgentUsage(knownAgents(), loadConfig(), lean).catch(swallow('set up the usage readings'));
 
     shutdown = () => {
       info(chalk.gray('\nStopping work web.'));

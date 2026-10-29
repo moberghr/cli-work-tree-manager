@@ -3,6 +3,21 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **Usage on the top bar:** a small meter shows the plan limit nearest its
+  end ("Claude wk 18%", amber from 70%, red from 90%). Click it for every
+  window with its reset time, how old the reading is, the tokens your
+  sessions used today and this week (per model), and the sessions that used
+  most. The limits are read from Claude Code's status line: work web puts
+  itself in front of it and passes your own status line through, so it looks
+  the same. The wrapper stays in place when work web stops (it is a plain
+  `work hook statusline` call, with your own command after `||`, so your
+  line still shows should `work` ever be uninstalled); `usage.statusLine:
+  false` in config (applied at the next work web start) or `work usage
+  --restore` gives your status line back. `work usage` prints the same in a
+  terminal.
+
 ## 2.6.4 — 2026-10-28
 
 - **A finished turn to review is a badge, not the status.** The status icon

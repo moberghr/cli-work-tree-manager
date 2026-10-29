@@ -22,3 +22,6 @@
 - **Rule:** A green `tsc` + green `vitest` does NOT mean the tests are type-correct. When a test mocks a function and inspects `mock.calls`, give the `vi.fn()` a variadic signature (`vi.fn((..._a: unknown[]) => ...)`). To verify a test's types, run `tsc` against a temp config that `include`s the test (`{ "extends": "./tsconfig.json", "include": ["src/**/*", "<the.test.ts>"] }`).
 - **Why it matters:** Type bugs in tests rot silently and mislead future readers about the contract under test.
 - **When it applies:** Any repo where `tests/` is excluded from the typecheck config (this one) — especially for subagent-authored tests.
+
+## Claude transcripts repeat a message's usage on every content-block line
+Claude Code writes one JSONL line per content block of one API message, each carrying the same `message.usage`; summing per line overcounts tokens. Count a message once by `message.id` (`ConversationEntry.message`), and read `<conversation>/subagents/agent-*.jsonl` too (`usageFiles`) — subagents were ~28% of output here. Applies to any new token or cost figure read from transcripts.

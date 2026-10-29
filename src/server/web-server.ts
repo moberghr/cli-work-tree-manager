@@ -26,6 +26,8 @@ import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
 import { mountDiffPageRoutes } from './routes/diff-page-routes.js';
 import { mountSetupRoutes } from './routes/setup-routes.js';
 import { mountAppUpdateRoutes } from './routes/app-update-routes.js';
+import { wireUsage } from './routes/usage-routes.js';
+import { buildUsage, realUsageDeps } from '../core/usage/usage-source.js';
 import { createUpdates, desktopUpdatePath, lookForUpdates } from '../core/updates/update-source.js';
 import { mountRepoRoutes } from './routes/repo-routes.js';
 import { mountTimelineRoutes } from './routes/timeline-routes.js';
@@ -1008,6 +1010,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const desktopFile = desktopUpdatePath();
   const onDesktopUpdate = () => broadcast('updates-changed', { ts: Date.now() });
   if (jobs) fs.watchFile(desktopFile, { interval: 3000 }, onDesktopUpdate); // the installed app's: not the dev server's business
+  // Agent usage (core/usage/): plan limits the status-line hook recorded, and token counts. Reads only, so every mode serves it.
+  const usageWatcher = wireUsage(app, { broadcast, build: () => buildUsage(realUsageDeps()) });
   // How the PTY host is doing (host-health.ts): the dashboard warns when it's slow or not answering.
   app.get('/api/pty-host/health', (c) => c.json(hostHealth(hostBeat()) satisfies HostHealth));
   let lastHostState = hostHealth(hostBeat()).state;
@@ -1091,6 +1095,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       if (timeTimer) clearInterval(timeTimer);
       timeKeeper?.stop();
       fs.unwatchFile(desktopFile, onDesktopUpdate);
+      usageWatcher.stop();
       for (const t of conversationSyncs.values()) clearTimeout(t);
       clearTimeout(sweepTimer);
       activityWatcher?.stop();

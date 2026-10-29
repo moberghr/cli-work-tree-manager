@@ -44,7 +44,13 @@ process.on('unhandledRejection', handleFatalError);
 // and PTY-host servers, SQLite — so a hook paid for all of it on every
 // event. Hooks load only their own module.
 const args = process.argv.slice(2);
-if (args[0] === 'hook') {
+if (args[0] === 'hook' && args[1] === 'statusline') {
+  // Claude's status line: it runs on every refresh, so nothing but its own module loads.
+  const { runStatusLineHook } = await import('./core/agents/claude/statusline-hook.js');
+  await runStatusLineHook();
+  // Out once the line is written: anything the user's command left behind (a pipe, a child) must not keep Claude's hook alive.
+  process.stdout.write('', () => process.exit(0));
+} else if (args[0] === 'hook') {
   const { runHookEvent } = await import('./commands/hook.js');
   await runHookEvent(args[1], args.slice(2));
 } else {
