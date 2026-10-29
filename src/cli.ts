@@ -27,6 +27,7 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['note'], load: async () => (await import('./commands/note.js')).noteCommand },
   { names: ['block'], load: async () => (await import('./commands/block.js')).blockCommand },
   { names: ['time'], load: async () => (await import('./commands/time.js')).timeCommand },
+  { names: ['account'], load: async () => (await import('./commands/account.js')).accountCommand },
   { names: ['usage'], load: async () => (await import('./commands/usage.js')).usageCommand },
   { names: ['read'], load: async () => (await import('./commands/read.js')).readCommand },
   { names: ['screen'], load: async () => (await import('./commands/screen.js')).screenCommand },
@@ -106,6 +107,9 @@ function showHelp() {
   console.log('  work run <cmd...>                                  - Run a command in every worktree');
   console.log('  work run <cmd...> --target <alias> --parallel      - Filter + run concurrently');
   console.log('  work broadcast <prompt>                            - Queue a prompt to every live session');
+  console.log(
+    '  work account <add|list|default|remove|switch>      - Claude Code accounts (a second login for when a limit runs out; switch moves a session)',
+  );
   console.log('  work attach [target] [branch]                      - Attach this terminal to a session (Ctrl+] detaches)');
   console.log('  work todo                                          - List tasks');
   console.log('  work todo add <text>                               - Add a task');

@@ -4,6 +4,7 @@ import type { WorkConfig } from '../platform/config.js';
 import type { StatusEvent } from '../status/status-event.js';
 import type { PermissionRequest } from '../api-types.js';
 import type { UsageAccount } from '../usage/usage.js';
+import type { EnvDelta } from '../platform/env-delta.js';
 
 /**
  * What work needs from a coding agent (Claude Code today; Codex, Copilot CLI
@@ -74,16 +75,31 @@ export interface AgentConversation {
   backgroundCommands?(session: WorktreeSession, sinceMs: number): number;
 }
 
+/** Whose conversations a resume check looks in: a session's (its account), or the environment the agent will start with (`env` wins). */
+export interface ResumeVia {
+  session?: Pick<WorktreeSession, 'account'> | null;
+  env?: Readonly<Record<string, string | undefined>>;
+}
+
 /** Starting it: every agent has this. */
 export interface AgentLaunch {
   /** Its binary and flags: config `aiCommand` / `aiCommandFlags` when they name this agent, else its defaults. */
   tool(config: Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null): AiToolSpec;
-  /** Its resume flag finds a conversation in this folder. Passing it where there is none errors out (Claude Code: "No conversation found to continue"), so every launch path asks. */
-  canResume(cwd: string): boolean;
+  /**
+   * Its resume flag finds a conversation in this folder. Passing it where there is none errors out (Claude Code: "No conversation found to continue"), so every launch path asks.
+   * `via` says whose conversations: the session (its account's folder) or the environment it will run with (what the PTY host restores from).
+   */
+  canResume(cwd: string, via?: ResumeVia): boolean;
   /** Where to start a session to pick up its conversation (a group may have worked in its root or a repo), and whether there is one. */
   resumeLaunch(session: WorktreeSession): { launchPath: string; hasConversation: boolean };
   /** The environment to start it with: what a parent session of this agent set (it would think it runs inside one) taken out. */
   cleanEnv(env: Record<string, string | undefined>): Record<string, string | undefined>;
+  /**
+   * What the agent's environment must differ by for this session (Claude: its account's `CLAUDE_CONFIG_DIR`), applied
+   * OVER whatever environment it would inherit — a name set to a value, or `null` to take it out. `null` session: work's
+   * own runs (the assistant, one-shot summaries), on the configured default. Absent: nothing to change.
+   */
+  env?(session: Pick<WorktreeSession, 'account'> | null): EnvDelta;
 }
 
 /** Whether a keystroke may answer a permission request now (the dialog on its screen is that request's), and if not, why. */
@@ -188,6 +204,78 @@ export interface AgentUsageSource {
   restore?(): Promise<{ ok: boolean; message: string }>;
 }
 
+/** One of an agent's accounts (Claude: a config folder with its own login). */
+export interface AccountInfo {
+  name: string;
+  /** Where its login, settings and conversations live. */
+  dir: string;
+  /** The one new sessions use. */
+  isDefault: boolean;
+  /** Logged in; null: can't tell (macOS keeps Claude's credentials in the keychain). */
+  loggedIn: boolean | null;
+}
+
+/** The sessions on an account, as "target · branch": the live ones, and the archived ones (whose Restore would need it). */
+export interface AccountUsers {
+  live: string[];
+  archived: string[];
+}
+
+/**
+ * A refusal of an account change the user can act on (an unknown name, a folder that can't be one, sessions still on it).
+ * `sessions` names the sessions that stopped a removal; `kind` says whether they are live ones (always a refusal) or
+ * archived ones (a refusal unless forced).
+ */
+export class AccountAdminError extends Error {
+  constructor(
+    message: string,
+    readonly sessions: string[] = [],
+    readonly kind?: 'live' | 'archived',
+  ) {
+    super(message);
+  }
+}
+
+/** Adding, choosing and forgetting an agent's accounts (`work account`). Never deletes an account's folder: its login and conversations are the user's. */
+export interface AgentAccountAdmin {
+  /** Record a new account (its folder: `dir`, else the agent's default place for it), made when missing. Returns the folder. */
+  add(name: string, dir?: string): Promise<string>;
+  /** New sessions use this account. */
+  setDefault(name: string): Promise<void>;
+  /**
+   * Forget an account (its folder stays). `usedBy` is asked under the config's lock, right before the write: live
+   * sessions on it are always a refusal, archived ones too (their Restore would start on another account) — a caller
+   * that was told to go ahead anyway passes none.
+   */
+  remove(name: string, usedBy: () => AccountUsers): Promise<void>;
+  /** Start the agent's own CLI in this terminal on the account, so the user logs in (blocks until it exits). */
+  login(name: string): void;
+  /** Give the account work's skills (the install at setup reaches only the accounts there were then). */
+  installSkills(name: string): { ok: boolean; message: string };
+}
+
+/** Running a session on one of several logins of the agent, and moving it from one to another. */
+export interface AgentAccounts {
+  list(): AccountInfo[];
+  /** The account new sessions use. */
+  defaultName(): string;
+  /** An account of that name exists. */
+  has(name: string): boolean;
+  /** The name of the account a session runs on. */
+  current(session: Pick<WorktreeSession, 'account'>): string;
+  /**
+   * Move the session's conversations (whatever the agent keeps per folder it runs in) from its account to `to`, merging;
+   * puts back what it moved and throws when it fails. It records nothing and starts nothing: the caller stops the agent
+   * first, records the account, and starts it again.
+   */
+  switchFiles(session: WorktreeSession, to: string): Promise<{ moved: string[] }>;
+  /** The folders whose conversations a switch moves (where its agent runs for the session): another agent running in one
+   *  of them would have its files moved from under it, so the switch is refused while one does. */
+  folders(session: Pick<WorktreeSession, 'paths' | 'isGroup'>): string[];
+  /** Managing the accounts themselves; absent: they are set up some other way. */
+  admin?: AgentAccountAdmin;
+}
+
 export interface AgentAdapter {
   /** The agent's binary name (`claude`, `codex`, …). */
   id: string;
@@ -217,6 +305,8 @@ export interface AgentAdapter {
   workspace?: AgentWorkspace;
   /** Its usage limits; absent: the meter has nothing for this agent. */
   usage?: AgentUsageSource;
+  /** Several logins to run sessions on, and moving a session between them; absent: one login. */
+  accounts?: AgentAccounts;
 }
 
 /** A background agent at work after its turn ended: what it is, in its own words (its description), when it says. */

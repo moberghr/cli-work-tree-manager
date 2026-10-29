@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { withReporter } from '../../../src/core/platform/report.js';
 import { loadConfig, saveConfig, getConfigDir, validatePortRange, type WorkConfig } from '../../../src/core/platform/config.js';
 
 let tmpDir: string;
@@ -342,5 +343,37 @@ describe('saveConfig', () => {
     const loaded = loadConfig();
     expect(loaded?.worktreesRoot).toBe('/second');
     expect(loaded?.repos).toEqual({ x: '/x' });
+  });
+});
+
+describe('claudeAccounts / claudeAccount', () => {
+  const load = (cfg: Record<string, unknown>) => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', ...cfg }));
+    return loadConfig();
+  };
+
+  // What makes an entry an account is Claude's (agents/claude/accounts.ts, tested there): config passes them through.
+  it('keeps them as written: string folders only, no rules applied, nothing said', () => {
+    const warnings: string[] = [];
+    const config = withReporter(
+      (level, text) => {
+        if (level === 'warn') warnings.push(text);
+      },
+      () => load({ claudeAccounts: { work: '~/.claude-work', 'Bad Name': 'relative', num: 5 }, claudeAccount: 'gone' }),
+    );
+    expect(config?.claudeAccounts).toEqual({ work: '~/.claude-work', 'Bad Name': 'relative' });
+    expect(config?.claudeAccount).toBe('gone');
+    expect(warnings).toEqual([]);
+  });
+
+  it('leaves both unset when absent or not of their type', () => {
+    const bare = load({});
+    expect(bare?.claudeAccounts).toBeUndefined();
+    expect(bare?.claudeAccount).toBeUndefined();
+    const odd = load({ claudeAccounts: ['x'], claudeAccount: 3 });
+    expect(odd?.claudeAccounts).toBeUndefined();
+    expect(odd?.claudeAccount).toBeUndefined();
   });
 });

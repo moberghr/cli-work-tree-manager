@@ -56,6 +56,14 @@ export const moveCommand: CommandModule = {
         console.log(chalk.yellow(`Not on this computer: ${r.repos.missing.join(', ')} — clone them (or run again with --clone).`));
       if (r.worktrees.created.length) console.log(`Worktrees recreated: ${r.worktrees.created.join(', ')}`);
       for (const f of r.worktrees.failed) console.log(chalk.yellow(`  ${f.session}: ${f.error}`));
+      if (r.accounts.length) {
+        console.log(
+          chalk.yellow(
+            "Claude accounts came along, but their logins don't: log in to each again (start claude with its folder, then /login):",
+          ),
+        );
+        for (const a of r.accounts) console.log(chalk.yellow(`  ${a.name}: CLAUDE_CONFIG_DIR=${a.dir} claude`));
+      }
       console.log(chalk.gray('Start `work web`: sessions resume their conversations when you open them.'));
     } catch (err) {
       if (!(err instanceof MoveError)) throw err;

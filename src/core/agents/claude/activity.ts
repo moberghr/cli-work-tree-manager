@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { WorktreeSession } from '../../sessions/session-types.js';
+import { claudeAccounts, configDirEnv, sessionAccount } from './accounts.js';
 
 /**
  * Claude Code writes each session as JSONL under
@@ -72,9 +73,43 @@ function latestJsonlMtimeMs(projectDir: string): number {
   return latest;
 }
 
-export function getClaudeActivityMs(launchPath: string): number {
-  const dir = path.join(os.homedir(), '.claude', 'projects', encodeProjectDir(launchPath));
-  return latestJsonlMtimeMs(dir);
+/** An account's projects folder: `<its config folder, or ~/.claude>/projects`. */
+export function projectsRootOf(configDir?: string): string {
+  return path.join(configDir || path.join(os.homedir(), '.claude'), 'projects');
+}
+
+/**
+ * Every account's projects folder, the default account's first; `first` (an account name) goes in front of the others —
+ * a session's own account is looked in before the rest. Each folder once.
+ */
+export function claudeProjectsRoots(first?: string): string[] {
+  const accounts = claudeAccounts();
+  const ordered = first ? [...accounts.filter((a) => a.name === first), ...accounts.filter((a) => a.name !== first)] : accounts;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const a of ordered) {
+    const root = projectsRootOf(a.dir);
+    const key = path.resolve(root);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(root);
+  }
+  return out;
+}
+
+/** Its newest transcript write in ONE config folder's projects (`~/.claude` without one). */
+const activityIn = (launchPath: string, configDir?: string): number =>
+  latestJsonlMtimeMs(path.join(projectsRootOf(configDir), encodeProjectDir(launchPath)));
+
+/**
+ * The newest transcript write for work in `launchPath`: in that config folder's projects when `configDir` is given, else
+ * the newest across every account (where no session is known: a `wd` scope, the PR watch's "was it used lately").
+ */
+export function getClaudeActivityMs(launchPath: string, configDir?: string): number {
+  if (configDir) return activityIn(launchPath, configDir);
+  let latest = 0;
+  for (const root of claudeProjectsRoots()) latest = Math.max(latest, latestJsonlMtimeMs(path.join(root, encodeProjectDir(launchPath))));
+  return latest;
 }
 
 /**
@@ -83,8 +118,26 @@ export function getClaudeActivityMs(launchPath: string): number {
  * found to continue" when the flag is passed in a directory it has never run
  * in, so callers gate on this before adding it.
  */
-export function hasClaudeConversation(dir: string): boolean {
-  return getClaudeActivityMs(dir) > 0;
+export function hasClaudeConversation(dir: string, configDir?: string): boolean {
+  // One folder, never every account's: `--continue` finds only the conversations of the config folder it runs with.
+  return activityIn(dir, configDir) > 0;
+}
+
+/**
+ * The folders Claude may have been run in for a session — the cwds its conversations are keyed by: for a group its
+ * root(s) and each sub-repo, for a single repo the repo path. `existing`: only the ones still on disk (a launch needs
+ * one), else all (a switch of account moves the conversations of a folder that is gone too).
+ */
+export function sessionRunFolders(session: Pick<WorktreeSession, 'paths' | 'isGroup'>, existing = true): string[] {
+  const paths = existing ? session.paths.filter((p) => fs.existsSync(p)) : session.paths;
+  const out = new Set<string>();
+  if (session.isGroup) {
+    for (const p of paths) out.add(path.dirname(p)); // group root(s)
+    for (const p of paths) out.add(p); // sub-repos
+  } else {
+    for (const p of paths) out.add(p);
+  }
+  return [...out];
 }
 
 /**
@@ -113,18 +166,14 @@ export function resolveResumeLaunch(session: WorktreeSession): {
   // itself for single-repo sessions.
   const defaultPath = session.isGroup ? path.dirname(first) : first;
 
-  const candidates = new Set<string>();
-  if (session.isGroup) {
-    for (const p of existing) candidates.add(path.dirname(p)); // group root(s)
-    for (const p of existing) candidates.add(p); // sub-repos
-  } else {
-    for (const p of existing) candidates.add(p);
-  }
+  const candidates = sessionRunFolders(session);
 
+  // The session's own account: its conversations are in that account's folder.
+  const configDir = configDirEnv(sessionAccount(session)).CLAUDE_CONFIG_DIR;
   let launchPath = defaultPath;
   let bestMs = 0;
   for (const c of candidates) {
-    const ms = getClaudeActivityMs(c);
+    const ms = activityIn(c, configDir);
     if (ms > bestMs) {
       bestMs = ms;
       launchPath = c;
@@ -137,5 +186,5 @@ export function resolveResumeLaunch(session: WorktreeSession): {
  *  changes here and re-broadcasts `sessions-changed` so the sidebar
  *  badges refresh without polling. */
 export function claudeProjectsRoot(): string {
-  return path.join(os.homedir(), '.claude', 'projects');
+  return projectsRootOf();
 }

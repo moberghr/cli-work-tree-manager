@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfigDir } from '../../platform/config.js';
+import { getConfigDir } from '../../platform/config-dir.js';
 import { detachHere, killTree } from '../../platform/process.js';
 import spawn from '../../platform/spawn.js';
+import { accountOf } from './rate-limits.js';
 
 // The status-line hook's half of statusline.ts: what runs on every refresh of every Claude. Light on purpose — no
 // settings editor, no locks, no registry; installing and removing the wrapper is statusline.ts.
@@ -14,7 +15,16 @@ export const NESTED_ENV = 'WORK_STATUSLINE_NESTED';
 export type StatusLine = Record<string, unknown>;
 
 export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-export const savedPath = () => path.join(getConfigDir(), 'statusline.json');
+/**
+ * Where the user's own status line is saved: `statusline.json` for the default account, `statusline-<account>.json` for
+ * another — named by `accountOf(CLAUDE_CONFIG_DIR)`, a short hash of the folder, the same name the hook computes from its
+ * environment (it knows the folder, not the registry's name for it, and loads no config to find out; a renamed account
+ * keeps its saved line).
+ */
+export const savedPath = (configDir?: string) => {
+  const account = accountOf(configDir);
+  return path.join(getConfigDir(), account === 'default' ? 'statusline.json' : `statusline-${account}.json`);
+};
 
 /**
  * work's hook under any path (`/usr/bin/work hook statusline`, `node …/bin.js hook statusline`), with or without the
@@ -25,10 +35,10 @@ export const isOurs = (v: unknown) => isRecord(v) && typeof v.command === 'strin
 /** What ~/.work/statusline.json says: an original (null: there was none), nothing saved, or a file that can't be read. */
 export type Saved = { kind: 'ok'; original: StatusLine | null } | { kind: 'missing' } | { kind: 'unreadable'; why: string };
 
-export function readSaved(): Saved {
+export function readSaved(configDir?: string): Saved {
   let text: string;
   try {
-    text = fs.readFileSync(savedPath(), 'utf-8');
+    text = fs.readFileSync(savedPath(configDir), 'utf-8');
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     return code === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable', why: code ?? String(e) };
@@ -44,9 +54,17 @@ export function readSaved(): Saved {
   return isRecord(v.original) ? { kind: 'ok', original: v.original } : { kind: 'unreadable', why: 'original is not an object' };
 }
 
-/** The user's own status line command, when they had one. `onDamage` hears why a saved file couldn't be read. */
-export function originalStatusLine(onDamage?: (why: string) => void): { command: string } | null {
-  const saved = readSaved();
+/**
+ * The user's own status line command, when they had one — the one saved for the account of the Claude that runs it
+ * (`configDir`: its `CLAUDE_CONFIG_DIR`). `onDamage` hears why a saved file couldn't be read.
+ *
+ * An account with nothing saved whose settings run work's line anyway — a settings.json copied from the default
+ * account's, or a folder shared with it — falls back to the default account's saved original: that is the line its
+ * settings came with, and without it the user's own line would show nowhere on that account.
+ */
+export function originalStatusLine(onDamage?: (why: string) => void, configDir?: string): { command: string } | null {
+  let saved = readSaved(configDir);
+  if (saved.kind === 'missing' && accountOf(configDir) !== 'default') saved = readSaved();
   if (saved.kind === 'unreadable') onDamage?.(saved.why);
   const o = saved.kind === 'ok' ? saved.original : null;
   return o && typeof o.command === 'string' && o.command ? { command: o.command } : null;

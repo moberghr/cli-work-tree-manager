@@ -79,3 +79,67 @@ describe('work tree --no-host', () => {
     );
   });
 });
+
+describe('work tree --account', () => {
+  const work = () => path.join(home, '.claude-work');
+  const withAccounts = () =>
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: repo }, groups: {}, copyFiles: [], claudeAccounts: { work: work() } });
+  const treeOn = (account?: string) =>
+    (treeCommand.handler as (argv: unknown) => unknown)({
+      _: [],
+      target: 'api',
+      branch: 'feat/x',
+      host: false,
+      pull: false,
+      unsafe: false,
+      fresh: false,
+      ...(account ? { account } : {}),
+    });
+
+  it('a new session records the account it is made on and starts Claude on its folder; coming back keeps it', async () => {
+    withAccounts();
+    await treeOn('work');
+    expect(loadHistory()[0].account).toBe('work');
+    expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.anything(), expect.anything(), expect.anything(), {
+      CLAUDE_CONFIG_DIR: work(),
+    });
+    await treeOn(); // no --account: the session's own stays
+    expect(loadHistory()[0].account).toBe('work');
+    expect(vi.mocked(launchAi).mock.lastCall?.[4]).toEqual({ CLAUDE_CONFIG_DIR: work() });
+    await treeOn('default'); // asking for another on an existing session doesn't move it
+    expect(loadHistory()[0].account).toBe('work');
+  });
+
+  it('with none asked, a new session is on the configured default; the default account takes an inherited folder out', async () => {
+    withAccounts();
+    await treeOn();
+    expect(loadHistory()[0].account).toBe('default');
+    expect(vi.mocked(launchAi).mock.lastCall?.[4]).toEqual({ CLAUDE_CONFIG_DIR: null });
+    saveHistory([]);
+    saveConfig({
+      worktreesRoot: path.join(home, 'wt'),
+      repos: { api: repo },
+      groups: {},
+      copyFiles: [],
+      claudeAccounts: { work: work() },
+      claudeAccount: 'work',
+    });
+    await treeOn();
+    expect(loadHistory()[0].account).toBe('work');
+  });
+
+  it('an unknown account is refused before any worktree is made', async () => {
+    withAccounts();
+    await treeOn('nope');
+    expect(process.exitCode).toBe(1);
+    expect(loadHistory()).toEqual([]);
+    expect(launchAi).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(fs.existsSync(path.join(home, 'wt'))).toBe(false);
+  });
+});

@@ -11,6 +11,7 @@ import { SETUP_WARNINGS } from '../core/worktree/setup-child.js';
 import { leftoversOf, openInLeftovers } from '../core/archive/restore-leftovers.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../core/platform/launch.js';
+import { envArgs } from '../core/platform/env-delta.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/git/base-spec.js';
 import { resolvePrToStart } from '../core/pr/pr-start.js';
 import { workOnPrPrompt } from '../core/pr/pr-ref.js';
@@ -81,6 +82,11 @@ export const treeCommand: CommandModule = {
         describe: 'Name the session (shown instead of the branch; rename later with F2 in the dashboard)',
         type: 'string',
       })
+      .option('account', {
+        describe:
+          'The Claude account a new session runs on (a name from `work account list`; default: the configured default). An existing session keeps its own.',
+        type: 'string',
+      })
       .option('jira-key', {
         describe: 'Link a Jira issue key to this worktree session',
         type: 'string',
@@ -118,6 +124,7 @@ export const treeCommand: CommandModule = {
       throw err;
     }
     const jiraKey = argv['jira-key'] as string | undefined;
+    const account = argv.account as string | undefined;
     const promptFile = argv['prompt-file'] as string | undefined;
     let initialPrompt = argv.prompt as string | undefined;
 
@@ -160,14 +167,16 @@ export const treeCommand: CommandModule = {
         console.log(chalk.yellow('Session not found in history — launching directly instead of via the PTY host.'));
       }
       // The session's agent: what to run, and whether it can resume here.
-      const agent = agentFor(config, findSession(loadHistory(), sessionKey.target, sessionKey.branch));
+      const own = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
+      const agent = agentFor(config, own);
       const tool = agent.launch.tool(config);
-      const resume = !fresh && agent.launch.canResume(dir);
+      // The session's account: its conversations are in that account's folder, and the agent starts on it.
+      const resume = !fresh && agent.launch.canResume(dir, { session: own });
       if (resume) {
         console.log(chalk.gray(`Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`));
       }
       console.log(`Starting ${tool.cmd}...`);
-      launchAi(dir, tool, { unsafe, initialPrompt, resume }, port);
+      launchAi(dir, tool, { unsafe, initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
     };
 
     // --pr: the PR's repo and branch, and a first prompt saying whose branch it is.
@@ -249,6 +258,7 @@ export const treeCommand: CommandModule = {
         pull,
         jiraKey,
         name: typeof argv.name === 'string' ? argv.name : undefined,
+        account,
       });
       if (!opened.ok) {
         console.error(opened.error);
@@ -276,6 +286,7 @@ export const treeCommand: CommandModule = {
       setupWorktree(targetName, branchName, config, baseSpec, jiraKey, {
         pull,
         name: argv.name as string | undefined,
+        ...(account ? { account } : {}),
         ...(repos.length ? { repos } : {}),
       }),
     );

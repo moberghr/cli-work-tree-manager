@@ -62,6 +62,8 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     prompt: z.string().max(20_000).optional(),
     /** Name the session (its title); the branch stays its identity. */
     name: z.string().max(120).optional(),
+    /** The Claude account a new session runs on (a name from `work account list`); empty: the configured default. */
+    account: z.string().max(64).optional(),
   });
   const startSession = opts.startSession ?? startSessionWithPrompt;
   const create = opts.create ?? createInProcess;
@@ -79,6 +81,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   });
   app.post('/api/worktrees', zValidator('json', createSchema), async (c) => {
     const { target, base, jiraKey, prompt, name } = c.req.valid('json');
+    const account = c.req.valid('json').account?.trim() || undefined;
     const config = loadConfig();
     if (!config) return c.json({ error: 'no config' }, 400);
     const wanted = c.req.valid('json').branch?.trim() ?? '';
@@ -89,7 +92,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
       // No branch: the repo's own checkout, as `work tree <repo>` opens it.
       // A failure says why (core's reports, or the child run's errors).
       const made = await create(
-        { target, branch: wanted || undefined, base: base?.trim() ? toBaseSpec(base.trim()) : undefined, jiraKey, name },
+        { target, branch: wanted || undefined, base: base?.trim() ? toBaseSpec(base.trim()) : undefined, jiraKey, name, account },
         config,
       );
       if (!made.ok) return c.json({ error: made.error }, 400);

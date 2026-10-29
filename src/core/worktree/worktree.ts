@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import { agentFor } from '../agents/index.js';
+import { DEFAULT_ACCOUNT, getConfigDir } from '../platform/config.js';
 import { restoreArchivedIgnored, restoreArchivedUncommitted } from '../archive/archive-restore.js';
 import { isLeftover, putLeftoverBack, setLeftoverAside, takeLeftover } from './leftover.js';
 import path from 'node:path';
 import { debug } from '../platform/logger.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
-import { getConfigDir } from '../platform/config.js';
 import { resolveProjectTarget } from './resolve.js';
 import {
   findSession,
@@ -480,6 +480,11 @@ export interface WorktreeSetupOptions {
    * session keeps the repos (and layout) it records.
    */
   repos?: string[];
+  /**
+   * The Claude account a NEW session runs on (a name from config `claudeAccounts`, or `default`); unset: the configured
+   * default. An unknown name is refused before anything is made. An existing session keeps the account it has.
+   */
+  account?: string;
 }
 
 /**
@@ -494,6 +499,17 @@ export interface WorktreeSetupResult {
   isGroup: boolean;
   /** Stable dev-server port allocated to this worktree, if allocation succeeded. */
   port?: number;
+}
+
+/**
+ * Why a new session can't run on `account` (a message), or null: the name must be one of the configured agent's
+ * accounts (its adapter's `accounts` part); an agent without accounts takes only the default (a fork of one passes it).
+ */
+export function accountRefusal(account: string | undefined, config: WorkConfig): string | null {
+  if (account === undefined) return null;
+  const agent = agentFor(config);
+  if (!agent.accounts) return account === DEFAULT_ACCOUNT ? null : `${agent.name} has no accounts: “${account}” can't be used`;
+  return agent.accounts.has(account) ? null : `Unknown ${agent.name} account: ${account} (see \`work account list\`)`;
 }
 
 /**
@@ -515,6 +531,13 @@ export async function setupWorktree(
   const target = resolveProjectTarget(targetName, config);
   if (!target) {
     debug('setupWorktree: target not found', targetName);
+    return null;
+  }
+
+  // A name that isn't an account is refused first, before any git: a session recorded on it couldn't start.
+  const accountRefused = accountRefusal(opts.account, config);
+  if (accountRefused) {
+    report('error', accountRefused);
     return null;
   }
 
@@ -895,9 +918,12 @@ async function setupGroupWorktree(
     jiraKey,
     representativeBase,
     baseBranches,
-    owns
-      ? { repos: [...repoAliases, ...gone.map((r) => r.alias)], ...(byImport && !known ? { instructions: 'imports' as const } : {}) }
-      : {},
+    {
+      ...(owns
+        ? { repos: [...repoAliases, ...gone.map((r) => r.alias)], ...(byImport && !known ? { instructions: 'imports' as const } : {}) }
+        : {}),
+      account: opts.account,
+    },
   );
 
   report('info', '');
@@ -973,7 +999,7 @@ async function setupSingleWorktree(
     jiraKey,
     base,
     base ? { [workTreePath]: base } : undefined,
-    isNew ? { repos: [targetName] } : {},
+    { ...(isNew ? { repos: [targetName] } : {}), account: opts.account },
   );
 
   report('info', `Branch: ${branchName}`);
@@ -1131,8 +1157,10 @@ export type BaseCheckoutResult = { ok: true; repoPath: string; branch: string; d
 export async function openBaseCheckout(
   targetName: string,
   config: WorkConfig,
-  opts: { pull?: boolean; jiraKey?: string; name?: string } = {},
+  opts: { pull?: boolean; jiraKey?: string; name?: string; account?: string } = {},
 ): Promise<BaseCheckoutResult> {
+  const accountRefused = accountRefusal(opts.account, config);
+  if (accountRefused) return { ok: false, error: accountRefused };
   const target = resolveProjectTarget(targetName, config);
   if (!target) return { ok: false, error: `Project or group not found: ${targetName}` };
   if (target.isGroup) return { ok: false, error: `${targetName} is a group: give it a branch (a group has no one checkout to open)` };
@@ -1142,7 +1170,7 @@ export async function openBaseCheckout(
   const branch = getCurrentBranch(repoPath) ?? '(detached)';
   // Detached HEAD has no upstream to pull from — skip rather than warn.
   if (opts.pull !== false && branch && branch !== '(detached)') pullLatestForBranch(repoPath, branch);
-  await upsertSession(targetName, false, branch, [repoPath], opts.jiraKey);
+  await upsertSession(targetName, false, branch, [repoPath], opts.jiraKey, undefined, undefined, undefined, opts.account);
   if (opts.name?.trim()) await setSessionTitle(targetName, branch, opts.name);
   const dropped = await forgetOtherBaseCheckoutEntries(targetName, branch, repoPath);
   return { ok: true, repoPath, branch, dropped };

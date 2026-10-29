@@ -31,6 +31,7 @@ export type SessionAction =
   | 'copy-reply'
   | 'fork'
   | 'add-repo'
+  | 'account'
   | 'dev'
   | 'delete';
 
@@ -62,6 +63,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   'copy-reply': { key: 'y', shift: true, label: "Copy Claude's last reply" },
   fork: { key: 'f', label: 'Fork…' },
   'add-repo': { key: 'a', shift: true, label: 'Add a repo… (a session folder)' },
+  account: { key: 'c', shift: true, label: 'Claude account… (move it to another login)' },
   dev: { key: 'd', shift: true, label: 'Start / stop the dev server' },
   delete: { key: 'Delete', shift: true, label: 'Delete…' },
 };
@@ -163,6 +165,8 @@ export interface SessionKeyHandlers {
   fork: () => void;
   /** Open Add a repo… (a session folder only). */
   addRepo: () => void;
+  /** Open Claude account… (more than one account, and a Claude session). */
+  account: () => void;
   remove: () => void;
   /** The rest are its header's (its menu, Ship, notes, a prompt, catch-up, the dev server, a terminal). */
   header: (a: SessionAction) => void;
@@ -194,6 +198,8 @@ export function runSessionKey(action: SessionAction, s: { archived: boolean }, h
       return live ? h.fork() : undefined;
     case 'add-repo':
       return live ? h.addRepo() : undefined;
+    case 'account':
+      return live ? h.account() : undefined;
     case 'delete':
       return h.remove();
     default:

@@ -233,6 +233,8 @@ export interface CreateWorktreeRequest {
   prompt?: string;
   /** A name for the session, shown instead of the branch. */
   name?: string;
+  /** The Claude account it runs on (absent: the default one). */
+  account?: string;
 }
 
 export interface CreateWorktreeResponse {

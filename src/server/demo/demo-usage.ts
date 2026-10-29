@@ -1,6 +1,7 @@
 import type { UsageWire } from '../../core/api-types.js';
 
-/** The demo's usage meter: Claude at 42 % of its 5-hour limit and 18 % of the weekly one, and a few made-up token counts. */
+/** The demo's usage meter: Claude's default account at 42 % of its 5-hour limit and 18 % of the weekly one, its second
+ *  account (demo-accounts.ts) at a few percent, and a few made-up token counts. */
 export function demoUsage(now = Date.now()): UsageWire {
   // The weekly limit resets next Monday at 09:00, local time.
   const monday = new Date(now);
@@ -14,10 +15,20 @@ export function demoUsage(now = Date.now()): UsageWire {
         accounts: [
           {
             account: 'default',
+            isDefault: true,
             at: new Date(now - 60_000).toISOString(),
             windows: [
               { id: 'five_hour', label: '5-hour limit', usedPercent: 42, resetsAt: new Date(now + 2 * 3_600_000).toISOString() },
               { id: 'seven_day', label: 'Weekly limit', usedPercent: 18, resetsAt: monday.toISOString() },
+            ],
+          },
+          // The second login (demo-accounts.ts): little used this week, read a while ago.
+          {
+            account: 'work',
+            at: new Date(now - 3 * 3_600_000).toISOString(),
+            windows: [
+              { id: 'five_hour', label: '5-hour limit', usedPercent: 6, resetsAt: new Date(now + 4 * 3_600_000).toISOString() },
+              { id: 'seven_day', label: 'Weekly limit', usedPercent: 3, resetsAt: monday.toISOString() },
             ],
           },
         ],

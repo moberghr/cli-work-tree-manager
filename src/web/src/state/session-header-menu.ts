@@ -3,6 +3,7 @@ import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { formatTokens } from '../utils/tokens.js';
 import { sessionKey } from './shortcuts.js';
 import { canAddRepo } from './add-repo.js';
+import { canSwitchAccount } from './accounts.js';
 
 /**
  * The session header's ⋯ menu. The header itself shows one action (Archive,
@@ -27,6 +28,8 @@ export interface HeaderMenuActions {
   remove: () => void;
   /** Open Add a repo… — offered only for a session folder that isn't archived (`canAddRepo`). */
   addRepo?: () => void;
+  /** Open Claude account… — given only while more than one account exists; offered for a live Claude session. */
+  account?: () => void;
 }
 
 export function sessionHeaderItems(session: SessionSummary, dev: DevServerState | null, a: HeaderMenuActions): MenuItem[] {
@@ -39,6 +42,9 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
         { label: 'Reconnect terminal', hint: sessionKey('reconnect'), run: a.reconnectTerminal },
         { label: 'Open in terminal', hint: sessionKey('terminal'), run: a.openTerminal },
         { label: 'Ship (push, PR, merge)…', hint: sessionKey('ship'), run: a.ship },
+        ...(a.account && canSwitchAccount(session, true)
+          ? [{ label: 'Claude account…', hint: sessionKey('account'), run: a.account }]
+          : []),
         ...(a.addRepo && canAddRepo(session) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: a.addRepo }] : []),
       ];
   const devItem: MenuItem[] =

@@ -2,12 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from '../platform/config.js';
 import { getConfigDir, loadConfig } from '../platform/config.js';
-import { agentToRecord } from '../agents/index.js';
+import { agentFor, agentToRecord } from '../agents/index.js';
 
-/** The agent a new session records: the configured one when work has an adapter for it (agents/). */
-const recordAgent = (): { agent?: string } => {
-  const agent = agentToRecord(loadConfig());
-  return agent ? { agent } : {};
+/**
+ * What a new session records about its agent: the configured one when work has an adapter for it (agents/), and — for
+ * an agent with accounts (its adapter's `accounts` part) — the account it runs on: the one asked for, else that agent's
+ * default, so a later change of the default never moves it. An agent without accounts records none.
+ */
+const recordAgent = (account?: string): { agent?: string; account?: string } => {
+  const config = loadConfig();
+  const agent = agentToRecord(config);
+  const accounts = agentFor(config).accounts;
+  return { ...(agent ? { agent } : {}), ...(accounts ? { account: account || accounts.defaultName() } : {}) };
 };
 import { json, purgeSessionRows, tx, withDb, type Db } from '../platform/db.js';
 import { sessionIdFor } from './session-id.js';
@@ -195,6 +201,8 @@ export async function upsertSession(
   port?: number,
   /** The repo alias of each of `paths` (WorktreeSession.repos); omitted keeps what the row has. */
   repos?: string[],
+  /** The Claude account a NEW session runs on (default: the configured one); an existing session keeps its own. */
+  account?: string,
 ): Promise<void> {
   tx((d) => {
     const existing = getRow(d, target, branch);
@@ -216,7 +224,7 @@ export async function upsertSession(
         paths,
         createdAt: now,
         lastAccessedAt: now,
-        ...recordAgent(),
+        ...recordAgent(account),
       };
       if (jiraKey) session.jiraKey = jiraKey;
       if (baseBranch) session.baseBranch = baseBranch;
@@ -254,10 +262,11 @@ export async function upsertSessionWithPort(
   baseBranch?: string,
   baseBranches?: Record<string, string>,
   /** What the session owns: the repo alias of each of `paths` (WorktreeSession.repos) and how
-   *  its instructions file is made (`instructions`). Each omitted keeps what the row has. */
-  own: { repos?: string[]; instructions?: SessionInstructions } = {},
+   *  its instructions file is made (`instructions`). Each omitted keeps what the row has. `account`: the Claude
+   *  account a NEW session records (default: the configured one) — an existing row keeps its own, never overwritten. */
+  own: { repos?: string[]; instructions?: SessionInstructions; account?: string } = {},
 ): Promise<{ port?: number }> {
-  const { repos, instructions } = own;
+  const { repos, instructions, account } = own;
   const hasPerRepo = baseBranches && Object.keys(baseBranches).length > 0;
   const id = sessionIdFor({ target, branch });
 
@@ -276,7 +285,7 @@ export async function upsertSessionWithPort(
       putRow(d, existing);
       return existing.port;
     }
-    const session: WorktreeSession = { target, isGroup, branch, paths, createdAt: now, lastAccessedAt: now, ...recordAgent() };
+    const session: WorktreeSession = { target, isGroup, branch, paths, createdAt: now, lastAccessedAt: now, ...recordAgent(account) };
     if (jiraKey) session.jiraKey = jiraKey;
     if (baseBranch) session.baseBranch = baseBranch;
     if (hasPerRepo) session.baseBranches = baseBranches;
@@ -344,6 +353,17 @@ export async function setSessionTitle(target: string, branch: string, title: str
     const t = title.trim().slice(0, 120);
     if (t) s.title = t;
     else delete s.title;
+    putRow(d, s);
+    return true;
+  });
+}
+
+/** Record the Claude account a session runs on (a switch of account): in one transaction. False for an unknown session. */
+export async function setSessionAccount(target: string, branch: string, account: string): Promise<boolean> {
+  return tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s) return false;
+    s.account = account;
     putRow(d, s);
     return true;
   });

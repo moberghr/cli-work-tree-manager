@@ -4,6 +4,7 @@ import { formatTokens } from '../../../../core/usage/usage.js';
 import { fetchUsage } from '../../api/client.js';
 import { useSse } from '../../api/events.js';
 import { ageText, meterView, stale, windowRows } from '../../state/usage-view.js';
+import { accountName } from '../../state/accounts.js';
 
 interface Props {
   onOpenSession: (id: string) => void;
@@ -114,14 +115,16 @@ function Limits({ data, now }: { data: UsageWire | null; now: number }) {
   return (
     <>
       {agents.map((a) => {
-        const readings = a.accounts.filter((acc) => acc.windows.length > 0);
+        // One account: today's look. Several: each named, one with no reading yet says so.
+        const several = a.accounts.length > 1;
+        const readings = several ? a.accounts : a.accounts.filter((acc) => acc.windows.length > 0);
         return (
           <section key={a.agent}>
             <h3 className="wd-legend-title">{a.name}</h3>
             {readings.length === 0 && <p className="wd-usage-note">No reading yet — a running session's status line records it.</p>}
             {readings.map((acc) => (
               <div key={acc.account} className="wd-usage-account">
-                {a.accounts.length > 1 && <div className="wd-usage-muted">account {acc.account}</div>}
+                {several && <div className="wd-usage-muted">account {accountName({ name: acc.account, isDefault: !!acc.isDefault })}</div>}
                 {windowRows(acc, now).map((r) => (
                   <div key={r.label} className="wd-usage-row">
                     <span className="wd-usage-label">{r.label}</span>
@@ -132,11 +135,14 @@ function Limits({ data, now }: { data: UsageWire | null; now: number }) {
                     <span className="wd-usage-muted wd-usage-reset">{r.reset}</span>
                   </div>
                 ))}
-                <div className={'wd-usage-muted' + (stale(acc.at, now) ? ' wd-usage-stale' : '')}>
-                  {stale(acc.at, now)
-                    ? `last read ${ageText(acc.at, now)} — a running Claude refreshes it`
-                    : `read ${ageText(acc.at, now)}`}
-                </div>
+                {acc.windows.length === 0 && <div className="wd-usage-muted">no reading yet</div>}
+                {acc.windows.length > 0 && (
+                  <div className={'wd-usage-muted' + (stale(acc.at, now) ? ' wd-usage-stale' : '')}>
+                    {stale(acc.at, now)
+                      ? `last read ${ageText(acc.at, now)} — a running Claude refreshes it`
+                      : `read ${ageText(acc.at, now)}`}
+                  </div>
+                )}
               </div>
             ))}
           </section>

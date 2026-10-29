@@ -65,4 +65,10 @@ describe('agents', () => {
     }
     expect(others).toEqual([]);
   });
+
+  it("the registry hands out no Claude-named function: it re-exports nothing of Claude's (core asks the adapter)", () => {
+    const registry = fs.readFileSync(path.join(ROOT, REGISTRY), 'utf8');
+    const reexports = [...registry.matchAll(/export\s+(?:type\s+)?\{[^}]*\}\s*from\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
+    expect(reexports.filter((spec) => spec!.startsWith('./claude/'))).toEqual([]);
+  });
 });

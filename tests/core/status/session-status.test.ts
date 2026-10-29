@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let configDir: string;
 vi.mock('../../../src/core/platform/config.js', () => ({ getConfigDir: () => configDir }));
+// The logger finds the folder through config-dir.js (not config.js, which reports through the logger).
+vi.mock('../../../src/core/platform/config-dir.js', () => ({ getConfigDir: () => configDir }));
 
 import {
   ANSWERED_AFTER_MS,

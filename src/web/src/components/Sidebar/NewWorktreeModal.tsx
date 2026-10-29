@@ -4,6 +4,9 @@ import { createWorktree, fetchBranchCheck, fetchProjects, lookupPr, type Project
 import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
 import { onBranchChange } from '../../utils/branch-input.js';
+import { fetchAccounts } from '../../api/client.js';
+import { accountLabel, accountName } from '../../state/accounts.js';
+import type { AccountsWire } from '../../../../core/api-types.js';
 import { parsePrRef, workOnPrPrompt, type PrToStart } from '../../../../core/pr/pr-ref.js';
 
 interface Props {
@@ -28,6 +31,8 @@ interface Props {
   checkBranch?: (target: string, branch: string) => Promise<BranchCheck>;
   /** Test seam; defaults to GET /api/pr-start. */
   findPr?: (ref: string, target?: string) => Promise<PrToStart>;
+  /** Test seam; defaults to GET /api/accounts. */
+  loadAccounts?: () => Promise<AccountsWire>;
 }
 
 /** What a branch check means for what you're about to create; null when it's simply new. Pure. */
@@ -46,8 +51,8 @@ export function branchNote(check: BranchCheck, suggested: boolean): { text: stri
 }
 
 /** "More options" with what's set in it, so a value folded away is never a surprise. Pure. */
-export function moreLabel(name: string, base: string): string {
-  const set = [name.trim() ? `name “${name.trim()}”` : '', base.trim() ? `base ${base.trim()}` : ''].filter(Boolean);
+export function moreLabel(name: string, base: string, account = ''): string {
+  const set = [name.trim() ? `name “${name.trim()}”` : '', base.trim() ? `base ${base.trim()}` : '', accountLabel(account)].filter(Boolean);
   return set.length ? `More options: ${set.join(' · ')}` : 'More options: name, base branch';
 }
 
@@ -79,6 +84,7 @@ export function NewWorktreeModal({
   onManageRepos,
   checkBranch = fetchBranchCheck,
   findPr = lookupPr,
+  loadAccounts = fetchAccounts,
 }: Props) {
   const [projects, setProjects] = useState<{
     singles: ProjectSummary[];
@@ -91,6 +97,29 @@ export function NewWorktreeModal({
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
   const [more, setMore] = useState(!!initial?.base);
+  // Claude accounts: a pick shows only when there is more than one (the default is preselected).
+  const [accounts, setAccounts] = useState<AccountsWire | null>(null);
+  const [account, setAccount] = useState('');
+  useEffect(() => {
+    let live = true;
+    loadAccounts().then(
+      (a) => {
+        if (!live || a.accounts.length < 2) return;
+        setAccounts(a);
+        setAccount((cur) => cur || (a.accounts.find((x) => x.isDefault) ?? a.accounts[0]).name);
+      },
+      () => {
+        /* no answer: no account to pick, the default is used */
+      },
+    );
+    return () => {
+      live = false;
+    };
+    // Read once, when the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const defaultAccount = accounts?.accounts.find((x) => x.isDefault)?.name ?? '';
+  const otherAccount = accounts && account && account !== defaultAccount ? account : '';
   // Starting on someone's PR: its link or number, looked up (gh pr view), then
   // its repo, branch and first prompt filled in — on their branch, pushes land in their PR.
   const [prOpen, setPrOpen] = useState(false);
@@ -223,6 +252,8 @@ export function NewWorktreeModal({
         jiraKey: initial?.jiraKey,
         prompt: prompt.trim() || undefined,
         name: name.trim() || undefined,
+        // Only a pick other than the configured default is sent: without one the server uses the default.
+        account: otherAccount || undefined,
       });
       if (res.startError) {
         setCreatedNoStart({ id: res.sessionId, reason: res.startError });
@@ -353,7 +384,7 @@ export function NewWorktreeModal({
             </p>
           )}
           <button type="button" className="wd-link-button wd-modal-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
-            {more ? '▾' : '▸'} {more ? 'More options: name, base branch' : moreLabel(name, base)}
+            {more ? '▾' : '▸'} {more ? 'More options: name, base branch' : moreLabel(name, base, otherAccount)}
           </button>
           {more && (
             <>
@@ -368,6 +399,19 @@ export function NewWorktreeModal({
                   disabled={submitting}
                 />
               </label>
+              {accounts && (
+                <label className="wd-modal-row">
+                  <span>Claude account</span>
+                  <select value={account} onChange={(e) => setAccount(e.target.value)} disabled={submitting}>
+                    {accounts.accounts.map((a) => (
+                      <option key={a.name} value={a.name} disabled={a.loggedIn === false}>
+                        {accountName(a)}
+                        {a.loggedIn === false ? ' — not logged in' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="wd-modal-row">
                 <span>Base branch (optional)</span>
                 <input

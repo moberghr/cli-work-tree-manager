@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfigDir } from '../platform/config.js';
+import { getConfigDir } from '../platform/config-dir.js';
 import { atomicWriteFile } from '../platform/fs-safe.js';
 import { debugLog } from '../platform/logger.js';
 import type { UsageAccount, UsageWindow } from './usage.js';

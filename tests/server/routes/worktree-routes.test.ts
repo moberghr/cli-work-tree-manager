@@ -163,6 +163,31 @@ describe('POST /api/worktrees with a first prompt', () => {
     expect(((await res.json()) as { warnings?: string[] }).warnings).toEqual(['not in your config any more, so not set up: docs']);
   });
 
+  it('a Claude account is passed to the creation (trimmed; empty means the configured default); an unknown one is refused with why', async () => {
+    const asked: Array<{ account?: string }> = [];
+    const spy = new Hono();
+    mountWorktreeRoutes(spy, {
+      broadcast,
+      create: async (req) => {
+        asked.push(req);
+        return { ok: true, branch: 'feat/a', launchDir: '/wt/x', paths: ['/wt/x'] };
+      },
+    });
+    await create(spy, { target: 'repo', branch: 'feat/a', account: ' work ' });
+    await create(spy, { target: 'repo', branch: 'feat/a', account: '  ' });
+    await create(spy, { target: 'repo', branch: 'feat/a' });
+    expect(asked.map((r) => r.account)).toEqual(['work', undefined, undefined]);
+
+    // Through the real creation: recorded on the new session, or refused before anything is made.
+    saveConfig({ ...(loadConfig() as WorkConfig), claudeAccounts: { work: path.join(tmpHome, '.claude-work') } });
+    expect((await create(app, { target: 'repo', branch: 'feat/new', account: 'work' })).status).toBe(200);
+    expect(loadHistory().find((s) => s.branch === 'feat/new')?.account).toBe('work');
+    const bad = await create(app, { target: 'repo', branch: 'feat/bad', account: 'nope' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/Unknown Claude Code account: nope/);
+    expect(loadHistory().find((s) => s.branch === 'feat/bad')).toBeUndefined();
+  });
+
   it('a start that fails still reports the created worktree', async () => {
     const failing = new Hono();
     mountWorktreeRoutes(failing, {

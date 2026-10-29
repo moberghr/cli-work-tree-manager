@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PtyRegistry, type PtyLike, type PtySpawner } from '../../../src/core/pty/pty-registry.js';
+import { HALT_RESUME_MS, PtyRegistry, type PtyLike, type PtySpawner } from '../../../src/core/pty/pty-registry.js';
 import type { AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 import { isPersistedPty, keepEnv } from '../../../src/core/pty/pty-host-protocol.js';
+import { withReporter } from '../../../src/core/platform/report.js';
 
 const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '--continue' } as unknown as AiToolSpec;
 
@@ -271,7 +272,7 @@ describe('resume is the agent’s call, by the tool it was spawned with', () => 
     const asked = vi.fn((_cwd: string, _tool: string) => true);
     const reg = new PtyRegistry({ spawner, hasConversation: asked, sessionsPath, cwdExists: () => true });
     reg.spawn('a', { cwd: '/x', tool });
-    expect(asked).toHaveBeenCalledWith('/x', 'claude');
+    expect(asked).toHaveBeenCalledWith('/x', 'claude', expect.anything()); // and the environment it will start with
     expect(spawned[0].spec.resume).toBe(true);
 
     // The default check: opencode has no adapter, so no --continue, whatever is on disk.
@@ -343,6 +344,124 @@ describe('variables a restore keeps (config hostEnv)', () => {
       GOPATH: '/go',
     };
     expect(keepEnv(env, Object.keys(env))).toEqual({ JAVA_HOME: '/jdk', PATH: '/bin', GOPATH: '/go' });
+  });
+});
+
+describe("a session's account (agentEnv)", () => {
+  const reg = (hasConversation: (cwd: string, tool: string, env?: Readonly<Record<string, string | undefined>>) => boolean = () => false) =>
+    new PtyRegistry({ spawner, hasConversation, sessionsPath, cwdExists: () => true, keepEnvNames: () => [] });
+  const shell = { PATH: '/bin', CLAUDE_CONFIG_DIR: '/other' };
+
+  it('a named account sets CLAUDE_CONFIG_DIR over the launching shell’s, and a restore keeps it', async () => {
+    const first = reg();
+    first.spawn('a', { cwd: '/x', tool, env: shell, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/work' } });
+    expect(spawned[0].spec.env).toMatchObject({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/acc/work' });
+    await first.flush();
+    expect(readSaved().a).toMatchObject({ keptEnv: { CLAUDE_CONFIG_DIR: '/acc/work' }, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/work' } });
+    first.disposeAllKeepingState();
+    await reg().restore();
+    expect(spawned[1].spec.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/acc/work' });
+  });
+
+  it('the default account takes an inherited CLAUDE_CONFIG_DIR out: from the shell, from the host, and from what is kept', async () => {
+    const first = reg();
+    first.spawn('a', { cwd: '/x', tool, env: shell, agentEnv: { CLAUDE_CONFIG_DIR: null } });
+    expect(spawned[0].spec.env).toEqual({ PATH: '/bin' });
+    await first.flush();
+    expect(readSaved().a).not.toHaveProperty('keptEnv'); // nothing kept: no folder
+    // No shell (the Terminal tab, a restore): the host's own environment, minus the folder.
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/host-inherited');
+    try {
+      first.spawn('b', { cwd: '/y', tool, agentEnv: { CLAUDE_CONFIG_DIR: null } });
+      expect(spawned[1].spec.env).toBeDefined();
+      expect(spawned[1].spec.env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+      expect(spawned[1].spec.env?.PATH ?? spawned[1].spec.env?.Path).toBeDefined();
+      first.disposeAllKeepingState();
+      await reg().restore();
+      expect(spawned.at(-1)?.spec.env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('without an account change a spawn keeps its env as before (none: the host’s own)', () => {
+    reg().spawn('a', { cwd: '/x', tool });
+    expect(spawned[0].spec.env).toBeUndefined();
+    reg().spawn('b', { cwd: '/x', tool, env: shell, agentEnv: {} });
+    expect(spawned[1].spec.env).toEqual(shell);
+  });
+
+  it('the resume check looks with the environment the agent will start with', async () => {
+    const seen: Array<Readonly<Record<string, string | undefined>> | undefined> = [];
+    const r = reg((_cwd, _tool, env) => (seen.push(env), env?.CLAUDE_CONFIG_DIR === '/acc/work'));
+    r.spawn('a', { cwd: '/x', tool, env: shell, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/work' } });
+    expect(spawned[0].spec.resume).toBe(true);
+    r.spawn('b', { cwd: '/y', tool, env: shell, agentEnv: { CLAUDE_CONFIG_DIR: null } });
+    expect(spawned[1].spec.resume).toBe(false);
+    expect(seen[1]).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+    // A restore after the host restarts: the entry's kept folder decides.
+    await r.flush();
+    r.disposeAllKeepingState();
+    seen.length = 0;
+    await reg((_c, _t, env) => (seen.push(env), env?.CLAUDE_CONFIG_DIR === '/acc/work')).restore();
+    expect(spawned.filter((s) => s.spec.cwd === '/x').at(-1)?.spec.resume).toBe(true);
+    expect(spawned.filter((s) => s.spec.cwd === '/y').at(-1)?.spec.resume).toBe(false);
+  });
+
+  it('a restart runs on the account too', async () => {
+    const r = reg((_c, _t, env) => env?.CLAUDE_CONFIG_DIR === '/acc/work');
+    r.spawn('a', { cwd: '/x', tool, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/work' } });
+    const before = spawned.length;
+    const done = r.restart('a');
+    spawned[before - 1].pty.exit(0);
+    await done;
+    expect(spawned[before].spec.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/acc/work' });
+    expect(spawned[before].spec.resume).toBe(true);
+  });
+
+  it('a restart with a new agentEnv starts the process on it, and the restore list keeps it', async () => {
+    const r = reg(() => true);
+    const shell = { PATH: '/bin' };
+    r.spawn('a', { cwd: '/x', tool, env: shell, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/old' } });
+    expect(spawned[0].spec.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/acc/old' });
+    const done = r.restart('a', undefined, { CLAUDE_CONFIG_DIR: '/acc/new' });
+    spawned[0].pty.exit(0);
+    await done;
+    expect(spawned[1].spec.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/acc/new', PATH: '/bin' });
+    await r.flush();
+    expect(readSaved().a.agentEnv).toEqual({ CLAUDE_CONFIG_DIR: '/acc/new' });
+    expect(readSaved().a.keptEnv).toEqual({ CLAUDE_CONFIG_DIR: '/acc/new' });
+    // To the default account: taken out of the environment and out of what a restore keeps.
+    const back = r.restart('a', undefined, { CLAUDE_CONFIG_DIR: null });
+    spawned[1].pty.exit(0);
+    await back;
+    expect(spawned[2].spec.env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+    await r.flush();
+    expect(readSaved().a.keptEnv).toBeUndefined();
+    expect(readSaved().a.agentEnv).toEqual({ CLAUDE_CONFIG_DIR: null });
+  });
+
+  it('a restart that never stops the old process changes nothing about its environment', async () => {
+    const r = reg(() => true);
+    r.spawn('a', { cwd: '/x', tool, env: { PATH: '/bin' }, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/old' } });
+    await expect(r.restart('a', 20, { CLAUDE_CONFIG_DIR: '/acc/new' })).rejects.toThrow(/didn't stop/);
+    await r.flush();
+    expect(Object.keys(readSaved())).toEqual([]); // ended as a stop is; nothing restored on the wrong account
+  });
+
+  it('keepEnv always keeps CLAUDE_CONFIG_DIR (a path, not a secret) — never one with a password in it', () => {
+    expect(keepEnv({ CLAUDE_CONFIG_DIR: '/acc/work', OTHER: 'x' }, [])).toEqual({ CLAUDE_CONFIG_DIR: '/acc/work' });
+    expect(keepEnv({ CLAUDE_CONFIG_DIR: '/acc/work', JAVA_HOME: '/jdk' }, ['JAVA_HOME'])).toEqual({
+      JAVA_HOME: '/jdk',
+      CLAUDE_CONFIG_DIR: '/acc/work',
+    });
+    expect(keepEnv({ CLAUDE_CONFIG_DIR: 'https://u:pw@h/x' }, [])).toBeUndefined();
+    expect(keepEnv({ PATH: '/bin' }, [])).toBeUndefined();
+  });
+
+  it('a restore list entry with a malformed agentEnv is not respawned', () => {
+    expect(isPersistedPty({ cwd: '/x', tool, startedAt: '', agentEnv: { CLAUDE_CONFIG_DIR: null } })).toBe(true);
+    expect(isPersistedPty({ cwd: '/x', tool, startedAt: '', agentEnv: { A: 1 } })).toBe(false);
   });
 });
 
@@ -421,6 +540,179 @@ describe('attaching while the screen is still parsing (a late attacher must not 
     expect((await att.ready).data).toBe('hello ');
     spawned[0].pty.emit('world');
     expect(got).toEqual(['world']);
+  });
+});
+
+describe('halt / resume', () => {
+  const spec = () => ({ cwd: dir, tool, keptEnv: { JAVA_HOME: '/jdk' }, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/old' } });
+  /** Halt `s` (its process exits when asked to). */
+  async function halted(reg: PtyRegistry) {
+    const old = spawned.at(-1)!.pty;
+    const halting = reg.halt('s');
+    old.exit(0);
+    await halting;
+    return old;
+  }
+
+  it('stops the process but keeps the entry, its record and its clients, not told it ended', async () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    const exits: number[] = [];
+    const a = reg.attach(
+      's',
+      () => {},
+      (c) => exits.push(c),
+    )!;
+    a.start();
+    const old = await halted(reg);
+    expect(old.disposed).toBe(true);
+    expect(exits).toEqual([]);
+    expect(spawned).toHaveLength(1); // nothing started again
+    expect(reg.get('s')).toMatchObject({ clients: 1 });
+    await reg.flush();
+    expect(Object.keys(readSaved())).toEqual(['s']); // still in the restore list
+    // Attaching meanwhile joins it: not told it ended either.
+    const late = reg.attach(
+      's',
+      () => {},
+      () => exits.push(9),
+    )!;
+    expect(late.exitedWith).toBeNull();
+    expect(exits).toEqual([]);
+  });
+
+  it('is not forgotten by the 5 s exit rule, and a spawn meanwhile starts no second agent', async () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    await halted(reg);
+    await vi.advanceTimersByTimeAsync(10_000); // past the exit rule, before the auto-resume
+    expect(reg.get('s')).not.toBeNull();
+    reg.spawn('s', spec());
+    expect(spawned).toHaveLength(1);
+  });
+
+  it('a second halt or a restart while halted is refused', async () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    await halted(reg);
+    await expect(reg.halt('s')).rejects.toThrow(/already/);
+    await expect(reg.restart('s')).rejects.toThrow(/halted/);
+    expect(spawned).toHaveLength(1);
+  });
+
+  it('a second halt while the first is still stopping is refused too', async () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    const first = reg.halt('s');
+    await expect(reg.halt('s')).rejects.toThrow(/already/);
+    spawned[0].pty.exit(0);
+    await first;
+  });
+
+  it('resume starts it again in place with --continue and the given environment; clients carry on and get its output', async () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    const out: string[] = [];
+    const exits: number[] = [];
+    const a = reg.attach(
+      's',
+      (d) => out.push(d),
+      (c) => exits.push(c),
+    )!;
+    a.start();
+    await halted(reg);
+    const info = await reg.resume('s', { CLAUDE_CONFIG_DIR: '/acc/new' });
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1].spec).toMatchObject({
+      resume: true,
+      env: expect.objectContaining({ CLAUDE_CONFIG_DIR: '/acc/new', JAVA_HOME: '/jdk' }),
+    });
+    expect(info).toMatchObject({ exited: false, clients: 1 });
+    spawned[1].pty.emit('hi');
+    expect(out).toEqual(['hi']);
+    expect(exits).toEqual([]);
+    await reg.flush();
+    expect(readSaved().s.agentEnv).toEqual({ CLAUDE_CONFIG_DIR: '/acc/new' });
+    // And it can be halted again now.
+    const again = reg.halt('s');
+    spawned[1].pty.exit(0);
+    await again;
+  });
+
+  it('resume of one that is not halted is null (and starts nothing)', async () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    expect(await reg.resume('s')).toBeNull();
+    expect(await reg.resume('nope')).toBeNull();
+    expect(spawned).toHaveLength(1);
+  });
+
+  it('with no resume within the timeout it starts again on its OLD spec, so a work web that died leaves no dead session', async () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    await halted(reg);
+    await vi.advanceTimersByTimeAsync(HALT_RESUME_MS - 1);
+    expect(spawned).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1].spec).toMatchObject({ resume: true });
+    expect(spawned[1].spec.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/acc/old' });
+    expect(reg.get('s')).toMatchObject({ exited: false });
+    // The timer is spent: a late resume finds nothing halted.
+    expect(await reg.resume('s')).toBeNull();
+  });
+
+  it('waits minutes, not seconds (a big move across volumes), and says so at warn when it starts it by itself', async () => {
+    expect(HALT_RESUME_MS).toBe(5 * 60_000);
+    // Real timers (a fake setTimeout loses the reporter's async scope), with a short wait for the test.
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    const warns: string[] = [];
+    await withReporter(
+      (level, text) => {
+        if (level === 'warn') warns.push(text);
+      },
+      async () => {
+        const old = spawned.at(-1)!.pty;
+        const halting = reg.halt('s', 3000, 20);
+        old.exit(0);
+        await halting;
+      },
+    );
+    await vi.waitFor(() => expect(spawned).toHaveLength(2));
+    expect(warns).toEqual([expect.stringMatching(/^s: halted, and no resume within 0 s: starting it again/)]);
+  });
+
+  it('a resume cancels the auto-resume; a kill while halted cancels it too', async () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    await halted(reg);
+    await reg.resume('s');
+    await vi.advanceTimersByTimeAsync(HALT_RESUME_MS * 2);
+    expect(spawned).toHaveLength(2);
+    const second = spawned[1].pty;
+    const halting = reg.halt('s');
+    second.exit(0);
+    await halting;
+    await reg.kill('s');
+    await vi.advanceTimersByTimeAsync(HALT_RESUME_MS * 2);
+    expect(spawned).toHaveLength(2);
+    expect(reg.get('s')).toBeNull();
+  });
+
+  it('an agent that will not stop within the timeout ends the session (as a restart does) and the halt fails', async () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    await expect(reg.halt('s', 20)).rejects.toThrow(/did not stop|didn.t stop/);
+    expect(reg.get('s')).toBeNull();
+  });
+
+  it('halt of nothing running is null', async () => {
+    const reg = makeRegistry();
+    expect(await reg.halt('nope')).toBeNull();
   });
 });
 

@@ -55,6 +55,8 @@ export interface SessionAgentWire {
     live: boolean;
     /** Its permission prompts can be answered from the dashboard. */
     answer: boolean;
+    /** It runs on one of several logins, and a session can be moved between them (absent: a server from before accounts). */
+    accounts?: boolean;
   };
 }
 
@@ -541,6 +543,10 @@ export interface SessionWire {
   claudes?: SessionClaudes;
   /** The agent it runs, and what work can do with it (a feature it can't is hidden, not shown broken). */
   agent?: SessionAgentWire;
+  /** The account (login) its agent runs on, by its config name; absent = the default account. */
+  account?: string;
+  /** The account a switch waiting for its turn to end will move it to (kept in work web's memory). */
+  accountPending?: string;
   /** What its archive kept (archived sessions; session-archive.ts). */
   archive?: SessionArchiveInfo;
   /** Its name: the one you gave it, else its first prompt, else its Jira key. */
@@ -1172,7 +1178,8 @@ export type ActivityKind =
   | 'groups'
   | 'updates'
   | 'time'
-  | 'agents';
+  | 'agents'
+  | 'accounts';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {
@@ -1271,6 +1278,32 @@ export interface SendWire {
 /** POST /api/sessions/:id/agent/start | stop. */
 export interface AgentControlWire {
   how: 'started' | 'running' | 'stopped' | 'not-running';
+}
+
+/** One account of the agent new sessions run (accounts.ts): a login with its own folder. */
+export interface AccountWire {
+  name: string;
+  /** Its config folder. */
+  dir: string;
+  /** The one new sessions use. */
+  isDefault: boolean;
+  /** Logged in; null: unknown (the keychain on macOS). */
+  loggedIn: boolean | null;
+}
+
+/** GET /api/accounts. */
+export interface AccountsWire {
+  accounts: AccountWire[];
+  /** The name new sessions use. */
+  default: string;
+}
+
+/** POST /api/sessions/:id/account {to}: `switched` (its Claude restarted on it), `queued` (when its turn ends), `recorded` (not running: its next start). */
+export interface AccountSwitchWire {
+  ok: true;
+  outcome: 'switched' | 'queued' | 'recorded';
+  /** How many conversation entries went across to the new account's folders. */
+  moved?: number;
 }
 
 /** GET /api/agents: the agents in the PTY host still running a version from before their tool was updated (agent-restart.ts). */

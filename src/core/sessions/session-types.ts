@@ -46,6 +46,8 @@ export interface WorktreeSession {
    *  (config `aiCommand`) doesn't change what an existing session runs.
    *  Absent: from before, or an unknown command; it follows `aiCommand`. */
   agent?: string;
+  /** The Claude account it runs on (a name from config `claudeAccounts`); absent = the default account (`~/.claude`), as every row from before. */
+  account?: string;
   /** The name you gave it (the dashboard's rename); otherwise it is named
    *  after its first prompt (session-title.ts). */
   title?: string;

@@ -12,7 +12,10 @@ export interface UsageWindow {
 
 /** One account's last reading of an agent's plan limits (each config folder an agent runs with is an account). */
 export interface UsageAccount {
+  /** The account's name (the agent's own, e.g. a Claude account in config `claudeAccounts`; `default`), or the key a reading was kept under when it names none. */
   account: string;
+  /** The account new sessions use (set on the one only). */
+  isDefault?: true;
   at: string;
   windows: UsageWindow[];
 }

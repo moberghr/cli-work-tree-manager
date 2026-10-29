@@ -1,5 +1,6 @@
 import spawn from './spawn.js';
 import { detachHere } from './process.js';
+import { applyEnvDelta, hasEnvDelta, type EnvDelta } from './env-delta.js';
 import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-launcher.js';
 
 /** Get the platform-appropriate default editor. */
@@ -55,12 +56,15 @@ export function openVSCode(dir: string): void {
  * When `port` is provided it is injected as `$PORT` into the launched process
  * so dev servers started by parallel agent sessions don't collide.
  */
-export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {}, port?: number): void {
+export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {}, port?: number, agentEnv?: EnvDelta): void {
   const { cmd, args } = buildAiLaunchArgs(tool, opts);
+  // This terminal's environment, with the session's account change over it (agent.launch.env) and its port.
+  const env =
+    hasEnvDelta(agentEnv) || port !== undefined
+      ? { ...applyEnvDelta(process.env, agentEnv), ...(port !== undefined ? { PORT: String(port) } : {}) }
+      : undefined;
   const spawnOpts: Parameters<typeof spawn.sync>[2] =
     // The AI tool runs in this terminal: nothing to hide.
-    port !== undefined
-      ? { cwd, stdio: 'inherit', windowsHide: false, env: { ...process.env, PORT: String(port) } }
-      : { cwd, stdio: 'inherit', windowsHide: false };
+    env ? { cwd, stdio: 'inherit', windowsHide: false, env: env as NodeJS.ProcessEnv } : { cwd, stdio: 'inherit', windowsHide: false };
   spawn.sync(cmd, args, spawnOpts);
 }

@@ -34,8 +34,10 @@ import type {
   SessionHistoryWire,
   PrStartWire,
   UsageWire,
+  AccountsWire,
 } from '../../core/api-types.js';
 import { demoUsage } from './demo-usage.js';
+import { DEMO_ACCOUNTS, isDemoAccount } from './demo-accounts.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
 import { demoCodeFile, demoCodeFiles, demoCodeSearch } from './demo-code.js';
@@ -661,7 +663,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     // No branch: the repo as it is (its default branch, in the demo).
     const branch = typeof body.branch === 'string' && body.branch.trim() ? body.branch.trim() : 'main';
     const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : undefined;
-    const s = scenario.create(body.target, branch, prompt);
+    // New worktree's More options may pick another Claude account: recorded, as the real one does (an unknown one refused).
+    const account = typeof body.account === 'string' && body.account ? body.account : undefined;
+    if (account !== undefined && !isDemoAccount(account)) return c.json({ error: `Unknown Claude Code account: ${account}` }, 400);
+    const s = scenario.create(body.target, branch, prompt, undefined, account);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
   // The Time tab: two weeks of made-up days (demo-time.ts), edits in memory.
@@ -832,6 +837,19 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     whatsNew: demoSeen === '2.1.0' ? null : '2.1.0',
   });
   app.get('/api/usage', (c) => c.json(demoUsage() satisfies UsageWire));
+  // Claude accounts: two made-up logins; a switch just records it (demo-accounts.ts).
+  app.get('/api/accounts', (c) => c.json(DEMO_ACCOUNTS satisfies AccountsWire));
+  app.post('/api/sessions/:id/account', async (c) => {
+    const to = (await json(c)).to;
+    if (typeof to !== 'string' || !to) return c.json({ error: 'to is required' }, 400);
+    const r = scenario.switchAccount(c.req.param('id'), to);
+    if (!r) return notFound(c);
+    return r.ok ? c.json(r.body) : c.json({ error: r.error }, r.status);
+  });
+  // A demo switch is recorded at once: nothing ever waits for its turn.
+  app.delete('/api/sessions/:id/account', (c) =>
+    scenario.sessions.has(c.req.param('id')) ? c.json({ error: 'no switch is waiting for its turn' }, 409) : notFound(c),
+  );
   app.get('/api/updates', (c) => c.json(demoUpdates()));
   app.post('/api/updates/check', (c) => c.json(demoUpdates()));
   app.post('/api/updates/restart', (c) => c.json({ error: 'No downloaded update to restart into.' }, 409));

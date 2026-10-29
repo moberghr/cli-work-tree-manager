@@ -11,3 +11,19 @@ export const MODAL_SELECTOR = '[role="dialog"]:not([data-popover]), [role="alert
 export function modalOpen(root: ParentNode = document): boolean {
   return root.querySelector(MODAL_SELECTOR) !== null;
 }
+
+/** The dashboard's own dialogs (DashboardApp's state): each one open while its value is set. */
+export interface DashboardDialogs {
+  newOpen: boolean;
+  deleting: unknown;
+  forking: unknown;
+  addingRepo: unknown;
+  switchingAccount: unknown;
+  snoozingUntil: unknown;
+  blocking: unknown;
+}
+
+/** One of the dashboard's dialogs is open (its shortcuts stop meanwhile, as for any modal). */
+export function dashboardDialogOpen(d: DashboardDialogs): boolean {
+  return Object.values(d).some((v) => v !== null && v !== undefined && v !== false);
+}

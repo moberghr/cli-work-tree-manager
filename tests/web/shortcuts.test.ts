@@ -21,6 +21,7 @@ describe('the open session’s keys', () => {
     expect(sessionActionFor({ key: '2' })).toBe('tab-diff');
     expect(sessionActionFor({ key: 'A', shiftKey: true })).toBe('add-repo');
     expect(sessionActionFor({ key: 'a' })).toBeNull();
+    expect(sessionActionFor({ key: 'C', shiftKey: true })).toBe('account');
     expect(sessionActionFor({ key: 'e', ctrlKey: true })).toBeNull();
     expect(sessionActionFor({ key: 'e', altKey: true })).toBeNull();
   });
@@ -41,6 +42,7 @@ describe('the open session’s keys', () => {
     expect(sessionKey('ship')).toBe('⇧S');
     expect(sessionKey('delete')).toBe('⇧Del');
     expect(sessionKey('add-repo')).toBe('⇧A');
+    expect(sessionKey('account')).toBe('⇧C');
     expect(keyText({ key: '.' })).toBe('.');
   });
 
@@ -63,6 +65,7 @@ describe('runSessionKey', () => {
       copyBranch: () => calls.push('copy'),
       fork: () => calls.push('fork'),
       addRepo: () => calls.push('add-repo'),
+      account: () => calls.push('account'),
       remove: () => calls.push('delete'),
       header: (a) => calls.push(`header ${a}`),
     };
@@ -94,6 +97,7 @@ describe('runSessionKey', () => {
       'header copy-reply',
       'fork',
       'add-repo',
+      'account',
       'header dev',
       'delete',
     ]);
@@ -101,7 +105,7 @@ describe('runSessionKey', () => {
 
   it('an archived session: e restores it; snooze, blocked by, editor, fork and add a repo do nothing', () => {
     const { h, calls } = handlers();
-    for (const a of ['archive', 'snooze', 'block', 'editor', 'fork', 'add-repo', 'copy'] as SessionAction[])
+    for (const a of ['archive', 'snooze', 'block', 'editor', 'fork', 'add-repo', 'account', 'copy'] as SessionAction[])
       runSessionKey(a, { archived: true }, h);
     expect(calls).toEqual(['archived false', 'copy']);
   });

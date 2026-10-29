@@ -45,6 +45,20 @@ describe('sessionWire', () => {
     expect(behindFor).toHaveBeenCalledWith(expect.any(String), s, expect.any(Number));
   });
 
+  it('names the account only for a session that is not on the default one', () => {
+    expect(sessionWire(s)).not.toHaveProperty('account');
+    expect(sessionWire({ ...s, account: 'default' })).not.toHaveProperty('account');
+    expect(sessionWire({ ...s, account: 'work' }).account).toBe('work');
+  });
+
+  it('says where a switch waiting for its turn goes (accountPending), not for an archived one', () => {
+    expect(sessionWire(s, { accountPendingFor: () => null })).not.toHaveProperty('accountPending');
+    expect(sessionWire(s, { accountPendingFor: () => 'work' }).accountPending).toBe('work');
+    expect(sessionWire({ ...s, archivedAt: '2026-10-01T00:00:00Z' }, { accountPendingFor: () => 'work' })).not.toHaveProperty(
+      'accountPending',
+    );
+  });
+
   it('says when it is being archived, only while it is', async () => {
     const { whileArchiving } = await import('../../../src/core/archive/archiving.js');
     const { sessionIdFor } = await import('../../../src/core/sessions/web-state.js');

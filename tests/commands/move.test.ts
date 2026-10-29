@@ -50,12 +50,14 @@ describe('work move', () => {
       transcripts: 1,
       repos: { cloned: [], missing: ['web'] },
       worktrees: { created: ['api · feat/x'], failed: [{ session: 'web · fix/y', error: "its repo isn't here (web)" }] },
+      accounts: [{ name: 'work', dir: '/home/me/.claude-work' }],
     });
     await run({ action: 'import', dir: 'bundle', clone: true, 'repos-root': 'r' });
     expect(core.importBundle.mock.calls[0][1]).toMatchObject({ clone: true, force: false, reposRoot: expect.stringMatching(/r$/) });
     const text = out.join('\n');
     expect(text).toContain('Not on this computer: web');
     expect(text).toContain("web · fix/y: its repo isn't here (web)");
+    expect(text).toContain('work: CLAUDE_CONFIG_DIR=/home/me/.claude-work claude'); // logins don't travel: log in again
   });
 
   it('a refusal from core is a message, not a crash', async () => {

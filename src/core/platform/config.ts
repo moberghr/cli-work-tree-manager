@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { atomicWriteFile } from './fs-safe.js';
 import { validatePrompts } from '../sessions/saved-prompts.js';
 import { isIssueKey } from '../time/allocate.js';
+import { getConfigDir } from './config-dir.js';
 import type { SavedPrompt } from '../api-types.js';
 
 /**
@@ -44,6 +44,10 @@ export interface WorkConfig {
   stacks?: { autoUpdate?: boolean };
   /** Usage meters: `statusLine: false` leaves Claude's status line alone (work otherwise wraps it to read the rate limits). */
   usage?: { statusLine?: boolean };
+  /** Claude Code accounts besides the default `~/.claude`: name → its config folder (`CLAUDE_CONFIG_DIR`), as written; agents/claude/accounts.ts checks them. */
+  claudeAccounts?: Record<string, string>;
+  /** The account new sessions and work's own Claude runs use: `default` or a key of `claudeAccounts`. */
+  claudeAccount?: string;
   /** The agent that writes work's own summaries — checkpoint names, catch-up, archive summaries, the Jira watch's choice (default `claude`; one without one-shot runs writes none). */
   internalAgent?: string;
   /** The agent the Ctrl+K assistant runs (an adapter's id; Claude Code by default). */
@@ -172,13 +176,7 @@ export function validatePortRange(value: unknown): { start: number; end: number 
   return { start, end };
 }
 
-export function getConfigDir(): string {
-  const dir = path.join(os.homedir(), '.work');
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  return dir;
-}
+export { getConfigDir };
 
 /** An agent named in config (`internalAgent`, `assistantAgent`): an adapter's id, a plain word — never a path or a command line. */
 export function isAgentId(v: unknown): v is string {
@@ -261,6 +259,21 @@ function stringList(raw: unknown): string[] | undefined {
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : undefined;
 }
 
+/** `default` is the account at `~/.claude` (a session that records no account runs on it); it can't be a configured name. */
+export const DEFAULT_ACCOUNT = 'default';
+
+/**
+ * `claudeAccounts` as written: the entries whose folder is a string. What makes one an account (a name, a folder that
+ * can be one) is Claude's to say (agents/claude/accounts.ts), which checks them where they are read.
+ */
+function stringRecord(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out = Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'),
+  );
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function loadConfig(): WorkConfig | null {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
@@ -303,6 +316,8 @@ export function loadConfig(): WorkConfig | null {
           : undefined,
       stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
       usage: parsed.usage && typeof parsed.usage === 'object' ? { statusLine: parsed.usage.statusLine !== false } : undefined,
+      claudeAccounts: stringRecord(parsed.claudeAccounts),
+      claudeAccount: typeof parsed.claudeAccount === 'string' ? parsed.claudeAccount : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
       hostEnv: Array.isArray(parsed.hostEnv)

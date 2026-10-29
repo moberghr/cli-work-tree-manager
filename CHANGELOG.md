@@ -3,6 +3,28 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.8.0 — 2026-10-30
+
+- After updating, run `work pty-host --restart` once: a PTY host from before this release refuses sessions on another account, and says so.
+
+- **Claude accounts:** use more than one Claude Code login from work, for
+  when the first one's weekly limit runs out. Add one with `work account
+  add <name>` (it starts `claude` on the new account's own folder so you
+  `/login` once); `work account list` shows each account, whether it is
+  logged in and its last usage reading, `work account default <name>` picks
+  the one new sessions use. New sessions can take another account with
+  `work tree … --account <name>` or New worktree's "More options". To move a
+  running session, use ⋯ → Claude account… (⇧C, or the rail's right-click
+  menu) or `work account switch --to <name>`: its conversation moves to the
+  new account and its Claude starts again where it was, in the same
+  terminal — after its current turn when it is working. A session on another
+  account shows "account: <name>" in its header, and the Usage panel names
+  each account. Without a second account nothing changes. With accounts
+  set up, a session on the default account no longer picks up a
+  `CLAUDE_CONFIG_DIR` from the shell you started it in: it runs on
+  `~/.claude`, as its account says. `work account remove` also refuses an
+  account archived sessions still use (`--force` removes it anyway).
+
 ## 2.7.0 — 2026-10-29
 
 - **Usage on the top bar:** a small meter shows the plan limit nearest its

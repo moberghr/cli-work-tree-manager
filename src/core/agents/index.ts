@@ -1,6 +1,6 @@
-import fs from 'node:fs';
 import path from 'node:path';
-import { getConfigPath, isAgentId } from '../platform/config.js';
+import { isAgentId } from '../platform/config.js';
+import { configView } from '../platform/config-cache.js';
 import { getAiTool } from '../platform/ai-launcher.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
@@ -9,44 +9,29 @@ import { claudeAgent } from './claude/adapter.js';
 import type { AgentAdapter, AgentConversation, LiveAgent } from './types.js';
 import { typeThenEnter } from './typing.js';
 
-export type { AgentAdapter, AgentLaunch, AgentUsageSource, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
+export type { AgentAdapter, AgentLaunch, AgentUsageSource, ConversationEntry, LiveAgent, ResumeVia, TurnEdge, WorkHook } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
 export type AgentSettings = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags' | 'internalAgent' | 'assistantAgent'>;
 
 /**
- * The config's agent settings (aiCommand, aiCommandFlags, internalAgent, assistantAgent),
- * read again only when config.json changed (its path, size and mtime): the
- * agent lookups run per session on every session-list build, and a full
- * loadConfig each time was a read and a parse per row.
+ * The config's agent settings (aiCommand, aiCommandFlags, internalAgent, assistantAgent), read again only when
+ * config.json changed (config-cache.ts, shared with the accounts' reader): the agent lookups run per session on every
+ * session-list build, and a full loadConfig each time was a read and a parse per row.
  */
-let settingsCache: { key: string; value: AgentSettings } | null = null;
+const settingsView = configView((p): AgentSettings => {
+  if (!p) return {};
+  return {
+    ...(typeof p.aiCommand === 'string' ? { aiCommand: p.aiCommand } : {}),
+    ...(p.aiCommandFlags && typeof p.aiCommandFlags === 'object'
+      ? { aiCommandFlags: p.aiCommandFlags as AgentSettings['aiCommandFlags'] }
+      : {}),
+    ...(isAgentId(p.internalAgent) ? { internalAgent: p.internalAgent } : {}),
+    ...(isAgentId(p.assistantAgent) ? { assistantAgent: p.assistantAgent } : {}),
+  };
+});
 export function agentSettings(): AgentSettings {
-  const file = getConfigPath();
-  let key: string;
-  try {
-    const st = fs.statSync(file);
-    key = `${file}|${st.size}|${st.mtimeMs}`;
-  } catch {
-    return {};
-  }
-  if (settingsCache?.key === key) return settingsCache.value;
-  let value: AgentSettings = {};
-  try {
-    const p = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
-    value = {
-      ...(typeof p.aiCommand === 'string' ? { aiCommand: p.aiCommand } : {}),
-      ...(p.aiCommandFlags && typeof p.aiCommandFlags === 'object'
-        ? { aiCommandFlags: p.aiCommandFlags as AgentSettings['aiCommandFlags'] }
-        : {}),
-      ...(isAgentId(p.internalAgent) ? { internalAgent: p.internalAgent } : {}),
-      ...(isAgentId(p.assistantAgent) ? { assistantAgent: p.assistantAgent } : {}),
-    };
-  } catch {
-    /* unreadable: the defaults */
-  }
-  settingsCache = { key, value };
-  return value;
+  return settingsView();
 }
 
 /** The agent a session runs, with the config's settings (cached): `agentFor(agentSettings(), session)`. */
@@ -105,6 +90,11 @@ export function knownAgents(): AgentAdapter[] {
   return [...ADAPTERS.values()];
 }
 
+/** Every known agent's account folders (Claude's: `~/.claude` and each configured account's): what work's per-account setup covers. */
+export function agentAccountFolders(): string[] {
+  return knownAgents().flatMap((a) => a.accounts?.list().map((acc) => acc.dir) ?? []);
+}
+
 /** The newest write any known agent made to its conversations for work in `cwd` (ms; 0: none). */
 export function agentWriteMs(cwd: string): number {
   return Math.max(0, ...knownAgents().map((a) => a.conversation?.lastWriteMs?.(cwd) ?? 0));
@@ -143,7 +133,13 @@ export function agentWire(a: AgentAdapter): SessionAgentWire {
   return {
     id: a.id,
     name: a.name,
-    can: { read: !!a.conversation, hooks: !!a.events, live: !!a.live, answer: !!a.input.permissionDialog },
+    can: {
+      read: !!a.conversation,
+      hooks: !!a.events,
+      live: !!a.live,
+      answer: !!a.input.permissionDialog,
+      accounts: !!a.accounts,
+    },
   };
 }
 
@@ -168,3 +164,6 @@ export function agentToRecord(config: ToolConfig): string | undefined {
 export function agentFor(config: ToolConfig, session?: Pick<WorktreeSession, 'agent'> | null): AgentAdapter {
   return agentById(isKnownAgent(session?.agent) ? session.agent : getAiTool(config ?? {}).cmd);
 }
+
+export type { AccountInfo, AccountUsers, AgentAccounts, AgentAccountAdmin } from './types.js';
+export { AccountAdminError } from './types.js';

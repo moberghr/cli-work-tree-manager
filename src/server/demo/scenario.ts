@@ -39,6 +39,7 @@ import type { AgentState } from '../../core/status/attention.js';
 import type { PullRequestInfo } from '../../core/pr/pr.js';
 import type { JiraIssue } from '../../core/jira/jira.js';
 import type { Task } from '../../core/tasks.js';
+import { demoSwitch } from './demo-accounts.js';
 
 /**
  * The demo world: a handful of sessions, their diffs, PRs, comments and
@@ -87,10 +88,12 @@ interface DemoSession {
   worktreeRemoved?: boolean;
   /** Who archived it, as a real archive records it. */
   archivedBy?: ArchivedBy;
+  /** The Claude account it runs on (demo-accounts.ts); absent = the default. */
+  account?: string;
 }
 
 /** The demo's sessions run Claude Code, with everything work can do with it. */
-const DEMO_AGENT = { id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true } };
+const DEMO_AGENT = { id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true, accounts: true } };
 
 export type DemoEvent = { event: string; data: unknown };
 
@@ -818,6 +821,7 @@ export class DemoScenario {
     const stat = this.diffStat(s);
     return {
       agent: DEMO_AGENT,
+      ...(s.account && s.account !== 'default' ? { account: s.account } : {}),
       id: s.id,
       target: s.target,
       branch: s.branch,
@@ -1275,6 +1279,18 @@ export class DemoScenario {
     return true;
   }
 
+  /** Move a session to another account (demo-accounts.ts): just recorded. */
+  switchAccount(id: string, to: string): ReturnType<typeof demoSwitch> | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    const r = demoSwitch({ account: s.account, archived: !!s.archivedAt }, to);
+    if (r.ok) {
+      s.account = to === 'default' ? undefined : to;
+      this.changed();
+    }
+    return r;
+  }
+
   remove(id: string): boolean {
     const ok = this.sessions.delete(id);
     if (ok) this.changed();
@@ -1369,7 +1385,7 @@ export class DemoScenario {
     return true;
   }
 
-  create(target: string, branch: string, prompt?: string, baseBranch?: string): SessionWire {
+  create(target: string, branch: string, prompt?: string, baseBranch?: string, account?: string): SessionWire {
     const project = this.projects();
     const group = project.groups.find((g) => g.name === target);
     const first = prompt?.split('\n')[0];
@@ -1382,6 +1398,7 @@ export class DemoScenario {
       0,
     );
     if (baseBranch) s.baseBranch = baseBranch;
+    if (account && account !== 'default') s.account = account;
     this.changed();
     return this.wire(s);
   }

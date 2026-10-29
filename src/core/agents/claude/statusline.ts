@@ -3,15 +3,21 @@ import path from 'node:path';
 import { atomicWriteFile } from '../../platform/fs-safe.js';
 import { editSettings, readSettingsFile, type SettingsFile } from '../../platform/settings-editor.js';
 import { report } from '../../platform/report.js';
+import { setUpAccounts } from './accounts.js';
 import { WORK_STATUSLINE, isOurs, isRecord, readSaved, savedPath, type StatusLine } from './statusline-run.js';
 
 // Claude hands its rate limits only to the status line command. work puts itself in front of the user's own: it records
 // the reading, then runs theirs and passes its output on (statusline-run.ts, the hook's half). This half installs and
 // removes it; work web loads it lazily through the adapter (usage.ts), never the hook.
 
-function save(original: StatusLine | null): void {
-  fs.mkdirSync(path.dirname(savedPath()), { recursive: true });
-  atomicWriteFile(savedPath(), JSON.stringify({ original }));
+// Each account has its own settings and its own saved original: every function takes the account's config folder
+// (`configDir`; none = the default account, ~/.claude) and works on its `settings.json` and `statusline[-<account>].json`.
+
+const settingsOf = (configDir?: string) => (configDir ? path.join(configDir, 'settings.json') : undefined);
+
+function save(original: StatusLine | null, configDir?: string): void {
+  fs.mkdirSync(path.dirname(savedPath(configDir)), { recursive: true });
+  atomicWriteFile(savedPath(configDir), JSON.stringify({ original }));
 }
 
 /**
@@ -27,26 +33,26 @@ export function wrapperCommand(original: StatusLine | null): string {
 }
 
 /** Put work's status line in front of the user's. The original is saved inside the edit, so a change made meanwhile isn't lost. */
-export async function wrapStatusLine(): Promise<void> {
+export async function wrapStatusLine(configDir?: string): Promise<void> {
   await editSettings((s: SettingsFile) => {
     if (isOurs(s.statusLine)) {
       // Ours already (perhaps under another path, or from before): the fallback follows the saved original. Nothing
       // readable saved: left as it is — its fallback may be the only copy of the user's line.
-      const saved = readSaved();
+      const saved = readSaved(configDir);
       if (saved.kind === 'ok') s.statusLine = { ...(s.statusLine as StatusLine), command: wrapperCommand(saved.original) };
       return;
     }
     // Not ours: the user's line, perhaps set again with /statusline since — saved fresh, with a new fallback.
     const original = isRecord(s.statusLine) ? s.statusLine : null;
-    save(original);
+    save(original, configDir);
     const { command: _c, type: _t, ...keep } = original ?? {};
     s.statusLine = { ...keep, type: 'command', command: wrapperCommand(original) };
-  });
+  }, settingsOf(configDir));
 }
 
 /** The statusLine entry of Claude's settings as it is now; `unreadable` when the file doesn't parse. */
-export function readStatusLineSetting(): { kind: 'ok'; statusLine: unknown } | { kind: 'unreadable' } {
-  const s = readSettingsFile();
+export function readStatusLineSetting(configDir?: string): { kind: 'ok'; statusLine: unknown } | { kind: 'unreadable' } {
+  const s = readSettingsFile(settingsOf(configDir));
   return s ? { kind: 'ok', statusLine: s.statusLine } : { kind: 'unreadable' };
 }
 
@@ -57,14 +63,14 @@ export function readStatusLineSetting(): { kind: 'ok'; statusLine: unknown } | {
 export type UnwrapOutcome = 'restored' | 'not-ours' | 'kept' | 'failed';
 
 /** Give the user's status line back (settings left alone when it isn't ours, or when what was saved can't be read). */
-export async function unwrapStatusLine(): Promise<UnwrapOutcome> {
+export async function unwrapStatusLine(configDir?: string): Promise<UnwrapOutcome> {
   let outcome = 'failed' as UnwrapOutcome; // the mutate never runs when the settings can't be read (set inside it, hence the cast)
   await editSettings((s: SettingsFile) => {
     if (!isOurs(s.statusLine)) {
       outcome = 'not-ours';
       return;
     }
-    const saved = readSaved();
+    const saved = readSaved(configDir);
     if (saved.kind !== 'ok') {
       outcome = 'kept';
       return;
@@ -72,16 +78,26 @@ export async function unwrapStatusLine(): Promise<UnwrapOutcome> {
     if (saved.original) s.statusLine = saved.original;
     else delete s.statusLine;
     outcome = 'restored';
-  });
+  }, settingsOf(configDir));
   if (outcome === 'kept')
     report(
       'warn',
-      `[work] ${savedPath()} (your own status line, saved by work) is missing or damaged: Claude's status line left as it is.`,
+      `[work] ${savedPath(configDir)} (your own status line, saved by work) is missing or damaged: Claude's status line left as it is.`,
     );
   // The saved original goes only once the settings no longer point at work: a failed write must not lose it.
-  const now = readStatusLineSetting();
-  if (outcome !== 'kept' && now.kind === 'ok' && !isOurs(now.statusLine)) fs.rmSync(savedPath(), { force: true });
+  const now = readStatusLineSetting(configDir);
+  if (outcome !== 'kept' && now.kind === 'ok' && !isOurs(now.statusLine)) fs.rmSync(savedPath(configDir), { force: true });
   return outcome;
+}
+
+/** Every account's config folder, the default's first; a configured one only once its folder exists (setUpAccounts). */
+const accountDirs = (): string[] => setUpAccounts().map((a) => a.dir);
+
+/** Give every account's status line back; the outcome of each, by account name. */
+export async function unwrapAllStatusLines(): Promise<Array<{ account: string; outcome: UnwrapOutcome }>> {
+  const out: Array<{ account: string; outcome: UnwrapOutcome }> = [];
+  for (const a of setUpAccounts()) out.push({ account: a.name, outcome: await unwrapStatusLine(a.dir) });
+  return out;
 }
 
 /**
@@ -91,9 +107,9 @@ export async function unwrapStatusLine(): Promise<UnwrapOutcome> {
 export async function applyStatusLineSetting(o: { enabled: boolean; lean: boolean }): Promise<'wrapped' | 'restored' | 'skipped'> {
   if (o.lean) return 'skipped';
   if (!o.enabled) {
-    await unwrapStatusLine();
+    for (const dir of accountDirs()) await unwrapStatusLine(dir);
     return 'restored';
   }
-  await wrapStatusLine();
+  for (const dir of accountDirs()) await wrapStatusLine(dir);
   return 'wrapped';
 }

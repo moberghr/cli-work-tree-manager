@@ -67,6 +67,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/diff/diff-points.ts', // pure: the points a diff range runs between
       'src/core/time/allocate.ts', // pure: a day's suggested hours per ticket
       'src/core/time/time-view.ts', // pure: the Time tab's days as shown
+      'src/core/sessions/account-switch-rules.ts', // pure: when a switch of account is refused
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

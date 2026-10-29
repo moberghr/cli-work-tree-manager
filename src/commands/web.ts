@@ -1,7 +1,9 @@
+import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../server/web-server.js';
-import { knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
+import { agentAccountFolders, knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
+import { startAccountSync, type AccountSync } from '../core/agents/account-sync.js';
 import { setupAgentUsage } from '../core/usage/usage-setup.js';
 import { loadConfig } from '../core/platform/config.js';
 import { openUrl } from '../core/platform/launch.js';
@@ -61,6 +63,29 @@ export async function installAgentHooks(lean: boolean, onError: (agent: string) 
   for (const agent of hookedAgents()) {
     await agent.events!.install(lean ? LEAN_HOOKS : FULL_HOOKS, lean ? [] : LEGACY_HOOKS).catch(onError(agent.name));
   }
+}
+
+/** The hooks and the usage readings again, in every account's settings: an account added while work web runs (account-sync.ts). */
+export async function reinstallAgentSetup(lean: boolean): Promise<void> {
+  await installAgentHooks(lean, (name) => swallow(`install ${name} hooks`));
+  await setupAgentUsage(knownAgents(), loadConfig(), lean);
+}
+
+/**
+ * Follow the accounts while work web runs (account-sync.ts): the set of account folders that exist — an account whose
+ * folder isn't there yet is set up once it is (installing into it would make it) — looked at every `everyMs`, and the
+ * hooks and the usage readings installed again when it changed. `apply` / `folders` are for tests.
+ */
+export function startAccountSetupSync(
+  lean: boolean,
+  o: { apply?: () => Promise<void>; folders?: () => string[]; everyMs?: number } = {},
+): AccountSync {
+  return startAccountSync({
+    folders: () => (o.folders ?? agentAccountFolders)().filter((dir) => fs.existsSync(dir)),
+    apply: o.apply ?? (() => reinstallAgentSetup(lean)),
+    onError: swallow('set up a changed Claude account'),
+    ...(o.everyMs !== undefined ? { everyMs: o.everyMs } : {}),
+  });
 }
 
 /** Remove them again, synchronously (shutdown). */
@@ -277,8 +302,11 @@ export const webCommand: CommandModule = {
     // Each agent's usage readings (Claude's come only through its status line, which this wraps; config
     // usage.statusLine: false gives it back). Not undone on shutdown — the wrapper passes the user's own line through.
     await setupAgentUsage(knownAgents(), loadConfig(), lean).catch(swallow('set up the usage readings'));
+    // An account added (or removed) while this runs gets the same, within seconds (account-sync.ts).
+    const accountSync = startAccountSetupSync(lean);
 
     shutdown = () => {
+      accountSync.stop();
       info(chalk.gray('\nStopping work web.'));
       clearWebDiscovery(process.pid);
       removeAgentHooksSync(lean);

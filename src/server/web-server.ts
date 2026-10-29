@@ -119,6 +119,10 @@ import {
 } from '../core/pty/pty-pool.js';
 import { busyForRestart, createRestarter, installedAtCache, QUEUE_RECHECK_MS, restartNotesSummary } from '../core/pty/agent-restart.js';
 import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
+import { mountAccountRoutes } from './routes/account-routes.js';
+import { accountSwitchNote, createAccountSwitcher } from '../core/sessions/account-switch.js';
+import { defaultAccountSwitchDeps } from '../core/sessions/account-switch-deps.js';
+import { createAccountSwitchLink } from '../core/sessions/account-switch-link.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates, sleepPlan } from '../core/pty/idle-sleep.js';
 import { sleepChecks } from '../core/pty/sleep-checks.js';
@@ -415,6 +419,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
                 prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
                 replyDraftsFor: (id) => drafts.get(id) ?? 0,
                 hasNote: (id) => noted.has(id),
+                accountPendingFor: (id) => accountLink.pendingFor(id),
                 blockedByFor: (id) =>
                   (blocks.get(id)?.by ?? [])
                     .filter((b) => !blockerDone(b, (x) => !live.has(x)))
@@ -580,7 +585,11 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // are looked at again every QUEUE_RECHECK_MS while any wait (the Activity panel's schedule).
   // Not in the dev server, which restarts nothing (its route says so).
   const restartSchedule = dev ? null : activity.schedule('agents', 'Agents waiting to restart', QUEUE_RECHECK_MS);
+  // The restarter and the account switcher, tied so a turn's end and the sweep reach both, and one agent is never
+  // restarted twice for the same turn (account-switch-link.ts).
+  const accountLink = createAccountSwitchLink();
   const restarter = createRestarter({
+    foldedInto: accountLink.foldedInto,
     restart: restartPty,
     busy: restartBusy,
     running: peekPty,
@@ -603,10 +612,31 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     // The dev server shares the real PTY host and acts on nothing: the real work web restarts.
     lookOnly: dev ? 'the dev server restarts nothing: use the real work web (the app, or `work restart`)' : undefined,
   });
+  // Moving a session to another Claude account (account-switch.ts): idle now, working or waiting after its turn,
+  // through the same queue rule as a restart. Not in the dev server, which acts on nothing.
+  const accountSchedule = dev ? null : activity.schedule('accounts', 'Account switches waiting for a turn', QUEUE_RECHECK_MS);
+  const accountSwitcher = createAccountSwitcher(
+    defaultAccountSwitchDeps({
+      busy: restartBusy,
+      note: accountSwitchNote(activity, (id) => {
+        const s = findSession(id);
+        return s ? `${s.target} ${s.branch}` : null;
+      }),
+      changed: () => broadcast('sessions-changed', { ts: Date.now() }),
+      scheduled: (nextAt) => accountSchedule?.next(nextAt),
+      cancelRestart: accountLink.cancelRestart,
+    }),
+  );
+  accountLink.connect(restarter, accountSwitcher);
+  mountAccountRoutes(app, {
+    switcher: accountSwitcher,
+    broadcast,
+    lookOnly: dev ? 'the dev server switches nothing: use the real work web (the app, or `work account switch`)' : undefined,
+  });
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
     // A restart waiting on a turn whose end no hook reported (an interrupt): try again.
-    await restarter.retry().catch(() => {});
+    await accountLink.retry();
     const minutes = loadConfig()?.sleepIdleAfterMinutes ?? DEFAULT_SLEEP_AFTER_MINUTES;
     if (sleepAfterMs(minutes) === 0)
       return activity.skip('idle-sleep', 'Looking for idle Claudes', 'turned off (sleepIdleAfterMinutes: 0)');
@@ -936,7 +966,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       : {}),
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
-      restarter.turnEnded(id); // a restart that waited for this turn to end (after its hooks have run)
+      accountLink.turnEnded(id); // a restart, or a switch of account, that waited for this turn to end
       timeKeeper?.soon(); // today's hours, after this turn
       if (jobs) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)

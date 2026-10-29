@@ -5170,3 +5170,66 @@ a.wd-pr-chip:hover {
 .wd-code-line-mark > td {
   background: color-mix(in srgb, var(--warn-fg) 18%, transparent);
 }
+
+/* Claude account… (AccountDialog) and the account chip. */
+.wd-account-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-account-busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-account-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wd-account-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wd-account-row-off {
+  cursor: default;
+  opacity: 0.7;
+}
+.wd-account-name {
+  font-weight: 600;
+}
+.wd-account-dir {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-account-login {
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-account-login-bad {
+  color: var(--status-deleted-fg);
+}
+.wd-account-hint {
+  grid-column: 2 / -1;
+  font-size: 11px;
+  color: var(--muted);
+}
+/* The account chip (AccountChip) is the stack chip's style (.wd-stack, .wd-overlap-link); a switch waiting for its turn after it. */
+.wd-account-pending {
+  color: var(--accent, inherit);
+}

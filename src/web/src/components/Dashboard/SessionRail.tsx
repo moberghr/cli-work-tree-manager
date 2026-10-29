@@ -31,6 +31,7 @@ import { relativeTime } from '../../utils/time.js';
 import { moveSession } from '../../../../core/rail/session-order.js';
 import { lastActiveAt } from '../../state/session-display.js';
 import { modalOpen } from '../../state/modal-open.js';
+import { accountLabel, pendingLabel } from '../../state/accounts.js';
 import { snoozeLabel } from '../../../../core/rail/snooze.js';
 
 interface Props {
@@ -83,6 +84,8 @@ export function railDetails(s: SessionSummary, now = new Date()): string {
     s.prStage?.text ?? '',
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
     s.hasNote ? 'has notes' : '',
+    accountLabel(s.account),
+    pendingLabel(s.accountPending),
     c?.duplicate ? 'two Claudes on one conversation' : c?.inTerminal ? 'running in a terminal' : '',
   ].filter(Boolean);
   return bits.length ? `\n${bits.join(' · ')}` : '';

@@ -52,7 +52,16 @@ describe('hook processes load little', () => {
   it('`work hook statusline` loads neither the registry, the settings editor, the CLI nor the database', () => {
     const { files, packages } = loadedBy('src/core/agents/claude/statusline-hook.ts');
     expect(files.has('src/core/agents/claude/statusline-run.ts')).toBe(true);
-    for (const heavy of ['src/core/agents/index.ts', SETTINGS_EDITOR, STATUSLINE_INSTALLER, 'src/core/platform/db.ts', 'src/cli.ts'])
+    // Not config.ts either (its validators, saved prompts, the Time tab's rules): the hook needs only ~/.work (config-dir.ts).
+    for (const heavy of [
+      'src/core/agents/index.ts',
+      SETTINGS_EDITOR,
+      STATUSLINE_INSTALLER,
+      'src/core/platform/db.ts',
+      'src/cli.ts',
+      'src/core/platform/config.ts',
+      'src/core/platform/report.ts',
+    ])
       expect(files.has(heavy), heavy).toBe(false);
     for (const pkg of ['chalk', 'yargs', 'better-sqlite3']) expect(packages.has(pkg), pkg).toBe(false);
   });

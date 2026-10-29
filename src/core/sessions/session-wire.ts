@@ -25,7 +25,7 @@ import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 import { isLeftover } from '../worktree/leftover.js';
 import { recordedRepos, sessionRepos } from './session-repos.js';
-import { getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
+import { DEFAULT_ACCOUNT, getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -33,6 +33,8 @@ import { getConfigPath, loadConfig, type WorkConfig } from '../platform/config.j
  * context, archive state. Built in one place so the two can't drift.
  */
 export interface SessionWireOptions {
+  /** The account a switch waiting for its turn will move it to (account-switch.ts), or null. */
+  accountPendingFor?: (id: string) => string | null;
   /** The session's `+N −M`, when the caller has one (the web cache). */
   diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null;
   /** Whether its Claude runs in the PTY host (the CLI asks the host; the
@@ -113,6 +115,9 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
         : meta.activityState,
     ...(claudes ? { agents: claudes, claudes } : {}),
     agent: agentWire(agentOf(s)),
+    // Only a session on an account other than the default says which.
+    ...(s.account && s.account !== DEFAULT_ACCOUNT ? { account: s.account } : {}),
+    ...(!s.archivedAt && opts.accountPendingFor?.(id) ? { accountPending: opts.accountPendingFor(id)! } : {}),
     ...(s.archivedAt ? archiveInfo(id) : {}),
     title: bestEffort(
       `title of ${s.target}:${s.branch}`,

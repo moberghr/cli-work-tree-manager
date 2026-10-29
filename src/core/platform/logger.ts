@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfigDir } from './config.js';
+import { getConfigDir } from './config-dir.js';
 
 let maxLogSize = 5 * 1024 * 1024; // 5MB, then debug.log → debug.log.1
 

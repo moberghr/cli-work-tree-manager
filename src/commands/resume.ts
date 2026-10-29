@@ -7,6 +7,7 @@ import { ensureConfig } from '../core/platform/config.js';
 import { loadHistory, getRecentSessions, recordLaunch, touchSession } from '../core/sessions/history.js';
 import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
 import { launchAi } from '../core/platform/launch.js';
+import { envArgs } from '../core/platform/env-delta.js';
 import { timeAgo } from '../core/platform/format.js';
 
 export const resumeCommand: CommandModule = {
@@ -72,6 +73,6 @@ export const resumeCommand: CommandModule = {
     }
     console.log(`Starting ${tool.cmd}...`);
     recordLaunch(choice.target, choice.branch, { unsafe: !!unsafe });
-    launchAi(launchPath, tool, { unsafe, resume: hasConversation }, choice.port);
+    launchAi(launchPath, tool, { unsafe, resume: hasConversation }, choice.port, ...envArgs(agentFor(config, choice).launch.env?.(choice)));
   },
 };

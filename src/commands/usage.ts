@@ -21,7 +21,7 @@ export function usageLines(w: UsageWire, now = Date.now()): string[] {
     const readings = a.accounts.filter((acc) => acc.windows.length > 0);
     if (readings.length === 0) lines.push(chalk.gray('  no reading yet — its next session records one'));
     for (const acc of readings) {
-      if (a.accounts.length > 1) lines.push(chalk.gray(`  account ${acc.account}`));
+      if (a.accounts.length > 1) lines.push(chalk.gray(`  account ${acc.account}${acc.isDefault ? ' (default)' : ''}`));
       for (const win of acc.windows) {
         const pct = `${Math.round(win.usedPercent)}%`;
         lines.push(`  ${win.label.padEnd(14)} ${pct.padStart(4)}  ${chalk.gray(resetPhrase(win.resetsAt, now))}`);

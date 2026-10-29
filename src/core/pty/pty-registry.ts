@@ -5,10 +5,19 @@ import { loadConfig } from '../platform/config.js';
 import { PtySession } from './pty-session.js';
 import { atomicWriteFile, ensureFile, withFileLockSync } from '../platform/fs-safe.js';
 import { dbPtySessions, type PtySessionsStore } from './pty-sessions-file.js';
+import { applyEnvDelta, hasEnvDelta, type EnvDelta } from '../platform/env-delta.js';
 import { isPersistedPty, keepEnv, type PersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { logSwallowed, swallow } from '../platform/best-effort.js';
+import { report } from '../platform/report.js';
 
 const REPLAY_MAX = 256 * 1024;
+
+/**
+ * A halted agent that no `resume` reaches in this long is started again on its old spec (work web died between the two).
+ * Minutes, not seconds: a switch of account moves its conversation folders in between, and a big one across volumes takes
+ * a while; the switch then restarts it in place on the new account (`not-halted` → restart, pty-pool.ts).
+ */
+export const HALT_RESUME_MS = 5 * 60_000;
 
 /** How long an exited PTY lingers before it's dropped from the persisted
  *  list. During a Windows shutdown/logoff the child Claudes are often killed
@@ -45,6 +54,10 @@ export interface ReplaySnapshot {
   rows: number;
 }
 
+/** An environment without its unset names, typed as the spawn takes it. */
+const definedEnv = (env: Record<string, string | undefined>): Record<string, string> =>
+  Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => typeof e[1] === 'string'));
+
 export type PtySpawner = (spec: SpawnSpec & { resume: boolean }) => PtyLike;
 
 export const defaultSpawner: PtySpawner = (spec) =>
@@ -75,6 +88,9 @@ interface Entry {
   /** Its agent is being restarted (restart): the old process's end isn't the session's, a spawn starts no
    *  second one, and a second restart gets this one's outcome. */
   restarting?: Promise<PtyInfo | null>;
+  /** Its agent was stopped by `halt` and isn't started again yet: the entry, its record and its clients stay; `timer` starts it
+   *  again on its old spec if no `resume` comes. */
+  halted?: { timer: ReturnType<typeof setTimeout> };
   /** The environment it was started with, in memory only (never in the restore list: it can hold secrets), so a
    *  restart runs as the session did; a restore after the host restarts has only what `hostEnv` kept. */
   env?: Record<string, string>;
@@ -84,8 +100,8 @@ export interface RegistryDeps {
   /** The env variable names to keep for a restore (default: config `hostEnv`). */
   keepEnvNames?: () => string[];
   spawner?: PtySpawner;
-  /** Its agent can resume a conversation in this folder (default: the agent's own check, agents/). */
-  hasConversation?: (cwd: string, tool: string) => boolean;
+  /** Its agent can resume a conversation in this folder, with the environment it will start with (default: the agent's own check, agents/). */
+  hasConversation?: (cwd: string, tool: string, env?: Readonly<Record<string, string | undefined>>) => boolean;
   /** Where the restore list lives. Default: state.db. */
   sessions?: PtySessionsStore;
   /** Keep the restore list in this JSON file instead (tests, which must
@@ -126,7 +142,7 @@ export function fileSessionsStore(file: string): PtySessionsStore {
 export class PtyRegistry {
   private readonly entries = new Map<string, Entry>();
   private readonly spawner: PtySpawner;
-  private readonly hasConversation: (cwd: string, tool: string) => boolean;
+  private readonly hasConversation: (cwd: string, tool: string, env?: Readonly<Record<string, string | undefined>>) => boolean;
   private readonly store: PtySessionsStore;
   private readonly cwdExists: (cwd: string) => boolean;
   private readonly keepEnvNames: () => string[];
@@ -135,7 +151,7 @@ export class PtyRegistry {
 
   constructor(deps: RegistryDeps = {}) {
     this.spawner = deps.spawner ?? defaultSpawner;
-    this.hasConversation = deps.hasConversation ?? ((cwd, tool) => agentById(tool).launch.canResume(cwd));
+    this.hasConversation = deps.hasConversation ?? ((cwd, tool, env) => agentById(tool).launch.canResume(cwd, { env }));
     this.store = deps.sessions ?? (deps.sessionsPath ? fileSessionsStore(deps.sessionsPath) : dbPtySessions);
     this.cwdExists = deps.cwdExists ?? ((p) => fs.existsSync(p));
     this.keepEnvNames = deps.keepEnvNames ?? (() => loadConfig()?.hostEnv ?? []);
@@ -153,13 +169,19 @@ export class PtyRegistry {
   /** Spawn unless a live PTY already exists for `id` (idempotent). */
   spawn(id: string, spec: SpawnSpec & { keptEnv?: Record<string, string> }, restored = false): PtyInfo {
     const existing = this.entries.get(id);
-    if (existing && (!existing.pty.exited || existing.restarting)) return this.info(existing);
+    if (existing && (!existing.pty.exited || existing.restarting || existing.halted)) return this.info(existing);
 
     // A spawn from a shell keeps the variables config `hostEnv` names; a
     // restore — or a respawn without a shell (the Terminal tab) — runs with
     // the host's environment plus what its session kept.
-    const kept = spec.env ? keepEnv(spec.env, this.keepEnvNames()) : (spec.keptEnv ?? existing?.spec.keptEnv);
-    if (!spec.env && kept) spec = { ...spec, env: this.respawnEnv(kept) };
+    // What is kept is the environment as the agent will see it: the session's account (`agentEnv`) applied first, so a
+    // default session never keeps the launching shell's CLAUDE_CONFIG_DIR, and a named one always keeps its own.
+    const agentEnv = hasEnvDelta(spec.agentEnv) ? spec.agentEnv : undefined;
+    const kept = spec.env
+      ? keepEnv(definedEnv(applyEnvDelta(spec.env, agentEnv)), this.keepEnvNames())
+      : (spec.keptEnv ?? existing?.spec.keptEnv);
+    const env = this.launchEnv({ env: spec.env, keptEnv: kept, agentEnv });
+    if (env) spec = { ...spec, env };
 
     const cols = spec.cols ?? 120;
     const rows = spec.rows ?? 32;
@@ -169,7 +191,7 @@ export class PtyRegistry {
       rows,
       // `--continue` hard-errors in a directory Claude never ran in;
       // `--fresh` opts out even when one exists.
-      resume: !spec.fresh && this.hasConversation(spec.cwd, spec.tool.cmd),
+      resume: !spec.fresh && this.hasConversation(spec.cwd, spec.tool.cmd, spec.env ?? process.env),
     });
     const entry: Entry = {
       id,
@@ -177,7 +199,14 @@ export class PtyRegistry {
       // env can hold secrets), so they never reach pty-sessions.json — but
       // the variables config `hostEnv` names do (keepEnv), so a restore after
       // a reboot gets the JAVA_HOME / PATH it was started with.
-      spec: { cwd: spec.cwd, tool: spec.tool, port: spec.port, unsafe: spec.unsafe, ...(kept ? { keptEnv: kept } : {}) },
+      spec: {
+        cwd: spec.cwd,
+        tool: spec.tool,
+        port: spec.port,
+        unsafe: spec.unsafe,
+        ...(kept ? { keptEnv: kept } : {}),
+        ...(agentEnv ? { agentEnv } : {}),
+      },
       env: spec.env as Record<string, string> | undefined,
       pty,
       cols,
@@ -196,9 +225,18 @@ export class PtyRegistry {
     return this.info(entry);
   }
 
-  /** The env a spawn without a shell runs with: the host's, plus what its session kept (spawn). */
-  private respawnEnv(kept: Record<string, string> | undefined): Record<string, string> | undefined {
-    return kept ? { ...(process.env as Record<string, string>), ...kept } : undefined;
+  /**
+   * The env a spawn runs with: the shell's when it came from one; else the host's plus what its session kept; then the
+   * session's account change (`agentEnv`) over it — on the host's own environment when there is nothing else, so a
+   * default session never inherits a CLAUDE_CONFIG_DIR the host was started with. Undefined: no change, the host's own env.
+   */
+  private launchEnv(spec: {
+    env?: Record<string, string>;
+    keptEnv?: Record<string, string>;
+    agentEnv?: EnvDelta;
+  }): Record<string, string> | undefined {
+    const base = spec.env ?? (spec.keptEnv ? { ...(process.env as Record<string, string>), ...spec.keptEnv } : undefined);
+    return hasEnvDelta(spec.agentEnv) ? definedEnv(applyEnvDelta(base ?? process.env, spec.agentEnv)) : base;
   }
 
   /** `pty` becomes the entry's process: its output to the entry's clients, its exit told to them (then forgotten). */
@@ -300,10 +338,10 @@ export class PtyRegistry {
     // Attaching to one that already exited (inside the linger window): its
     // exit subscribers have fired, so tell this client now — otherwise it
     // would sit on a dead screen, its input silently dropped.
-    const exitedWith = e.pty.exited && !e.restarting ? (e.exitCode ?? 0) : null;
+    const exitedWith = e.pty.exited && !e.restarting && !e.halted ? (e.exitCode ?? 0) : null;
     // Mid-restart the process in the entry is the old one, already disposed (its screen with it): nothing of it to
     // send or wait on — the new one draws from scratch, straight to this client.
-    const restarting = !!e.restarting;
+    const restarting = !!e.restarting || !!e.halted;
     const settled = restarting ? undefined : e.pty.serializeSettled;
     // Held output while the settled snapshot is taken; null = passed straight on.
     let held: string[] | null = settled ? [] : null;
@@ -342,6 +380,7 @@ export class PtyRegistry {
     const e = this.entries.get(id);
     if (!e) return;
     this.entries.delete(id);
+    if (e.halted) clearTimeout(e.halted.timer);
     // The terminals attached to it are told it ended (and so offer Enter to start it again):
     // dropped silently, a dashboard tab kept a connection to nothing and took no input.
     const attached = [...e.exitSubscribers];
@@ -378,21 +417,75 @@ export class PtyRegistry {
    * `timeoutMs` is left running and tracked, and the restart fails. A new one that
    * can't start (its tool gone mid-update) ends the session as a kill does, its
    * terminals told so.
+   *
+   * `agentEnv`: the agent's environment for the new process differs from the old one's by this (a session moved to
+   * another account): it replaces the entry's own, in the restore list too — the process is started on what the
+   * session is now, not on what it was.
    */
-  restart(id: string, timeoutMs = 3000): Promise<PtyInfo | null> {
+  restart(id: string, timeoutMs = 3000, agentEnv?: EnvDelta): Promise<PtyInfo | null> {
     const e = this.entries.get(id);
     if (!e) return Promise.resolve(null);
     // Asked twice (two windows, the CLI): both get the one restart's outcome, failure included.
     if (e.restarting) return e.restarting;
+    if (e.halted) return Promise.reject(new Error('its agent is halted: resume it first'));
     if (e.pty.exited) return Promise.resolve(null);
-    const running = this.restartEntry(e, timeoutMs).finally(() => {
+    const running = this.haltEntry(e, timeoutMs)
+      .then((ok) => (ok ? this.resumeEntry(e, agentEnv) : this.get(e.id)))
+      .finally(() => {
+        e.restarting = undefined;
+      });
+    e.restarting = running;
+    return running;
+  }
+
+  /**
+   * Its agent stopped, and kept stopped until `resume` (a switch of account moves its conversation files in between,
+   * which a running — or just exiting — agent would write into again). The entry, its restore-list record and the
+   * attached clients stay, and none is told it ended. Refused while it is being restarted or already halted; an agent that
+   * doesn't stop within `timeoutMs` ends the session as `restart` does. A `resume` that never comes (work web died)
+   * can't leave the session dead: after `resumeAfterMs` it is started again on its old spec. Null: nothing runs.
+   */
+  halt(id: string, timeoutMs = 3000, resumeAfterMs = HALT_RESUME_MS): Promise<PtyInfo | null> {
+    const e = this.entries.get(id);
+    if (!e) return Promise.resolve(null);
+    if (e.restarting || e.halted) return Promise.reject(new Error('its agent is already being restarted or halted'));
+    if (e.pty.exited) return Promise.resolve(null);
+    const running = this.haltEntry(e, timeoutMs)
+      .then((ok) => {
+        if (!ok) return this.get(id); // killed meanwhile
+        const timer = setTimeout(() => {
+          report('warn', `${id}: halted, and no resume within ${Math.round(resumeAfterMs / 1000)} s: starting it again on its old spec`);
+          this.resume(id).catch(swallow(`resume halted ${id}`));
+        }, resumeAfterMs);
+        timer.unref?.();
+        e.halted = { timer };
+        return this.info(e);
+      })
+      .finally(() => {
+        e.restarting = undefined;
+      });
+    e.restarting = running;
+    return running;
+  }
+
+  /**
+   * Start a halted agent again in place, resuming its conversation, on `agentEnv` when given (as `restart` takes it): the
+   * clients carry on. Null when it isn't halted.
+   */
+  resume(id: string, agentEnv?: EnvDelta): Promise<PtyInfo | null> {
+    const e = this.entries.get(id);
+    if (!e?.halted) return Promise.resolve(null);
+    clearTimeout(e.halted.timer);
+    e.halted = undefined;
+    const running = this.resumeEntry(e, agentEnv).finally(() => {
       e.restarting = undefined;
     });
     e.restarting = running;
     return running;
   }
 
-  private async restartEntry(e: Entry, timeoutMs: number): Promise<PtyInfo | null> {
+  /** Stop the entry's process and wait for it to exit (timeoutMs); one that won't ends the session and throws. False: it was killed meanwhile. */
+  private async haltEntry(e: Entry, timeoutMs: number): Promise<boolean> {
     const id = e.id;
     const old = e.pty;
     const stopped = await new Promise<boolean>((resolve) => {
@@ -403,7 +496,7 @@ export class PtyRegistry {
       };
       old.dispose();
     });
-    if (this.entries.get(id) !== e) return this.get(id); // killed meanwhile
+    if (this.entries.get(id) !== e) return false; // killed meanwhile
     if (!stopped) {
       // Its screen is gone with the dispose and the kill is on its way: not a session to keep showing (frozen
       // terminals, input into a dying process). Ended as a stop is, and no second agent is started on its
@@ -413,14 +506,22 @@ export class PtyRegistry {
         `its agent didn't stop within ${Math.round(timeoutMs / 1000)} s; its session was stopped (open it to start it again)`,
       );
     }
+    return true;
+  }
+
+  /** Start the entry's agent again in place (its process is gone): `--continue`, on `agentEnv` when given. */
+  private async resumeEntry(e: Entry, agentEnv?: EnvDelta): Promise<PtyInfo | null> {
+    if (this.entries.get(e.id) !== e) return this.get(e.id); // killed meanwhile
+    if (agentEnv) this.useAgentEnv(e, agentEnv);
     let pty: PtyLike;
     try {
+      const env = e.env ?? this.launchEnv(e.spec);
       pty = this.spawner({
         ...e.spec,
-        env: e.env ?? this.respawnEnv(e.spec.keptEnv),
+        env,
         cols: e.cols,
         rows: e.rows,
-        resume: this.hasConversation(e.spec.cwd, e.spec.tool.cmd),
+        resume: this.hasConversation(e.spec.cwd, e.spec.tool.cmd, env ?? process.env),
       });
     } catch (err) {
       await this.endEntry(e); // nothing runs now
@@ -436,8 +537,21 @@ export class PtyRegistry {
     return this.info(e);
   }
 
+  /** The entry's agent environment becomes `delta`: in its spec (the restore list), the variables it kept, and the environment it started with. */
+  private useAgentEnv(e: Entry, delta: EnvDelta): void {
+    const { agentEnv: _old, keptEnv, ...rest } = e.spec;
+    const kept = keptEnv ? definedEnv(applyEnvDelta(keptEnv, delta)) : undefined;
+    e.spec = {
+      ...rest,
+      ...(kept && Object.keys(kept).length ? { keptEnv: kept } : {}),
+      ...(hasEnvDelta(delta) ? { agentEnv: delta } : {}),
+    };
+    if (e.env) e.env = definedEnv(applyEnvDelta(e.env, delta));
+  }
+
   /** A restart that can't go on ends the session as a kill does: its terminals told (they offer Enter to start it again), forgotten. */
   private async endEntry(e: Entry): Promise<void> {
+    if (e.halted) clearTimeout(e.halted.timer);
     if (this.entries.get(e.id) === e) this.entries.delete(e.id);
     const attached = [...e.exitSubscribers];
     e.subscribers.clear();

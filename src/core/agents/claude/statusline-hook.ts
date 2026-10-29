@@ -48,7 +48,8 @@ export async function runStatusLineHook(
     }
     // Run by the user's own command (it calls work's hook itself): running it again would never end.
     if (env[NESTED_ENV]) return;
-    const orig = originalStatusLine((why) => debugLog('WARN', `[statusline] saved status line unreadable: ${why}`));
+    // The line saved for this Claude's account (its environment names the config folder).
+    const orig = originalStatusLine((why) => debugLog('WARN', `[statusline] saved status line unreadable: ${why}`), env.CLAUDE_CONFIG_DIR);
     if (!orig) return;
     const ws = input?.workspace as { current_dir?: unknown } | undefined;
     const dir = [input?.cwd, ws?.current_dir].find((d): d is string => typeof d === 'string' && fs.existsSync(d));

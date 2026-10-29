@@ -16,7 +16,17 @@ import { useArchivePending } from '../../api/archive-pending.js';
 import { archiveCancelled, fetchLastReply, renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrChips, PrStageChip, StatusLine } from './SessionBits.js';
+import {
+  AccountChip,
+  ClaudesChip,
+  ContextChip,
+  OtherBranchChip,
+  OverlapChip,
+  StackChip,
+  PrChips,
+  PrStageChip,
+  StatusLine,
+} from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip, useDevState } from './DevChip.js';
@@ -41,6 +51,8 @@ interface Props {
   onDelete: () => void;
   /** Opens Add a repo… (a session folder; the dashboard's dialog). */
   onAddRepo?: () => void;
+  /** Opens Claude account… (given while more than one account exists). */
+  onAccount?: () => void;
   /** Open PRs for this session (PRs pane data). */
   prs?: PrInfo[];
   /** A merge from the Ship panel went through (session now archived). */
@@ -79,6 +91,7 @@ export function SessionDetail({
   onSelectSubTab,
   onDelete,
   onAddRepo,
+  onAccount,
   prs = [],
   onShipped,
   startOnLastTurn = false,
@@ -130,6 +143,7 @@ export function SessionDetail({
         prs={prs}
         onDelete={onDelete}
         onAddRepo={onAddRepo}
+        onAccount={onAccount}
         onShipped={onShipped}
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
@@ -204,6 +218,7 @@ interface HeaderProps {
   prs: PrInfo[];
   onDelete: () => void;
   onAddRepo?: () => void;
+  onAccount?: () => void;
   onShipped?: () => void;
   onOpenSession?: (id: string) => void;
   /** Open the PR tab (absent while it's the one shown). */
@@ -220,6 +235,7 @@ function SessionHeader({
   prs,
   onDelete,
   onAddRepo,
+  onAccount,
   onShipped,
   onOpenSession,
   onOpenPr,
@@ -310,6 +326,7 @@ function SessionHeader({
     rename: () => setRenameKey((k) => k + 1),
     remove: onDelete,
     ...(onAddRepo ? { addRepo: onAddRepo } : {}),
+    ...(onAccount ? { account: onAccount } : {}),
   });
   // A session folder's repos, beside its name (a single repo's session: its target says it).
   const repos = headerRepos(session);
@@ -391,6 +408,7 @@ function SessionHeader({
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ClaudesChip session={session} quiet />
         <ContextChip session={session} quiet />
+        <AccountChip session={session} onOpen={onAccount} />
         {session.prStage ? <PrStageChip session={session} prs={prs} /> : <PrChips prs={prs} link />}
         <DevChip dev={dev} />
         {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}

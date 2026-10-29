@@ -27,6 +27,8 @@ export interface CreateRequest {
   name?: string;
   /** A new session's repos instead of its group's config (a fork of a session folder: the parent's own). */
   repos?: string[];
+  /** The Claude account a new session runs on; unset: the configured default. */
+  account?: string;
 }
 
 export type CreateResult =
@@ -62,6 +64,7 @@ export function invalidRequest(req: CreateRequest): string | null {
   for (const [alias, b] of Object.entries(req.base?.perRepo ?? {}))
     if (alias.startsWith('-') || b.startsWith('-')) return `not a valid base: ${alias}=${b}`;
   if (req.base?.default?.startsWith('-')) return `not a valid base: ${req.base.default}`;
+  if (req.account?.startsWith('-')) return `not a Claude account: ${req.account}`;
   for (const alias of req.repos ?? []) if (!alias || alias.startsWith('-') || alias.includes(',')) return `not a repo: ${alias}`;
   return null;
 }
@@ -90,6 +93,7 @@ export function childArgs(req: CreateRequest): string[] {
     ...(req.jiraKey ? [`--jira-key=${req.jiraKey}`] : []),
     ...(req.name?.trim() ? [`--name=${req.name.trim()}`] : []),
     ...(req.repos?.length ? [`--repos=${req.repos.join(',')}`] : []),
+    ...(req.account ? [`--account=${req.account}`] : []),
   ];
 }
 
@@ -265,7 +269,7 @@ export const createInProcess: CreateWorktree = async (req, config) => {
   const invalid = invalidRequest(req);
   if (invalid) return { ok: false, error: invalid };
   if (!req.branch) {
-    const opened = await openBaseCheckout(req.target, config, { jiraKey: req.jiraKey, name: req.name });
+    const opened = await openBaseCheckout(req.target, config, { jiraKey: req.jiraKey, name: req.name, account: req.account });
     return opened.ok
       ? { ok: true, branch: opened.branch, launchDir: opened.repoPath, paths: [opened.repoPath] }
       : { ok: false, error: opened.error };
@@ -275,6 +279,7 @@ export const createInProcess: CreateWorktree = async (req, config) => {
   const created = await withReporter(reports, () =>
     setupWorktree(req.target, req.branch!, config, req.base, req.jiraKey, {
       name: req.name,
+      ...(req.account ? { account: req.account } : {}),
       ...(req.repos?.length ? { repos: req.repos } : {}),
     }),
   );

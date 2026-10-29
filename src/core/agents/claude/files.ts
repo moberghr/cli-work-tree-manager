@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { claudeProjectsRoot, encodeProjectDir, projectTranscripts } from './activity.js';
+import { claudeProjectsRoots, encodeProjectDir, projectTranscripts } from './activity.js';
+import { sessionAccount } from './accounts.js';
 import type { WorktreeSession } from '../../sessions/session-types.js';
 import type { BackgroundWork, ConversationFile } from '../types.js';
 
@@ -10,11 +11,22 @@ import type { BackgroundWork, ConversationFile } from '../types.js';
  * group's are in its root's folder (Claude runs in the group root).
  */
 
-/** Every Claude Code transcript of this session's conversations (group: its root). */
+/**
+ * Every Claude Code transcript of this session's conversations (group: its root): its own account's projects folder
+ * first, then the other accounts' (a switch moves them, but one left behind is still its conversation), each file once.
+ */
 export function listTranscripts(session: WorktreeSession): ConversationFile[] {
   const dirs = session.isGroup ? [...new Set(session.paths.map((p) => path.dirname(p)))] : session.paths;
+  const roots = claudeProjectsRoots(sessionAccount(session));
+  const seen = new Set<string>();
   const out: ConversationFile[] = [];
-  for (const d of dirs) out.push(...projectTranscripts(path.join(claudeProjectsRoot(), encodeProjectDir(d))));
+  for (const d of dirs)
+    for (const root of roots)
+      for (const f of projectTranscripts(path.join(root, encodeProjectDir(d)))) {
+        if (seen.has(f.file)) continue;
+        seen.add(f.file);
+        out.push(f);
+      }
   return out;
 }
 

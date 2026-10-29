@@ -48,6 +48,28 @@ describe('work usage', () => {
 });
 
 describe('formatting', () => {
+  it('names each account when there are several, and marks the default one', () => {
+    const win = [{ id: 'five_hour', label: '5-hour limit', usedPercent: 10, resetsAt: null }];
+    const w: UsageWire = {
+      agents: [
+        {
+          agent: 'claude',
+          name: 'Claude Code',
+          accounts: [
+            { account: 'default', at: 'x', windows: win },
+            { account: 'work', isDefault: true, at: 'x', windows: win },
+          ],
+        },
+      ],
+      tokens: { today: { input: 0, cached: 0, output: 0 }, week: { input: 0, cached: 0, output: 0 }, byModel: [], topSessions: [] },
+      at: 'x',
+    };
+    const text = usageLines(w).join('\n');
+    expect(text).toContain('account default');
+    expect(text).toContain('account work (default)');
+    expect(text).not.toContain('account default (default)');
+  });
+
   it('lines show each window, with its percent', () => {
     const w: UsageWire = {
       agents: [
