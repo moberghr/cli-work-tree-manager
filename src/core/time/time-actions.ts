@@ -1,9 +1,10 @@
 import type { TimePostWire } from '../api-types.js';
-import { dayWire, type TimeDeps } from './time-days.js';
+import { dayWire, monthWire, type TimeDeps } from './time-days.js';
 import { readDay, updateDay } from './time-store.js';
 import { postDay, type TempoApi } from './tempo.js';
 import { loadConfig } from '../platform/config.js';
-import { describeTimeDay, timeSettings } from './time-view.js';
+import { describeTimeDay, localDay, timeSettings } from './time-view.js';
+import { describeTimeMonth } from './time-month.js';
 
 /**
  * What both front-ends do to a day beyond reading it (the Time tab's routes
@@ -13,6 +14,11 @@ import { describeTimeDay, timeSettings } from './time-view.js';
 /** A day in words as it is now (state.db and the settings), for the assistant's prompt hook. */
 export function describeDayNow(day: string): string {
   return describeTimeDay(dayWire(day, timeSettings(loadConfig()?.time)));
+}
+
+/** A month in words as it is now, for the assistant's prompt hook (the Month view on screen). */
+export function describeMonthNow(month: string): string {
+  return describeTimeMonth(monthWire(month, localDay(), timeSettings(loadConfig()?.time)));
 }
 
 /** Posts under way, per day: a second one waits for the first (two at once would both post the same rows). */

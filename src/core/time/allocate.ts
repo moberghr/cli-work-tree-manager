@@ -34,6 +34,12 @@ export interface TimeSettings {
    * minimum beyond a step, a ticket only touched gets no row; the gap ticket takes the rest of the day.
    */
   effort: boolean;
+  /** Projects whose tickets are service desk (keep `minHours`); any other project's ticket is a task. */
+  deskProjects: string[];
+  /** A task's row on a day is at least this (null: tasks get `minHours` like any ticket). */
+  taskMinHours: number | null;
+  /** A task's measured hours × (1 + this × (story points − 1)) before the day is shared out (0: points don't count). */
+  pointsWeight: number;
 }
 
 export const DEFAULT_TIME_SETTINGS: TimeSettings = {
@@ -47,7 +53,15 @@ export const DEFAULT_TIME_SETTINGS: TimeSettings = {
   holidays: [],
   vacation: [],
   effort: false,
+  deskProjects: [],
+  taskMinHours: null,
+  pointsWeight: 0.25,
 };
+
+/** A ticket that isn't service desk, the gap ticket or time off: a task (its own minimum, its story points count). */
+export function isTask(key: string, s: Pick<TimeSettings, 'deskProjects' | 'gapTicket' | 'timeOffTicket'>): boolean {
+  return key !== s.gapTicket && key !== s.timeOffTicket && !s.deskProjects.includes(key.split('-')[0]);
+}
 
 /** What a ticket got that day: measured Claude minutes (× multiplier), your own minutes on it (a meeting: 1:1), or only touched (0). */
 export interface TicketActivity {
@@ -80,7 +94,7 @@ const h2 = (h: number) => `${Math.round(h * 100) / 100} h`;
 export function suggestDay(
   activity: readonly TicketActivity[],
   s: TimeSettings,
-  opts: { dayOff?: boolean; reserveMinutes?: number } = {},
+  opts: { dayOff?: boolean; reserveMinutes?: number; points?: Record<string, number> } = {},
 ): DaySuggestion {
   // Whole steps, so sums are exact.
   const units = (h: number) => Math.round(h / s.stepHours);
@@ -101,12 +115,20 @@ export function suggestDay(
     minutes.set(a.key, m);
   }
   const min = s.effort ? 1 : Math.max(1, units(s.minHours));
+  // A task's own minimum (as measured, none beyond a step).
+  const task = (key: string) => !s.effort && s.taskMinHours !== null && isTask(key, s);
+  const minFor = (key: string) => (task(key) ? Math.max(min, units(s.taskMinHours!)) : min);
+  // Story points weigh a task's share: × (1 + weight × (points − 1)); unknown points, a desk ticket: × 1.
+  const factorFor = (key: string) => {
+    const p = opts.points?.[key];
+    return !s.effort && p !== undefined && p > 0 && isTask(key, s) ? Math.max(0, 1 + s.pointsWeight * (p - 1)) : 1;
+  };
   const multiplier = s.effort ? 1 : s.multiplier;
   // Room for tickets: the cap, and the day less what the gap ticket keeps (its minimum, or the meetings it has).
   const reserve = s.gapTicket ? Math.max(min, units((opts.reserveMinutes ?? 0) / 60)) : 0;
   const room = Math.max(0, Math.min(units(s.capHours), day - reserve));
   const raw = [...minutes].map(([key, m]) => {
-    const h = (m.claude / 60) * multiplier + m.direct / 60;
+    const h = ((m.claude / 60) * multiplier + m.direct / 60) * factorFor(key);
     // Only touched (a commit, an issue moved): the minimum — or, measuring effort, nothing.
     return { key, raw: h > 0 ? h : s.effort ? 0 : s.minHours };
   });
@@ -116,17 +138,23 @@ export function suggestDay(
     .map((r) => {
       const scaled = r.raw * scale;
       const u = units(scaled);
-      // Under the minimum: the minimum when it's at least a step's worth, else nothing.
-      return { key: r.key, raw: scaled, u: u >= min ? u : scaled >= s.stepHours ? min : 0, first: 0 };
+      // Under its minimum: the minimum when it's at least a step's worth, else nothing.
+      const least = minFor(r.key);
+      return { key: r.key, raw: scaled, u: u >= least ? u : scaled >= s.stepHours ? least : 0, first: 0 };
     })
     .filter((r) => r.u > 0);
   for (const r of rows) r.first = r.u;
   // Rounding up to minimums can overshoot the room: trim the biggest a step at a time, then drop the smallest.
   let used = rows.reduce((n, r) => n + r.u, 0);
+  const dropped: string[] = [];
   while (used > room && rows.length) {
-    const big = rows.filter((r) => r.u > min).sort((a, b) => b.u - a.u || a.key.localeCompare(b.key))[0];
+    const big = rows.filter((r) => r.u > minFor(r.key)).sort((a, b) => b.u - a.u || a.key.localeCompare(b.key))[0];
     if (big) big.u--;
-    else rows = rows.sort((a, b) => a.raw - b.raw).slice(1);
+    else {
+      rows = rows.sort((a, b) => a.raw - b.raw);
+      dropped.push(rows[0].key);
+      rows = rows.slice(1);
+    }
     used = rows.reduce((n, r) => n + r.u, 0);
   }
   const entries = rows.sort((a, b) => b.u - a.u || a.key.localeCompare(b.key)).map((r) => ({ key: r.key, hours: hours(r.u) }));
@@ -144,13 +172,18 @@ export function suggestDay(
       parts.push(s.effort ? `${Math.round(m.claude)} min of Claude, as measured` : `${Math.round(m.claude)} min of Claude × ${multiplier}`);
     if (m.direct > 0) parts.push(`${Math.round(m.direct)} min of meetings`);
     const measured = (m.claude / 60) * multiplier + m.direct / 60;
+    const factor = factorFor(r.key);
     const steps: string[] = [
       measured > 0
         ? `${parts.join(' + ')} = ${h2(measured)}`
         : `only touched (a commit, an issue moved, a chat): the ${h2(s.minHours)} minimum`,
     ];
+    if (measured > 0 && factor !== 1)
+      steps.push(`× ${Math.round(factor * 100) / 100} for ${opts.points![r.key]} story points = ${h2(measured * factor)}`);
     if (scale < 1) steps.push(`all tickets came to ${h2(total)}, over ${roomWhy}: each cut to ${Math.round(scale * 100)}%`);
-    if (measured > 0 && r.first === min && units(r.raw) < min) steps.push(`raised to the ${h2(s.minHours)} minimum`);
+    const least = minFor(r.key);
+    if (r.first === least && units(r.raw) < least && (measured > 0 || least > min))
+      steps.push(least > min ? `raised to the ${h2(hours(least))} minimum for a task` : `raised to the ${h2(s.minHours)} minimum`);
     if (r.u < r.first) steps.push(`trimmed ${h2(hours(r.first - r.u))} so the day adds up`);
     why[r.key] = `${steps.join('; ')} → ${h2(hours(r.u))}`;
   }
@@ -158,6 +191,7 @@ export function suggestDay(
   const left = day - used;
   if (s.gapTicket && left > 0) {
     why[s.gapTicket] =
+      (dropped.length ? `no room left for ${dropped.join(', ')} (each under its minimum); ` : '') +
       `the rest of the ${h2(s.dayHours)} day${(opts.reserveMinutes ?? 0) > 0 ? `, ${Math.round(opts.reserveMinutes ?? 0)} min of it meetings no ticket got` : ''} → ${h2(hours(left))}`;
     return { entries: [...entries, { key: s.gapTicket, hours: hours(left) }], unallocated: 0, why };
   }

@@ -13,6 +13,23 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   meetings, and whether the AI step placed them because none named the
   ticket. Rows you changed say "Your hours", with what work had suggested.
   The Ctrl+K assistant sees it too when you ask about a day.
+- **Time: tasks and service desk.** Set `time.deskProjects` (e.g.
+  `["SSD"]`) and `time.taskMinHours` (e.g. `2`): any other project's ticket
+  is a task, and a task's row on a day is at least that many hours (when
+  the day can't fit them all, the smallest go, and the rest-of-day row says
+  which). With `time.storyPointsField` (your Jira's story points field,
+  e.g. `customfield_10010`), a task's story points weigh its share of the
+  day — × (1 + 0.25 × (points − 1)), `time.pointsWeight` to change it — and
+  its row says so. Off until you set them.
+- **Time: edit in the Month view.** Click a cell and type the hours (empty
+  or 0 takes the ticket off that day); Enter saves the day as your rows.
+  The tab remembers whether you left it on Days or Month.
+- **Time: ask the assistant about the month.** On the Month view, Ask about
+  this month (or Ctrl+K) opens the assistant with every day's rows and how
+  each got its hours. It can change days (`work timesheet set`) and gather
+  them again (`work timesheet gather <day>` or `gather 2026-10`), asking
+  you first; posting stays yours. `work timesheet month [YYYY-MM]` prints
+  a month in a terminal.
 
 ## 2.9.0 — 2026-10-30
 

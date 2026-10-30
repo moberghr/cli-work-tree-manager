@@ -335,6 +335,8 @@ export interface AssistantView {
   note?: string;
   /** The Time tab's day on screen (`YYYY-MM-DD`). */
   day?: string;
+  /** The Time tab's Month view on screen (`YYYY-MM`): described in place of a day. */
+  month?: string;
 }
 
 // ---- cleanup --------------------------------------------------------------

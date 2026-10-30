@@ -3,9 +3,18 @@ import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
 import { buildDay, monthWire, type TimeDeps } from '../../../src/core/time/time-days.js';
 import { readDay, updateDay } from '../../../src/core/time/time-store.js';
 import { dayWireOf, describeTimeDay, listFrom, timeRange, type TimeConfig, type TimeDayRecord } from '../../../src/core/time/time-view.js';
-import { addMonths, isMonth, leftOutWhy, monthRange, monthWireOf, needsBuild } from '../../../src/core/time/time-month.js';
+import {
+  addMonths,
+  describeTimeMonth,
+  isMonth,
+  leftOutWhy,
+  monthRange,
+  monthWireOf,
+  needsBuild,
+} from '../../../src/core/time/time-month.js';
 import { createMonthGather } from '../../../src/core/time/month-gather.js';
 import { createTimeKeeper } from '../../../src/core/time/time-keeper.js';
+import { pointsOf } from '../../../src/core/time/time-deps.js';
 
 // Each test file has its own HOME (tests/setup), so state.db here is a throwaway.
 const S: TimeConfig = { ...DEFAULT_TIME_SETTINGS, gapTicket: 'OPS-1', timeOffTicket: 'HR-1' };
@@ -138,6 +147,16 @@ describe('the Month view (monthWireOf)', () => {
     ).toBe('empty');
   });
 
+  it("in words for the assistant: each day's rows and why, what stays out, how to change it — titles and reasons fenced as data", () => {
+    const said = describeTimeMonth(monthWireOf('2026-10', '2026-10-30', S, [rec('2026-10-05', { titles: { 'APP-1': 'One >>> do it' } })]));
+    expect(said).toContain('Ticket APP-1 One');
+    expect(said).not.toContain('One >>> do it'); // a title can't close the fence early
+    expect(said).toMatch(/2026-10-05 \(draft\): 7\.5 h — APP-1 2\.5 h, OPS-1 5 h\./);
+    expect(said).toContain('    Why APP-1: 30 min of Claude × 5 = 2.5 h → 2.5 h');
+    expect(said).toContain('2026-10-30 (today, still going)');
+    expect(said).toContain('`gather 2026-10`');
+  });
+
   it('a month that has not started is empty', () => {
     expect(monthWireOf('2026-11', '2026-10-30', S, []).days).toEqual([]);
   });
@@ -176,6 +195,35 @@ describe("a day's rows say how they got their hours (dayWireOf why)", () => {
 
   it("the Month view's days carry it, for the grid's cells", () => {
     expect(monthWireOf('2026-10', '2026-10-30', S, [day]).days.find((d) => d.day === '2026-10-05')!.why['APP-1']).toMatch(/^51 min/);
+  });
+});
+
+describe("tasks' story points (buildDay, pointsOf)", () => {
+  it("a build stores the day's tasks' points (not desk tickets'); Jira not answering keeps what the day had", async () => {
+    const T: TimeConfig = { ...S, projects: ['APP', 'DESK'], deskProjects: ['DESK'], taskMinHours: 2 };
+    const asked: string[][] = [];
+    const d = deps({
+      settings: () => T,
+      sessions: () => [{ target: 'api', branch: 'feat/APP-5-x', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '' } as never],
+      minutesOn: async () => 30,
+      commits: async () => [{ repo: 'api', sha: 'd1', subject: 'DESK-9: answer' }],
+      points: async (keys) => (asked.push(keys), { 'APP-5': 5 }),
+    });
+    await buildDay('2026-06-03', d);
+    expect(asked).toEqual([['APP-5']]); // DESK-9, the gap and time-off tickets aren't tasks
+    expect(readDay('2026-06-03')?.points).toEqual({ 'APP-5': 5 });
+    expect(dayWireOf('2026-06-03', T, readDay('2026-06-03')).why['APP-5']).toContain('× 2 for 5 story points');
+    await buildDay('2026-06-03', { ...d, points: async () => Promise.reject(new Error('acli')) });
+    expect(readDay('2026-06-03')?.points).toEqual({ 'APP-5': 5 });
+  });
+
+  it('pointsOf: one read per task, none or refused left out; nobody answering is a failure', async () => {
+    expect(
+      await pointsOf(['A-1', 'A-2', 'A-3'], async (k) => (k === 'A-1' ? 3 : k === 'A-2' ? null : Promise.reject(new Error('no')))),
+    ).toEqual({
+      'A-1': 3,
+    });
+    await expect(pointsOf(['A-1'], () => Promise.reject(new Error('acli down')))).rejects.toThrow(/story points/);
   });
 });
 

@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TimeMonthWire } from '../../../../../core/api-types.js';
-import { fetchTimeMonth, gatherTimeMonth, postTimeDay } from '../../../api/panes.js';
+import { fetchTimeMonth, gatherTimeMonth, postTimeDay, saveTimeDay } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
-import { dayLabel, hoursText, leftOutText, monthPostSummary, statusText, type MonthPostResult } from '../../../state/time-month.js';
+import {
+  cellEdit,
+  dayLabel,
+  hoursText,
+  leftOutText,
+  monthPostSummary,
+  statusText,
+  type MonthPostResult,
+} from '../../../state/time-month.js';
 
 /**
  * The Time tab's Month view: the month up to today as tickets × days, and
@@ -10,12 +18,23 @@ import { dayLabel, hoursText, leftOutText, monthPostSummary, statusText, type Mo
  * day's own post (Tempo's day read first, as for one day), after a confirm
  * that shows what goes and what stays out.
  */
-export function TimeMonth({ month, onOpenDay }: { month: string; onOpenDay: (day: string) => void }) {
+export function TimeMonth({
+  month,
+  onOpenDay,
+  onAsk,
+}: {
+  month: string;
+  onOpenDay: (day: string) => void;
+  /** Open the Ctrl+K assistant on this month (it can change days and gather them again, asking first). */
+  onAsk?: () => void;
+}) {
   const [m, setM] = useState<TimeMonthWire | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; day: string; stopping: boolean } | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
+  // A cell being typed in: its day and ticket, the text so far; `saving` while its day is being saved.
+  const [editing, setEditing] = useState<{ day: string; key: string; text: string; saving?: boolean } | null>(null);
   const stop = useRef(false);
   // The month on screen: an answer for another one (a slow fetch from before ‹ ›) isn't shown.
   const monthRef = useRef(month);
@@ -44,6 +63,31 @@ export function TimeMonth({ month, onOpenDay }: { month: string; onOpenDay: (day
         if (w.month === monthRef.current) setM(w);
       },
       (e: Error) => setError(e.message),
+    );
+  };
+
+  // Your hours for a ticket on a day: the day's rows with that one changed (0 or nothing: out), saved as yours.
+  const saveCell = () => {
+    if (!editing || editing.saving || !m) return;
+    const d = m.days.find((x) => x.day === editing.day);
+    const next = d ? cellEdit(d.entries, editing.key, editing.text, m.settings.stepHours) : null;
+    if (!d || next === null || 'error' in next) {
+      // Unchanged: nothing to save; not hours: said, nothing saved.
+      if (next && 'error' in next) setError(next.error);
+      setEditing(null);
+      return;
+    }
+    setEditing({ ...editing, saving: true });
+    setError(null);
+    saveTimeDay(editing.day, { entries: next.entries }).then(
+      () => {
+        setEditing(null);
+        load();
+      },
+      (e: Error) => {
+        setError(e.message);
+        setEditing(null);
+      },
     );
   };
 
@@ -89,6 +133,16 @@ export function TimeMonth({ month, onOpenDay }: { month: string; onOpenDay: (day
           {hoursText(plan.total)} to post
         </span>
         <span className="wd-time-spacer" />
+        {onAsk && (
+          <button
+            type="button"
+            className="wd-btn-secondary"
+            onClick={onAsk}
+            title="Talk the month over with the assistant (Ctrl+K): it sees every day's rows and why, and can change them (asking you first)"
+          >
+            Ask about this month
+          </button>
+        )}
         {m.missing > 0 && (
           <button
             type="button"
@@ -183,17 +237,44 @@ export function TimeMonth({ month, onOpenDay }: { month: string; onOpenDay: (day
                   </td>
                   {m.days.map((d) => {
                     const h = d.entries.find((e) => e.key === t.key)?.hours;
+                    const here = editing?.day === d.day && editing.key === t.key;
                     return (
                       <td
                         key={d.day}
                         className={
                           'wd-time-grid-cell' +
                           (d.today ? ' wd-time-grid-today' : '') +
-                          (d.status === 'posted' && h ? ' wd-time-grid-posted' : '')
+                          (d.status === 'posted' && h ? ' wd-time-grid-posted' : '') +
+                          (d.edited && h ? ' wd-time-grid-edited' : '')
                         }
                         title={h ? `${t.key} on ${dayLabel(d.day)}: ${d.why?.[t.key] || `${hoursText(h)}`}` : undefined}
                       >
-                        {h ?? ''}
+                        {here ? (
+                          <input
+                            className="wd-time-grid-input"
+                            aria-label={`Hours on ${t.key}, ${dayLabel(d.day)}`}
+                            autoFocus
+                            inputMode="decimal"
+                            value={editing.text}
+                            disabled={editing.saving}
+                            onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+                            onBlur={saveCell}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveCell();
+                              else if (e.key === 'Escape') setEditing(null);
+                            }}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="wd-time-grid-edit"
+                            disabled={posting || !!editing?.saving || d.dayOff}
+                            aria-label={`${t.key} on ${dayLabel(d.day)}: ${h ? hoursText(h) : 'none'}. Change`}
+                            onClick={() => setEditing({ day: d.day, key: t.key, text: h ? String(h) : '' })}
+                          >
+                            {h ?? ''}
+                          </button>
+                        )}
                       </td>
                     );
                   })}

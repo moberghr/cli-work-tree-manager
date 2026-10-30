@@ -39,6 +39,8 @@ export interface WorkConfig {
     tempo?: { tokenEnv?: string; accountId?: string };
     /** Outlook and Teams through Microsoft Graph: the app registration to sign in with (else GRAPH_CLIENT_ID / GRAPH_TENANT_ID). */
     graph?: { clientId?: string; tenantId?: string };
+    /** The Jira field holding story points (`customfield_…`, each site its own): read for tasks, they weigh the day's split. */
+    storyPointsField?: string;
   };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
   stacks?: { autoUpdate?: boolean };
@@ -214,6 +216,7 @@ export function validateTime(raw: unknown): WorkConfig['time'] {
   const hints = validateHints(t.hints);
   const catchUp = typeof t.catchUpDays === 'number' && t.catchUpDays >= 1 ? { catchUpDays: Math.min(92, Math.floor(t.catchUpDays)) } : {};
   const projects = stringList(t.projects)?.filter((p) => /^[A-Z][A-Z0-9]{1,9}$/.test(p));
+  const desk = stringList(t.deskProjects)?.filter((p) => /^[A-Z][A-Z0-9]{1,9}$/.test(p));
   const tempo = strs(t.tempo, ['tokenEnv', 'accountId']);
   const graph = strs(t.graph, ['clientId', 'tenantId']);
   return {
@@ -227,6 +230,14 @@ export function validateTime(raw: unknown): WorkConfig['time'] {
     ...(days ? { holidays: days } : {}),
     ...(vacation ? { vacation } : {}),
     ...(typeof t.effort === 'boolean' ? { effort: t.effort } : {}),
+    ...(desk ? { deskProjects: desk } : {}),
+    ...(t.taskMinHours === null || (typeof t.taskMinHours === 'number' && t.taskMinHours >= 0)
+      ? { taskMinHours: t.taskMinHours as number | null }
+      : {}),
+    ...num('pointsWeight', 0),
+    ...(typeof t.storyPointsField === 'string' && /^customfield_\d+$/.test(t.storyPointsField)
+      ? { storyPointsField: t.storyPointsField }
+      : {}),
     ...catchUp,
     ...(hints ? { hints } : {}),
     ...(projects ? { projects } : {}),

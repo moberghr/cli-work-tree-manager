@@ -36,11 +36,18 @@ export interface TimeDayRecord {
   posted?: { at: string; entries: TimeEntry[]; worklogs: PostedWorklog[] } | null;
   /** The day's tickets Jira had as done when it was gathered (still yours to log to, but said). */
   resolved?: string[];
+  /** The day's tasks' story points as Jira had them when it was gathered (`time.storyPointsField`), by key. */
+  points?: Record<string, number>;
   /** Your assigned issues when it was gathered (the AI step's candidates): used again when they can't be read. */
   assigned?: string[];
 }
 
-export type TimeConfig = TimeSettings & { projects?: string[]; hints?: Record<string, TicketHint>; catchUpDays?: number };
+export type TimeConfig = TimeSettings & {
+  projects?: string[];
+  hints?: Record<string, TicketHint>;
+  catchUpDays?: number;
+  storyPointsField?: string;
+};
 
 /** How many days back the Time tab gathers when `time.catchUpDays` doesn't say. */
 export const DEFAULT_CATCH_UP_DAYS = 14;
@@ -114,7 +121,11 @@ export function dayWireOf(
   // A vacation day (config) is a day off whatever was ticked.
   const vacation = settings.vacation.includes(day);
   const dayOff = vacation || (rec?.dayOff ?? false);
-  const s = suggestDay(activityOf(evidence), settings, { dayOff, reserveMinutes: unplacedMeetingMinutes(evidence, settings.gapTicket) });
+  const s = suggestDay(activityOf(evidence), settings, {
+    dayOff,
+    reserveMinutes: unplacedMeetingMinutes(evidence, settings.gapTicket),
+    points: rec?.points,
+  });
   const edited = !!rec?.edited && !dayOff;
   const entries = edited ? rec!.edited! : s.entries;
   const posted = rec?.posted ?? null;

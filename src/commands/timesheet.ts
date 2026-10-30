@@ -1,19 +1,21 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import type { TimeDayWire, TimePostWire } from '../core/api-types.js';
+import type { TimeDayWire, TimeMonthWire, TimePostWire } from '../core/api-types.js';
 import { loadConfig } from '../core/platform/config.js';
 import { callWorkWeb } from '../core/platform/web-discovery.js';
-import { buildDay, dayWire } from '../core/time/time-days.js';
+import { buildDay, dayWire, monthWire } from '../core/time/time-days.js';
+import { createMonthGather } from '../core/time/month-gather.js';
+import { describeTimeMonth, isMonth, monthRange } from '../core/time/time-month.js';
 import { defaultTimeDeps } from '../core/time/time-deps.js';
 import { updateDay } from '../core/time/time-store.js';
 import { postStoredDay } from '../core/time/time-actions.js';
 import { tempoClient, tempoSetup } from '../core/time/tempo.js';
-import { dayArg, parseEntries, parseRowArgs } from '../core/time/time-view.js';
+import { dayArg, localDay, parseEntries, parseRowArgs } from '../core/time/time-view.js';
 import type { TimeEntry } from '../core/time/allocate.js';
 
 /**
  * `work timesheet` — the Time tab from a terminal (and for the Ctrl+K
- * assistant): `show` a day's rows and why (read only); `set` its rows,
+ * assistant): `show` a day's rows and why, `month` a month's (read only); `set` its rows,
  * `reset` it to the suggestion, mark it `off`, `gather` its evidence again,
  * `post` it to Tempo. A change goes through a running work web (the tab
  * updates at once), else it's made here. Posting is the user's: never
@@ -46,6 +48,12 @@ function theDay(arg: unknown): string {
   return d ?? fail(`Not a day: ${String(arg)} (today, yesterday or YYYY-MM-DD)`);
 }
 
+/** The month from an argument (this one by default), or exit saying how to give one. */
+function theMonth(arg: unknown): string {
+  const m = typeof arg === 'string' ? arg : localDay().slice(0, 7);
+  return isMonth(m) && monthRange(m, localDay()) ? m : fail(`Not a month that has started: ${String(arg)} (YYYY-MM)`);
+}
+
 /** A change through work web when it runs; else here. */
 async function change(day: string, body: { entries?: TimeEntry[] | null; dayOff?: boolean }): Promise<TimeDayWire> {
   const r = await callWorkWeb<TimeDayWire>('PUT', `/api/time/${day}`, body);
@@ -60,7 +68,7 @@ async function change(day: string, body: { entries?: TimeEntry[] | null; dayOff?
 
 export const timesheetCommand: CommandModule = {
   command: 'timesheet <action>',
-  describe: "The Time tab's days: show, set, reset, off, gather, post (to Tempo)",
+  describe: "The Time tab's days: show, month, set, reset, off, gather, post (to Tempo)",
   builder: (y) =>
     y
       .command(
@@ -71,6 +79,15 @@ export const timesheetCommand: CommandModule = {
           const w = dayWire(theDay(argv.day), defaultTimeDeps().settings());
           if (argv.json) console.log(JSON.stringify(w, null, 2));
           else print(w);
+        },
+      )
+      .command(
+        'month [month]',
+        "A month's days (this month by default): each day's rows and how they got their hours, and what posting it would do",
+        (b) => b.positional('month', { type: 'string' }).option('json', { type: 'boolean' }),
+        (argv) => {
+          const w: TimeMonthWire = monthWire(theMonth(argv.month), localDay(), defaultTimeDeps().settings());
+          console.log(argv.json ? JSON.stringify(w, null, 2) : describeTimeMonth(w));
         },
       )
       .command(
@@ -102,9 +119,35 @@ export const timesheetCommand: CommandModule = {
       )
       .command(
         'gather <day>',
-        "Gather a day's evidence again",
+        "Gather a day's evidence again (a month, YYYY-MM: its days not gathered yet)",
         (b) => b.positional('day', { type: 'string' }),
         async (argv) => {
+          if (typeof argv.day === 'string' && isMonth(argv.day)) {
+            const month = theMonth(argv.day);
+            // Through work web (its tab follows along), else here; either way, wait until it's done.
+            const r = await callWorkWeb<TimeMonthWire>('POST', `/api/time/month/${month}/gather`, {}, 30_000);
+            if (!r.ok && r.status !== 0) fail(r.error);
+            if (r.ok) {
+              for (let w = r.body; w.gathering;) {
+                await new Promise((res) => setTimeout(res, 2000));
+                const next = await callWorkWeb<TimeMonthWire>('GET', `/api/time/month/${month}`);
+                if (!next.ok) break;
+                w = next.body;
+              }
+            } else {
+              const deps = defaultTimeDeps();
+              const g = createMonthGather(deps, { changed: () => {} });
+              g.start(month);
+              await g.done(month);
+              const error = g.state(month).error;
+              if (error) console.error(chalk.yellow(error));
+            }
+            const after = monthWire(month, localDay(), defaultTimeDeps().settings());
+            console.log(
+              `${month}: ${after.days.length} days, ${after.missing} not gathered, ${after.plan.days.length} ready to post (${after.plan.total} h).`,
+            );
+            return;
+          }
           const day = theDay(argv.day);
           const r = await callWorkWeb<TimeDayWire>('POST', `/api/time/${day}/rebuild`, {}, 120_000);
           if (r.ok) return print(r.body);

@@ -13,7 +13,7 @@ import {
 import { useSse } from '../../../api/events.js';
 import { addMonths, monthRange } from '../../../../../core/time/time-month.js';
 import { dayKey } from '../../../../../core/conversations/work-time-view.js';
-import { dayLabel, hoursText, monthLabel, monthOf, statusText } from '../../../state/time-month.js';
+import { dayLabel, hoursText, monthLabel, monthOf, readTimeView, statusText, writeTimeView } from '../../../state/time-month.js';
 import { TimeMonth } from './TimeMonth.js';
 
 export { dayLabel, hoursText, statusText };
@@ -44,11 +44,14 @@ const sameRows = (a: readonly TimeEntryWire[], b: readonly TimeEntryWire[]) =>
 export function TimeTab({
   onOpenSession,
   onDayChange,
+  onMonthChange,
   onAsk,
 }: {
   onOpenSession: (id: string) => void;
   /** The day on screen (the assistant is told about it). */
   onDayChange?: (day: string | null) => void;
+  /** The month on screen when the Month view is (else null): the assistant is told about it instead of a day. */
+  onMonthChange?: (month: string | null) => void;
   /** Open the Ctrl+K assistant on this day. */
   onAsk?: () => void;
 }) {
@@ -57,7 +60,13 @@ export function TimeTab({
   // The month on screen (‹ ›), in either view: Days lists its days, Month shows them as a grid.
   const thisMonth = monthOf(dayKey(Date.now()));
   const [month, setMonth] = useState(thisMonth);
-  const [view, setView] = useState<'days' | 'month'>('days');
+  // Days or Month, as you last left it (per browser).
+  const [view, setViewState] = useState<'days' | 'month'>(readTimeView);
+  useEffect(() => onMonthChange?.(view === 'month' ? month : null), [view, month, onMonthChange]);
+  const setView = (v: 'days' | 'month') => {
+    setViewState(v);
+    writeTimeView(v);
+  };
   const [day, setDay] = useState<TimeDayWire | null>(null);
   const [rows, setRows] = useState<TimeEntryWire[]>([]);
   const [busy, setBusy] = useState(false);
@@ -194,6 +203,7 @@ export function TimeTab({
       {view === 'month' && (
         <TimeMonth
           month={month}
+          onAsk={onAsk}
           onOpenDay={(d) => {
             setChosen(d);
             setView('days');

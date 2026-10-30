@@ -119,6 +119,64 @@ describe('suggestDay (the timesheet rules)', () => {
     expect(suggestDay([], { ...S, timeOffTicket: null }, { dayOff: true })).toMatchObject({ entries: [], unallocated: 7.5 });
   });
 
+  it('tasks (not service desk) are at least time.taskMinHours a day; desk tickets keep the minimum; the why says so', () => {
+    const T = { ...S, deskProjects: ['DESK'], taskMinHours: 2 };
+    const r = suggestDay(
+      [
+        { key: 'APP-1', minutes: 5 }, // a task: 0.42 h → 2 h
+        { key: 'DESK-7', minutes: 5 }, // service desk: 0.5 h
+        { key: 'APP-2', minutes: 0 }, // a task only touched: 2 h too
+      ],
+      T,
+    );
+    expect(r.entries).toEqual(
+      [
+        { key: 'APP-1', hours: 2 },
+        { key: 'APP-2', hours: 2 },
+        { key: 'APP-434', hours: 3 },
+        { key: 'DESK-7', hours: 0.5 },
+      ].sort((a, b) => (a.key === 'APP-434' ? 1 : b.key === 'APP-434' ? -1 : b.hours - a.hours || a.key.localeCompare(b.key))),
+    );
+    expect(r.why['APP-1']).toBe('5 min of Claude × 5 = 0.42 h; raised to the 2 h minimum for a task → 2 h');
+    expect(r.why['APP-2']).toMatch(/only touched .*; raised to the 2 h minimum for a task → 2 h$/);
+    expect(r.why['DESK-7']).toBe('5 min of Claude × 5 = 0.42 h → 0.5 h'); // a quarter-hour step: 0.5 h as it is
+    // Off by default: no task minimum.
+    expect(suggestDay([{ key: 'APP-1', minutes: 5 }], S).entries[0]).toEqual({ key: 'APP-1', hours: 0.5 });
+  });
+
+  it('too many tasks for the day at their minimum: the smallest are dropped, and the gap ticket says which', () => {
+    const T = { ...S, taskMinHours: 2 };
+    const r = suggestDay(
+      ['APP-1', 'APP-2', 'APP-3', 'APP-4'].map((key, i) => ({ key, minutes: 5 + i })),
+      T,
+    );
+    expect(r.entries.map((e) => e.key)).toEqual(['APP-2', 'APP-3', 'APP-4', 'APP-434']);
+    expect(r.why['APP-434']).toMatch(/^no room left for APP-1 \(each under its minimum\); the rest of the 7\.5 h day → 1\.5 h$/);
+  });
+
+  it("story points weigh a task's share: × (1 + weight × (points − 1)), said in the why; desk tickets and unknown points × 1", () => {
+    const T = { ...S, deskProjects: ['DESK'] };
+    const r = suggestDay(
+      [
+        { key: 'APP-1', minutes: 30 },
+        { key: 'APP-5', minutes: 30 },
+        { key: 'DESK-1', minutes: 30 },
+      ],
+      T,
+      { points: { 'APP-1': 1, 'APP-5': 5, 'DESK-1': 8 } },
+    );
+    // 2.5 h each as measured; 5 points: × 2 = 5 h; 1 point: × 1; desk: × 1. 10 h over the 7 h cap: cut to 70%.
+    expect(r.why['APP-5']).toBe(
+      '30 min of Claude × 5 = 2.5 h; × 2 for 5 story points = 5 h; all tickets came to 10 h, over the 7 h cap for tickets: each cut to 70% → 3.5 h',
+    );
+    expect(r.why['APP-1']).not.toContain('story points');
+    expect(r.why['DESK-1']).not.toContain('story points');
+    expect(r.entries.find((e) => e.key === 'APP-5')!.hours).toBeGreaterThan(r.entries.find((e) => e.key === 'APP-1')!.hours);
+    expect(suggestDay([{ key: 'APP-5', minutes: 30 }], { ...T, pointsWeight: 0 }, { points: { 'APP-5': 5 } }).why['APP-5']).not.toContain(
+      'story points',
+    );
+  });
+
   it('says how each row got its hours: the measure, a cut to fit, a minimum, the rest of the day', () => {
     // 30 min of Claude: 2.5 h as measured; the gap ticket takes the rest.
     expect(suggestDay([{ key: 'APP-1', minutes: 30 }], S).why).toEqual({

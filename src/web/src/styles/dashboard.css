@@ -4996,6 +4996,34 @@ a.wd-pr-chip:hover {
 .wd-time-grid-cell {
   text-align: center;
 }
+.wd-time-grid-cell {
+  padding: 0;
+}
+.wd-time-grid-edit {
+  width: 100%;
+  min-width: 34px;
+  min-height: 26px;
+  padding: 4px 2px;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  background: none;
+  border: 0;
+  cursor: text;
+}
+.wd-time-grid-edit:hover:not(:disabled) {
+  background: var(--hover, rgba(127, 127, 127, 0.08));
+  outline: 1px solid var(--border);
+}
+.wd-time-grid-input {
+  width: 44px;
+  padding: 3px 2px;
+  font: inherit;
+  text-align: center;
+}
+.wd-time-grid-edited {
+  color: var(--accent);
+}
 .wd-time-grid-today {
   background: var(--hover, rgba(127, 127, 127, 0.08));
 }

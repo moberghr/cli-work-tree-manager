@@ -1,7 +1,7 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import type { TimeCommitEvidence, TimeDaysWire, TimeDayWire, TimeEvidence, TimeJiraEvidence, TimeMonthWire } from '../api-types.js';
-import { issueKeys } from './allocate.js';
+import { isTask, issueKeys } from './allocate.js';
 import { applyPlacement, classifyPrompt, parsePlacement, placementOf, unplacedHash, unplacedItems } from './classify.js';
 import { readDay, readDays, saveBuilt } from './time-store.js';
 import { hintKey } from './hints.js';
@@ -29,6 +29,8 @@ export interface TimeDeps {
   /** Titles of these issue keys (the ones it can find), and whether Jira has each as done. */
   titles: (keys: string[]) => Promise<Record<string, string | { title: string; done?: boolean }>>;
   settings: () => TimeConfig;
+  /** Story points of these tasks (`time.storyPointsField`; absent, or no field set: none), the ones Jira has. */
+  points?: (keys: string[]) => Promise<Record<string, number>>;
   /** Outlook meetings that day (Graph; absent or failing: none). */
   meetings?: (day: string) => Promise<TimeEvidence['meetings']>;
   /** Teams chats you wrote in that day. */
@@ -190,6 +192,9 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
       }
     }
   }
+  // Story points weigh a task's share of the day: asked every build; a failed ask keeps what the day had.
+  const tasks = keys.filter((k) => isTask(k, settings));
+  const points = tasks.length && deps.points ? await deps.points(tasks).catch(() => prev?.points ?? {}) : (prev?.points ?? {});
   // A placeholder (to create in Jira) has no title there: the hint's summary.
   for (const h of hinted) if (h.title) titles[h.key] ??= h.title;
   evidence = await placeTheRest(evidence, prev?.evidence, titles, settings, deps, [...hinted, ...assigned]);
@@ -202,6 +207,7 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
     titles,
     builtAt: new Date(deps.now?.() ?? Date.now()).toISOString(),
     ...(resolved.length ? { resolved } : {}),
+    ...(Object.keys(points).length ? { points } : {}),
     ...(assigned.length ? { assigned: assigned.map((a) => a.key) } : {}),
   });
 }

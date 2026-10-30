@@ -10,6 +10,7 @@ import {
   describeView,
   prepareAssistantDir,
   assistantContextDay,
+  assistantContextMonth,
   readAssistantContext,
   writeAssistantContext,
 } from '../../../src/core/agents/assistant.js';
@@ -121,6 +122,7 @@ describe('the assistant folder', () => {
       'work overlaps --json',
       'work search encryption keys --json',
       'work timesheet show 2026-10-08 --json',
+      'work timesheet month 2026-10 --json',
     ]) {
       expect(allows(ASSISTANT_ALLOW, read), read).toBe(true);
       expect(claudeAllows(claudeSettingsAllow(), read), read).toBe(true);
@@ -139,6 +141,7 @@ describe('the assistant folder', () => {
       'work timesheet reset 2026-10-08',
       'work timesheet off 2026-10-08',
       'work timesheet post 2026-10-08',
+      'work timesheet gather 2026-10', // reads Jira, Outlook, git: the user's say-so
       // Acting on another session: approving its tool call is yours to say, and a message or a start makes it act.
       'work answer --allow',
       'work answer api feat/x --allow',
@@ -248,5 +251,30 @@ describe('POST /api/assistant/context', () => {
     expect(assistantContextDay()).toBeNull();
     await post({ tab: 'sessions', day: '2026-10-08' }); // another tab: no day
     expect(assistantContextDay()).toBeNull();
+  });
+
+  it("on the Month view: the month on screen in words, in place of a day; a month that isn't one is dropped", async () => {
+    const app = new Hono();
+    mountAssistantRoutes(app);
+    const post = (body: unknown) =>
+      app.request('/api/assistant/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    await post({ tab: 'time', day: '2026-10-08', month: '2026-10' });
+    expect(assistantContextMonth()).toBe('2026-10');
+    expect(assistantContextDay()).toBeNull(); // the month, not a day of it
+    const { describeMonthNow } = await import('../../../src/core/time/time-actions.js');
+    const { updateDay } = await import('../../../src/core/time/time-store.js');
+    updateDay('2026-10-06', { edited: [{ key: 'APP-1', hours: 7.5 }] });
+    const said = readAssistantContext(Date.now(), describeMonthNow('2026-10'))!;
+    expect(said).toContain("On the Time tab's Month view: 2026-10");
+    expect(said).toContain('2026-10-06 (edited, your rows): 7.5 h — APP-1 7.5 h.');
+    expect(said).toContain('work timesheet set <day> KEY=HOURS');
+    await post({ tab: 'time', month: '2026-13' });
+    expect(assistantContextMonth()).toBeNull();
+    await post({ tab: 'sessions', month: '2026-10' }); // another tab: no month
+    expect(assistantContextMonth()).toBeNull();
   });
 });

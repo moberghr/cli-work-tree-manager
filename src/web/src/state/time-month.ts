@@ -30,6 +30,25 @@ export function statusText(s: TimeDaySummary['status']): string {
   }[s];
 }
 
+const VIEW_KEY = 'work:time-view';
+
+/** The Time tab's view as you last left it: Days unless it was Month (no storage, a private window: Days). */
+export function readTimeView(): 'days' | 'month' {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'month' ? 'month' : 'days';
+  } catch {
+    return 'days';
+  }
+}
+
+export function writeTimeView(view: 'days' | 'month'): void {
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Not kept: the tab opens on Days next time.
+  }
+}
+
 /** "October 2026". */
 export function monthLabel(month: string): string {
   return new Date(`${month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -47,6 +66,34 @@ export function leftOutText(why: TimeMonthLeftOut): string {
     'not-gathered': 'not gathered yet',
     'not-workday': 'weekend or holiday: save its rows to post it',
   }[why];
+}
+
+/**
+ * A cell of the Month grid typed in: the day's rows with that ticket's hours
+ * changed (empty or 0: taken out; a ticket the day didn't have: added).
+ * Null when nothing changed; an error when it isn't hours in whole steps.
+ */
+export function cellEdit(
+  entries: ReadonlyArray<{ key: string; hours: number }>,
+  key: string,
+  text: string,
+  step: number,
+): { entries: Array<{ key: string; hours: number }> } | { error: string } | null {
+  const t = text.trim().replace(',', '.');
+  const hours = t === '' ? 0 : Number(t);
+  if (!Number.isFinite(hours) || hours < 0 || hours > 24) return { error: `Not hours: ${text}` };
+  if (Math.abs(hours / step - Math.round(hours / step)) > 1e-9) return { error: `Hours go in steps of ${step}: ${text}` };
+  const had = entries.find((e) => e.key === key)?.hours ?? 0;
+  if (hours === had) return null;
+  const rest = entries.filter((e) => e.key !== key).map((e) => ({ key: e.key, hours: e.hours }));
+  return {
+    entries:
+      hours > 0
+        ? entries.some((e) => e.key === key)
+          ? entries.map((e) => ({ key: e.key, hours: e.key === key ? hours : e.hours }))
+          : [...rest, { key, hours }]
+        : rest,
+  };
 }
 
 /** One day's post: its hours, and what went wrong (the whole post, or some rows). */

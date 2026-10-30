@@ -186,6 +186,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [assistantMounted, setAssistantMounted] = useState(false);
   // The Time tab's day on screen: the assistant is told about it.
   const [timeDay, setTimeDay] = useState<string | null>(null);
+  const [timeMonth, setTimeMonth] = useState<string | null>(null);
   const toggleAssistant = useCallback(() => {
     setAssistantMounted(true);
     setAssistantOpen((o) => !o);
@@ -750,9 +751,12 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     if (!assistantOpen) return;
     const view = route.sessionId
       ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId }
-      : { tab: route.tab, ...(route.tab === 'time' && timeDay ? { day: timeDay } : {}) };
+      : {
+          tab: route.tab,
+          ...(route.tab === 'time' && timeMonth ? { month: timeMonth } : route.tab === 'time' && timeDay ? { day: timeDay } : {}),
+        };
     void reportAssistantView(view).catch(() => {});
-  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay]);
+  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay, timeMonth]);
 
   // Opening a session that wanted you counts as having seen it — once per
   // unseen episode (keyed by when it entered that state), and only while
@@ -892,6 +896,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           <TimeTab
             onOpenSession={(id) => openSession(id)}
             onDayChange={setTimeDay}
+            onMonthChange={setTimeMonth}
             onAsk={() => {
               setAssistantMounted(true);
               setAssistantOpen(true);

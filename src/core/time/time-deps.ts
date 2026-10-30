@@ -5,7 +5,7 @@ import { loadHistory } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
-import { fetchMyIssuesOrThrow, issueIdOf, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
+import { fetchMyIssuesOrThrow, issueIdOf, issueNumberField, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
 import { chatsOf, chatsSince, graphApp, graphToken, meetingsOn, type ChatsRead } from './graph.js';
 import type { TimeJiraEvidence } from '../api-types.js';
@@ -106,6 +106,29 @@ export async function titlesOf(
     one.forEach((r, i) => r === null && refused.set(valid[i], now));
     return Object.fromEntries(one.flatMap((r) => r ?? []));
   }
+}
+
+/**
+ * Story points of these tasks: one acli view each (a search can't return a custom field), a few at a time.
+ * A task with none, or one Jira refuses, is left out; throws when none could be asked about (acli down).
+ */
+export async function pointsOf(keys: string[], read: (key: string) => Promise<number | null>): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  let answered = 0;
+  for (let i = 0; i < keys.length; i += TITLES_AT_ONCE)
+    await Promise.all(
+      keys.slice(i, i + TITLES_AT_ONCE).map((k) =>
+        read(k).then(
+          (p) => {
+            answered++;
+            if (p !== null && p > 0) out[k] = p;
+          },
+          () => {},
+        ),
+      ),
+    );
+  if (keys.length && !answered) throw new Error('Jira could not be asked about story points');
+  return out;
 }
 
 const TITLES_AT_ONCE = 3;
@@ -240,6 +263,10 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
     },
     jiraMoved: (day) => once(`jira:${day}`, () => jiraOn(day)),
     titles: (keys) => once(`titles:${[...keys].sort().join(',')}`, () => titlesOf(keys, searchIssuesOrThrow)),
+    points: async (keys) => {
+      const field = timeSettings(loadConfig()?.time).storyPointsField;
+      return field ? once(`points:${field}:${[...keys].sort().join(',')}`, () => pointsOf(keys, (k) => issueNumberField(k, field))) : {};
+    },
     settings: () => timeSettings(loadConfig()?.time),
     // Outlook and Teams only once you signed in (the Time tab's Connect): none otherwise. A sign-in that stopped
     // working, or no network, throws (graphToken): the day keeps the meetings and chats it had.

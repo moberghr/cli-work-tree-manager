@@ -91,6 +91,7 @@ let container: HTMLDivElement;
 let root: Root;
 const onOpenSession = vi.fn();
 beforeEach(() => {
+  localStorage.clear(); // the remembered Days / Month
   api.days = {
     days: [
       { day: '2026-10-08', status: 'draft', workday: true, total: 7.5, tickets: 2 },
@@ -531,6 +532,62 @@ describe('the Time tab: the Month view', () => {
     expect(container.querySelector('.wd-time-outcome')!.textContent).toBe(
       `1 day posted to Tempo, 7.5 h. ${dayLabel(`${thisMonth}-02`)}: APP-1 refused (no permission). Stopped: 1 not posted.`,
     );
+  });
+
+  it('a cell can be changed: Enter saves the day with that ticket at your hours; empty takes it out; Esc leaves it', async () => {
+    api.save.mockReset().mockImplementation(async (day: string) => dayWire({ day, status: 'edited', edited: true }));
+    await toMonth();
+    const cell = () => container.querySelectorAll('.wd-time-grid tbody tr')[0].querySelectorAll<HTMLButtonElement>('.wd-time-grid-edit')[3];
+    act(() => cell().click());
+    const input = container.querySelector<HTMLInputElement>('.wd-time-grid-input')!;
+    act(() => setValue(input, '3'));
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(api.save).toHaveBeenCalledWith(`${thisMonth}-04`, {
+      entries: [
+        { key: 'APP-1', hours: 3 },
+        { key: 'APP-434', hours: 5 },
+      ],
+    });
+    // A ticket's cell on a day without it: added; emptied: taken out.
+    act(() => container.querySelectorAll('.wd-time-grid tbody tr')[1].querySelectorAll<HTMLButtonElement>('.wd-time-grid-edit')[3].click());
+    act(() => setValue(container.querySelector<HTMLInputElement>('.wd-time-grid-input')!, '1'));
+    await act(async () =>
+      container.querySelector('.wd-time-grid-input')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    expect(container.querySelector('.wd-time-grid-input')).toBeNull();
+    expect(api.save).toHaveBeenCalledTimes(1); // Esc saved nothing
+    act(() => cell().click());
+    act(() => setValue(container.querySelector<HTMLInputElement>('.wd-time-grid-input')!, ''));
+    await act(async () =>
+      container.querySelector('.wd-time-grid-input')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+    );
+    expect(api.save).toHaveBeenLastCalledWith(`${thisMonth}-04`, { entries: [{ key: 'APP-434', hours: 5 }] });
+  });
+
+  it('tells the dashboard the month on screen while Month shows; Ask about this month opens the assistant', async () => {
+    const onMonthChange = vi.fn();
+    const onAsk = vi.fn();
+    act(() => root.render(createElement(TimeTab, { onOpenSession, onMonthChange, onAsk })));
+    await flush();
+    expect(onMonthChange).toHaveBeenLastCalledWith(null); // Days
+    act(() => button('Month').click());
+    await flush();
+    expect(onMonthChange).toHaveBeenLastCalledWith(thisMonth);
+    act(() => button('Ask about this month').click());
+    expect(onAsk).toHaveBeenCalled();
+  });
+
+  it('remembers Days or Month: the tab opens on the one you left', async () => {
+    await toMonth();
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(container.querySelector('.wd-time-grid')).not.toBeNull();
+    act(() => button('Days').click());
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(container.querySelector('.wd-time-grid')).toBeNull();
   });
 
   it("posting not set up: the month's button says why; days not gathered: Gather asks for them", async () => {

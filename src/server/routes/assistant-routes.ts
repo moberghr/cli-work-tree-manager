@@ -27,13 +27,19 @@ export function mountAssistantRoutes(app: Hono, opts: AssistantRoutesOptions = {
       ...(typeof body.sessionId === 'string' ? { sessionId: body.sessionId } : {}),
       ...(typeof body.note === 'string' ? { note: body.note.slice(0, 500) } : {}),
       ...(typeof body.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.day) ? { day: body.day } : {}),
+      ...(typeof body.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.month) ? { month: body.month } : {}),
     };
     const s = view.sessionId ? findSession(view.sessionId) : null;
     let wire = s ? sessionWire(s, opts.wireOptions) : null;
     const o = wire ? opts.overlapsFor?.(wire.id) : undefined;
     if (wire && o) wire = { ...wire, overlaps: o };
-    // The Time tab's day is kept by date: the hook describes it as it is at each prompt.
-    writeAssistantContext(describeView(view, wire), Date.now(), view.tab === 'time' ? view.day : undefined);
+    // The Time tab's day (or month) is kept by date: the hook describes it as it is at each prompt.
+    writeAssistantContext(
+      describeView(view, wire),
+      Date.now(),
+      view.tab === 'time' && !view.month ? view.day : undefined,
+      view.tab === 'time' ? view.month : undefined,
+    );
     return c.json({ ok: true });
   });
 }
