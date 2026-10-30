@@ -114,9 +114,33 @@ describe('suggestDay (the timesheet rules)', () => {
 
   it('no gap ticket set: the rest is unallocated; a day off books the time-off ticket, or nothing', () => {
     const r = suggestDay([{ key: 'APP-1', minutes: 30 }], { ...S, gapTicket: null });
-    expect(r).toEqual({ entries: [{ key: 'APP-1', hours: 2.5 }], unallocated: 5 });
-    expect(suggestDay([], S, { dayOff: true })).toEqual({ entries: [{ key: 'HR-1', hours: 7.5 }], unallocated: 0 });
-    expect(suggestDay([], { ...S, timeOffTicket: null }, { dayOff: true })).toEqual({ entries: [], unallocated: 7.5 });
+    expect(r).toMatchObject({ entries: [{ key: 'APP-1', hours: 2.5 }], unallocated: 5 });
+    expect(suggestDay([], S, { dayOff: true })).toMatchObject({ entries: [{ key: 'HR-1', hours: 7.5 }], unallocated: 0 });
+    expect(suggestDay([], { ...S, timeOffTicket: null }, { dayOff: true })).toMatchObject({ entries: [], unallocated: 7.5 });
+  });
+
+  it('says how each row got its hours: the measure, a cut to fit, a minimum, the rest of the day', () => {
+    // 30 min of Claude: 2.5 h as measured; the gap ticket takes the rest.
+    expect(suggestDay([{ key: 'APP-1', minutes: 30 }], S).why).toEqual({
+      'APP-1': '30 min of Claude × 5 = 2.5 h → 2.5 h',
+      'APP-434': 'the rest of the 7.5 h day → 5 h',
+    });
+    // 119 min = 9.9 h, over the 7 h cap: cut to fit.
+    expect(suggestDay([{ key: 'APP-1', minutes: 119 }], S).why['APP-1']).toBe(
+      '119 min of Claude × 5 = 9.92 h; all tickets came to 9.92 h, over the 7 h cap for tickets: each cut to 71% → 7 h',
+    );
+    // Meetings no ticket got: the gap ticket keeps room for them, so the cut is to what's left.
+    expect(suggestDay([{ key: 'APP-1', minutes: 119 }], S, { reserveMinutes: 120 }).why['APP-1']).toMatch(
+      /over the 7\.5 h day less 2 h kept for APP-434 \(meetings no ticket got\): each cut to 55% → 5\.5 h$/,
+    );
+    // Only touched: the minimum; a little Claude time: raised to it.
+    expect(suggestDay([{ key: 'APP-2', minutes: 0 }], S).why['APP-2']).toBe(
+      'only touched (a commit, an issue moved, a chat): the 0.5 h minimum → 0.5 h',
+    );
+    expect(suggestDay([{ key: 'APP-3', minutes: 4 }], S).why['APP-3']).toBe(
+      '4 min of Claude × 5 = 0.33 h; raised to the 0.5 h minimum → 0.5 h',
+    );
+    expect(suggestDay([], S, { dayOff: true }).why).toEqual({ 'HR-1': 'a day off: the whole day' });
   });
 
   it('nothing worked: the whole day to the gap ticket', () => {

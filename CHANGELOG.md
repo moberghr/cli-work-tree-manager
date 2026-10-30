@@ -3,6 +3,17 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.9.1 — 2026-10-30
+
+- **Time: each row says how it got its hours.** Under every ticket in a
+  day (and on hover over a cell of the Month view): the Claude minutes and
+  the multiplier ("51 min of Claude × 5 = 4.25 h"), meetings, the minimum
+  for a ticket only touched, a cut when the tickets came to more than the
+  day has room for, and what it came from — the sessions, commits and
+  meetings, and whether the AI step placed them because none named the
+  ticket. Rows you changed say "Your hours", with what work had suggested.
+  The Ctrl+K assistant sees it too when you ask about a day.
+
 ## 2.9.0 — 2026-10-30
 
 - **Time: post a whole month at once.** The Time tab now has the whole

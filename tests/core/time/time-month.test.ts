@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
 import { buildDay, monthWire, type TimeDeps } from '../../../src/core/time/time-days.js';
 import { readDay, updateDay } from '../../../src/core/time/time-store.js';
-import { listFrom, timeRange, type TimeConfig, type TimeDayRecord } from '../../../src/core/time/time-view.js';
+import { dayWireOf, describeTimeDay, listFrom, timeRange, type TimeConfig, type TimeDayRecord } from '../../../src/core/time/time-view.js';
 import { addMonths, isMonth, leftOutWhy, monthRange, monthWireOf, needsBuild } from '../../../src/core/time/time-month.js';
 import { createMonthGather } from '../../../src/core/time/month-gather.js';
 import { createTimeKeeper } from '../../../src/core/time/time-keeper.js';
@@ -130,6 +130,7 @@ describe('the Month view (monthWireOf)', () => {
         dayOff: false,
         today: false,
         edited: false,
+        why: {},
         entries: [],
         total: 0,
         placeholders: [],
@@ -139,6 +140,42 @@ describe('the Month view (monthWireOf)', () => {
 
   it('a month that has not started is empty', () => {
     expect(monthWireOf('2026-11', '2026-10-30', S, []).days).toEqual([]);
+  });
+});
+
+describe("a day's rows say how they got their hours (dayWireOf why)", () => {
+  // 51 min on a branch naming no ticket, placed by the AI step; three commits too.
+  const day = rec('2026-10-05', {
+    evidence: {
+      sessions: [{ sessionId: 's', label: 'straumur · fix/settlement-flow', key: 'APP-1', minutes: 51, guessed: true }],
+      commits: [1, 2, 3].map((n) => ({ repo: 'web', sha: `c${n}`, subject: 'settle', keys: ['APP-1'], guessed: true as const })),
+      jira: [],
+    },
+  });
+
+  it('the arithmetic, then where it came from — and that the AI step placed it', () => {
+    const w = dayWireOf('2026-10-05', S, day);
+    expect(w.why['APP-1']).toBe(
+      '51 min of Claude × 5 = 4.25 h → 4.25 h. From: fix/settlement-flow, 3 commits — placed by the AI step (none of it named the ticket)',
+    );
+    expect(w.why['OPS-1']).toBe('the rest of the 7.5 h day → 3.25 h');
+    expect(describeTimeDay(w)).toContain('Why APP-1: 51 min of Claude × 5 = 4.25 h');
+  });
+
+  it('your own rows say so, with what work had suggested', () => {
+    const w = dayWireOf('2026-10-05', S, {
+      ...day,
+      edited: [
+        { key: 'APP-1', hours: 2 },
+        { key: 'APP-9', hours: 5.5 },
+      ],
+    });
+    expect(w.why['APP-1']).toMatch(/^Your hours\. work suggested: 51 min of Claude/);
+    expect(w.why['APP-9']).toBe('Your hours (work suggested none for it).');
+  });
+
+  it("the Month view's days carry it, for the grid's cells", () => {
+    expect(monthWireOf('2026-10', '2026-10-30', S, [day]).days.find((d) => d.day === '2026-10-05')!.why['APP-1']).toMatch(/^51 min/);
   });
 });
 

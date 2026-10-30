@@ -191,6 +191,7 @@ export function TimeMonth({ month, onOpenDay }: { month: string; onOpenDay: (day
                           (d.today ? ' wd-time-grid-today' : '') +
                           (d.status === 'posted' && h ? ' wd-time-grid-posted' : '')
                         }
+                        title={h ? `${t.key} on ${dayLabel(d.day)}: ${d.why?.[t.key] || `${hoursText(h)}`}` : undefined}
                       >
                         {h ?? ''}
                       </td>

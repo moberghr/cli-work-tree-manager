@@ -147,12 +147,52 @@ export function dayWireOf(
     settings: settingsWire(settings),
     posted: posted ? { at: posted.at, entries: posted.entries } : null,
     vacation,
+    why: rowsWhy(entries, s.why, evidence, edited),
     resolved: (rec?.resolved ?? []).filter((k) => entries.some((e) => e.key === k)),
     placeholders: placeholderKeys(
       entries.map((e) => e.key),
       settings.hints,
     ),
   };
+}
+
+/** What on a day went to a ticket, in a few words: "fix/settlement-flow, 3 commits — placed by the AI step". */
+export function sourcesOf(ev: TimeEvidence, key: string): string {
+  const items: Array<{ text: string; guessed?: true }> = [
+    ...ev.sessions.filter((s) => s.key === key).map((s) => ({ text: s.label.split(' · ').pop() ?? s.label, guessed: s.guessed })),
+    ...ev.commits.filter((c) => c.keys.includes(key)).map((c) => ({ text: 'a commit', guessed: c.guessed })),
+    ...ev.jira.filter((j) => j.key === key).map((j) => ({ text: j.what })),
+    ...(ev.meetings ?? []).filter((m) => m.key === key).map((m) => ({ text: m.subject, guessed: m.guessed })),
+    ...(ev.chats ?? []).filter((c) => c.key === key).map((c) => ({ text: `Teams: ${c.chat}`, guessed: c.guessed })),
+  ];
+  if (!items.length) return '';
+  // Commits counted, the rest by name.
+  const commits = items.filter((i) => i.text === 'a commit').length;
+  const named = [...new Set(items.filter((i) => i.text !== 'a commit').map((i) => i.text))];
+  const list = [...named, ...(commits ? [`${commits} commit${commits === 1 ? '' : 's'}`] : [])].join(', ');
+  const ai = items.filter((i) => i.guessed).length;
+  return ai === items.length
+    ? `${list} — placed by the AI step (none of it named the ticket)`
+    : ai
+      ? `${list} — some placed by the AI step`
+      : list;
+}
+
+/** Each row's why: the suggestion's arithmetic and where it came from; your own rows say so. */
+function rowsWhy(
+  entries: readonly TimeEntry[],
+  suggested: Record<string, string>,
+  ev: TimeEvidence,
+  edited: boolean,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const e of entries) {
+    const from = sourcesOf(ev, e.key);
+    const how = suggested[e.key];
+    const said = how ? `${how}${from ? `. From: ${from}` : ''}` : '';
+    out[e.key] = edited ? (said ? `Your hours. work suggested: ${said}` : 'Your hours (work suggested none for it).') : said;
+  }
+  return out;
 }
 
 /** The same rows, in any order. Pure. */
@@ -276,6 +316,8 @@ export function describeTimeDay(w: TimeDayWire): string {
     '<<<',
     `  Rows: ${rows(w.entries)}.`,
     ...(w.edited ? [`  work suggested: ${rows(w.suggested)}.`] : []),
+    // How each row got its hours (its arithmetic, and session names others' text can't reach — still fenced).
+    ...w.entries.filter((e) => w.why?.[e.key]).map((e) => `  Why ${e.key}: ${d(w.why[e.key])}.`),
     ...(w.posted ? [`  Posted to Tempo at ${w.posted.at}${w.status === 'changed' ? '; changed since' : ''}.`] : []),
     ...(w.vacation ? ['  A vacation day (time.vacation in config.json).'] : []),
     ...(w.resolved?.length ? [`  Done in Jira already: ${w.resolved.join(', ')}.`] : []),

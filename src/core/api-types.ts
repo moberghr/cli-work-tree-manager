@@ -683,6 +683,8 @@ export interface TimeDayWire {
   posted: { at: string; entries: TimeEntryWire[] } | null;
   /** A vacation day (config `time.vacation`): a day off whatever was ticked. */
   vacation: boolean;
+  /** How each row got its hours, by key: the suggestion's arithmetic and what it came from, or "your hours". */
+  why: Record<string, string>;
   /** Rows whose ticket Jira had as done when the day was gathered. */
   resolved: string[];
   /** Rows whose ticket is a placeholder (`time.hints`): create it in Jira before posting. */
@@ -743,6 +745,8 @@ export interface TimeMonthDay {
   today: boolean;
   /** Your rows, not the suggestion. */
   edited: boolean;
+  /** How each row got its hours (TimeDayWire.why). */
+  why: Record<string, string>;
   entries: TimeEntryWire[];
   total: number;
   /** Its rows whose ticket is a placeholder (`time.hints`): it can't be posted until they're made in Jira. */

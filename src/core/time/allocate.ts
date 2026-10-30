@@ -65,7 +65,12 @@ export interface DaySuggestion {
   entries: TimeEntry[];
   /** Hours of the day no ticket got (no gap ticket set). */
   unallocated: number;
+  /** How each row got its hours, in words, by key: "51 min of Claude × 5 = 4.25 h". */
+  why: Record<string, string>;
 }
+
+/** "4.25 h". */
+const h2 = (h: number) => `${Math.round(h * 100) / 100} h`;
 
 /**
  * A day's suggestion. `dayOff`: all of it to the time-off ticket.
@@ -83,8 +88,8 @@ export function suggestDay(
   const hours = (u: number) => Math.round(u * s.stepHours * 100) / 100;
   if (opts.dayOff)
     return s.timeOffTicket
-      ? { entries: [{ key: s.timeOffTicket, hours: s.dayHours }], unallocated: 0 }
-      : { entries: [], unallocated: s.dayHours };
+      ? { entries: [{ key: s.timeOffTicket, hours: s.dayHours }], unallocated: 0, why: { [s.timeOffTicket]: 'a day off: the whole day' } }
+      : { entries: [], unallocated: s.dayHours, why: {} };
 
   // One row per ticket; the gap ticket's own time goes into what it gets at the end.
   const minutes = new Map<string, { claude: number; direct: number }>();
@@ -112,9 +117,10 @@ export function suggestDay(
       const scaled = r.raw * scale;
       const u = units(scaled);
       // Under the minimum: the minimum when it's at least a step's worth, else nothing.
-      return { key: r.key, raw: scaled, u: u >= min ? u : scaled >= s.stepHours ? min : 0 };
+      return { key: r.key, raw: scaled, u: u >= min ? u : scaled >= s.stepHours ? min : 0, first: 0 };
     })
     .filter((r) => r.u > 0);
+  for (const r of rows) r.first = r.u;
   // Rounding up to minimums can overshoot the room: trim the biggest a step at a time, then drop the smallest.
   let used = rows.reduce((n, r) => n + r.u, 0);
   while (used > room && rows.length) {
@@ -124,9 +130,38 @@ export function suggestDay(
     used = rows.reduce((n, r) => n + r.u, 0);
   }
   const entries = rows.sort((a, b) => b.u - a.u || a.key.localeCompare(b.key)).map((r) => ({ key: r.key, hours: hours(r.u) }));
+
+  // The words: what it measured, how that became hours, and every step after (cut to fit, a minimum, trimmed).
+  const why: Record<string, string> = {};
+  const roomWhy =
+    room === units(s.capHours) && units(s.capHours) <= day - reserve
+      ? `the ${h2(s.capHours)} cap for tickets`
+      : `the ${h2(s.dayHours)} day less ${h2(hours(reserve))} kept for ${s.gapTicket}${(opts.reserveMinutes ?? 0) > 0 ? ' (meetings no ticket got)' : ''}`;
+  for (const r of rows) {
+    const m = minutes.get(r.key)!;
+    const parts: string[] = [];
+    if (m.claude > 0)
+      parts.push(s.effort ? `${Math.round(m.claude)} min of Claude, as measured` : `${Math.round(m.claude)} min of Claude × ${multiplier}`);
+    if (m.direct > 0) parts.push(`${Math.round(m.direct)} min of meetings`);
+    const measured = (m.claude / 60) * multiplier + m.direct / 60;
+    const steps: string[] = [
+      measured > 0
+        ? `${parts.join(' + ')} = ${h2(measured)}`
+        : `only touched (a commit, an issue moved, a chat): the ${h2(s.minHours)} minimum`,
+    ];
+    if (scale < 1) steps.push(`all tickets came to ${h2(total)}, over ${roomWhy}: each cut to ${Math.round(scale * 100)}%`);
+    if (measured > 0 && r.first === min && units(r.raw) < min) steps.push(`raised to the ${h2(s.minHours)} minimum`);
+    if (r.u < r.first) steps.push(`trimmed ${h2(hours(r.first - r.u))} so the day adds up`);
+    why[r.key] = `${steps.join('; ')} → ${h2(hours(r.u))}`;
+  }
+
   const left = day - used;
-  if (s.gapTicket && left > 0) return { entries: [...entries, { key: s.gapTicket, hours: hours(left) }], unallocated: 0 };
-  return { entries, unallocated: hours(Math.max(0, left)) };
+  if (s.gapTicket && left > 0) {
+    why[s.gapTicket] =
+      `the rest of the ${h2(s.dayHours)} day${(opts.reserveMinutes ?? 0) > 0 ? `, ${Math.round(opts.reserveMinutes ?? 0)} min of it meetings no ticket got` : ''} → ${h2(hours(left))}`;
+    return { entries: [...entries, { key: s.gapTicket, hours: hours(left) }], unallocated: 0, why };
+  }
+  return { entries, unallocated: hours(Math.max(0, left)), why };
 }
 
 /** Sum of a day's entries, in hours (to two decimals). */

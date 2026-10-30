@@ -295,6 +295,10 @@ export function TimeTab({
                           resolved
                         </span>
                       )}
+                      {/* How it got its hours (a row you added or changed since: your own). */}
+                      {day.why?.[r.key] && r.hours === day.entries.find((e) => e.key === r.key)?.hours && (
+                        <span className="wd-time-why">{day.why[r.key]}</span>
+                      )}
                     </td>
                     <td className="wd-time-num">
                       <input

@@ -4835,6 +4835,13 @@ a.wd-pr-chip:hover {
   border-radius: 4px;
   white-space: nowrap;
 }
+.wd-time-why {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
 .wd-time-tag-warn {
   color: var(--del-fg);
   border-color: currentColor;

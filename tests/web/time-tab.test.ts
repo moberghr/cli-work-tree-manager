@@ -43,6 +43,7 @@ const dayWire = (over: Partial<TimeDayWire> = {}): TimeDayWire => ({
   posted: null,
   posting: { ready: true, why: null },
   vacation: false,
+  why: { 'APP-1': '30 min of Claude × 5 = 2.5 h → 2.5 h. From: feat/APP-1-x', 'APP-434': 'the rest of the 7.5 h day → 5 h' },
   resolved: [],
   placeholders: [],
   ...over,
@@ -138,7 +139,15 @@ describe('the Time tab', () => {
       `${dayLabel('2026-10-07')}edited7.5 h`,
     ]);
     const rows = [...container.querySelectorAll('.wd-time-rows tbody tr')];
-    expect(rows.map((r) => r.querySelector('.wd-time-title')!.textContent)).toEqual(['The thing', 'Meetings']);
+    expect(rows.map((r) => r.querySelector('.wd-time-title')!.firstChild!.textContent)).toEqual(['The thing', 'Meetings']);
+    // How each row got its hours, under its title; a row changed since is your own (no reason shown).
+    expect(rows.map((r) => r.querySelector('.wd-time-why')?.textContent)).toEqual([
+      '30 min of Claude × 5 = 2.5 h → 2.5 h. From: feat/APP-1-x',
+      'the rest of the 7.5 h day → 5 h',
+    ]);
+    act(() => setValue(container.querySelectorAll<HTMLInputElement>('.wd-time-hours')[0], '3'));
+    expect(rows[0].querySelector('.wd-time-why')).toBeNull();
+    act(() => button('Undo changes').click());
     expect(container.querySelector('.wd-time-rows tfoot')!.textContent).toContain('7.5 h / 7.5 h');
     expect(container.querySelector('.wd-time-evidence')!.textContent).toContain('30 min of Claude');
     act(() => button('api · feat/APP-1-x').click());
@@ -338,7 +347,10 @@ describe('the Time tab', () => {
   it('a resolved ticket and a placeholder are said on their rows; a vacation day is fixed as one', async () => {
     api.day = dayWire({ resolved: ['APP-1'], placeholders: ['APP-434'] });
     await render();
-    const titles = [...container.querySelectorAll('.wd-time-rows tbody .wd-time-title')].map((t) => t.textContent);
+    // The title and its tags, without the line on how it got its hours.
+    const titles = [...container.querySelectorAll('.wd-time-rows tbody .wd-time-title')].map((t) =>
+      (t.textContent ?? '').replace(t.querySelector('.wd-time-why')?.textContent ?? '', ''),
+    );
     expect(titles).toEqual(['The thingresolved', 'Meetingscreate in Jira first']);
     act(() => root.unmount());
     root = createRoot(container);
@@ -379,6 +391,7 @@ const mday = (n: number, over: Partial<TimeMonthWire['days'][number]> = {}): Tim
   dayOff: false,
   today: false,
   edited: false,
+  why: { 'APP-1': '30 min of Claude × 5 = 2.5 h → 2.5 h', 'APP-434': 'the rest of the 7.5 h day → 5 h' },
   entries: [
     { key: 'APP-1', hours: 2.5 },
     { key: 'APP-434', hours: 5 },
@@ -461,6 +474,10 @@ describe('the Time tab: the Month view', () => {
     expect(rows.map((r) => r.querySelector('.wd-time-grid-key')!.textContent)).toEqual(['APP-1', 'NEW-1', 'APP-434']);
     expect(rows[0].lastElementChild!.textContent).toBe('12 h');
     expect(rows[1].textContent).toContain('create first');
+    // A cell says how that day's hours came about on hover.
+    expect(rows[0].querySelectorAll<HTMLElement>('.wd-time-grid-cell')[3].title).toBe(
+      `APP-1 on ${dayLabel(`${thisMonth}-04`)}: 30 min of Claude × 5 = 2.5 h → 2.5 h`,
+    );
     expect(container.querySelectorAll('.wd-time-grid thead .wd-time-grid-day')).toHaveLength(5);
     const totals = [...container.querySelectorAll('.wd-time-grid tfoot .wd-time-grid-cell')];
     expect(totals[1].className).toContain('wd-time-off-total'); // 6 of 7.5
