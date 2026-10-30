@@ -15,7 +15,7 @@ const rec = (day: string, over: Partial<TimeDayRecord> = {}, key = 'APP-1', minu
   day,
   evidence: { sessions: [{ sessionId: 's', label: 'api · feat/x', key, minutes }], commits: [], jira: [] },
   titles: { 'APP-1': 'One', 'APP-2': 'Two', 'OPS-1': 'Meetings', 'HR-1': 'Time off' },
-  builtAt: `${day}T23:30:00.000Z`,
+  builtAt: new Date(Date.parse(`${day}T12:00:00`) + 24 * 3600_000).toISOString(), // the next day, local: after it ended in any zone
   edited: null,
   dayOff: false,
   ...over,
