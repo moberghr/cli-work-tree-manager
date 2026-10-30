@@ -4874,9 +4874,181 @@ a.wd-pr-chip:hover {
   font-size: 12px;
   color: var(--muted);
 }
+.wd-time-body[hidden] {
+  display: none;
+}
+/* Month navigation and the Days | Month switch; the Month view's grid. */
+.wd-time-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 32px 0;
+}
+.wd-time-month-name {
+  min-width: 130px;
+  text-align: center;
+  font-weight: 600;
+}
+.wd-time-views {
+  display: flex;
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.wd-time-views button {
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.wd-time-views button[aria-pressed='true'] {
+  color: inherit;
+  font-weight: 600;
+  background: var(--selected, rgba(37, 99, 235, 0.1));
+}
+.wd-time-month {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 32px 32px;
+}
+.wd-time-month-pad {
+  margin: 0;
+}
+.wd-time-month-bar,
+.wd-time-month-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.wd-time-month-progress progress {
+  flex: 1;
+  min-width: 120px;
+}
+.wd-time-grid-box {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.wd-time-grid {
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.wd-time-grid th,
+.wd-time-grid td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.wd-time-grid thead th {
+  font-weight: 600;
+  color: var(--muted);
+  text-align: left;
+}
+.wd-time-grid-key {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+.wd-time-grid-title {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.wd-time-grid-day {
+  padding: 0;
+  text-align: center;
+}
+.wd-time-grid-open {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 100%;
+  min-width: 34px;
+  padding: 4px 2px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.wd-time-grid-open:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.08));
+}
+.wd-time-grid-num {
+  font-size: 13px;
+  color: var(--fg, inherit);
+}
+.wd-time-grid-cell {
+  text-align: center;
+}
+.wd-time-grid-today {
+  background: var(--hover, rgba(127, 127, 127, 0.08));
+}
+.wd-time-grid-posted {
+  color: var(--add-fg);
+}
+.wd-time-grid tfoot td {
+  font-weight: 600;
+  border-bottom: 0;
+}
+.wd-time-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 1px solid var(--muted);
+}
+.wd-time-dot-posted {
+  background: var(--add-fg);
+  border-color: var(--add-fg);
+}
+.wd-time-dot-changed {
+  background: #b45309;
+  border-color: #b45309;
+}
+.wd-time-dot-edited {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.wd-time-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-time-month-out h3 {
+  margin: 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.wd-time-month-out ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
 @media (max-width: 720px) {
   .wd-time-body {
     grid-template-columns: 1fr;
+    padding: 12px;
+  }
+  .wd-time-nav {
+    margin: 12px 12px 0;
+  }
+  .wd-time-month {
     padding: 12px;
   }
 }

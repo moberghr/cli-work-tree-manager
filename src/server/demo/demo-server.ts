@@ -50,6 +50,7 @@ import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { createDemoTime } from './demo-time.js';
 import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
+import { monthRange } from '../../core/time/time-month.js';
 import { mountDemoReplies } from './demo-replies.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
@@ -669,7 +670,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const s = scenario.create(body.target, branch, prompt, undefined, account);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
-  // The Time tab: two weeks of made-up days (demo-time.ts), edits in memory.
+  // The Time tab: a month of made-up days (demo-time.ts), edits in memory.
   const demoTime = createDemoTime(() => scenario.clockMs());
   app.get('/api/time', (c) => {
     const r = timeRange({ from: c.req.query('from'), to: c.req.query('to') }, localDay(scenario.clockMs()), DEFAULT_CATCH_UP_DAYS);
@@ -704,6 +705,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json(graphWire());
   });
 
+  app.get('/api/time/month/:month', (c) => {
+    const month = c.req.param('month');
+    if (!monthRange(month, localDay(scenario.clockMs()))) return c.json({ error: 'month: YYYY-MM, one that has started' }, 400);
+    return c.json(demoTime.month(month));
+  });
+  // Nothing to gather: every day the demo has is gathered already.
+  app.post('/api/time/month/:month/gather', (c) => {
+    const month = c.req.param('month');
+    if (!monthRange(month, localDay(scenario.clockMs()))) return c.json({ error: 'month: YYYY-MM, one that has started' }, 400);
+    return c.json(demoTime.month(month), 202);
+  });
   app.get('/api/time/:day', (c) => {
     const day = c.req.param('day');
     if (!isDay(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);

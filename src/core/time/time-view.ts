@@ -165,6 +165,23 @@ export function sameEntries(a: readonly TimeEntry[], b: readonly TimeEntry[]): b
   return k(a) === k(b);
 }
 
+/** Something happened on a day, or you set something on it: a weekend or holiday shows (and is posted) only then. */
+export function somethingOn(rec: TimeDayRecord | null): boolean {
+  return (
+    !!rec &&
+    !!(
+      rec.evidence.sessions.length ||
+      rec.evidence.commits.length ||
+      rec.evidence.meetings?.length ||
+      rec.evidence.jira.length ||
+      rec.evidence.chats?.length ||
+      rec.edited ||
+      rec.dayOff ||
+      rec.posted
+    )
+  );
+}
+
 /** The days from `from` to `to`, newest first; a weekend or holiday shows only when something happened on it. */
 export function daysWireOf(from: string, to: string, settings: TimeSettings, records: readonly TimeDayRecord[]): TimeDaysWire {
   const recs = new Map(records.map((r) => [r.day, r]));
@@ -172,21 +189,7 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
   for (const day of daysBetween(from, to).reverse()) {
     const rec = recs.get(day) ?? null;
     const workday = isWorkday(day, settings);
-    if (
-      !workday &&
-      !(
-        rec &&
-        (rec.evidence.sessions.length ||
-          rec.evidence.commits.length ||
-          rec.evidence.meetings?.length ||
-          rec.evidence.jira.length ||
-          rec.evidence.chats?.length ||
-          rec.edited ||
-          rec.dayOff ||
-          rec.posted)
-      )
-    )
-      continue;
+    if (!workday && !somethingOn(rec)) continue;
     const w = dayWireOf(day, settings, rec);
     days.push({ day, status: w.status, workday, total: w.total, tickets: w.entries.length });
   }
@@ -195,6 +198,17 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
 
 /** The most days one list asks for (a quarter): a range from year 1 would hold up every request while it's worked out. */
 export const MAX_RANGE_DAYS = 92;
+
+/**
+ * The first day the tab lists and the keeper builds: `catchUpDays` back, or
+ * the 1st of the month when that's earlier — so the whole month is there to
+ * post at its end, whatever `catchUpDays` says.
+ */
+export function listFrom(today: string, catchUpDays: number): string {
+  const back = addDays(today, -(Math.min(catchUpDays, MAX_RANGE_DAYS) - 1));
+  const first = `${today.slice(0, 7)}-01`;
+  return first < back ? first : back;
+}
 
 /**
  * `GET /api/time`'s range, as both servers read it: `to` (default today) and
@@ -207,7 +221,7 @@ export function timeRange(
   catchUpDays: number,
 ): { from: string; to: string } | { error: string } {
   const to = q.to ?? today;
-  const from = q.from ?? (isDay(to) ? addDays(to, -(Math.min(catchUpDays, MAX_RANGE_DAYS) - 1)) : '');
+  const from = q.from ?? (isDay(to) ? listFrom(to, catchUpDays) : '');
   if (!isDay(from) || !isDay(to) || from > to) return { error: 'from and to: real days (YYYY-MM-DD), from ≤ to' };
   if (addDays(from, MAX_RANGE_DAYS - 1) < to) return { error: `at most ${MAX_RANGE_DAYS} days at once` };
   return { from, to };

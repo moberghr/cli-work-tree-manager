@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  TimeDaySummary,
-  TimeDaysWire,
-  TimeDayWire,
-  TimeEntryWire,
-  TimeGraphWire,
-  TimePostWire,
-} from '../../../../../core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeEntryWire, TimeGraphWire, TimePostWire } from '../../../../../core/api-types.js';
 import {
   connectTimeGraph,
   disconnectTimeGraph,
@@ -18,30 +11,12 @@ import {
   saveTimeDay,
 } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
+import { addMonths, monthRange } from '../../../../../core/time/time-month.js';
+import { dayKey } from '../../../../../core/conversations/work-time-view.js';
+import { dayLabel, hoursText, monthLabel, monthOf, statusText } from '../../../state/time-month.js';
+import { TimeMonth } from './TimeMonth.js';
 
-/** "Thu 8 Oct". Pure. */
-export function dayLabel(day: string): string {
-  const d = new Date(`${day}T12:00:00`);
-  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-/** "2.5 h". Pure. */
-export function hoursText(h: number): string {
-  return `${Number.isInteger(h) ? h : h.toFixed(2).replace(/0$/, '')} h`;
-}
-
-/** A day's status in a word. Pure. */
-export function statusText(s: TimeDaySummary['status']): string {
-  return {
-    empty: 'not gathered yet',
-    draft: 'suggested',
-    edited: 'edited',
-    off: 'day off',
-    'not-workday': 'weekend / holiday',
-    posted: 'in Tempo',
-    changed: 'changed since posted',
-  }[s];
-}
+export { dayLabel, hoursText, statusText };
 
 /** What a post did, in a line. Pure. */
 export function postOutcome(r: Omit<TimePostWire, 'day'>): string {
@@ -79,6 +54,10 @@ export function TimeTab({
 }) {
   const [days, setDays] = useState<TimeDaysWire | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
+  // The month on screen (‹ ›), in either view: Days lists its days, Month shows them as a grid.
+  const thisMonth = monthOf(dayKey(Date.now()));
+  const [month, setMonth] = useState(thisMonth);
+  const [view, setView] = useState<'days' | 'month'>('days');
   const [day, setDay] = useState<TimeDayWire | null>(null);
   const [rows, setRows] = useState<TimeEntryWire[]>([]);
   const [busy, setBusy] = useState(false);
@@ -95,14 +74,16 @@ export function TimeTab({
   }, []);
 
   const loadDays = useCallback(() => {
-    fetchTimeDays().then(
+    const range = monthRange(month, dayKey(Date.now()));
+    if (!range) return;
+    fetchTimeDays(range).then(
       (d) => {
         setDays(d);
         setChosen((c) => c ?? d.days[0]?.day ?? null);
       },
       (e: Error) => setError(e.message),
     );
-  }, []);
+  }, [month]);
   const loadDay = useCallback(
     (d: string) => {
       fetchTimeDay(d).then(
@@ -157,6 +138,15 @@ export function TimeTab({
   };
 
   const dirty = !!day && !sameRows(rows, day.entries);
+  // Unsaved rows would be lost: ask first.
+  const mayLeave = () => !dirty || window.confirm('Leave this day without saving your changes?');
+  const goMonth = (n: number) => {
+    if (!mayLeave()) return;
+    setMonth((m) => addMonths(m, n));
+    setDays(null);
+    setChosen(null);
+    setDay(null);
+  };
   const total = Math.round(rows.reduce((n, r) => n + (Number.isFinite(r.hours) ? r.hours : 0), 0) * 100) / 100;
   const step = day?.settings.stepHours ?? 0.25;
   const setRow = (i: number, change: Partial<TimeEntryWire>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...change } : r)));
@@ -173,6 +163,23 @@ export function TimeTab({
         )}
       </header>
       <GraphLine />
+      <div className="wd-time-nav">
+        <button type="button" className="wd-btn-secondary" aria-label="Previous month" onClick={() => goMonth(-1)}>
+          ‹
+        </button>
+        <span className="wd-time-month-name">{monthLabel(month)}</span>
+        <button type="button" className="wd-btn-secondary" aria-label="Next month" disabled={month >= thisMonth} onClick={() => goMonth(1)}>
+          ›
+        </button>
+        <div className="wd-time-views" role="group" aria-label="View">
+          <button type="button" aria-pressed={view === 'days'} onClick={() => setView('days')}>
+            Days
+          </button>
+          <button type="button" aria-pressed={view === 'month'} onClick={() => mayLeave() && setView('month')}>
+            Month
+          </button>
+        </div>
+      </div>
       {days && !days.settings.gapTicket && (
         <p className="wd-time-hint">
           No ticket for the rest of the day is set, so it stays unallocated. Set <code>time.gapTicket</code> (and{' '}
@@ -184,9 +191,19 @@ export function TimeTab({
           {error}
         </p>
       )}
-      <div className="wd-time-body">
+      {view === 'month' && (
+        <TimeMonth
+          month={month}
+          onOpenDay={(d) => {
+            setChosen(d);
+            setView('days');
+          }}
+        />
+      )}
+      <div className="wd-time-body" hidden={view !== 'days'}>
         <ul className="wd-time-days" aria-label="Days">
           {days === null && <li className="wd-time-note">Loading…</li>}
+          {days?.days.length === 0 && <li className="wd-time-note">Nothing gathered for this month. Month has Gather.</li>}
           {days?.days.map((d) => (
             <li key={d.day}>
               <button
@@ -194,8 +211,7 @@ export function TimeTab({
                 className={'wd-time-day' + (d.day === chosen ? ' wd-time-day-on' : '')}
                 aria-current={d.day === chosen}
                 onClick={() => {
-                  // Unsaved rows would be lost: ask first.
-                  if (d.day !== chosen && dirty && !window.confirm('Leave this day without saving your changes?')) return;
+                  if (d.day !== chosen && !mayLeave()) return;
                   setChosen(d.day);
                 }}
               >

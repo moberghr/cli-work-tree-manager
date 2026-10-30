@@ -92,9 +92,24 @@ type TimeDaysWire = import('../../../core/api-types.js').TimeDaysWire;
 type TimeDayWire = import('../../../core/api-types.js').TimeDayWire;
 type TimeEntryWire = import('../../../core/api-types.js').TimeEntryWire;
 
-/** The Time tab's days (two weeks back by default). */
-export function fetchTimeDays(): Promise<TimeDaysWire> {
-  return getJson<TimeDaysWire>('/api/time');
+/** The Time tab's days: from `from` to `to` (both given), else this month or `catchUpDays` back. */
+export function fetchTimeDays(range?: { from: string; to: string }): Promise<TimeDaysWire> {
+  return getJson<TimeDaysWire>(range ? `/api/time?from=${range.from}&to=${range.to}` : '/api/time');
+}
+
+type TimeMonthWire = import('../../../core/api-types.js').TimeMonthWire;
+
+/** A month (YYYY-MM) up to today: tickets × days, and what posting it would do. */
+export function fetchTimeMonth(month: string): Promise<TimeMonthWire> {
+  return getJson<TimeMonthWire>(`/api/time/month/${encodeURIComponent(month)}`);
+}
+
+/** Gather the month's days the keeper didn't reach (in the background: `time-changed` as each is done). */
+export async function gatherTimeMonth(month: string): Promise<TimeMonthWire> {
+  const res = await fetch(`/api/time/month/${encodeURIComponent(month)}/gather`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as TimeMonthWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body;
 }
 
 export function fetchTimeDay(day: string): Promise<TimeDayWire> {

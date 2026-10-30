@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { mountTimeRoutes } from '../../../src/server/routes/time-routes.js';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
 import type { TimeDeps } from '../../../src/core/time/time-days.js';
-import type { TimeDaysWire, TimeDayWire, TimeGraphWire, TimePostWire } from '../../../src/core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeGraphWire, TimeMonthWire, TimePostWire } from '../../../src/core/api-types.js';
 import type { GraphAccess } from '../../../src/server/routes/time-routes.js';
 import type { TempoApi, TempoWorklog } from '../../../src/core/time/tempo.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -363,5 +363,40 @@ describe('time routes', () => {
     expect((await send(a, 'PUT', '/api/time/2026-10-07', {})).status).toBe(400);
     expect((await send(a, 'PUT', '/api/time/2026-10-07', { dayOff: 'yes' })).status).toBe(400);
     expect((await a.request('/api/time?from=2026-10-09&to=2026-10-01')).status).toBe(400);
+  });
+});
+
+describe('the Month view routes', () => {
+  it('a past month: Gather builds its days in the background (202), telling the tab after each; then the month has them to post', async () => {
+    const a = new Hono();
+    const broadcast = vi.fn();
+    mountTimeRoutes(a, { deps, broadcast, tempo: () => ({ why: 'No Tempo token: set TEMPO_API_TOKEN' }) });
+    const before = (await (await a.request('/api/time/month/2026-08')).json()) as TimeMonthWire;
+    expect(before).toMatchObject({ month: '2026-08', missing: 31, gathering: false, gatherError: null });
+    expect(before.posting).toEqual({ ready: false, why: 'No Tempo token: set TEMPO_API_TOKEN' });
+    expect(before.plan.days).toEqual([]);
+    expect(before.plan.leftOut.every((l) => l.why === 'not-gathered')).toBe(true);
+
+    const res = await send(a, 'POST', '/api/time/month/2026-08/gather');
+    expect(res.status).toBe(202);
+    expect(((await res.json()) as TimeMonthWire).gathering).toBe(true);
+    await vi.waitFor(async () => {
+      expect(((await (await a.request('/api/time/month/2026-08')).json()) as TimeMonthWire).gathering).toBe(false);
+    });
+    expect(broadcast).toHaveBeenCalledWith('time-changed', { day: '2026-08-31' });
+    const after = (await (await a.request('/api/time/month/2026-08')).json()) as TimeMonthWire;
+    expect(after.missing).toBe(0);
+    expect(after.plan.days).toHaveLength(21); // August 2026's workdays
+    // Its weekends had Claude time, but a weekend's suggestion is a whole day: not posted unless you saved rows.
+    expect(after.plan.leftOut.filter((l) => l.why === 'not-workday')).toHaveLength(10);
+    expect(after.plan.tickets.map((t) => t.key)).toEqual(['APP-1', 'APP-434']);
+  });
+
+  it('refuses a month that is not one, or has not started', async () => {
+    const { a } = app();
+    expect((await a.request('/api/time/month/2026-13')).status).toBe(400);
+    expect((await a.request('/api/time/month/october')).status).toBe(400);
+    expect((await a.request('/api/time/month/2099-01')).status).toBe(400);
+    expect((await send(a, 'POST', '/api/time/month/2099-01/gather')).status).toBe(400);
   });
 });

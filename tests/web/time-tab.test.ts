@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { TimeDaysWire, TimeDayWire } from '../../src/core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeMonthWire } from '../../src/core/api-types.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,9 +66,15 @@ const api = vi.hoisted(() => ({
   } as import('../../src/core/api-types.js').TimeGraphWire,
   connect: vi.fn(),
   disconnect: vi.fn(),
+  month: null as unknown as TimeMonthWire,
+  gather: vi.fn(),
+  /** The range each list fetch asked for. */
+  ranges: [] as Array<{ from: string; to: string } | undefined>,
 }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
-  fetchTimeDays: async () => api.days,
+  fetchTimeDays: async (r?: { from: string; to: string }) => (api.ranges.push(r), api.days),
+  fetchTimeMonth: async () => api.month,
+  gatherTimeMonth: (m: string) => api.gather(m),
   fetchTimeDay: (d: string) => (api.fetchDay ? api.fetchDay(d) : Promise.resolve(api.day)),
   saveTimeDay: (day: string, change: unknown) => api.save(day, change),
   rebuildTimeDay: (day: string) => api.rebuild(day),
@@ -361,5 +367,162 @@ describe('the Time tab', () => {
     expect(hoursText(2.5)).toBe('2.5 h');
     expect(hoursText(0.25)).toBe('0.25 h');
     expect(hoursText(7)).toBe('7 h');
+  });
+});
+
+// The Month view: this month (the tab opens on it), two days that go; one posted, a placeholder day and today left out.
+const thisMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`; // local, as the tab's
+const mday = (n: number, over: Partial<TimeMonthWire['days'][number]> = {}): TimeMonthWire['days'][number] => ({
+  day: `${thisMonth}-0${n}`,
+  status: 'draft',
+  workday: true,
+  dayOff: false,
+  today: false,
+  edited: false,
+  entries: [
+    { key: 'APP-1', hours: 2.5 },
+    { key: 'APP-434', hours: 5 },
+  ],
+  total: 7.5,
+  placeholders: [],
+  ...over,
+});
+const monthWire = (over: Partial<TimeMonthWire> = {}): TimeMonthWire => ({
+  month: thisMonth,
+  days: [
+    mday(1, { status: 'posted' }),
+    mday(2, { entries: [{ key: 'APP-1', hours: 6 }], total: 6 }),
+    mday(3, { entries: [{ key: 'NEW-1', hours: 7.5 }], placeholders: ['NEW-1'] }),
+    mday(4),
+    mday(5, { today: true, entries: [{ key: 'APP-1', hours: 1 }], total: 1 }),
+  ],
+  tickets: [
+    { key: 'APP-1', title: 'The thing', hours: 12, days: 4, placeholder: false },
+    { key: 'NEW-1', title: 'New thing', hours: 7.5, days: 1, placeholder: true },
+    { key: 'APP-434', title: 'Meetings', hours: 10, days: 2, placeholder: false },
+  ],
+  plan: {
+    days: [`${thisMonth}-02`, `${thisMonth}-04`],
+    leftOut: [
+      { day: `${thisMonth}-01`, why: 'posted' },
+      { day: `${thisMonth}-03`, why: 'placeholder' },
+      { day: `${thisMonth}-05`, why: 'today' },
+    ],
+    tickets: [
+      { key: 'APP-1', title: 'The thing', hours: 8.5, days: 2, placeholder: false },
+      { key: 'APP-434', title: 'Meetings', hours: 5, days: 1, placeholder: false },
+    ],
+    total: 13.5,
+    short: [{ day: `${thisMonth}-02`, total: 6 }],
+  },
+  missing: 0,
+  settings,
+  gathering: false,
+  gatherError: null,
+  posting: { ready: true, why: null },
+  ...over,
+});
+const postedAnswer = (day: string) => ({
+  posted: 1,
+  removed: 0,
+  kept: 0,
+  coveredByHand: 0,
+  otherByHand: 0,
+  failed: [] as Array<{ key: string; error: string }>,
+  day: dayWire({ day, status: 'posted' }),
+});
+
+describe('the Time tab: the Month view', () => {
+  beforeEach(() => {
+    api.month = monthWire();
+    api.ranges = [];
+    api.post.mockReset().mockImplementation(async (day: string) => postedAnswer(day));
+    api.gather.mockReset().mockImplementation(async () => monthWire({ gathering: true, missing: 3 }));
+  });
+  const toMonth = async () => {
+    await render();
+    act(() => button('Month').click());
+    await flush();
+  };
+
+  it("lists this month's days; ‹ steps back a month, › stops at this one", async () => {
+    await render();
+    expect(api.ranges[0]?.from).toBe(`${thisMonth}-01`);
+    expect(button('›').disabled).toBe(true);
+    act(() => button('‹').click());
+    await flush();
+    expect(api.ranges[api.ranges.length - 1]?.from.slice(0, 7)).not.toBe(thisMonth);
+    expect(button('›').disabled).toBe(false);
+  });
+
+  it('the grid: a row per ticket with its month total, a column per day; a short day amber; a placeholder marked; what stays out and why', async () => {
+    await toMonth();
+    const rows = [...container.querySelectorAll('.wd-time-grid tbody tr')];
+    expect(rows.map((r) => r.querySelector('.wd-time-grid-key')!.textContent)).toEqual(['APP-1', 'NEW-1', 'APP-434']);
+    expect(rows[0].lastElementChild!.textContent).toBe('12 h');
+    expect(rows[1].textContent).toContain('create first');
+    expect(container.querySelectorAll('.wd-time-grid thead .wd-time-grid-day')).toHaveLength(5);
+    const totals = [...container.querySelectorAll('.wd-time-grid tfoot .wd-time-grid-cell')];
+    expect(totals[1].className).toContain('wd-time-off-total'); // 6 of 7.5
+    expect(totals[4].className).not.toContain('wd-time-off-total'); // today: still going
+    const out = container.querySelector('.wd-time-month-out')!.textContent!;
+    expect(out).not.toContain('already in Tempo'); // its dot says so
+    expect(out).toContain('create it in Jira first');
+    expect(out).toContain('today, still going');
+  });
+
+  it("a day's column opens it in Days", async () => {
+    await toMonth();
+    act(() => container.querySelectorAll<HTMLButtonElement>('.wd-time-grid-open')[3].click());
+    await flush();
+    expect(container.querySelector('.wd-time-grid')).toBeNull();
+    expect(button('Days').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Post the month: the confirm shows what goes per ticket and the short days; then each day is posted in turn, and a line says how it went', async () => {
+    await toMonth();
+    act(() => button('Post 2 days to Tempo…').click());
+    const dialog = container.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('APP-1The thing8.5 h2');
+    expect(dialog.textContent).toContain(`${dayLabel(`${thisMonth}-02`)} 6 h`);
+    expect(dialog.textContent).toContain('1 day already in Tempo');
+    expect(api.post).not.toHaveBeenCalled(); // not before the yes
+    await act(async () => button('Post 2 days').click());
+    await flush();
+    expect(api.post.mock.calls.map((c) => c[0])).toEqual([`${thisMonth}-02`, `${thisMonth}-04`]);
+    expect(container.querySelector('.wd-time-outcome')!.textContent).toBe('2 days posted to Tempo, 15 h.');
+  });
+
+  it('Stop after this day: the day under way finishes, the rest wait; rows refused are named', async () => {
+    let release: () => void = () => {};
+    api.post.mockImplementationOnce(
+      (day: string) =>
+        new Promise((res) => {
+          release = () => res({ ...postedAnswer(day), failed: [{ key: 'APP-1', error: 'no permission' }] });
+        }),
+    );
+    await toMonth();
+    act(() => button('Post 2 days to Tempo…').click());
+    act(() => button('Post 2 days').click());
+    await flush();
+    expect(container.querySelector('.wd-time-month-progress')!.textContent).toContain('Posting 1 of 2');
+    act(() => button('Stop after this day').click());
+    expect(button('Stopping after this day…').disabled).toBe(true);
+    await act(async () => release());
+    await flush();
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.wd-time-outcome')!.textContent).toBe(
+      `1 day posted to Tempo, 7.5 h. ${dayLabel(`${thisMonth}-02`)}: APP-1 refused (no permission). Stopped: 1 not posted.`,
+    );
+  });
+
+  it("posting not set up: the month's button says why; days not gathered: Gather asks for them", async () => {
+    api.month = monthWire({ posting: { ready: false, why: 'No Tempo token: set TEMPO_API_TOKEN' }, missing: 3 });
+    await toMonth();
+    expect(button('Post 2 days to Tempo…').disabled).toBe(true);
+    expect(button('Post 2 days to Tempo…').title).toBe('No Tempo token: set TEMPO_API_TOKEN');
+    await act(async () => button('Gather 3 days').click());
+    expect(api.gather).toHaveBeenCalledWith(thisMonth);
+    expect(button('Gathering…').disabled).toBe(true);
   });
 });

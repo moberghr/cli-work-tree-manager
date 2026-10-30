@@ -1,10 +1,11 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { sessionIdFor } from '../sessions/session-id.js';
-import type { TimeCommitEvidence, TimeDaysWire, TimeDayWire, TimeEvidence, TimeJiraEvidence } from '../api-types.js';
+import type { TimeCommitEvidence, TimeDaysWire, TimeDayWire, TimeEvidence, TimeJiraEvidence, TimeMonthWire } from '../api-types.js';
 import { issueKeys } from './allocate.js';
 import { applyPlacement, classifyPrompt, parsePlacement, placementOf, unplacedHash, unplacedItems } from './classify.js';
 import { readDay, readDays, saveBuilt } from './time-store.js';
 import { hintKey } from './hints.js';
+import { monthRange, monthWireOf } from './time-month.js';
 import { activityOf, addDays, dayWireOf, localDay, daysWireOf, sessionTicket, type TimeConfig, type TimeDayRecord } from './time-view.js';
 
 /**
@@ -261,4 +262,10 @@ export function dayWire(day: string, settings: TimeConfig): TimeDayWire {
 /** The stored days from `from` to `to`, newest first. */
 export function daysWire(from: string, to: string, settings: TimeConfig): TimeDaysWire {
   return daysWireOf(from, to, settings, readDays(from, to));
+}
+
+/** The stored month up to today, as the Month view shows it. */
+export function monthWire(month: string, today: string, settings: TimeConfig): TimeMonthWire {
+  const r = monthRange(month, today);
+  return monthWireOf(month, today, settings, r ? readDays(r.from, r.to) : []);
 }

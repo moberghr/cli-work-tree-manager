@@ -733,6 +733,62 @@ export interface TimeDaysWire {
   settings: TimeSettingsWire;
 }
 
+/** A day of the Month view: what will be posted for it. */
+export interface TimeMonthDay {
+  day: string;
+  status: TimeDayStatus;
+  workday: boolean;
+  dayOff: boolean;
+  /** Today: still going, never posted with the month. */
+  today: boolean;
+  /** Your rows, not the suggestion. */
+  edited: boolean;
+  entries: TimeEntryWire[];
+  total: number;
+  /** Its rows whose ticket is a placeholder (`time.hints`): it can't be posted until they're made in Jira. */
+  placeholders: string[];
+}
+
+/** Why a day of the month isn't posted with it. */
+export type TimeMonthLeftOut = 'today' | 'placeholder' | 'posted' | 'empty' | 'not-gathered' | 'not-workday';
+
+/** A ticket's hours across days. */
+export interface TimeMonthTicket {
+  key: string;
+  title: string;
+  hours: number;
+  /** On how many days. */
+  days: number;
+  placeholder: boolean;
+}
+
+/** GET /api/time/month/:month (YYYY-MM): the month up to today as a grid, and what "Post the month" would do. */
+export interface TimeMonthWire {
+  month: string;
+  /** Oldest first: every workday, and a weekend or holiday when something happened on it. */
+  days: TimeMonthDay[];
+  /** The month's tickets with their totals: most hours first, time off and the gap ticket last. */
+  tickets: TimeMonthTicket[];
+  /** Posting the month: the days that go, oldest first, and the rest with why. */
+  plan: {
+    days: string[];
+    leftOut: Array<{ day: string; why: TimeMonthLeftOut }>;
+    /** What goes, per ticket. */
+    tickets: TimeMonthTicket[];
+    total: number;
+    /** Days that go with less or more than the day's hours. */
+    short: Array<{ day: string; total: number }>;
+  };
+  /** Past days never gathered, or gathered before they ended (Gather these days). */
+  missing: number;
+  settings: TimeSettingsWire;
+  /** Set by the server: a gather of the month under way, and how the last one failed. */
+  gathering?: boolean;
+  gatherError?: string | null;
+  /** Set by the server: whether it can post (a Tempo token and your account id), or why not. */
+  posting?: { ready: boolean; why: string | null };
+}
+
 // ---- start on a PR ---------------------------------------------------------
 
 /** The PR a session is started on, as the lookup found it (core/pr/pr-start.ts). */

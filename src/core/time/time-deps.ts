@@ -12,7 +12,7 @@ import type { TimeJiraEvidence } from '../api-types.js';
 import { readIssueIds, rememberIssueId } from './time-store.js';
 import { isIssueKey } from './allocate.js';
 import type { TimeDeps } from './time-days.js';
-import { addDays, DEFAULT_CATCH_UP_DAYS, localDay, timeSettings } from './time-view.js';
+import { addDays, daysBetween, DEFAULT_CATCH_UP_DAYS, listFrom, localDay, MAX_RANGE_DAYS, timeSettings } from './time-view.js';
 
 /**
  * The Time tab's real I/O: the sessions in state.db and their transcripts,
@@ -163,8 +163,15 @@ async function commitLog(git: TimeIo['git'], repo: string, from: string): Promis
 
 export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
   const catchUpDays = () => timeSettings(loadConfig()?.time).catchUpDays ?? DEFAULT_CATCH_UP_DAYS;
+  // How many days the work-time reader goes back: as far as the list (the whole month at least), or to an older
+  // day being gathered (a past month's Gather these days) — never more than a quarter.
+  const reachFor = (day: string) => {
+    const today = localDay();
+    const from = listFrom(today, catchUpDays());
+    return Math.min(MAX_RANGE_DAYS, daysBetween(day < from ? day : from, today).length);
+  };
   // A session's working time, read once for every day a run builds (each read goes through all its transcripts).
-  const workTime = new Map<string, { at: number; byDay: Promise<Map<string, number>> }>();
+  const workTime = new Map<string, { at: number; reach: number; byDay: Promise<Map<string, number>> }>();
   const logs = new Map<string, { from: string; at: number; out: Promise<string> }>();
   // One read of the chats serves every day after its first: a 14-day catch-up is one read, not fourteen.
   let chats: { from: string; at: number; read: Promise<ChatsRead> } | null = null;
@@ -193,15 +200,16 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
     minutesOn: async (s, day) => {
       const id = sessionIdFor(s);
       let w = workTime.get(id);
-      if (!w || Date.now() - w.at > READ_FRESH_MS) {
-        const byDay = io.workTime(s, Date.now(), catchUpDays()).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
-        w = { at: Date.now(), byDay };
+      const reach = reachFor(day);
+      if (!w || Date.now() - w.at > READ_FRESH_MS || w.reach < reach) {
+        const byDay = io.workTime(s, Date.now(), reach).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
+        w = { at: Date.now(), reach, byDay };
         workTime.set(id, w);
         byDay.catch(() => workTime.delete(id)); // a failed read isn't kept
       }
       return ((await w.byDay).get(day) ?? 0) / 60_000;
     },
-    minutesFrom: () => addDays(localDay(), -(catchUpDays() - 1)),
+    minutesFrom: () => listFrom(localDay(), catchUpDays()),
     commits: async (day) => {
       const repos = io.repos();
       const aliasOf = new Map<string, string>();

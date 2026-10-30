@@ -177,6 +177,7 @@ describe('architecture boundaries', () => {
       'src/core/diff/diff-points.js',
       'src/core/pr/pr-ref.js',
       'src/core/usage/usage.js', // pure: plan-limit windows, the meter's pick, token wording
+      'src/core/time/time-month.js', // pure: the Time tab's months (range, next / previous)
     ]);
     expect(
       violations(

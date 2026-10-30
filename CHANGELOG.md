@@ -3,6 +3,25 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.9.0 — 2026-10-30
+
+- **Time: post a whole month at once.** The Time tab now has the whole
+  month, not only the last two weeks: work gathers every day from the 1st
+  (or further back when `time.catchUpDays` says so), Claude minutes
+  included. ‹ › steps between months, and **Days | Month** switches the
+  view. Month shows every ticket against every day, with each ticket's
+  total and each day's (amber when it isn't the full day), a dot per day
+  for where it stands (in Tempo, changed since, edited, suggested); a
+  day's column opens it. **Post N days to Tempo…** shows the hours per
+  ticket across the days that go, then posts them one after another, each
+  as its own Post does (Tempo's day read first, your hand-made worklogs left
+  alone), with progress, Stop after this day, and a line naming anything
+  Tempo refused. Left out, with the reason: today, days already in Tempo,
+  days with a placeholder ticket, days not gathered yet, and weekends or
+  holidays you haven't saved rows for (their suggestion would be a whole
+  day). For an earlier month, **Gather N days** fetches the days work never
+  looked at.
+
 ## 2.8.0 — 2026-10-30
 
 - After updating, run `work pty-host --restart` once: a PTY host from before this release refuses sessions on another account, and says so.
