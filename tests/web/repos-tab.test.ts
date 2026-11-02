@@ -104,7 +104,7 @@ describe('the Repos page', () => {
     await click(button('Add', rowOf('billing')));
     expect(api.calls).toEqual(['enroll billing']);
     expect(folders()).toEqual(['hangfire', 'wolverine']);
-    expect(container.querySelector('h1')!.textContent).toContain('5 enrolled · 2 new');
+    expect(container.querySelector('h1')!.textContent).toContain('6 enrolled · 2 new');
   });
 
   it('checks the alias as you type: a taken one disables Add and says why', async () => {
@@ -133,7 +133,7 @@ describe('the Repos page', () => {
   it('Remove with live sessions asks first, naming them; “Do it anyway” forces it', async () => {
     live = ['api'];
     await render();
-    await click(button('Enrolled 4'));
+    await click(button('Enrolled 5'));
     await click(button('Remove', rowOf('api')));
     expect(container.querySelector('.wd-repos-confirm')!.textContent).toMatch(/1 live session on api: api · …/);
     await click(button('Do it anyway'));

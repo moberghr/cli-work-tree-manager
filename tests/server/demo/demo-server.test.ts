@@ -412,7 +412,7 @@ describe('demo server', () => {
   it('first run: the demo is set up already, and its folders are pretend', async () => {
     expect(await get('/api/setup')).toMatchObject({
       configured: true,
-      repos: 4,
+      repos: 5,
       tools: expect.arrayContaining([expect.objectContaining({ id: 'claude', ok: true })]),
     });
     expect((await send('POST', '/api/setup', { worktreesRoot: '/x', reposFolder: '/y' })).status).toBe(400);

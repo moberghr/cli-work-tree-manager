@@ -29,6 +29,8 @@ export function createDemoRepos(liveTargets: () => string[]) {
     web: `${root}/web`,
     backend: `${root}/shop-backend`,
     frontend: `${root}/shop-frontend`,
+    // On Azure DevOps (#65): its PRs come through the az adapter in the real dashboard.
+    payments: `${root}/payments`,
   };
   const groups: Record<string, string[]> = { shop: ['backend', 'frontend'] };
   const ignored = new Set<string>();
@@ -38,6 +40,7 @@ export function createDemoRepos(liveTargets: () => string[]) {
     { path: `${root}/shop-backend`, folder: 'shop-backend', origin: 'example/shop-backend' },
     { path: `${root}/shop-frontend`, folder: 'shop-frontend', origin: 'example/shop-frontend' },
     { path: `${root}/billing`, folder: 'billing', origin: 'example/billing' },
+    { path: `${root}/payments`, folder: 'payments', origin: 'dev.azure.com/example/Shop/payments' },
     { path: `${root}/hangfire`, folder: 'hangfire', origin: 'HangfireIO/Hangfire' },
     { path: `${root}/wolverine`, folder: 'wolverine', origin: 'JasperFx/wolverine' },
   ];

@@ -1,9 +1,10 @@
 import { githubCommands } from './github/commands.js';
+import { azureCommands } from './azure/commands.js';
 
 export type { PrCommands } from './command-types.js';
 import type { PrCommands } from './command-types.js';
 
-const TABLE: Record<string, PrCommands> = { github: githubCommands };
+const TABLE: Record<string, PrCommands> = { github: githubCommands, azure: azureCommands };
 
 /** The default host: a repo no adapter claims is asked as GitHub (as before hosts existed; `gh` decides). */
 export const DEFAULT_HOST = 'github';

@@ -1589,6 +1589,23 @@ export class DemoScenario {
       reviewRequested: true,
       repoAlias: 'api',
     });
+    // A teammate's PR on the Azure DevOps repo (#65), asking your vote.
+    out.push({
+      number: 57,
+      title: 'Retry declined card payments once',
+      branch: 'feat/payment-retry',
+      url: 'https://dev.azure.com/example/Shop/_git/payments/pullrequest/57',
+      isDraft: false,
+      checksStatus: 'NONE',
+      reviewDecision: 'REVIEW_REQUIRED',
+      myReview: 'NONE',
+      isMine: false,
+      author: 'tomislav@example.com',
+      conflicting: false,
+      reviewRequested: true,
+      repoAlias: 'payments',
+      host: 'azure',
+    });
     // An outside contributor's, from a fork: Review only — its branch isn't on origin.
     out.push({
       number: 219,

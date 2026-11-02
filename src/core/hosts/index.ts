@@ -2,6 +2,7 @@ import { originUrl, readGitConfig } from '../worktree/repo-scan.js';
 import { configView } from '../platform/config-cache.js';
 import { addCommands, DEFAULT_HOST } from './commands.js';
 import { github } from './github/adapter.js';
+import { azure } from './azure/adapter.js';
 import type { GitHost } from './types.js';
 
 export type { GitHost } from './types.js';
@@ -19,7 +20,7 @@ export { DEFAULT_HOST } from './commands.js';
  * GitHub, as before hosts existed: `gh` itself says whether it knows it.
  */
 
-const builtIn: GitHost[] = [github];
+const builtIn: GitHost[] = [github, azure];
 const registered: GitHost[] = [];
 
 /** Every host: registered ones first (a test's fake host can claim an origin before GitHub's adapter does). */

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { knownHosts } from '../hosts/index.js';
+import { DEFAULT_HOST, hostForRepo, knownHosts } from '../hosts/index.js';
 import os from 'node:os';
 import path from 'node:path';
 import { getConfigDir, getConfigPath, loadConfig } from '../platform/config.js';
@@ -107,15 +107,19 @@ const TOOLS: ToolSpec[] = [
 
 /** Each git host's CLI, after git and Claude Code: optional, it adds that host's pull requests. */
 function toolsNow(): ToolSpec[] {
-  const hosts = knownHosts().map((h): ToolSpec => ({
-    id: h.cli.cmd,
-    label: h.cli.label,
-    needed: false,
-    cmd: h.cli.cmd,
-    args: h.cli.checkArgs,
-    missing: h.cli.missing,
-    failing: h.cli.failing,
-  }));
+  const repos = Object.values(loadConfig()?.repos ?? {});
+  const used = new Set(repos.map((p) => hostForRepo(p).host.id));
+  const hosts = knownHosts()
+    .filter((h) => h.id === DEFAULT_HOST || used.has(h.id))
+    .map((h): ToolSpec => ({
+      id: h.cli.cmd,
+      label: h.cli.label,
+      needed: false,
+      cmd: h.cli.cmd,
+      args: h.cli.checkArgs,
+      missing: h.cli.missing,
+      failing: h.cli.failing,
+    }));
   return [TOOLS[0], TOOLS[1], ...hosts, ...TOOLS.slice(2)];
 }
 
