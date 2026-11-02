@@ -765,6 +765,19 @@ pre {
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
+/* ask() (state/ask.ts): a yes/no question over everything, modals included. */
+.wd-ask-backdrop {
+  z-index: 1100;
+}
+.wd-ask {
+  max-width: 480px;
+}
+.wd-ask-text {
+  margin: 0;
+  white-space: pre-line;
+  font-size: 13px;
+  line-height: 1.5;
+}
 .wd-btn-primary,
 .wd-btn-secondary {
   appearance: none;

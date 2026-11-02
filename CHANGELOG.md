@@ -3,6 +3,13 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **Questions work in the macOS app.** "Are you sure?" questions (Archive, "It's
+  not running — start it here…", Revert, Discard drafts, leaving an unsaved day
+  on the Time tab) are now a dialog in the page. The macOS app's webview shows
+  no browser pop-up and answered "no", so those buttons did nothing there.
+
 ## 2.9.1 — 2026-10-30
 
 - **Time: each row says how it got its hours.** Under every ticket in a

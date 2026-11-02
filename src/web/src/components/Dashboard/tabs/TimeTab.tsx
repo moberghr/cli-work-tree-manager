@@ -11,6 +11,7 @@ import {
   saveTimeDay,
 } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
+import { ask } from '../../../state/ask.js';
 import { addMonths, monthRange } from '../../../../../core/time/time-month.js';
 import { dayKey } from '../../../../../core/conversations/work-time-view.js';
 import { dayLabel, hoursText, monthLabel, monthOf, readTimeView, statusText, writeTimeView } from '../../../state/time-month.js';
@@ -148,9 +149,9 @@ export function TimeTab({
 
   const dirty = !!day && !sameRows(rows, day.entries);
   // Unsaved rows would be lost: ask first.
-  const mayLeave = () => !dirty || window.confirm('Leave this day without saving your changes?');
-  const goMonth = (n: number) => {
-    if (!mayLeave()) return;
+  const mayLeave = async () => !dirty || ask('Leave this day without saving your changes?', { ok: 'Leave' });
+  const goMonth = async (n: number) => {
+    if (!(await mayLeave())) return;
     setMonth((m) => addMonths(m, n));
     setDays(null);
     setChosen(null);
@@ -184,7 +185,13 @@ export function TimeTab({
           <button type="button" aria-pressed={view === 'days'} onClick={() => setView('days')}>
             Days
           </button>
-          <button type="button" aria-pressed={view === 'month'} onClick={() => mayLeave() && setView('month')}>
+          <button
+            type="button"
+            aria-pressed={view === 'month'}
+            onClick={async () => {
+              if (await mayLeave()) setView('month');
+            }}
+          >
             Month
           </button>
         </div>
@@ -220,8 +227,8 @@ export function TimeTab({
                 type="button"
                 className={'wd-time-day' + (d.day === chosen ? ' wd-time-day-on' : '')}
                 aria-current={d.day === chosen}
-                onClick={() => {
-                  if (d.day !== chosen && !mayLeave()) return;
+                onClick={async () => {
+                  if (d.day !== chosen && !(await mayLeave())) return;
                   setChosen(d.day);
                 }}
               >

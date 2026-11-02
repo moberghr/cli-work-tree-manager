@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { TimeDaysWire, TimeDayWire, TimeMonthWire } from '../../src/core/api-types.js';
+import { answer, attachAskHost } from '../../src/web/src/state/ask.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -458,6 +459,45 @@ describe('the Time tab: the Month view', () => {
     act(() => button('Month').click());
     await flush();
   };
+
+  it.each(['day', 'previous month', 'month view'])(
+    'waits for the in-page answer before leaving unsaved rows for %s',
+    async (destination) => {
+      await render();
+      act(() => setValue(container.querySelector<HTMLInputElement>('.wd-time-hours')!, '3'));
+      const question = vi.fn();
+      const detach = attachAskHost(question);
+      const navigate = () =>
+        (destination === 'day'
+          ? button(new RegExp(`^${dayLabel('2026-10-07')}`))
+          : button(destination === 'previous month' ? '‹' : 'Month')
+        ).click();
+      const location = () => [
+        container.querySelector('[aria-current="true"]')?.textContent,
+        container.querySelector('.wd-time-month-name')?.textContent,
+        button('Month').getAttribute('aria-pressed'),
+      ];
+      const before = location();
+      try {
+        act(navigate);
+        await flush();
+        expect(question).toHaveBeenLastCalledWith(
+          expect.objectContaining({ text: 'Leave this day without saving your changes?', ok: 'Leave' }),
+        );
+        expect(location()).toEqual(before);
+        act(() => answer(false));
+        await flush();
+        expect(location()).toEqual(before);
+        expect(container.querySelector<HTMLInputElement>('.wd-time-hours')!.value).toBe('3');
+        act(navigate);
+        act(() => answer(true));
+        await flush();
+        expect(location()).not.toEqual(before);
+      } finally {
+        detach();
+      }
+    },
+  );
 
   it("lists this month's days; ‹ steps back a month, › stops at this one", async () => {
     await render();

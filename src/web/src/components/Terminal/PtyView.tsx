@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LatencyMeter } from '../../state/keystroke-latency.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
+import { ask } from '../../state/ask.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
 import { writeRich } from '../../state/rich-copy.js';
@@ -409,9 +410,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     }, ELSEWHERE_RECHECK_MS);
     return () => clearInterval(t);
   }, [elsewhere, active]);
-  const startHere = () => {
-    const ok = window.confirm(
+  const startHere = async () => {
+    const ok = await ask(
       "Start this session's Claude here?\n\nIf it is still open in another terminal, both would write to the same conversation.",
+      { ok: 'Start it here' },
     );
     if (!ok) return;
     force.current = true;
@@ -441,7 +443,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
             </button>
             {!elsewhere.confirmed && (
               // Only a guess from recent activity: it may have been closed.
-              <button type="button" className="wd-link-button" onClick={startHere}>
+              <button type="button" className="wd-link-button" onClick={() => void startHere()}>
                 It&apos;s not running — start it here…
               </button>
             )}
