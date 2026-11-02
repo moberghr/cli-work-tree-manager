@@ -30,6 +30,61 @@ const s = {
 } as WorktreeSession;
 
 describe('sessionWire', () => {
+  it('isAsleep: work stopped its Claude while idle and it has not run since; started again (running, or written since): awake', async () => {
+    const { isAsleep } = await import('../../../src/core/sessions/session-wire.js');
+    const stopped = '2026-10-28T15:00:00Z';
+    expect(isAsleep(stopped, false, Date.parse('2026-10-28T14:50:00Z'))).toBe(true);
+    expect(isAsleep(stopped, true, 0)).toBe(false); // running again
+    expect(isAsleep(stopped, false, Date.parse('2026-10-28T15:02:00Z'))).toBe(false); // wrote since (a terminal outside)
+    expect(isAsleep(undefined, false, 0)).toBe(false); // never stopped by work
+  });
+
+  it('behindFor is told its agent last wrote, so one entered long ago but worked in today counts as in use', () => {
+    const behindFor = vi.fn(() => null);
+    sessionWire(s, { behindFor });
+    expect(behindFor).toHaveBeenCalledWith(expect.any(String), s, expect.any(Number));
+  });
+
+  it('names the account only for a session that is not on the default one', () => {
+    expect(sessionWire(s)).not.toHaveProperty('account');
+    expect(sessionWire({ ...s, account: 'default' })).not.toHaveProperty('account');
+    expect(sessionWire({ ...s, account: 'work' }).account).toBe('work');
+  });
+
+  it('says where a switch waiting for its turn goes (accountPending), not for an archived one', () => {
+    expect(sessionWire(s, { accountPendingFor: () => null })).not.toHaveProperty('accountPending');
+    expect(sessionWire(s, { accountPendingFor: () => 'work' }).accountPending).toBe('work');
+    expect(sessionWire({ ...s, archivedAt: '2026-10-01T00:00:00Z' }, { accountPendingFor: () => 'work' })).not.toHaveProperty(
+      'accountPending',
+    );
+  });
+
+  it('says when it is being archived, only while it is', async () => {
+    const { whileArchiving } = await import('../../../src/core/archive/archiving.js');
+    const { sessionIdFor } = await import('../../../src/core/sessions/web-state.js');
+    expect(sessionWire(s).archiving).toBeUndefined();
+    let during: unknown;
+    await whileArchiving(sessionIdFor(s), async () => {
+      during = sessionWire(s).archiving;
+    });
+    expect(during).toBe(true);
+    expect(sessionWire(s).archiving).toBeUndefined();
+  });
+
+  it('withRestoring marks a row Restoring while its Restore runs, on a copy (archived rows are cached)', async () => {
+    const { whileRestoring } = await import('../../../src/core/archive/archiving.js');
+    const { withRestoring } = await import('../../../src/core/sessions/session-wire.js');
+    const row = sessionWire({ ...s, archivedAt: '2026-09-02T00:00:00Z' });
+    expect(withRestoring(row)).toBe(row);
+    let during: ReturnType<typeof withRestoring> | null = null;
+    await whileRestoring(row.id, async () => {
+      during = withRestoring(row);
+    });
+    expect(during).toMatchObject({ id: row.id, restoring: true, archivedAt: '2026-09-02T00:00:00Z' });
+    expect(row.restoring).toBeUndefined();
+    expect(withRestoring(row)).toBe(row);
+  });
+
   it('a running Claude makes a quiet session open, and busy makes it active', () => {
     const idle = { inTerminal: 1, inApp: 0, busy: false, duplicate: false };
     expect(sessionWire(s, { claudesFor: () => idle })).toMatchObject({ activityState: 'open', claudes: idle });

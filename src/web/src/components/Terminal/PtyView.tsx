@@ -3,6 +3,8 @@ import { LatencyMeter } from '../../state/keystroke-latency.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { ask } from '../../state/ask.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
+import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
+import { writeRich } from '../../state/rich-copy.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -179,6 +181,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     //    Code's /terminal-setup binds) instead of submitting.
     //  - Ctrl+C with a selection → copy, like Windows Terminal; without a
     //    selection it stays an interrupt.
+    // Every copy is put back together first (terminal-copy.ts): Claude Code's
+    // wrapping, indent and padding taken out.
+    // A table, bold or italic in it goes as HTML too, so Teams or Outlook paste it formatted (rich-copy.ts).
+    const selected = () => terminalCopy(selectionText(term), term.cols, term.getSelectionPosition()?.start.x ?? 0);
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey) {
@@ -187,7 +193,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         return false;
       }
       if (e.key === 'c' && e.ctrlKey && !e.shiftKey && term.hasSelection()) {
-        void navigator.clipboard?.writeText(term.getSelection());
+        void writeRich(selected()).catch(() => {});
         term.clearSelection();
         return false;
       }
@@ -206,6 +212,16 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       sendInput('\x16');
     };
     term.textarea?.addEventListener('paste', onPaste, true);
+    // The browser's own copy (Ctrl+Shift+C, the menu's Copy, the desktop app's): the same text.
+    const onCopy = (ev: ClipboardEvent) => {
+      if (!term.hasSelection() || !ev.clipboardData) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      const { text, html } = selected();
+      ev.clipboardData.setData('text/plain', text);
+      if (html) ev.clipboardData.setData('text/html', html);
+    };
+    term.element?.addEventListener('copy', onCopy, true);
 
     const wsUrl = (() => {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -366,6 +382,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       clearTimeout(slowStart);
       clearTimeout(webglRetry);
       term.textarea?.removeEventListener('paste', onPaste, true);
+      term.element?.removeEventListener('copy', onCopy, true);
       term.textarea?.removeEventListener('focus', onFocus);
       shown.current = null;
       observer?.disconnect();

@@ -40,6 +40,19 @@ describe('the child run, as argv (pure)', () => {
     ]);
   });
 
+  it('a Claude account goes as --account=<name>, a name that would read as a flag is refused', () => {
+    expect(childArgs({ target: 'api', branch: 'feat/a', account: 'work' })).toEqual([
+      'tree',
+      'api',
+      'feat/a',
+      '--setup-only',
+      '--account=work',
+    ]);
+    expect(childArgs({ target: 'api', branch: 'feat/a' })).not.toContain('--account=undefined');
+    expect(invalidRequest({ target: 'api', branch: 'b', account: '--unsafe' })).toMatch(/not a Claude account/);
+    expect(invalidRequest({ target: 'api', branch: 'b', account: 'work' })).toBeNull();
+  });
+
   it("what the child's command line would misread as a flag is refused before anything runs", () => {
     expect(invalidRequest({ target: 'api', branch: '--unsafe' })).toMatch(/not a valid branch name/);
     expect(invalidRequest({ target: '-x' })).toMatch(/not a project/);
@@ -132,6 +145,35 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     expect(here.ok && here.warnings?.join(' ')).toMatch(/Could not pull 'main'/);
     const unknown = await createInProcess({ target: 'api', branch: 'feat/s', repos: ['api', 'nope'] }, config);
     expect(unknown).toEqual({ ok: false, error: expect.stringContaining('not in your config: nope') });
+  }, 150_000);
+
+  it('a new session records the account it is made on (--account), a default one when none is asked, and an unknown one is refused', async () => {
+    const accountsConfig = { ...config, claudeAccounts: { work: path.join(project, 'acc-work') } };
+    saveConfig(accountsConfig);
+    try {
+      const made = await create({ target: 'api', branch: 'feat/acc', account: 'work' }, accountsConfig);
+      expect(made).toMatchObject({ ok: true });
+      expect(findSession(loadHistory(), 'api', 'feat/acc')?.account).toBe('work');
+      await create({ target: 'web', branch: 'feat/acc2' }, accountsConfig);
+      expect(findSession(loadHistory(), 'web', 'feat/acc2')?.account).toBe('default');
+      // Coming back to it asking for another: it keeps its own.
+      await create({ target: 'api', branch: 'feat/acc', account: 'default' }, accountsConfig);
+      expect(findSession(loadHistory(), 'api', 'feat/acc')?.account).toBe('work');
+      // The base checkout is a session too.
+      expect(await createInProcess({ target: 'web', account: 'work' }, accountsConfig)).toMatchObject({ ok: true });
+      expect(loadHistory().find((s) => s.target === 'web' && s.paths[0] === config.repos.web)?.account).toBe('work');
+      // Unknown: refused by the child with why, in process too — and no worktree made.
+      const bad = await create({ target: 'api', branch: 'feat/nope', account: 'nope' }, accountsConfig);
+      expect(!bad.ok && bad.error).toMatch(/Unknown Claude Code account: nope/);
+      expect(await createInProcess({ target: 'api', branch: 'feat/nope', account: 'nope' }, accountsConfig)).toEqual({
+        ok: false,
+        error: expect.stringContaining('Unknown Claude Code account: nope'),
+      });
+      expect(findSession(loadHistory(), 'api', 'feat/nope')).toBeUndefined();
+      expect(fs.existsSync(path.join(config.worktreesRoot, 'api', 'feat-nope'))).toBe(false);
+    } finally {
+      saveConfig(config);
+    }
   }, 150_000);
 
   it("the repo's own checkout with no branch; a failure says why (the child's own error)", async () => {

@@ -1,3 +1,4 @@
+import { whileRestoring } from '../../core/archive/archiving.js';
 import type { Hono } from 'hono';
 import { findSession } from '../../core/sessions/web-state.js';
 import { setSessionArchived, setSessionTitle } from '../../core/sessions/history.js';
@@ -52,7 +53,18 @@ const METHODS = new Set<MergeMethod>(['squash', 'merge', 'rebase']);
  *                                    conversation put back)
  */
 export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
-  const archive = async (
+  // A Restore is listed again at once, as Restoring (archiving.ts), for as long as it runs.
+  const archive = (
+    id: string,
+    archived: boolean,
+    force = false,
+    merged = false,
+    stopHolders = false,
+  ): ReturnType<typeof archiveOrRestore> =>
+    archived
+      ? archiveOrRestore(id, true, force, merged, stopHolders)
+      : whileRestoring(id, () => archiveOrRestore(id, false, force, merged, stopHolders));
+  const archiveOrRestore = async (
     id: string,
     archived: boolean,
     force = false,

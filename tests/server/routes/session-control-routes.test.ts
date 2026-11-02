@@ -8,6 +8,7 @@ import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 
 const s: WorktreeSession = { target: 'api', branch: 'feat/x', isGroup: false, paths: ['/wt/x'], createdAt: 'x', lastAccessedAt: 'x' };
 const id = sessionIdFor(s);
+const REPLY = '## Done\n\nThe build passes.';
 
 function app(over: Partial<ControlDeps> = {}) {
   const events: string[] = [];
@@ -19,6 +20,7 @@ function app(over: Partial<ControlDeps> = {}) {
     resume: vi.fn(async () => true),
     stop: vi.fn(async () => {}),
     screen: vi.fn(async () => '❯ Done.'),
+    lastReply: () => ({ text: REPLY }),
     state: () => 'idle',
     unsafe: () => false,
     archived: () => false,
@@ -104,5 +106,20 @@ describe('GET /api/sessions/:id/screen', () => {
     expect(idle.deps.screen).not.toHaveBeenCalled();
     expect(idle.deps.resume).not.toHaveBeenCalled();
     expect((await idle.a.request('/api/sessions/nope/screen')).status).toBe(404);
+  });
+});
+
+describe('GET /api/sessions/:id/last-reply', () => {
+  it("its agent's newest message as written; none yet is null; an agent work can't read is 409; unknown 404", async () => {
+    saveHistory([s]);
+    expect(await (await app().a.request(`/api/sessions/${id}/last-reply`)).json()).toEqual({ text: REPLY });
+    expect(await (await app({ lastReply: () => ({ text: null }) }).a.request(`/api/sessions/${id}/last-reply`)).json()).toEqual({
+      text: null,
+    });
+    const cant = await app({ lastReply: () => ({ error: "work can't read opencode's conversations yet" }) }).a.request(
+      `/api/sessions/${id}/last-reply`,
+    );
+    expect(cant.status).toBe(409);
+    expect((await app().a.request('/api/sessions/nope/last-reply')).status).toBe(404);
   });
 });

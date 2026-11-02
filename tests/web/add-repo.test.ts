@@ -39,6 +39,7 @@ const headerActions = () => ({
   reconnectTerminal: vi.fn(),
   ship: vi.fn(),
   catchUp: vi.fn(),
+  copyReply: vi.fn(),
   timeline: vi.fn(),
   sendPrompt: vi.fn(),
   notes: vi.fn(),

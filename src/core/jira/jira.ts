@@ -116,6 +116,13 @@ export async function issueIdOf(key: string): Promise<number | null> {
   }
 }
 
+/** A numeric field of an issue (story points: a `customfield_…`); null when it has none. Throws when acli can't say. */
+export async function issueNumberField(key: string, field: string): Promise<number | null> {
+  const stdout = await execAsync('acli', ['jira', 'workitem', 'view', key, '--fields', field, '--json'], 15000);
+  const v = (JSON.parse(stdout) as { fields?: Record<string, unknown> }).fields?.[field];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
 let accountIdCache: string | null = null;
 /** When it last couldn't tell: not asked again for a while (each ask is an acli process, and every Jira lookup asks). */
 let accountIdMissedAt = 0;

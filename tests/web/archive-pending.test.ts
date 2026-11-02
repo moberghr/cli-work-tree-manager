@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { archivePending, trackArchive, useArchivePending } from '../../src/web/src/api/archive-pending.js';
+import { archivePending, markArchiving, trackArchive, useArchivePending, useMarkArchiving } from '../../src/web/src/api/archive-pending.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -76,6 +76,36 @@ describe('archives in flight', () => {
     await Promise.resolve();
     expect(archivePending('s4')).toBeUndefined();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('the rows show Archiving from the click', () => {
+  it('markArchiving sets it on the rows being archived, and gives the same array back when none is', () => {
+    const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c', archiving: true }];
+    expect(markArchiving(rows, () => undefined)).toBe(rows);
+    expect(markArchiving(rows, (id) => (id === 'c' ? true : undefined))).toBe(rows); // the server said so already
+    expect(markArchiving(rows, (id) => (id === 'b' ? false : undefined))).toEqual([{ id: 'a' }, { id: 'b', restoring: true }, rows[2]]);
+    const marked = markArchiving(rows, (id) => (id === 'a' ? true : undefined));
+    expect(marked).toEqual([{ id: 'a', archiving: true }, { id: 'b' }, { id: 'c', archiving: true }]);
+    expect(marked[1]).toBe(rows[1]);
+  });
+
+  it('useMarkArchiving follows archives as they start and end', async () => {
+    const rows: Array<{ id: string; archiving?: boolean }> = [{ id: 'm1' }, { id: 'm2' }];
+    function Rows() {
+      const shown = useMarkArchiving(rows);
+      return createElement('span', null, shown.map((r) => `${r.id}:${r.archiving ? 'archiving' : '-'}`).join(' '));
+    }
+    act(() => root.render(createElement(Rows)));
+    expect(container.textContent).toBe('m1:- m2:-');
+    const d = deferred();
+    act(() => void trackArchive('m2', true, d.promise));
+    expect(container.textContent).toBe('m1:- m2:archiving');
+    await act(async () => {
+      d.resolve();
+      await d.promise;
+    });
+    expect(container.textContent).toBe('m1:- m2:-');
   });
 });
 

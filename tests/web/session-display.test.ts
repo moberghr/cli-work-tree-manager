@@ -12,7 +12,9 @@ import {
   ageBucket,
   formatDiffStat,
   lastActiveAt,
+  owedBadge,
   prsForSession,
+  sessionBucket,
   stableSessionOrder,
   statusBucket,
 } from '../../src/web/src/state/session-display.js';
@@ -56,9 +58,28 @@ const pr = (over: Partial<PrInfo>): PrInfo => ({
 });
 
 describe('displayStatus — one vocabulary for every view', () => {
+  it('being archived wins over everything: it is on its way out, and something is happening', () => {
+    const k = displayStatus(s({ id: 'a', archiving: true, attention: att('needs_input', false), openReviewThreads: 2 }));
+    expect(k).toBe('archiving');
+    expect(DISPLAY_LABEL[k]).toBe('Archiving');
+    expect(statusBucket(k)).toBe('working');
+    expect(ageBucket(s({ id: 'b', archiving: true, lastAccessedAt: minsAgo(60 * 24 * 30) }))).toBe('now');
+    expect(displayStatus(s({ id: 'c', restoring: true, archivedAt: minsAgo(60) }))).toBe('restoring');
+    expect(DISPLAY_LABEL.restoring).toBe('Restoring');
+    // Asleep (stopped while idle) in place of the idle ring — never over what wants you.
+    expect(displayStatus(s({ id: 'd', asleep: true, attention: att('idle', true) }))).toBe('asleep');
+    // Asleep with a finished turn you haven't seen: z z for its Claude, the blue review badge for you.
+    expect(displayStatus(s({ id: 'e', asleep: true, attention: att('idle', false) }))).toBe('asleep');
+    expect(owedBadge(s({ id: 'e', asleep: true, attention: att('idle', false) }))).toMatchObject({ kind: 'turn', text: 'review' });
+    expect(displayStatus(s({ id: 'f', asleep: true }))).toBe('asleep');
+    expect(DISPLAY_LABEL.asleep).toBe('Asleep');
+    expect(statusBucket('asleep')).toBe('idle');
+  });
+
   it('prefers hook attention and falls back to transcript activity', () => {
     expect(displayStatus(s({ id: 'a', attention: att('needs_input', false) }))).toBe('needs_input');
-    expect(displayStatus(s({ id: 'a', attention: att('idle', false) }))).toBe('done');
+    // A finished turn you haven't seen is idle to the icon (the review badge says the rest).
+    expect(displayStatus(s({ id: 'a', attention: att('idle', false) }))).toBe('quiet');
     expect(displayStatus(s({ id: 'a', attention: att('idle', true) }))).toBe('quiet');
     expect(displayStatus(s({ id: 'a', attention: att('working', true) }))).toBe('working');
     // attention wins even when activity says otherwise
@@ -81,14 +102,34 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(displayStatus(s({ id: 'a', attention: att('working', true) }))).toBe('working');
   });
 
-  it('unresolved review comments make a session "Review comments" unless its Claude wants you or is mid-turn', () => {
+  it('two signals: the status is what its Claude is doing; what waits on you (threads, replies) is its own, beside it', () => {
     const r = { openReviewThreads: 2 };
-    expect(displayStatus(s({ id: 'a', ...r }))).toBe('review'); // no hook status at all
-    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', true) }))).toBe('review'); // was grey "Idle"
-    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', false) }))).toBe('done');
+    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', true) }))).toBe('quiet');
+    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', false) }))).toBe('quiet');
+    // Unseen too: the turn to review leads, the threads after it.
+    expect(owedBadge(s({ id: 'a', ...r, attention: att('idle', false) }))).toEqual({
+      kind: 'turn',
+      text: 'review +1',
+      title: 'Needs you: a finished turn to review · 2 review threads with no answer',
+    });
     expect(displayStatus(s({ id: 'a', ...r, attention: att('working', true) }))).toBe('working');
     expect(displayStatus(s({ id: 'a', ...r, attention: att('needs_input', false) }))).toBe('needs_input');
-    expect(statusBucket('review')).toBe('needs');
+    for (const st of [att('idle', true), att('working', true), att('needs_input', false)])
+      expect(owedBadge(s({ id: 'a', ...r, attention: st }))).toMatchObject({ text: '2 threads' });
+    // A reply to post alone (reported: it read Idle with nothing beside it).
+    expect(owedBadge(s({ id: 'a', replyDrafts: 1, attention: att('idle', true) }))).toEqual({
+      kind: 'reply',
+      text: '1 reply',
+      title: 'Needs you: 1 reply to post',
+    });
+    expect(owedBadge(s({ id: 'a', attention: att('idle', true) }))).toBeNull();
+    // Unseen while working or asking: not a finished turn yet.
+    expect(owedBadge(s({ id: 'a', attention: att('working', false) }))).toBeNull();
+    expect(owedBadge(s({ id: 'a', attention: att('needs_input', false) }))).toBeNull();
+    expect(sessionBucket(s({ id: 'a', attention: att('idle', false) }))).toBe('needs');
+    // The Sessions filter and the age sections count it as wanting you.
+    expect(sessionBucket(s({ id: 'a', ...r, attention: att('working', true) }))).toBe('needs');
+    expect(sessionBucket(s({ id: 'a', attention: att('working', true) }))).toBe('working');
     expect(ageBucket(s({ id: 'a', ...r, lastAccessedAt: minsAgo(30 * 24 * 60) }))).toBe('now');
   });
 
@@ -185,6 +226,24 @@ describe('SessionRail rows', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  it('a session being archived says so: the Archiving icon and "archiving…", whatever its Claude was doing', () => {
+    const sessions = [s({ id: 'feat/x', archiving: true, attention: att('needs_input', false) })];
+    act(() => root.render(createElement(SessionRail, { sessions, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    const row = container.querySelector('.wd-dash-rail-item')!;
+    expect(row.querySelector('.wd-rail-dot-archiving')).not.toBeNull();
+    expect(row.textContent).toContain('archiving…');
+  });
+
+  it('an archived session being restored is back in the rail at once, as Restoring; one that is not stays out', () => {
+    const sessions = [s({ id: 'back', archivedAt: minsAgo(60), restoring: true }), s({ id: 'gone', archivedAt: minsAgo(60) })];
+    act(() => root.render(createElement(SessionRail, { sessions, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    const rows = container.querySelectorAll('.wd-dash-rail-item');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector('.wd-dash-rail-name')?.textContent).toBe('back');
+    expect(rows[0].querySelector('.wd-rail-dot-restoring')).not.toBeNull();
+    expect(rows[0].textContent).toContain('restoring…');
   });
 
   it('two lines a row, the same for every row: branch and time, then project and PRs; the rest is in its tooltip; hides archived', () => {

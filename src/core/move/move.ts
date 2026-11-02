@@ -246,6 +246,8 @@ export interface ImportOptions {
 export interface ImportReport {
   sessions: number;
   repos: { cloned: string[]; missing: string[] };
+  /** Claude accounts whose folders were moved (config `claudeAccounts`): their logins don't travel — log in to each again. */
+  accounts: Array<{ name: string; dir: string }>;
   worktrees: { created: string[]; failed: Array<{ session: string; error: string }> };
   transcripts: number;
 }
@@ -281,6 +283,17 @@ export async function importBundle(dir: string, opts: ImportOptions = {}, deps: 
     );
   for (const key of ['scanRoots', 'ignoredRepos'])
     if (Array.isArray(raw[key])) raw[key] = (raw[key] as unknown[]).map((p) => (typeof p === 'string' ? move(p) : p));
+  // Claude accounts' folders move like the rest (`~/.claude-work` to the new home); their logins stay behind.
+  const accounts: ImportReport['accounts'] = [];
+  if (raw.claudeAccounts && typeof raw.claudeAccounts === 'object' && !Array.isArray(raw.claudeAccounts))
+    raw.claudeAccounts = Object.fromEntries(
+      Object.entries(raw.claudeAccounts as Record<string, unknown>).map(([name, p]) => {
+        if (typeof p !== 'string') return [name, p];
+        const dir = move(p.startsWith('~') ? path.join(m.from.home, p.slice(1)) : p);
+        accounts.push({ name, dir });
+        return [name, dir];
+      }),
+    );
   fs.mkdirSync(getConfigDir(), { recursive: true });
   atomicWriteFile(getConfigPath(), JSON.stringify(raw, null, 2));
 
@@ -300,6 +313,7 @@ export async function importBundle(dir: string, opts: ImportOptions = {}, deps: 
   const report: ImportReport = {
     sessions: history.length,
     repos: { cloned: [], missing: [] },
+    accounts,
     worktrees: { created: [], failed: [] },
     transcripts: 0,
   };

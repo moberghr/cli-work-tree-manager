@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import type { TimeDaysWire, TimeDayWire, TimeGraphWire, TimePostWire } from '../../core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeGraphWire, TimeMonthWire, TimePostWire } from '../../core/api-types.js';
 import {
   finishDeviceLogin,
   graphAccount,
@@ -10,7 +10,9 @@ import {
   type DeviceLogin,
   type GraphApp,
 } from '../../core/time/graph.js';
-import { buildDay, dayWire, daysWire, type TimeDeps } from '../../core/time/time-days.js';
+import { buildDay, dayWire, daysWire, monthWire, type TimeDeps } from '../../core/time/time-days.js';
+import { createMonthGather } from '../../core/time/month-gather.js';
+import { isMonth, monthRange } from '../../core/time/time-month.js';
 import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
 import { updateDay } from '../../core/time/time-store.js';
 import { tempoClient, tempoSetup, type TempoApi } from '../../core/time/tempo.js';
@@ -20,7 +22,9 @@ import { loadConfig } from '../../core/platform/config.js';
 /**
  * The Time tab:
  *
- *   GET  /api/time?from=&to=      — the days (two weeks back by default)
+ *   GET  /api/time?from=&to=      — the days (this month, or `catchUpDays` back when further, by default)
+ *   GET  /api/time/month/:month   — a month (YYYY-MM) up to today: tickets × days, and what posting it would do
+ *   POST /api/time/month/:month/gather — gather its days the keeper didn't reach, in the background (202)
  *   GET  /api/time/:day           — a day: evidence, suggestion, what will be posted
  *   PUT  /api/time/:day           — your rows ({entries}, null = back to the suggestion), a day off ({dayOff})
  *   POST /api/time/:day/rebuild   — gather its evidence again
@@ -142,6 +146,34 @@ export function mountTimeRoutes(
     const r = timeRange({ from: c.req.query('from'), to: c.req.query('to') }, localDay(), settings.catchUpDays ?? DEFAULT_CATCH_UP_DAYS);
     if ('error' in r) return c.json({ error: r.error }, 400);
     return c.json<TimeDaysWire>(daysWire(r.from, r.to, settings));
+  });
+
+  const gather = createMonthGather(opts.deps, { changed });
+  const monthWithState = (month: string): TimeMonthWire => {
+    const t = tempo();
+    return {
+      ...monthWire(month, localDay(), opts.deps.settings()),
+      gathering: gather.state(month).gathering,
+      gatherError: gather.state(month).error,
+      posting: 'why' in t ? { ready: false, why: t.why } : { ready: true, why: null },
+    };
+  };
+  const badMonth = (month: string) =>
+    !isMonth(month) ? 'month: YYYY-MM' : !monthRange(month, localDay()) ? 'month: one that has started' : null;
+
+  app.get('/api/time/month/:month', (c) => {
+    const month = c.req.param('month');
+    const bad = badMonth(month);
+    if (bad) return c.json({ error: bad }, 400);
+    return c.json<TimeMonthWire>(monthWithState(month));
+  });
+
+  app.post('/api/time/month/:month/gather', (c) => {
+    const month = c.req.param('month');
+    const bad = badMonth(month);
+    if (bad) return c.json({ error: bad }, 400);
+    gather.start(month); // false: nothing to gather, or under way already — the view says which
+    return c.json<TimeMonthWire>(monthWithState(month), 202);
   });
 
   app.get('/api/time/:day', (c) => {

@@ -1,5 +1,5 @@
 import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
-import type { SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
+import type { LastReplyWire, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
 import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
 export type { DiffPoint } from '../../../core/diff/diff-points.js';
 export type { SessionCommit } from '../../../core/api-types.js';
@@ -91,6 +91,12 @@ export type DiffBase = 'uncommitted' | 'branch';
 
 export interface SessionSummary {
   id: string;
+  /** Being archived right now (SessionWire.archiving; this window's own click marks it at once, archive-pending.ts). */
+  archiving?: boolean;
+  /** Being restored right now (SessionWire.restoring, or this window's own click): in the rail again meanwhile. */
+  restoring?: boolean;
+  /** Its Claude was stopped while idle and hasn't run since (SessionWire.asleep): opening the session starts it again. */
+  asleep?: boolean;
   target: string;
   branch: string;
   isGroup: boolean;
@@ -136,6 +142,10 @@ export interface SessionSummary {
   claudes?: SessionClaudes;
   /** The agent it runs, and what work can do with it. */
   agent?: import('../../../core/api-types.js').SessionAgentWire;
+  /** The account (login) its agent runs on; absent = the default account. */
+  account?: string;
+  /** The account a switch waiting for its turn to end will move it to. */
+  accountPending?: string;
   /** What its archive kept (archived sessions). */
   archive?: SessionArchiveInfo;
   /** Its name: yours, else its first prompt, else its Jira key. */
@@ -305,7 +315,54 @@ export function fetchActivity(): Promise<import('../../../core/api-types.js').Ac
   return getJson('/api/activity');
 }
 
+/** Each agent's plan limits as last read, and the tokens used today and this week (GET /api/usage). */
+export function fetchUsage(): Promise<import('../../../core/api-types.js').UsageWire> {
+  return getJson('/api/usage');
+}
+
 /** The live sessions; with `withArchived`, the archived ones too (they're asked for only where shown). */
+/** Its agent's newest message as it wrote it (GET …/last-reply), or null when there is none. */
+export function fetchLastReply(sessionId: string): Promise<string | null> {
+  return getJson<LastReplyWire>(`/api/sessions/${encodeURIComponent(sessionId)}/last-reply`).then((r) => r.text);
+}
+
+/** The agent's accounts (GET /api/accounts): each login new sessions can use, and which one is the default. */
+export function fetchAccounts(): Promise<import('../../../core/api-types.js').AccountsWire> {
+  return getJson('/api/accounts');
+}
+
+/**
+ * Move a session's Claude to another account (POST /api/sessions/:id/account): switched, queued
+ * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
+ */
+export async function switchSessionAccount(sessionId: string, to: string): Promise<import('../../../core/api-types.js').AccountSwitchWire> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to }),
+  });
+  const text = await res.text().catch(() => '');
+  if (!res.ok) {
+    let why = '';
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === 'string') why = parsed.error;
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(why || text || `${res.status} ${res.statusText}`);
+  }
+  return JSON.parse(text) as import('../../../core/api-types.js').AccountSwitchWire;
+}
+
+/** Drop the switch of account waiting for its turn (DELETE /api/sessions/:id/account). Throws the server's reason when refused. */
+export async function cancelAccountSwitch(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, { method: 'DELETE' });
+  if (res.ok) return;
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  throw new Error(typeof body?.error === 'string' ? body.error : `${res.status} ${res.statusText}`);
+}
+
 export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
   return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
 }

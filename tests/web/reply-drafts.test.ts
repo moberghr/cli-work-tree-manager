@@ -80,7 +80,7 @@ describe('ReplyDrafts', () => {
     );
     await flush();
     expect(container.querySelector('.wd-replies-title')!.textContent).toBe('✍ 1 reply to post');
-    expect(container.querySelector('.wd-reply-quote')!.textContent).toBe('Why not a const?');
+    expect(container.querySelector('.wd-reply-body')!.textContent!.trim()).toBe('Why not a const?');
     expect(container.querySelector<HTMLTextAreaElement>('.wd-reply-text')!.value).toBe('Fixed in abc1234: now a const.');
   });
 
@@ -139,7 +139,7 @@ describe('ReplyDrafts with nothing to post', () => {
     expect(container.querySelector('.wd-replies-title')!.textContent).toBe(
       '💬 1 unresolved review thread with no reply yet · handed to Claude, no draft yet',
     );
-    expect(container.querySelector('.wd-reply-quote')!.textContent).toBe('This invalidates the queries only once…');
+    expect(container.querySelector('.wd-reply-body')!.textContent!.trim()).toBe('This invalidates the queries only once…');
     expect(container.textContent).toContain('handed to Claude, no draft yet');
     expect(container.querySelector<HTMLAnchorElement>('.wd-reply-where')!.href).toBe('https://gh/1927#r1');
     await act(async () => button('Ask Claude to reply').click());
@@ -246,5 +246,61 @@ describe('Ask Claude about all: what it sends', () => {
     await flush();
     expect(container.querySelectorAll('.wd-reply')).toHaveLength(2);
     expect(button('Show the threads ▾')).toBeUndefined();
+  });
+});
+
+describe('a thread on the PR tab: its code and its comment', () => {
+  const hunk =
+    '@@ -10,5 +10,5 @@ export const Order = z.object({\n   id: z.string(),\n   customer: Customer,\n-  items: z.array(Item).min(1),\n+  items: z.array(Item).nonempty(),\n   note: z.string(),';
+
+  it('shows the lines the comment is on, numbered and marked, then the comment as Markdown (a suggestion labelled)', async () => {
+    const body = 'Does **this** still reject `[]`?\n\n```suggestion\n  items: z.array(Item).min(1),\n```';
+    act(() =>
+      root.render(
+        createElement(ReplyDrafts, {
+          sessionId: 's1',
+          api: fakeApi([reply('PRRT_a', { body, code: { hunk, lines: 1 }, where: 'src/schema.ts:12' })]),
+        }),
+      ),
+    );
+    await flush();
+    const rows = [...container.querySelectorAll('.wd-reply-code tr')];
+    // The commented line (the hunk's last) and the lines before it, numbered in the file.
+    expect(rows.map((r) => r.querySelector('.wd-reply-code-no')!.textContent)).toEqual(['10', '11', '12', '12', '13']);
+    const on = container.querySelectorAll('.wd-reply-code-on');
+    expect(on).toHaveLength(1);
+    expect(on[0].textContent).toContain('note: z.string(),');
+    const md = container.querySelector('.wd-reply-body')!;
+    expect(md.querySelector('strong')!.textContent).toBe('this');
+    expect(md.querySelector('code')!.textContent).toBe('[]');
+    expect(md.querySelector('pre code.language-suggestion')!.textContent).toContain('min(1)');
+  });
+
+  it('a row from before (no comment text, no code): its excerpt, as Markdown', async () => {
+    act(() =>
+      root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a', { excerpt: 'Why not a **const**?' })]) })),
+    );
+    await flush();
+    expect(container.querySelector('.wd-reply-code')).toBeNull();
+    expect(container.querySelector('.wd-reply-body strong')!.textContent).toBe('const');
+  });
+
+  it('an open thread with no draft shows them too; an outdated one says so', async () => {
+    const waiting: OpenReviewThread = {
+      threadId: 'PRRT_w',
+      repo: 'api',
+      prNumber: 7,
+      url: 'u',
+      where: 'src/schema.ts:12',
+      reviewer: 'dana',
+      excerpt: 'x',
+      body: 'Rename _this_.',
+      code: { hunk, lines: 2, outdated: true },
+    };
+    act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([], [waiting]) })));
+    await flush();
+    expect(container.querySelectorAll('.wd-reply-code-on')).toHaveLength(2);
+    expect(container.textContent).toContain('Outdated: the code has changed since this comment');
+    expect(container.querySelector('.wd-reply-body em')!.textContent).toBe('this');
   });
 });

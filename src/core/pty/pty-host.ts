@@ -6,11 +6,12 @@ import { atomicWriteFile } from '../platform/fs-safe.js';
 import { PtyRegistry } from './pty-registry.js';
 import { adoptLegacyRestoreList } from './pty-sessions-file.js';
 import { bestEffort } from '../platform/best-effort.js';
-import { PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type HostInfo, type SpawnSpec } from './pty-host-protocol.js';
+import { HOST_FEATURES, PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type HostInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { report } from '../platform/report.js';
+import { isEnvDelta } from '../platform/env-delta.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
-const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart)?$/;
+const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart|\/halt|\/resume)?$/;
 const MAX_BODY = 1024 * 1024;
 
 /**
@@ -100,7 +101,7 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
 
     try {
       if (req.method === 'GET' && url.pathname === '/health') {
-        return send(res, 200, { version: PROTOCOL_VERSION, pid: process.pid });
+        return send(res, 200, { version: PROTOCOL_VERSION, pid: process.pid, features: HOST_FEATURES });
       }
       if (req.method === 'GET' && url.pathname === '/ptys') {
         return send(res, 200, registry.list());
@@ -114,8 +115,23 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
         }
         // Additive (no protocol bump): an older host answers 404 "not found", and the pool stops and starts it instead.
         if (m[2] === '/restart' && req.method === 'POST') {
-          const info = await registry.restart(id);
+          // The body is optional (a restart for an updated tool has none): `agentEnv`, a session moved to another account.
+          const body = (await readBody(req).catch(() => ({}))) as { agentEnv?: unknown };
+          const agentEnv = isEnvDelta(body.agentEnv) ? body.agentEnv : undefined;
+          const info = await registry.restart(id, undefined, agentEnv);
+          // `agentEnvApplied` tells the caller this host took the environment (one from before ignores it).
+          return info ? send(res, 200, agentEnv ? { ...info, agentEnvApplied: true } : info) : send(res, 409, { error: 'not running' });
+        }
+        // Additive too: halt stops the agent and keeps the session (entry, record, attached terminals) until resume starts it
+        // again — a switch of account moves its conversation files in between. An older host answers 404 to both.
+        if (m[2] === '/halt' && req.method === 'POST') {
+          const info = await registry.halt(id);
           return info ? send(res, 200, info) : send(res, 409, { error: 'not running' });
+        }
+        if (m[2] === '/resume' && req.method === 'POST') {
+          const body = (await readBody(req).catch(() => ({}))) as { agentEnv?: unknown };
+          const info = await registry.resume(id, isEnvDelta(body.agentEnv) ? body.agentEnv : undefined);
+          return info ? send(res, 200, info) : send(res, 409, { error: 'not halted' });
         }
         if (m[2] === '/write' && req.method === 'POST') {
           const body = (await readBody(req)) as { data?: unknown };

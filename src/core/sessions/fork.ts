@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { BaseSpec } from '../git/base-spec.js';
-import type { WorkConfig } from '../platform/config.js';
+import { DEFAULT_ACCOUNT, type WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from './session-types.js';
 import { recordedRepos } from './session-repos.js';
 
@@ -105,6 +105,8 @@ export interface ForkDeps {
     name?: string,
     /** A session folder's repos (the parent's own list): the fork holds the same ones, not its group's config. */
     repos?: string[],
+    /** The Claude account the fork runs on: the parent's, whatever the configured default is now. */
+    account?: string,
   ) => Promise<{ paths: string[] } | { error: string }>;
   /** A few sentences on where the parent stands; null: nothing to go on. */
   summarize: (parent: WorktreeSession) => Promise<string | null>;
@@ -149,6 +151,8 @@ export async function forkSession(parent: WorktreeSession, req: ForkRequest, dep
     bases.spec,
     req.name,
     parent.isGroup ? repos.map((r) => r.alias) : undefined,
+    // A fork goes on where its parent runs (a row from before accounts: the default account, which it ran on).
+    parent.account || DEFAULT_ACCOUNT,
   );
   if ('error' in created) return { ok: false, status: 400, error: created.error };
   const sessionId = deps.sessionIdFor({ target: parent.target, branch });

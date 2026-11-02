@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { bootTime, processTable } from '../../platform/process.js';
+import { claudeAccounts } from './accounts.js';
 import type { LiveAgent } from '../types.js';
 
 /**
@@ -58,20 +59,24 @@ export function aliveOnly(list: LiveClaude[], table: ReadonlyMap<number, string>
 // ------------------------------------------------------------------ reading
 
 const TTL_MS = 5000;
-let cache: { at: number; list: LiveClaude[] } | null = null;
+let cache: { at: number; key: string; list: LiveClaude[] } | null = null;
 
 export function claudeSessionsDir(): string {
   return path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'sessions');
 }
 
 /**
- * The running Claudes (cached for a few seconds: this lists every process).
- * With `table`, a process table the caller already has (the session list's
- * background one): read against it, and neither read nor written to the
- * cache — the guard against a second Claude keeps its own, synchronous view.
+ * Where running Claudes write their process files: every account's `sessions/` folder. With no account configured it is
+ * the one folder it always was (`claudeSessionsDir`, which follows a `CLAUDE_CONFIG_DIR` the user set themselves).
  */
-export function readLiveClaudes(dir = claudeSessionsDir(), now = Date.now(), table?: ReadonlyMap<number, string>): LiveClaude[] {
-  if (!table && cache && now - cache.at < TTL_MS && dir === claudeSessionsDir()) return cache.list;
+export function claudeSessionsDirs(): string[] {
+  const accounts = claudeAccounts();
+  if (accounts.length <= 1) return [claudeSessionsDir()];
+  return [...new Set(accounts.map((a) => path.join(a.dir, 'sessions')))];
+}
+
+/** One folder's process files that are live Claudes. */
+function readDir(dir: string, table: () => ReadonlyMap<number, string>): LiveClaude[] {
   let names: string[];
   try {
     names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n));
@@ -87,7 +92,24 @@ export function readLiveClaudes(dir = claudeSessionsDir(), now = Date.now(), tab
       /* half-written or not ours: skip */
     }
   }
-  const list = parsed.length ? aliveOnly(parsed, table ?? processTable(), bootTime()) : [];
-  if (!table) cache = { at: now, list };
+  return parsed.length ? aliveOnly(parsed, table(), bootTime()) : [];
+}
+
+/**
+ * The running Claudes (cached for a few seconds: this lists every process), of every account — or of one `dir` when
+ * given. With `table`, a process table the caller already has (the session list's background one): read against it,
+ * and neither read nor written to the cache — the guard against a second Claude keeps its own, synchronous view.
+ */
+export function readLiveClaudes(dir?: string, now = Date.now(), table?: ReadonlyMap<number, string>): LiveClaude[] {
+  const dirs = dir ? [dir] : claudeSessionsDirs();
+  const key = dirs.join('|');
+  // Only the whole list is cached; one folder asked for by name is read as it is.
+  const cached = !table && !dir;
+  if (cached && cache && now - cache.at < TTL_MS && cache.key === key) return cache.list;
+  // The process table is read once, and only when a folder has a process file to check.
+  let procs: ReadonlyMap<number, string> | undefined = table;
+  const procTable = () => (procs ??= processTable());
+  const list = dirs.flatMap((d) => readDir(d, procTable));
+  if (cached) cache = { at: now, key, list };
   return list;
 }

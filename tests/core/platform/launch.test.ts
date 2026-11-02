@@ -2,13 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 
 const spawned = vi.hoisted(() => [] as Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>);
 vi.mock('../../../src/core/platform/spawn.js', () => ({
-  default: (cmd: string, args: string[], opts: Record<string, unknown>) => {
-    spawned.push({ cmd, args, opts });
-    return { unref: () => {} };
-  },
+  default: Object.assign(
+    (cmd: string, args: string[], opts: Record<string, unknown>) => {
+      spawned.push({ cmd, args, opts });
+      return { unref: () => {} };
+    },
+    {
+      sync: (cmd: string, args: string[], opts: Record<string, unknown>) => {
+        spawned.push({ cmd, args, opts });
+        return { status: 0 };
+      },
+    },
+  ),
 }));
 
-import { editorArgs, openUrl } from '../../../src/core/platform/launch.js';
+import { editorArgs, launchAi, openUrl } from '../../../src/core/platform/launch.js';
+import { getAiTool } from '../../../src/core/platform/ai-launcher.js';
 
 describe('openUrl', () => {
   it('starts the browser hidden: no console window flashes up first (cmd /c start on Windows)', () => {
@@ -47,5 +56,42 @@ describe('editorArgs', () => {
   it('an editor it does not know gets the file alone, never a made-up line flag', () => {
     expect(editorArgs('notepad', folder, file)).toEqual([file.path]);
     expect(editorArgs('vim', folder, file)).toEqual([file.path]);
+  });
+});
+
+describe('launchAi: the environment it starts the agent with (T1)', () => {
+  const tool = getAiTool({});
+  const envOf = () => spawned.at(-1)!.opts.env as Record<string, string | undefined> | undefined;
+  const KEY = 'WORK_TEST_LAUNCH_VAR';
+
+  it('no change and no port: no env given at all (this terminal’s, as before accounts)', () => {
+    launchAi('/wt/api', tool);
+    expect(spawned.at(-1)!.opts).toEqual({ cwd: '/wt/api', stdio: 'inherit', windowsHide: false });
+    launchAi('/wt/api', tool, {}, undefined, {});
+    expect(envOf()).toBeUndefined();
+  });
+
+  it('a null in the change takes an inherited variable out', () => {
+    process.env[KEY] = 'inherited';
+    try {
+      launchAi('/wt/api', tool, {}, undefined, { [KEY]: null });
+      expect(envOf()).toBeDefined();
+      expect(KEY in envOf()!).toBe(false);
+      expect(envOf()!.PATH ?? envOf()!.Path).toBe(process.env.PATH ?? process.env.Path); // the rest is this terminal's
+    } finally {
+      delete process.env[KEY];
+    }
+  });
+
+  it('a string sets it; with a port, both', () => {
+    launchAi('/wt/api', tool, {}, undefined, { [KEY]: '/acc' });
+    expect(envOf()![KEY]).toBe('/acc');
+    expect(envOf()!.PORT).toBeUndefined();
+    launchAi('/wt/api', tool, {}, 5123, { [KEY]: '/acc' });
+    expect(envOf()![KEY]).toBe('/acc');
+    expect(envOf()!.PORT).toBe('5123');
+    launchAi('/wt/api', tool, {}, 5124);
+    expect(envOf()!.PORT).toBe('5124');
+    expect(KEY in envOf()!).toBe(false);
   });
 });

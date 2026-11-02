@@ -3,7 +3,8 @@ import { agentOf } from '../agents/index.js';
 import type { ConversationEntry } from '../agents/types.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { mergeSteps, workedBetween, workedByDay, workSteps, type WorkStep } from './work-time.js';
-import type { WorkTimeWire } from '../api-types.js';
+import { dayKey } from './work-time-view.js';
+import type { TokenTotals, WorkTimeWire } from '../api-types.js';
 
 /**
  * A session's Claude working time (work-time.ts) from all its transcripts.
@@ -31,6 +32,29 @@ interface FileState {
   firstMs: number | null;
   /** Its first bytes, as read. */
   head: string;
+  /** Tokens by local day and model (input = prompt less its cached part). */
+  tokens: Record<string, Record<string, TokenTotals>>;
+  /** The last agent message counted: its other lines (one per content block) repeat its usage. */
+  lastMessage: string | null;
+}
+
+/** An agent message's usage into `tokens`, once per message id (`lastMessage`: lines of one message are adjacent). */
+function countTokens(state: FileState, entries: readonly ConversationEntry[]): void {
+  for (const e of entries) {
+    if (e.role !== 'agent' || !e.usage) continue;
+    if (e.message) {
+      if (e.message === state.lastMessage) continue;
+      state.lastMessage = e.message;
+    }
+    const ms = Date.parse(e.at);
+    if (!Number.isFinite(ms)) continue;
+    const cached = e.usage.cached ?? 0;
+    const byModel = (state.tokens[dayKey(ms)] ??= {});
+    const t = (byModel[e.model ?? 'unknown'] ??= { input: 0, cached: 0, output: 0 });
+    t.input += Math.max(0, e.usage.prompt - cached);
+    t.cached += cached;
+    t.output += e.usage.reply;
+  }
 }
 
 const files = new Map<string, FileState>();
@@ -60,8 +84,8 @@ async function readOn(
       head.startsWith(st.head.slice(0, head.length)) &&
       st.head.startsWith(head.slice(0, st.head.length));
     const state: FileState = appended
-      ? { ...st!, steps: [...st!.steps], mtimeMs, head }
-      : { offset: 0, mtimeMs, lastMs: null, steps: [], prompts: 0, firstMs: null, head };
+      ? { ...st!, steps: [...st!.steps], tokens: structuredClone(st!.tokens), mtimeMs, head }
+      : { offset: 0, mtimeMs, lastMs: null, steps: [], prompts: 0, firstMs: null, head, tokens: {}, lastMessage: null };
     // Bytes read past the last newline (kept as bytes: a character can be cut in two).
     let carry = Buffer.alloc(0);
     while (state.offset + carry.length < size) {
@@ -97,6 +121,7 @@ async function readOn(
         if (first) state.firstMs = Date.parse(first.at);
       }
       state.prompts += entries.filter((e) => e.role === 'you' && !e.sidechain).length;
+      countTokens(state, entries);
       // Let the server breathe between megabytes.
       await new Promise((r2) => setImmediate(r2));
     }
@@ -107,17 +132,15 @@ async function readOn(
 }
 
 /**
- * How long the session's Claude worked: in all, per day (the last `days`, two
- * weeks unless asked — the Time tab's catch-up asks for its own), and the
- * prompts it was given.
+ * The session's files (`usage`: the ones whose tokens count, subagents' included — else its conversations), brought
+ * up to date (read once, then what was appended). One last written before `minMtimeMs` is skipped.
  */
-export async function sessionWorkTime(s: WorktreeSession, now = Date.now(), days = DAYS_SHOWN): Promise<WorkTimeWire> {
-  const steps: WorkStep[] = [];
-  let prompts = 0;
-  let firstMs: number | null = null;
-  let lastMs: number | null = null;
+async function upToDate(s: WorktreeSession, o: { usage?: boolean; minMtimeMs?: number } = {}): Promise<FileState[]> {
+  const out: FileState[] = [];
   const conv = agentOf(s).conversation;
-  for (const t of conv?.files(s) ?? []) {
+  const list = o.usage && conv?.usageFiles ? conv.usageFiles(s) : (conv?.files(s) ?? []);
+  for (const t of list) {
+    if (o.minMtimeMs !== undefined && t.mtimeMs < o.minMtimeMs) continue;
     let st = files.get(t.file);
     if (!st || st.offset !== t.size || st.mtimeMs !== t.mtimeMs) {
       try {
@@ -130,6 +153,48 @@ export async function sessionWorkTime(s: WorktreeSession, now = Date.now(), days
     files.delete(t.file);
     files.set(t.file, st);
     while (files.size > MAX_FILES) files.delete(files.keys().next().value!);
+    out.push(st);
+  }
+  return out;
+}
+
+/** Local midnight starting `day` (`YYYY-MM-DD`); undefined for anything else. */
+function dayStartMs(day: string): number | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() : undefined;
+}
+
+/**
+ * The session's tokens by local day (`YYYY-MM-DD`, from `sinceDay` on) and model, its subagents' included (the
+ * agent's `usageFiles`). A file last written before `sinceDay` began can't hold any of them, and isn't read.
+ */
+export async function sessionTokens(s: WorktreeSession, sinceDay: string): Promise<Record<string, Record<string, TokenTotals>>> {
+  const out: Record<string, Record<string, TokenTotals>> = {};
+  for (const st of await upToDate(s, { usage: true, minMtimeMs: dayStartMs(sinceDay) })) {
+    for (const [day, byModel] of Object.entries(st.tokens)) {
+      if (day < sinceDay) continue;
+      for (const [model, t] of Object.entries(byModel)) {
+        const sum = ((out[day] ??= {})[model] ??= { input: 0, cached: 0, output: 0 });
+        sum.input += t.input;
+        sum.cached += t.cached;
+        sum.output += t.output;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * How long the session's Claude worked: in all, per day (the last `days`, two
+ * weeks unless asked — the Time tab's catch-up asks for its own), and the
+ * prompts it was given.
+ */
+export async function sessionWorkTime(s: WorktreeSession, now = Date.now(), days = DAYS_SHOWN): Promise<WorkTimeWire> {
+  const steps: WorkStep[] = [];
+  let prompts = 0;
+  let firstMs: number | null = null;
+  let lastMs: number | null = null;
+  for (const st of await upToDate(s)) {
     steps.push(...st.steps);
     prompts += st.prompts;
     if (st.firstMs !== null) firstMs = firstMs === null ? st.firstMs : Math.min(firstMs, st.firstMs);

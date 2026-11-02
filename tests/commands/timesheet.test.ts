@@ -65,6 +65,18 @@ describe('work timesheet', () => {
     expect(readDay('2026-10-08')?.dayOff).toBe(false);
   });
 
+  it('month: every day of a month in words (or JSON); a month not started is refused', async () => {
+    await run(['set', '2026-09-08', 'APP-1=7.5']);
+    out = [];
+    await run(['month', '2026-09']);
+    expect(text()).toContain("On the Time tab's Month view: 2026-09");
+    expect(text()).toContain('2026-09-08 (edited, your rows): 7.5 h — APP-1 7.5 h.');
+    out = [];
+    await run(['month', '2026-09', '--json']);
+    expect(JSON.parse(out[0])).toMatchObject({ month: '2026-09' });
+    await expect(run(['month', '2099-01'])).rejects.toThrow('exit 1');
+  });
+
   it('refuses rows that are not KEY=HOURS in steps, and a day that is not one', async () => {
     await expect(run(['set', '2026-10-08', 'APP-1=1.1'])).rejects.toThrow('exit 1');
     expect(err.join('\n')).toContain('KEY=HOURS');

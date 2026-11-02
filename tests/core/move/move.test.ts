@@ -111,7 +111,13 @@ describe('moving to another computer (real git, two homes)', () => {
     fs.writeFileSync(path.join(docs, 'd'), 'd');
     git(docs, 'add', 'd');
     git(docs, 'commit', '-q', '-m', 'd');
-    saveConfig({ ...config, repos: { api: repo, docs }, groups: { shop: ['api'] } });
+    // Two Claude accounts: one by its full folder, one written with ~ (both under the old home).
+    saveConfig({
+      ...config,
+      repos: { api: repo, docs },
+      groups: { shop: ['api'] },
+      claudeAccounts: { work: path.join(oldHome, '.claude-work'), spare: '~/.claude-spare' },
+    });
     const shopFolder = path.join(oldHome, 'wt', 'shop', 'feat-y');
     saveHistory([
       ...loadHistory(),
@@ -183,6 +189,12 @@ describe('moving to another computer (real git, two homes)', () => {
     expect(fs.existsSync(path.join(claudeProjectsRoot(), encodeProjectDir(s.paths[0]), 'conv.jsonl'))).toBe(true);
     expect(fs.existsSync(path.join(newHome, '.work', 'conversations', sessionIdFor(s), 'conv.jsonl'))).toBe(true);
     expect(withDb((d) => (d.prepare('SELECT COUNT(*) AS n FROM pty_sessions').get() as { n: number }).n)).toBe(0);
+    // Claude accounts' folders moved to the new home like the rest; the report names them to log in to again.
+    expect(config.claudeAccounts).toEqual({ work: path.join(newHome, '.claude-work'), spare: path.join(newHome, '.claude-spare') });
+    expect(r.accounts).toEqual([
+      { name: 'work', dir: path.join(newHome, '.claude-work') },
+      { name: 'spare', dir: path.join(newHome, '.claude-spare') },
+    ]);
   }, 120_000);
 
   it('refuses to import over sessions already here, unless forced; a folder that is no bundle says so', async () => {

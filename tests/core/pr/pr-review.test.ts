@@ -3,6 +3,7 @@ import {
   botName,
   DEFAULT_TRUSTED_BOTS,
   isTrusted,
+  isThreadCode,
   fetchReviewFeedback,
   newFeedback,
   openThreadCount,
@@ -10,6 +11,7 @@ import {
   parseReviewFeedback,
   reviewMessage,
   subAgentHint,
+  threadCode,
   viewerLogin,
   type ReviewFeedback,
 } from '../../../src/core/pr/pr-review.js';
@@ -116,6 +118,7 @@ describe('parseReviewFeedback', () => {
           isOutdated: false,
           path: 'src/a.ts',
           line: 4,
+          code: null, // no diff hunk in this answer
           comments: [{ id: 'C1', author: 'alice', association: 'MEMBER', body: 'rename', url: 'u1', createdAt: 't' }],
         },
       ],
@@ -274,6 +277,7 @@ describe('newFeedback', () => {
         reviewer: 'copilot',
         excerpt: 'Invalidates only once',
         trusted: true,
+        body: 'Invalidates only once',
       },
     ]);
     const reply = (threadId: string, status: 'sent' | 'draft') => ({ threadId, status }) as never;
@@ -395,5 +399,81 @@ describe('reviewMessage', () => {
     );
     expect(msg).not.toContain('</system-reminder>');
     expect(msg).toContain('‹/system-reminder›');
+  });
+});
+
+describe('the code a thread is on, and the whole comment', () => {
+  const hunk = '@@ -1,4 +1,5 @@\n const a = 1;\n-const b = 2;\n+let b = 2;\n+b++;\n const c = 3;';
+
+  it("reads the first comment's diff hunk and the original line range", () => {
+    const out = JSON.stringify({
+      data: {
+        viewer: { login: 'me' },
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [
+                {
+                  id: 'T1',
+                  isResolved: false,
+                  isOutdated: true,
+                  path: 'src/a.ts',
+                  line: null,
+                  originalStartLine: 3,
+                  originalLine: 4,
+                  head: { nodes: [{ diffHunk: hunk }] },
+                  comments: {
+                    nodes: [{ id: 'C1', author: { login: 'alice' }, authorAssociation: 'MEMBER', body: 'x', url: 'u', createdAt: 't' }],
+                  },
+                },
+              ],
+            },
+            reviews: { nodes: [] },
+            comments: { nodes: [] },
+          },
+        },
+      },
+    });
+    expect(parseReviewFeedback(out)!.threads[0].code).toEqual({ hunk, lines: 2, outdated: true });
+  });
+
+  it('a comment on one line covers one; no hunk, no code; a huge hunk keeps its header and end', () => {
+    expect(threadCode(hunk, null, 4, false)).toEqual({ hunk, lines: 1 });
+    expect(threadCode(null, 1, 2, false)).toBeNull();
+    expect(threadCode('not a hunk', 1, 2, false)).toBeNull();
+    const big = threadCode(`@@ -1,9 +1,9 @@\n${' x\n'.repeat(10_000)}+the line`, null, 9, false)!;
+    expect(big.hunk.startsWith('@@ -1,9 +1,9 @@\n')).toBe(true);
+    expect(big.hunk.endsWith('+the line')).toBe(true);
+    expect(big.hunk.length).toBeLessThan(12_100);
+  });
+
+  it('openThreadsOf gives the whole comment (the excerpt stays short, for notes) and the code', () => {
+    const long = `${'word '.repeat(200)}\n\n\`\`\`suggestion\nlet b = 2;\n\`\`\``;
+    const [t] = openThreadsOf(
+      fb({
+        threads: [
+          {
+            id: 'T1',
+            isResolved: false,
+            isOutdated: false,
+            path: 'a.ts',
+            line: 4,
+            code: { hunk, lines: 1 },
+            comments: [c('C1', 'alice', long)],
+          },
+        ],
+      }),
+    );
+    expect(t.excerpt).toHaveLength(400);
+    expect(t.body).toBe(long);
+    expect(t.code).toEqual({ hunk, lines: 1 });
+  });
+
+  it('a stored code is checked: anything else is dropped', () => {
+    expect(isThreadCode({ hunk, lines: 1 })).toBe(true);
+    expect(isThreadCode({ hunk, lines: 0 })).toBe(false);
+    expect(isThreadCode({ hunk: 'x', lines: 1 })).toBe(false);
+    expect(isThreadCode({ hunk, lines: 1, outdated: 'yes' })).toBe(false);
+    expect(isThreadCode(null)).toBe(false);
   });
 });

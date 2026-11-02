@@ -10,6 +10,7 @@ import { AgentsRestartCard } from '../components/Dashboard/AgentsRestartCard.js'
 import { outdatedNames } from '../state/agent-restart-view.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
+import { useMarkArchiving } from '../api/archive-pending.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
 import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
@@ -49,6 +50,7 @@ import { isArchived, prsForSession, railGroups, type PrLookup } from '../state/s
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
+import { UsageMeter } from '../components/Dashboard/UsageMeter.js';
 import { HelpMenu } from '../components/Dashboard/HelpMenu.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
 import { StartTab } from '../components/Dashboard/tabs/StartTab.js';
@@ -67,6 +69,9 @@ import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
 import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
+import { AccountDialog } from '../components/Dashboard/AccountDialog.js';
+import { useAccounts } from '../hooks/use-accounts.js';
+import { accountAction, cancelledText, hasMultipleAccounts, switchText } from '../state/accounts.js';
 import { addedRepoText, canAddRepo, withWarnings } from '../state/add-repo.js';
 import { SnoozeUntilDialog } from '../components/Dashboard/SnoozeUntilDialog.js';
 import { BlockedByDialog } from '../components/Dashboard/BlockedBy.js';
@@ -80,7 +85,7 @@ import {
   type DashboardTab,
   type SessionSubTab,
 } from '../state/dashboard-route.js';
-import { modalOpen as aModalIsOpen } from '../state/modal-open.js';
+import { dashboardDialogOpen, modalOpen as aModalIsOpen } from '../state/modal-open.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
   inbox: 'Inbox',
@@ -124,7 +129,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     return parseHash(hash);
   });
   useEffect(() => saveLastRoute(route, safeLocalStorage()), [route]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionRows, setSessions] = useState<SessionSummary[]>([]);
+  // Archiving shows from the click (archive-pending.ts), before the server's own flag comes.
+  const sessions = useMarkArchiving(sessionRows);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   // Archived sessions come only while something on screen shows them (wantsArchived):
@@ -179,6 +186,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [assistantMounted, setAssistantMounted] = useState(false);
   // The Time tab's day on screen: the assistant is told about it.
   const [timeDay, setTimeDay] = useState<string | null>(null);
+  const [timeMonth, setTimeMonth] = useState<string | null>(null);
   const toggleAssistant = useCallback(() => {
     setAssistantMounted(true);
     setAssistantOpen((o) => !o);
@@ -206,6 +214,10 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [forking, setForking] = useState<SessionSummary | null>(null);
   // Session folder a repo is being added to (Add a repo…).
   const [addingRepo, setAddingRepo] = useState<SessionSummary | null>(null);
+  const [switchingAccount, setSwitchingAccount] = useState<SessionSummary | null>(null);
+  // Claude account… is offered only once there is more than one account to pick from.
+  const { data: accounts, error: accountsError } = useAccounts();
+  const multipleAccounts = hasMultipleAccounts(accounts);
   // Session being snoozed until a time of your choosing.
   const [snoozingUntil, setSnoozingUntil] = useState<SessionSummary | null>(null);
   // Session being marked as waiting on other work.
@@ -246,6 +258,15 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     setWhatsNew(null);
   };
   const [keyMenu, setKeyMenu] = useState<{ items: MenuItem[]; x: number; y: number } | null>(null);
+  // Claude account… on a session (a menu, the header, ⇧C): the dialog, or why not (state/accounts.ts).
+  const openAccount = useCallback(
+    (x: SessionSummary) => {
+      const a = accountAction(x, { multiple: multipleAccounts, loadError: accountsError });
+      if (a.kind === 'open') setSwitchingAccount(x);
+      else showToast({ text: a.text, kind: 'error' });
+    },
+    [multipleAccounts, accountsError, showToast],
+  );
   // What a rail row's menu does — the same for the keys on the open session.
   const menuActions = useMemo(
     () => ({
@@ -270,6 +291,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         canAddRepo(x)
           ? setAddingRepo(x)
           : showToast({ text: 'A repo can be added only to a session folder (a group’s, or one made with sessionFolders)', kind: 'error' }),
+      account: multipleAccounts ? (x: SessionSummary) => openAccount(x) : undefined,
       snooze: (x: SessionSummary, choice: SnoozeFor) =>
         void snoozeSession(x, choice).then(
           () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
@@ -279,7 +301,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       snoozeUntil: (x: SessionSummary) => setSnoozingUntil(x),
       blockBy: (x: SessionSummary) => setBlocking(x),
     }),
-    [showToast],
+    [showToast, multipleAccounts, openAccount],
   );
   // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
   const sessionMenu = useCallback((s: SessionSummary) => sessionMenuItems(s, menuActions), [menuActions]);
@@ -546,7 +568,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     [navigate, route.sessionId, route.tab],
   );
 
-  const modalOpen = newOpen || deleting !== null || forking !== null || addingRepo !== null || snoozingUntil !== null || blocking !== null;
+  const modalOpen = dashboardDialogOpen({ newOpen, deleting, forking, addingRepo, switchingAccount, snoozingUntil, blocking });
 
   // Keyboard shortcuts. `g s/p/j/t` chord for tabs (gmail/github style);
   // `j/k` walks the rail. Ignore when typing in an input.
@@ -671,6 +693,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           copyBranch: () => menuActions.copyBranch(s),
           fork: () => menuActions.fork(s),
           addRepo: () => menuActions.addRepo(s),
+          account: () => openAccount(s),
           remove: () => menuActions.remove(s),
           header: (a) =>
             window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: s.id, action: a } })),
@@ -684,6 +707,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     };
   }, [
     goTab,
+    showToast,
     openSession,
     hopTo,
     walkTo,
@@ -697,6 +721,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     setSubTab,
     menuActions,
     sessionMenu,
+    openAccount,
   ]);
 
   // Archived sessions while they're wanted (see wantArchived): the switcher lists
@@ -726,9 +751,12 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     if (!assistantOpen) return;
     const view = route.sessionId
       ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId }
-      : { tab: route.tab, ...(route.tab === 'time' && timeDay ? { day: timeDay } : {}) };
+      : {
+          tab: route.tab,
+          ...(route.tab === 'time' && timeMonth ? { month: timeMonth } : route.tab === 'time' && timeDay ? { day: timeDay } : {}),
+        };
     void reportAssistantView(view).catch(() => {});
-  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay]);
+  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay, timeMonth]);
 
   // Opening a session that wanted you counts as having seen it — once per
   // unseen episode (keyed by when it entered that state), and only while
@@ -791,6 +819,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           onSelectSubTab={setSubTab}
           onDelete={() => setDeleting(activeSession)}
           onAddRepo={() => menuActions.addRepo(activeSession)}
+          onAccount={menuActions.account ? () => menuActions.account!(activeSession) : undefined}
           prs={prsFor(activeSession)}
           onShipped={backFromSession}
         />
@@ -867,6 +896,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           <TimeTab
             onOpenSession={(id) => openSession(id)}
             onDayChange={setTimeDay}
+            onMonthChange={setTimeMonth}
             onAsk={() => {
               setAssistantMounted(true);
               setAssistantOpen(true);
@@ -903,6 +933,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         inboxCount={inboxCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
+        usage={<UsageMeter onOpenSession={(id) => openSession(id)} />}
         activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
         help={
           <HelpMenu
@@ -1031,6 +1062,22 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             setAddingRepo(null);
             refetch.trigger();
             showToast(addedRepoText(alias, w));
+          }}
+        />
+      )}
+      {switchingAccount && (
+        <AccountDialog
+          session={switchingAccount}
+          onClose={() => setSwitchingAccount(null)}
+          onSwitched={(to, w) => {
+            setSwitchingAccount(null);
+            refetch.trigger();
+            showToast({ text: switchText(w.outcome, to) });
+          }}
+          onCancelled={(to) => {
+            setSwitchingAccount(null);
+            refetch.trigger();
+            showToast({ text: cancelledText(to) });
           }}
         />
       )}

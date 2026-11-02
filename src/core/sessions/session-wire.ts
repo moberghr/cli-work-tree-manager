@@ -20,11 +20,12 @@ import type {
   PrStageWire,
 } from '../api-types.js';
 import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/session-archive.js';
+import { isArchiving, isRestoring } from '../archive/archiving.js';
 import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 import { isLeftover } from '../worktree/leftover.js';
 import { recordedRepos, sessionRepos } from './session-repos.js';
-import { getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
+import { DEFAULT_ACCOUNT, getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -32,6 +33,8 @@ import { getConfigPath, loadConfig, type WorkConfig } from '../platform/config.j
  * context, archive state. Built in one place so the two can't drift.
  */
 export interface SessionWireOptions {
+  /** The account a switch waiting for its turn will move it to (account-switch.ts), or null. */
+  accountPendingFor?: (id: string) => string | null;
   /** The session's `+N −M`, when the caller has one (the web cache). */
   diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null;
   /** Whether its Claude runs in the PTY host (the CLI asks the host; the
@@ -61,7 +64,12 @@ export interface SessionWireOptions {
   /** Its snooze, if any (snooze-store.ts); shown only while it holds. */
   snoozeFor?: (id: string) => Snooze | null;
   /** How far behind main — or the session it is stacked on — it is (behind-main.ts's cache). */
-  behindFor?: (id: string, s: WorktreeSession) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
+  /** `lastActivity`: its agent's last write (ms; 0 none), so a session entered long ago but worked in today counts as in use. */
+  behindFor?: (
+    id: string,
+    s: WorktreeSession,
+    lastActivity: number,
+  ) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
   /** Where it sits in a stack (stack-sessions.ts). */
   stackFor?: (id: string) => {
     parent: { id: string; branch: string; title?: string } | null;
@@ -107,6 +115,9 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
         : meta.activityState,
     ...(claudes ? { agents: claudes, claudes } : {}),
     agent: agentWire(agentOf(s)),
+    // Only a session on an account other than the default says which.
+    ...(s.account && s.account !== DEFAULT_ACCOUNT ? { account: s.account } : {}),
+    ...(!s.archivedAt && opts.accountPendingFor?.(id) ? { accountPending: opts.accountPendingFor(id)! } : {}),
     ...(s.archivedAt ? archiveInfo(id) : {}),
     title: bestEffort(
       `title of ${s.target}:${s.branch}`,
@@ -140,16 +151,33 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
   if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads, prStage: wire.prStage }))
     wire.snoozed = { until: snooze.until };
-  const behind = s.archivedAt ? null : (opts.behindFor?.(id, s) ?? null);
+  const behind = s.archivedAt ? null : (opts.behindFor?.(id, s, wire.lastActivity ?? 0) ?? null);
   if (behind && behind.commits > 0) wire.behind = behind;
   const stack = s.archivedAt ? null : (opts.stackFor?.(id) ?? null);
   if (stack?.parent) wire.stackedOn = stack.parent;
   if (stack?.children) wire.stackedChildren = stack.children;
   if (stack?.merged) wire.stackParentMerged = stack.merged;
   if (opts.hasNote?.(id)) wire.hasNote = true;
+  if (isArchiving(id)) wire.archiving = true;
+  if (!s.archivedAt && isAsleep(readStatus(id)?.stoppedAt, wire.ptyStatus === 'running', wire.lastActivity ?? 0)) wire.asleep = true;
   const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);
   if (blockers.length) wire.blockedBy = blockers;
   return wire;
+}
+
+/**
+ * Asleep: work stopped its Claude (idle sleep, `work stop`: `stoppedAt`), it
+ * isn't running now, and its conversation wasn't written since — one started
+ * again (opened, sent a note, started in a terminal) is awake. Pure.
+ */
+export function isAsleep(stoppedAt: string | undefined, ptyRunning: boolean, lastActivityMs: number): boolean {
+  const stopped = stoppedAt ? Date.parse(stoppedAt) : NaN;
+  return Number.isFinite(stopped) && !ptyRunning && lastActivityMs <= stopped;
+}
+
+/** The row, marked Restoring while a Restore of it runs (a copy: archived rows are cached). */
+export function withRestoring(w: SessionWire): SessionWire {
+  return isRestoring(w.id) ? { ...w, restoring: true } : w;
 }
 
 /**

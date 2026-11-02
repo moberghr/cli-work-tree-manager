@@ -13,6 +13,7 @@ import { dbPtySessions } from './pty-sessions-file.js';
 import { ensureFile, withFileLock } from '../platform/fs-safe.js';
 import { forgetPersistedSession } from './pty-sessions-file.js';
 import { loadConfig } from '../platform/config.js';
+import { hasEnvDelta, type EnvDelta } from '../platform/env-delta.js';
 import { ensureHost, findHost, PtyHostClient, findHostPatient, PtyHostVersionError } from './pty-host-client.js';
 import { logSwallowed, swallow } from '../platform/best-effort.js';
 import { ASSISTANT_ID, prepareAssistantDir } from '../agents/assistant.js';
@@ -160,10 +161,12 @@ export async function resumePersistedSessions(): Promise<number> {
 export { ASSISTANT_ID };
 
 /** The assistant runs config `assistantAgent` (Claude Code by default), in its folder written for that agent. */
-export function assistantSpec(): { cwd: string; tool: ReturnType<AgentAdapter['launch']['tool']> } {
+export function assistantSpec(): { cwd: string; tool: ReturnType<AgentAdapter['launch']['tool']>; agentEnv?: EnvDelta } {
   const settings = agentSettings();
   const agent = assistantAgent(settings);
-  return { cwd: prepareAssistantDir(agent), tool: agent.launch.tool(settings) };
+  // Work's own session, not any session's: the configured default account (`launch.env(null)`).
+  const agentEnv = agent.launch.env?.(null);
+  return { cwd: prepareAssistantDir(agent), tool: agent.launch.tool(settings), ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
 }
 
 export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
@@ -171,7 +174,10 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
   if (!first) return null;
   const cwd = session.isGroup ? path.dirname(first) : first;
   const config = loadConfig();
-  return { cwd, tool: agentFor(config, session).launch.tool(config), port: session.port };
+  const launch = agentFor(config, session).launch;
+  // The session's account: its agent's folder env, applied by the host over whatever environment it starts with.
+  const agentEnv = launch.env?.(session);
+  return { cwd, tool: launch.tool(config), port: session.port, ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
 }
 
 /**
@@ -195,6 +201,8 @@ export async function ensurePty(sessionId: string, extra: { initialPrompt?: stri
 
   let c = await getClient(true);
   if (!c) return null;
+  // A host from before accounts would start it on its own environment — another account than the session's.
+  if (setsEnv(spec.agentEnv) && !(await hostTakesAgentEnv(c)) && !(await runsIn(c, sessionId))) throw new Error(OLD_HOST_ACCOUNTS);
   try {
     await c.spawn(sessionId, spec);
   } catch (err) {
@@ -282,6 +290,107 @@ export async function restartPty(sessionId: string): Promise<string | void> {
     if (!(await ensurePty(sessionId))) throw new Error('its agent could not be started again');
     return OLD_HOST_RESTART;
   }
+}
+
+/**
+ * Stop a session's agent and keep its session in the host (entry, restore record, attached terminals) until `resumePty`:
+ * a switch of account moves its conversation files in between. `stopped`: a host from before the call stopped it the old
+ * way (its terminals were told it ended; `resumePtyOnAccount` then starts it fresh); `gone`: nothing was running.
+ */
+export async function haltPty(sessionId: string): Promise<'halted' | 'stopped' | 'gone'> {
+  let c = await getClient(false);
+  if (!c) throw new Error('the PTY host is not running');
+  let how: Awaited<ReturnType<PtyHostClient['halt']>>;
+  try {
+    how = await c.halt(sessionId);
+  } catch (err) {
+    // A stale client (the host restarted on a new port before the refresh noticed): once more, fresh.
+    client = null;
+    c = await getClient(false);
+    if (!c) throw err;
+    how = await c.halt(sessionId);
+  }
+  if (how === 'not-running') return 'gone';
+  if (how === 'unsupported') {
+    await disposePty(sessionId);
+    return 'stopped';
+  }
+  return 'halted';
+}
+
+/** Why a switch of account can't be done in this PTY host now (it is from before accounts), or null: asked before halting. */
+export async function accountSwitchRefusal(): Promise<string | null> {
+  const c = await getClient(false);
+  return c && !(await hostTakesAgentEnv(c)) ? OLD_HOST_ACCOUNTS : null;
+}
+
+/**
+ * Start a halted session's agent again in place, on `opts.agentEnv` (its terminals carry on). `not-halted`: it isn't
+ * halted any more — the host started it again by itself (HALT_RESUME_MS) or restarted, on its old spec.
+ */
+export async function resumePty(sessionId: string, opts: { agentEnv?: EnvDelta } = {}): Promise<'resumed' | 'not-halted'> {
+  let c = await getClient(false);
+  if (!c) throw new Error('the PTY host is not running');
+  if (hasEnvDelta(opts.agentEnv) && !(await hostTakesAgentEnv(c))) throw new Error(OLD_HOST_ACCOUNTS);
+  let how: Awaited<ReturnType<PtyHostClient['resume']>>;
+  try {
+    how = await c.resume(sessionId, opts);
+  } catch (err) {
+    client = null;
+    c = await getClient(false);
+    if (!c) throw err;
+    how = await c.resume(sessionId, opts);
+  }
+  return how;
+}
+
+/**
+ * Start the agent of a session `haltPty` stopped, on the account the session records NOW (after a switch: the new one;
+ * after one that failed: the old): resumed in place with that environment, or — `stopped`, an older host — started
+ * again from a fresh spec (its terminals show it ended; opening the session reconnects).
+ */
+export async function resumePtyOnAccount(sessionId: string, how: 'halted' | 'stopped'): Promise<string | void> {
+  if (how === 'stopped') {
+    if (!(await ensurePty(sessionId))) throw new Error('its agent could not be started again');
+    return OLD_HOST_RESTART;
+  }
+  const session = findSession(sessionId);
+  const spec = session ? spawnSpecFor(session) : null;
+  if (!spec) throw new Error('unknown session');
+  // Nothing in the delta means no account change to apply (the default, with no accounts configured): a plain resume.
+  const agentEnv = hasEnvDelta(spec.agentEnv) ? spec.agentEnv : undefined;
+  if ((await resumePty(sessionId, agentEnv ? { agentEnv } : {})) === 'resumed') return;
+  // Started again meanwhile on its OLD spec (the host's own resume after HALT_RESUME_MS — a long move —, or a host
+  // restart's restore): restarted in place on the account the session records now, so it doesn't stay on the old one.
+  const c = await getClient(false);
+  if (!c) throw new Error('the PTY host is not running');
+  const restarted = await c.restart(sessionId, agentEnv ? { agentEnv } : {});
+  if (restarted === 'restarted') return RESTARTED_AFTER_AUTO_RESUME;
+  // Not running now (it ended), or a host that couldn't take the environment in place: started fresh from the new spec.
+  if (restarted === 'unsupported') await disposePty(sessionId);
+  if (!(await ensurePty(sessionId))) throw new Error('its agent could not be started again');
+  return RESTARTED_AFTER_AUTO_RESUME;
+}
+
+/** What a switch says when its halted Claude had been started again (on the old account) before the move was done. */
+export const RESTARTED_AFTER_AUTO_RESUME =
+  'it had been started again on its old account while the conversation moved, so it was restarted on the new one';
+
+/** Said when a session on a named account would start in a PTY host that drops the account (one from before accounts). */
+export const OLD_HOST_ACCOUNTS = 'the PTY host is from before Claude accounts: run `work pty-host --restart`';
+
+/** The delta sets a variable (a session on a named account): what an older host would drop, starting it elsewhere. */
+const setsEnv = (d: EnvDelta | undefined): boolean => !!d && Object.values(d).some((v) => typeof v === 'string');
+
+/** The host applies `agentEnv`; one that can't be asked right now is given the benefit of the doubt (its restart says). */
+async function hostTakesAgentEnv(c: PtyHostClient): Promise<boolean> {
+  const f = await c.features();
+  return f === null || f.includes('agentEnv');
+}
+
+/** Its agent runs in this host now (a spawn would only attach to it). */
+async function runsIn(c: PtyHostClient, sessionId: string): Promise<boolean> {
+  return (await c.list()).some((p) => p.id === sessionId && !p.exited);
 }
 
 /** How a restart on a PTY host from before restart-in-place went: what differs, and the way to the real thing. */

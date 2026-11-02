@@ -102,7 +102,7 @@ describe('session header', () => {
     expect(buttonsIn(header())).toEqual(['Restore', '⋯']);
     act(() => more().click());
     // Each with its key (state/shortcuts.ts).
-    expect(menuItems()).toEqual(['Catch me upr', 'Timelinel', 'Notes⇧N', 'RenameF2', 'Delete…⇧Del']);
+    expect(menuItems()).toEqual(['Catch me upr', 'Copy Claude’s last reply⇧Y', 'Timelinel', 'Notes⇧N', 'RenameF2', 'Delete…⇧Del']);
   });
 
   it('⋯ lists the rest, with how full the context is at the bottom; a second click closes it', async () => {
@@ -114,6 +114,7 @@ describe('session header', () => {
       'Open in terminal⇧T',
       'Ship (push, PR, merge)…⇧S',
       'Catch me upr',
+      'Copy Claude’s last reply⇧Y',
       'Timelinel',
       'Send a prompt…p',
       'Notes⇧N',
@@ -225,7 +226,7 @@ describe('Needs you', () => {
   it('one line from the session row, and a button into the PR tab — nothing unfolds over the terminal', async () => {
     await render(withPr);
     const bar = container.querySelector('.wd-needs-you')!;
-    expect(bar.textContent).toBe('Needs you2 open review threads · 1 reply to post · #212 checks failingPR tab ▸');
+    expect(bar.textContent).toBe('Needs you1 reply to post · 2 open review threads · #212 checks failingPR tab ▸');
     expect(container.querySelector('.wd-replies')).toBeNull();
     act(() => bar.querySelector('button')!.click());
     expect(onSelectSubTab).toHaveBeenLastCalledWith('pr');
