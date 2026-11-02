@@ -1,11 +1,12 @@
 import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
-import type { SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
+import type { LastReplyWire, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
 import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
 export type { DiffPoint } from '../../../core/diff/diff-points.js';
 export type { SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import { archiveQuestion } from '../state/archive-view.js';
+import { ask } from '../state/ask.js';
 import type {
   ActivityState,
   AnswerRequest,
@@ -90,6 +91,12 @@ export type DiffBase = 'uncommitted' | 'branch';
 
 export interface SessionSummary {
   id: string;
+  /** Being archived right now (SessionWire.archiving; this window's own click marks it at once, archive-pending.ts). */
+  archiving?: boolean;
+  /** Being restored right now (SessionWire.restoring, or this window's own click): in the rail again meanwhile. */
+  restoring?: boolean;
+  /** Its Claude was stopped while idle and hasn't run since (SessionWire.asleep): opening the session starts it again. */
+  asleep?: boolean;
   target: string;
   branch: string;
   isGroup: boolean;
@@ -135,6 +142,10 @@ export interface SessionSummary {
   claudes?: SessionClaudes;
   /** The agent it runs, and what work can do with it. */
   agent?: import('../../../core/api-types.js').SessionAgentWire;
+  /** The account (login) its agent runs on; absent = the default account. */
+  account?: string;
+  /** The account a switch waiting for its turn to end will move it to. */
+  accountPending?: string;
   /** What its archive kept (archived sessions). */
   archive?: SessionArchiveInfo;
   /** Its name: yours, else its first prompt, else its Jira key. */
@@ -184,17 +195,17 @@ export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse
  * Archive or restore. An Archive asks first (`archiveQuestion`, naming `opts.name`), unless the caller asked
  * already (`opts.asked`: the bulk bar, once for all). When something is still waiting in the session
  * (replies to post, notes for its Claude, a Claude mid-turn), the server
- * says what; `confirm` asks whether to archive anyway (the browser's own
- * dialog by default). Declined: rejects, cancelled, with what was waiting.
+ * says what; `confirm` asks whether to archive anyway (the page's own
+ * dialog by default, `ask`: the macOS desktop app's webview has no `window.confirm`). Declined: rejects, cancelled, with what was waiting.
  */
-export function setArchived(
+export async function setArchived(
   sessionId: string,
   archived: boolean,
-  confirm: (question: string) => boolean = (q) => window.confirm(q),
+  confirm: Confirm = ask,
   opts: { name?: string; asked?: boolean } = {},
 ): Promise<{ ok: true; warnings?: string[] }> {
-  if (archived && !opts.asked && !confirm(archiveQuestion(opts.name))) {
-    return Promise.reject(Object.assign(new Error('Not archived'), { cancelled: true }));
+  if (archived && !opts.asked && !(await confirm(archiveQuestion(opts.name)))) {
+    throw Object.assign(new Error('Not archived'), { cancelled: true });
   }
   // Every caller's button shows it running, wherever you come back to it.
   return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
@@ -203,11 +214,10 @@ export function setArchived(
 /** An archive the user called off ("Archive it anyway?" → Cancel): their choice, not a failure to show. */
 export const archiveCancelled = (err: unknown): boolean => (err as { cancelled?: unknown } | null)?.cancelled === true;
 
-async function sendArchived(
-  sessionId: string,
-  archived: boolean,
-  confirm: (question: string) => boolean,
-): Promise<{ ok: true; warnings?: string[] }> {
+/** A yes/no question, answered now or later. */
+type Confirm = (question: string) => boolean | Promise<boolean>;
+
+async function sendArchived(sessionId: string, archived: boolean, confirm: Confirm): Promise<{ ok: true; warnings?: string[] }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
   const send = (force: boolean, stopHolders = false) =>
     fetch(url, {
@@ -221,14 +231,14 @@ async function sendArchived(
     const body = (await res.json().catch(() => ({}))) as { holders?: string[]; error?: string };
     const holders = body.holders ?? [];
     if (holders.length === 0) throw new Error(body.error ?? `409 for ${url}`);
-    if (!confirm(`Still running from its old folder:\n\n• ${holders.join('\n• ')}\n\nStop it and restore?`)) {
+    if (!(await confirm(`Still running from its old folder:\n\n• ${holders.join('\n• ')}\n\nStop it and restore?`))) {
       throw Object.assign(new Error(body.error ?? 'Not restored'), { cancelled: true });
     }
     res = await send(false, true);
   } else if (res.status === 409) {
     const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
     const waiting = body.blocked ?? [];
-    if (!confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`)) {
+    if (!(await confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`))) {
       throw Object.assign(new Error(`Not archived: ${waiting.join('; ')}`), { cancelled: true });
     }
     res = await send(true);
@@ -305,7 +315,54 @@ export function fetchActivity(): Promise<import('../../../core/api-types.js').Ac
   return getJson('/api/activity');
 }
 
+/** Each agent's plan limits as last read, and the tokens used today and this week (GET /api/usage). */
+export function fetchUsage(): Promise<import('../../../core/api-types.js').UsageWire> {
+  return getJson('/api/usage');
+}
+
 /** The live sessions; with `withArchived`, the archived ones too (they're asked for only where shown). */
+/** Its agent's newest message as it wrote it (GET …/last-reply), or null when there is none. */
+export function fetchLastReply(sessionId: string): Promise<string | null> {
+  return getJson<LastReplyWire>(`/api/sessions/${encodeURIComponent(sessionId)}/last-reply`).then((r) => r.text);
+}
+
+/** The agent's accounts (GET /api/accounts): each login new sessions can use, and which one is the default. */
+export function fetchAccounts(): Promise<import('../../../core/api-types.js').AccountsWire> {
+  return getJson('/api/accounts');
+}
+
+/**
+ * Move a session's Claude to another account (POST /api/sessions/:id/account): switched, queued
+ * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
+ */
+export async function switchSessionAccount(sessionId: string, to: string): Promise<import('../../../core/api-types.js').AccountSwitchWire> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to }),
+  });
+  const text = await res.text().catch(() => '');
+  if (!res.ok) {
+    let why = '';
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === 'string') why = parsed.error;
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(why || text || `${res.status} ${res.statusText}`);
+  }
+  return JSON.parse(text) as import('../../../core/api-types.js').AccountSwitchWire;
+}
+
+/** Drop the switch of account waiting for its turn (DELETE /api/sessions/:id/account). Throws the server's reason when refused. */
+export async function cancelAccountSwitch(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, { method: 'DELETE' });
+  if (res.ok) return;
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  throw new Error(typeof body?.error === 'string' ? body.error : `${res.status} ${res.statusText}`);
+}
+
 export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
   return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
 }

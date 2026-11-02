@@ -26,6 +26,7 @@ import {
   elsewhereStatus,
   ELSEWHERE_ACTIVE_MS,
   ELSEWHERE_IDLE_MS,
+  lastStop,
 } from '../../src/server/terminal-ws.js';
 import type { TerminalElsewhere } from '../../src/core/api-types.js';
 let elsewhere: TerminalElsewhere | null = null;
@@ -145,6 +146,19 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
     // A Claude started outside after the archive still shows: by its writes, or for sure by its process.
     expect(claudeElsewhere({ ...seen, lastActivityMs: now - 60_000, stoppedAtMs: now - 14 * 60_000 }, now)).not.toBeNull();
     expect(claudeElsewhere({ ...seen, stoppedAtMs: now - 14 * 60_000, runningOutside: [{ busy: false }] }, now)?.confirmed).toBe(true);
+  });
+
+  it('slept since its turn ended (idle sleep at 10 min): opening it starts it again, not "running in another terminal"', () => {
+    const slept = {
+      hasPty: false,
+      lastActivityMs: now - 12 * 60_000,
+      status: { ...idle(12 * 60_000), endedAt: idle(12 * 60_000).updatedAt },
+    };
+    expect(claudeElsewhere(slept, now)).not.toBeNull(); // without the record: inside the half hour, taken for one open elsewhere
+    expect(claudeElsewhere({ ...slept, stoppedAtMs: lastStop(NaN, now - 60_000) }, now)).toBeNull();
+    // lastStop: the later of the archive and the sleep; none known: null.
+    expect(lastStop(now - 5, now - 9)).toBe(now - 5);
+    expect(lastStop(NaN, NaN)).toBeNull();
   });
 
   it('a working record from before the archive stays stale when opening the session moves its updatedAt (seen)', () => {

@@ -3,10 +3,12 @@ import { findSession } from '../../core/sessions/web-state.js';
 import {
   discardReply,
   listReplies,
+  withThreadContext,
   markPostedAnswered,
   MAX_REPLY_CHARS,
   postReply,
-  saveDraft,
+  draftReply,
+  sessionRepoRefs,
   THREAD_ID,
 } from '../../core/pr/pr-replies.js';
 import { defaultRunner, type CommandRunner } from '../../core/pr/ship.js';
@@ -60,16 +62,24 @@ export function mountPrReplyRoutes(
   app.get('/api/sessions/:id/replies', (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    const replies = listReplies(id);
-    return c.json({ replies, waiting: threadsWithoutDraft(opts.openThreads?.(id) ?? [], replies) } satisfies RepliesWire);
+    const open = opts.openThreads?.(id) ?? [];
+    // A row from before it carried the comment's whole text and code: from the watch's last check.
+    const replies = withThreadContext(listReplies(id), open);
+    return c.json({ replies, waiting: threadsWithoutDraft(open, replies) } satisfies RepliesWire);
   });
 
   app.put('/api/sessions/:id/replies/:thread', async (c) => {
     const id = c.req.param('id');
-    if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const session = findSession(id);
+    if (!session) return c.json({ error: 'unknown session' }, 404);
     const b = await body(c);
     if (typeof b.body !== 'string') return c.json({ error: 'body: string' }, 400);
-    const r = saveDraft(id, c.req.param('thread'), b.body);
+    // What work knows, else the thread as GitHub has it now (draftReply): never stuck on a stale check.
+    const r = await draftReply(id, c.req.param('thread'), b.body, {
+      unsafe: session.launchedUnsafe === true,
+      repos: () => sessionRepoRefs(session),
+      run,
+    });
     if (!r.ok) return c.json({ error: r.error }, 400);
     changed(id);
     return c.json({ reply: r.reply });

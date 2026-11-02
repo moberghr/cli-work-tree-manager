@@ -1,3 +1,4 @@
+import type { ThreadCode } from '../api-types.js';
 import type { CommandRunner } from './ship.js';
 import { CONTEXT_WARN } from '../sessions/session-view.js';
 import { quoteForAgent } from './review-quote.js';
@@ -37,7 +38,39 @@ export interface ReviewThread {
   isOutdated: boolean;
   path: string | null;
   line: number | null;
+  /** The code it's on (its first comment's diff hunk), when it's on a line. */
+  code?: ThreadCode | null;
   comments: ReviewComment[];
+}
+
+/** The most of a comment kept for the dashboard (a review can paste a log): the rest is on GitHub. */
+export const MAX_THREAD_BODY = 8000;
+/** The most of a diff hunk kept: its end is what matters, and the view shows only the last lines. */
+const MAX_HUNK = 12_000;
+
+/** A thread's code from what GitHub gives (its first comment's hunk, the original line range); null when it has none. Pure. */
+export function threadCode(hunk: unknown, originalStartLine: unknown, originalLine: unknown, outdated: boolean): ThreadCode | null {
+  if (typeof hunk !== 'string' || !hunk.startsWith('@@')) return null;
+  const end = typeof originalLine === 'number' ? originalLine : null;
+  const start = typeof originalStartLine === 'number' ? originalStartLine : end;
+  const lines = end !== null && start !== null && end >= start ? Math.min(end - start + 1, 200) : 1;
+  // Too long: keep the header and the end (the commented line is the last).
+  const kept = hunk.length > MAX_HUNK ? `${hunk.split('\n')[0]}\n${hunk.slice(-MAX_HUNK).split('\n').slice(1).join('\n')}` : hunk;
+  return { hunk: kept, lines, ...(outdated ? { outdated: true } : {}) };
+}
+
+/** A stored thread code as written here; anything else is dropped. Pure. */
+export function isThreadCode(v: unknown): v is ThreadCode {
+  const c = v as Partial<ThreadCode> | null;
+  return (
+    !!c &&
+    typeof c === 'object' &&
+    typeof c.hunk === 'string' &&
+    c.hunk.startsWith('@@') &&
+    typeof c.lines === 'number' &&
+    c.lines >= 1 &&
+    (c.outdated === undefined || typeof c.outdated === 'boolean')
+  );
 }
 export interface ReviewFeedback {
   viewer: string;
@@ -54,7 +87,8 @@ const QUERY = `query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       reviewThreads(first: 100) {
         nodes {
-          id isResolved isOutdated path line
+          id isResolved isOutdated path line originalStartLine originalLine
+          head: comments(first: 1) { nodes { diffHunk } }
           comments(last: 20) { nodes { id author { login } authorAssociation body url createdAt } }
         }
       }
@@ -97,6 +131,9 @@ export function parseReviewFeedback(stdout: string): ReviewFeedback | null {
                 isOutdated?: boolean;
                 path?: string | null;
                 line?: number | null;
+                originalStartLine?: number | null;
+                originalLine?: number | null;
+                head?: { nodes?: Array<{ diffHunk?: string | null }> };
                 comments?: { nodes?: Node[] };
               }>;
             };
@@ -118,6 +155,7 @@ export function parseReviewFeedback(stdout: string): ReviewFeedback | null {
         isOutdated: !!t.isOutdated,
         path: t.path ?? null,
         line: t.line ?? null,
+        code: threadCode(t.head?.nodes?.[0]?.diffHunk, t.originalStartLine, t.originalLine, !!t.isOutdated),
         comments: (t.comments?.nodes ?? []).map(comment),
       })),
       reviews: (pr.reviews?.nodes ?? []).map((r) => ({ ...comment(r), state: r.state ?? 'COMMENTED' })),
@@ -192,6 +230,8 @@ export interface FeedbackItem {
   where?: string;
   /** For reviews: CHANGES_REQUESTED etc. */
   state?: string;
+  /** For threads: the code it's on. */
+  code?: ThreadCode;
 }
 
 export interface SeenStore {
@@ -223,7 +263,15 @@ export function newFeedback(
     if (seen.has(key)) continue;
     seen.add(key);
     const where = t.path ? `${t.path}${t.line ? `:${t.line}` : ''}${t.isOutdated ? ' (outdated)' : ''}` : undefined;
-    out.push({ kind: 'thread', threadId: t.id, author: last.author, body: last.body, url: last.url, where });
+    out.push({
+      kind: 'thread',
+      threadId: t.id,
+      author: last.author,
+      body: last.body,
+      url: last.url,
+      where,
+      ...(t.code ? { code: t.code } : {}),
+    });
   }
 
   const baseline = `rv:${scope}:baseline`;
@@ -260,7 +308,16 @@ export function openThreadCount(fb: ReviewFeedback): number {
 export function openThreadsOf(
   fb: ReviewFeedback,
   trustedBots: readonly string[] = [],
-): Array<{ threadId: string; url: string; where: string | null; reviewer: string; excerpt: string; trusted: boolean }> {
+): Array<{
+  threadId: string;
+  url: string;
+  where: string | null;
+  reviewer: string;
+  excerpt: string;
+  trusted: boolean;
+  body: string;
+  code?: ThreadCode;
+}> {
   const bots = new Set(trustedBots.map(botName));
   if (!fb.viewer.trim()) return []; // can't tell yours from theirs: none listed as waiting on you
   return fb.threads
@@ -278,6 +335,8 @@ export function openThreadsOf(
         reviewer: first.author,
         excerpt: first.body.slice(0, 400),
         trusted: isTrusted(first, bots),
+        body: first.body.slice(0, MAX_THREAD_BODY),
+        ...(t.code ? { code: t.code } : {}),
       };
     });
 }

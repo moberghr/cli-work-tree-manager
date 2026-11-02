@@ -82,6 +82,10 @@ describe('PTY host', () => {
     expect(res.status).toBe(403);
   });
 
+  it('says what it supports on /health (the accounts agentEnv, halt / resume): clients ask before relying on them', async () => {
+    expect(await client.features()).toEqual(['agentEnv', 'halt']);
+  });
+
   it('spawns, lists, streams input/output and replays to a second client', async () => {
     await client.spawn('s1', { cwd: dir, tool: tool as never });
     expect((await client.list()).map((p) => p.id)).toEqual(['s1']);
@@ -196,6 +200,44 @@ describe('PTY host', () => {
     expect(a.control.filter((f) => (f as { type: string }).type === 'exit')).toEqual([]);
     expect((await client.list()).find((p) => p.id === 's5')).toMatchObject({ exited: false, clients: 1 });
     expect(await client.restart('nope')).toBe('not-running');
+    a.ws.close();
+  });
+
+  it('restart with an agent environment: the host takes it (echoes it applied) and restarts in place; a malformed one is ignored', async () => {
+    await client.spawn('s6', { cwd: dir, tool: tool as never, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/old' } });
+    const before = spawned.at(-1)!;
+    expect(await client.restart('s6', { agentEnv: { CLAUDE_CONFIG_DIR: '/acc/new' } })).toBe('restarted');
+    expect(before.exited).toBe(true);
+    expect(spawned.at(-1)).not.toBe(before);
+    // Over the wire, not through the client: a body that isn't an environment change is no change at all (and no "applied").
+    const res = await fetch(`http://127.0.0.1:${host.info.port}/ptys/s6/restart`, {
+      method: 'POST',
+      headers: { 'x-work-token': host.info.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ agentEnv: { A: 1 } }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty('agentEnvApplied');
+  });
+
+  it('halt keeps the session and its terminals; resume starts it again in place; guards answer', async () => {
+    await client.spawn('s7', { cwd: dir, tool: tool as never });
+    const before = spawned.at(-1)!;
+    const a = attach('s7');
+    await a.opened;
+    expect(await client.halt('s7')).toBe('halted');
+    expect(before.exited).toBe(true);
+    expect(spawned.at(-1)).toBe(before); // nothing started yet
+    expect(a.control.filter((f) => (f as { type: string }).type === 'exit')).toEqual([]);
+    expect((await client.list()).find((p) => p.id === 's7')).toMatchObject({ clients: 1 });
+    await expect(client.halt('s7')).rejects.toThrow(/already/); // a second halt is refused
+    expect(await client.resume('s7', { agentEnv: { CLAUDE_CONFIG_DIR: '/acc/new' } })).toBe('resumed');
+    const after = spawned.at(-1)!;
+    expect(after).not.toBe(before);
+    a.ws.send(JSON.stringify({ type: 'input', data: 'hi' }));
+    await tick();
+    expect(after.log).toContain('write hi');
+    expect(await client.resume('s7')).toBe('not-halted');
+    expect(await client.halt('nope')).toBe('not-running');
     a.ws.close();
   });
 

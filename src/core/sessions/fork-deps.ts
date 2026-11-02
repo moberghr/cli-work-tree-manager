@@ -44,8 +44,11 @@ export function defaultForkDeps(
         (prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0,
       ),
     validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], os.tmpdir()).exitCode === 0,
-    setup: async (target, branch, config, base, name, repos) => {
-      const made = await (opts.create ?? createInProcess)({ target, branch, base, name, ...(repos?.length ? { repos } : {}) }, config);
+    setup: async (target, branch, config, base, name, repos, account) => {
+      const made = await (opts.create ?? createInProcess)(
+        { target, branch, base, name, ...(repos?.length ? { repos } : {}), ...(account ? { account } : {}) },
+        config,
+      );
       return made.ok ? { paths: made.paths } : { error: made.error };
     },
     start: startSessionWithPrompt,

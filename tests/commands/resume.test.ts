@@ -106,6 +106,32 @@ describe('the session’s own agent', () => {
   });
 });
 
+describe("the session's Claude account", () => {
+  it('work resume / work recent start Claude on the session’s account and look for its conversation in that account’s folder', async () => {
+    vi.mocked(launchAi).mockClear();
+    const dir = path.join(tmpDir, '.claude-work');
+    saveConfig({ worktreesRoot: '/tmp/wt', repos: { api: '/repos/api' }, groups: {}, copyFiles: [], claudeAccounts: { work: dir } });
+    const onWork = makeSession({ account: 'work' });
+    seedHistory([onWork]);
+    // A conversation only in the default account's folder: not this session's.
+    seedTranscript(worktreePath);
+    vi.mocked(select).mockResolvedValueOnce(onWork);
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.anything(), { unsafe: false, resume: false }, undefined, {
+      CLAUDE_CONFIG_DIR: dir,
+    });
+    // One in the account's own folder is continued.
+    const slug = path.resolve(worktreePath).replace(/[^A-Za-z0-9]/g, '-');
+    fs.mkdirSync(path.join(dir, 'projects', slug), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'projects', slug, 's.jsonl'), '{}\n');
+    vi.mocked(select).mockResolvedValueOnce(onWork);
+    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.anything(), { unsafe: false, resume: true }, undefined, {
+      CLAUDE_CONFIG_DIR: dir,
+    });
+  });
+});
+
 describe('resume updates lastAccessedAt', () => {
   it('updates lastAccessedAt when resuming', async () => {
     seedConfig();

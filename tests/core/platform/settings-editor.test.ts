@@ -207,6 +207,22 @@ describe("never loses the user's settings", () => {
     expect(JSON.parse(fs.readFileSync(`${file()}.work-backup`, 'utf-8'))).toEqual(mine);
   });
 
+  it('an edit that changes nothing writes nothing: no reformat, no new mtime, no backup (sync path too)', async () => {
+    // Compact on purpose: a rewrite would come out indented.
+    const text = JSON.stringify({ model: 'opus', hooks: { Stop: [{ _workHookOwner: 'web', hooks: [] }] } });
+    fs.writeFileSync(file(), text);
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(file(), old, old);
+    const noop = (s: { hooks?: Record<string, unknown[] | undefined> }) => {
+      s.hooks!.Stop = [...(s.hooks!.Stop ?? [])]; // the same entries, a new array
+    };
+    await editSettings(noop);
+    editSettingsSync(noop);
+    expect(fs.readFileSync(file(), 'utf-8')).toBe(text);
+    expect(Math.abs(fs.statSync(file()).mtimeMs - old.getTime())).toBeLessThan(1000);
+    expect(fs.existsSync(`${file()}.work-backup`)).toBe(false);
+  });
+
   it('creates the file when there is none', async () => {
     await editSettings(addHook('web'));
     expect(JSON.parse(fs.readFileSync(file(), 'utf-8')).hooks.Stop).toHaveLength(1);

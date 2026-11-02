@@ -1,5 +1,5 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
-import type { SessionCi, ShipPreflight, OpenReviewThread } from '../api-types.js';
+import type { SessionCi, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
 import {
   newFeedback,
@@ -11,7 +11,7 @@ import {
   openThreadsOf,
 } from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from '../platform/activity.js';
-import { DEFAULT_TRUSTED_BOTS, subAgentHint } from './pr-review.js';
+import { DEFAULT_TRUSTED_BOTS, MAX_THREAD_BODY, subAgentHint } from './pr-review.js';
 
 /** What waking a session's Claude did: started it; it was already running (it has the note);
  *  waking is off; or it couldn't (no PTY host, no worktree). */
@@ -59,8 +59,15 @@ export interface PrWatchDeps {
       where: string | null;
       reviewer: string;
       excerpt: string;
+      body?: string;
+      code?: ThreadCode;
     }>,
   ) => void;
+  /**
+   * Reply rows (handed over or drafted) whose thread this check doesn't list as open: the ones
+   * GitHub says are resolved go (pr-replies.ts `retireResolvedReplies`). Returns what went.
+   */
+  retireReplies?: (sessionId: string, ci: SessionCi) => Promise<string[]>;
   /** How full the session's Claude conversation is (share of its window), for the sub-agent hint. */
   contextShare?: (session: WorktreeSession) => number | null;
   /** What archiving it now would leave unfinished (replies to post, undelivered notes). Merged work
@@ -116,6 +123,8 @@ const CONCURRENCY = 3;
 export const RATE_LIMITED = /rate limit/i;
 /** How long the sweeps rest after GitHub said so. */
 export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
+/** How long a PR's review threads, read while some were open, are believed: resolving one doesn't move the PR's updatedAt. */
+export const THREADS_RECHECK_MS = 10 * 60_000;
 
 export function ciFixMessage(
   failing: Array<{ repo: string; number: number; checks: string[] }>,
@@ -282,14 +291,36 @@ export function savedChecks(
   return rows.filter(([id, ci]) => created.has(id) && (Date.parse(ci.checkedAt) || 0) >= created.get(id)!);
 }
 
+/** How long a session goes on being watched after it was last used. */
+export const WATCH_RECENT_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether the PR watch looks at a session: not archived, a folder of it
+ * still there, and used in the last 30 days. "Used" is its last `work tree`
+ * entry OR its agent's last write (`lastWriteMs`, read only when the entry
+ * is older): a session you entered five weeks ago and work in every day
+ * through the dashboard dropped out of the watch (reported: its new review
+ * threads were never read, so `work pr reply` refused them, and its PR
+ * stage, CI notes and auto-archive stopped too).
+ */
+export function watchable(
+  s: WorktreeSession,
+  now: number,
+  io: { exists: (p: string) => boolean; lastWriteMs: (s: WorktreeSession) => number },
+): boolean {
+  if (s.archivedAt || !s.paths.some(io.exists)) return false;
+  const cutoff = now - WATCH_RECENT_MS;
+  return (Date.parse(s.lastAccessedAt) || 0) >= cutoff || io.lastWriteMs(s) >= cutoff;
+}
+
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
   const states = new Map<string, SessionCi>(deps.saved ? savedChecks(deps.saved.load(), deps.sessions()) : []);
   /** Sessions checked since this watch was made: each one's first check is announced even when it
    *  matches the saved one, so what listens (the stage tracker, the thread counts) sees it as before. */
   const checked = new Set<string>();
-  /** The last review feedback per session + repo, and the PR's updatedAt it was read at. */
-  const feedbackCache = new Map<string, { number: number; updatedAt: string; fb: ReviewFeedback }>();
+  /** The last review feedback per session + repo, the PR's updatedAt it was read at, and when. */
+  const feedbackCache = new Map<string, { number: number; updatedAt: string; at: number; fb: ReviewFeedback }>();
   /** A session's check in flight: a refresh joins it instead of starting another. */
   const inflight = new Map<string, Promise<SessionCi | null>>();
   /** Sweeps skip until then: GitHub's API limit was spent (see check). */
@@ -386,12 +417,19 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN' || theirs.has(r.name)) continue;
         // Nothing new can have been said on a PR that hasn't changed since
-        // the last read (a comment or review moves its updatedAt).
+        // the last read (a comment or review moves its updatedAt). A resolve
+        // doesn't move it, though: a read with open threads goes stale after
+        // THREADS_RECHECK_MS, or a thread resolved on GitHub stays open here.
         const key = `${id}:${r.name}`;
         const cached = feedbackCache.get(key);
-        const fresh = cached && r.pr.updatedAt && cached.number === r.pr.number && cached.updatedAt === r.pr.updatedAt;
+        const fresh =
+          cached &&
+          r.pr.updatedAt &&
+          cached.number === r.pr.number &&
+          cached.updatedAt === r.pr.updatedAt &&
+          (openThreadCount(cached.fb) === 0 || now() - cached.at < THREADS_RECHECK_MS);
         const fb = fresh ? cached.fb : await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
-        if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, fb });
+        if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, at: now(), fb });
         if (!fb) {
           // gh couldn't say this time: keep the last count for the same PR rather than drop to none.
           const was = states.get(id)?.repos.find((p) => p.name === r.name);
@@ -432,6 +470,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     checked.add(id);
 
     if (!act) return ci;
+    // A draft for a thread resolved on GitHub (a bot resolves its own outdated ones) has nothing to
+    // answer: it went on saying "1 reply to post", and Post could only refuse.
+    const retired = (await deps.retireReplies?.(id, ci).catch(() => [] as string[])) ?? [];
+    if (retired.length)
+      note(
+        `${retired.length} repl${retired.length === 1 ? 'y' : 'ies'} dropped: ${retired.length === 1 ? 'its thread was' : 'their threads were'} resolved on GitHub`,
+        'action',
+      );
     if (feedback.length) {
       const n = feedback.reduce((k, f) => k + f.items.length, 0);
       const prs = feedback.map((f) => `#${f.number}`).join(', ');
@@ -450,6 +496,8 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
                 where: it.where ?? null,
                 reviewer: it.author,
                 excerpt: it.body.slice(0, 400),
+                body: it.body.slice(0, MAX_THREAD_BODY),
+                ...(it.code ? { code: it.code } : {}),
               })),
           ),
         );

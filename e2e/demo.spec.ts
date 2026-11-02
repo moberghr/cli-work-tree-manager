@@ -117,8 +117,9 @@ test('revert a file from the diff, and Claude is told', async ({ page }) => {
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
-  page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Revert file: src/auth.test.ts' }).click();
+  // Asked in the page (state/ask.ts), never the browser's own pop-up.
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Revert' }).click();
   await expect(files).toHaveCount(1);
   await expect(files).not.toContainText('auth.test.ts');
   await expect(page.locator('.wd-web-review-sidebar, .wd-comments-panel').first()).toContainText('I reverted your uncommitted change');
@@ -385,7 +386,7 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
 }) => {
   await page.goto(`${url}#/inbox`);
   const ready = page.locator('.wd-inbox-rank-2 .wd-inbox-item', { hasText: 'feat/order-history' });
-  await expect(ready).toContainText('PR #209 · approved, ready to merge');
+  await expect(ready).toContainText('#209 ready to merge');
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/tax-report' })).toHaveCount(0);
   await expect(page.locator('.wd-inbox-rest')).toContainText('in review');
   await ready.getByRole('button', { name: 'Open' }).click();
@@ -394,7 +395,9 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
   await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-pr-chip')).toHaveText('#209');
   await page.goto(`${url}#/inbox`);
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/order-history' })).toHaveCount(0);
-  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-dot-in_review')).toHaveCount(1);
+  // Seen: out of the Inbox, but the rail still says it's yours to merge (the badge), and the waiting one says in review.
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-rail-slot-owed')).toHaveText('merge');
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-slot-waiting')).toHaveText('in review');
 });
 
 test('Welcome walks the first run: folders, repos inline, the tools, then New worktree', async ({ page }) => {
@@ -425,15 +428,12 @@ test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session
   await page.keyboard.press('.');
   await expect(page.getByRole('menuitem', { name: /Catch me up/ })).toBeVisible();
   await page.keyboard.press('Escape');
-  // e asks first ("Archive …?"), and archives on yes.
-  let asked = '';
-  page.once('dialog', (d) => {
-    asked = d.message();
-    void d.accept();
-  });
+  // e asks first ("Archive …?", in the page), and archives on yes.
   await page.keyboard.press('e');
+  const ask = page.getByRole('alertdialog');
+  await expect(ask).toContainText(/^Archive “.+”\?/);
+  await ask.getByRole('button', { name: 'OK' }).click();
   await expect(page.locator('.wd-archived-pill')).toBeVisible();
-  expect(asked).toMatch(/^Archive “.+”\?/);
 });
 
 test('Jira has its own tab; Repos goes back to Start; the pages scroll when they are taller than the window', async ({ page }) => {

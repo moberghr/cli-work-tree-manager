@@ -5,6 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { basesText, forkBases, forkPrompt, forkSession, type ForkDeps } from '../../../src/core/sessions/fork.js';
+import type { CreateRequest } from '../../../src/core/worktree/setup-child.js';
+import type { WorkConfig } from '../../../src/core/platform/config.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 
 const now = new Date().toISOString();
@@ -119,6 +121,17 @@ describe('forkSession', () => {
     });
     expect(calls).toEqual(['setup feat/x-2', 'summarize', 'start']);
     expect(vi.mocked(d.start).mock.calls[0][1]).toContain('A summary.');
+  });
+
+  it('the fork runs on its parent account (a row from before accounts: the default one)', async () => {
+    const seen: Array<string | undefined> = [];
+    const setup: ForkDeps['setup'] = async (_t, b, _c, _bs, _n, _r, account) => {
+      seen.push(account);
+      return { paths: [`/wt/api/${b.replace(/\//g, '-')}`] };
+    };
+    await forkSession({ ...parent, account: 'work' }, { branch: 'feat/a' }, deps({ setup }).d);
+    await forkSession(parent, { branch: 'feat/b' }, deps({ setup }).d);
+    expect(seen).toEqual(['work', 'default']);
   });
 
   it('refuses: archived, its own branch, a bad name, a branch that exists, a detached HEAD — before creating anything', async () => {
@@ -353,5 +366,21 @@ describe('POST /api/sessions/:id/fork (real git)', () => {
     expect(deps.repos('shop', config, { ...parent, repos: ['api', 'docs'] })?.map((r) => r.alias)).toEqual(['api', 'docs']);
     expect(deps.repos('shop', config, parent)?.map((r) => r.alias)).toEqual(['api', 'web']);
     expect(deps.repos('shop', config)?.map((r) => r.alias)).toEqual(['api', 'web']);
+  });
+
+  it('the real setup passes the account on to the creation request', async () => {
+    const { defaultForkDeps } = await import('../../../src/core/sessions/fork-deps.js');
+    const create = vi.fn(async (_req: CreateRequest, _config: WorkConfig) => ({
+      ok: true as const,
+      branch: 'feat/f',
+      launchDir: '/wt/f',
+      paths: ['/wt/f'],
+    }));
+    const deps = defaultForkDeps({ summarize: async () => null, uncommitted: () => 0, create });
+    const config = { worktreesRoot: '/wt', repos: {}, groups: {}, copyFiles: [] };
+    await deps.setup('api', 'feat/f', config, { perRepo: {} }, undefined, undefined, 'work');
+    expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ target: 'api', branch: 'feat/f', account: 'work' }), config);
+    await deps.setup('api', 'feat/g', config, { perRepo: {} });
+    expect(create.mock.calls.at(-1)?.[0]).not.toHaveProperty('account');
   });
 });

@@ -13,10 +13,20 @@ import { WorkTimeChip } from './WorkTimeChip.js';
 import { BehindChip, MergedParentChip } from './BehindChip.js';
 import { AwayLink, CatchUpPanel, useCatchUp } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
-import { archiveCancelled, renameSession, setArchived, type SessionSummary } from '../../api/client.js';
+import { archiveCancelled, fetchLastReply, renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrChips, PrStageChip, StatusLine } from './SessionBits.js';
+import {
+  AccountChip,
+  ClaudesChip,
+  ContextChip,
+  OtherBranchChip,
+  OverlapChip,
+  StackChip,
+  PrChips,
+  PrStageChip,
+  StatusLine,
+} from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip, useDevState } from './DevChip.js';
@@ -29,6 +39,7 @@ import { PtyView } from '../Terminal/LazyPtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
 import { openInTerminal } from '../../api/panes.js';
+import { markdownHtml, writeRich } from '../../state/rich-copy.js';
 import { ARCHIVED_BY_SHORT, archivedLine } from '../../state/archive-view.js';
 import { headerRepos } from '../../state/add-repo.js';
 
@@ -40,6 +51,8 @@ interface Props {
   onDelete: () => void;
   /** Opens Add a repo… (a session folder; the dashboard's dialog). */
   onAddRepo?: () => void;
+  /** Opens Claude account… (given while more than one account exists). */
+  onAccount?: () => void;
   /** Open PRs for this session (PRs pane data). */
   prs?: PrInfo[];
   /** A merge from the Ship panel went through (session now archived). */
@@ -78,6 +91,7 @@ export function SessionDetail({
   onSelectSubTab,
   onDelete,
   onAddRepo,
+  onAccount,
   prs = [],
   onShipped,
   startOnLastTurn = false,
@@ -129,6 +143,7 @@ export function SessionDetail({
         prs={prs}
         onDelete={onDelete}
         onAddRepo={onAddRepo}
+        onAccount={onAccount}
         onShipped={onShipped}
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
@@ -203,6 +218,7 @@ interface HeaderProps {
   prs: PrInfo[];
   onDelete: () => void;
   onAddRepo?: () => void;
+  onAccount?: () => void;
   onShipped?: () => void;
   onOpenSession?: (id: string) => void;
   /** Open the PR tab (absent while it's the one shown). */
@@ -219,6 +235,7 @@ function SessionHeader({
   prs,
   onDelete,
   onAddRepo,
+  onAccount,
   onShipped,
   onOpenSession,
   onOpenPr,
@@ -255,6 +272,19 @@ function SessionHeader({
       (err: Error) => setNote({ text: err.message, error: true }),
     );
   };
+  // Its Claude's last reply as it wrote it — the terminal's copy of it is wrapped at the screen's width.
+  const copyReply = () => {
+    setNote({ text: 'Copying Claude’s last reply…' });
+    fetchLastReply(session.id)
+      .then(async (text) => {
+        if (!text) return setNote({ text: 'Claude hasn’t replied in this session yet.' });
+        // Its Markdown rendered too: Teams, Outlook and Word paste tables, lists and code as such.
+        await writeRich({ text, html: markdownHtml(text) });
+        setNote({ text: 'Copied Claude’s last reply.' });
+        setTimeout(() => setNote((n) => (n?.text === 'Copied Claude’s last reply.' ? null : n)), 3000);
+      })
+      .catch((err: Error) => setNote({ text: `Couldn't copy it: ${err.message}`, error: true }));
+  };
   // The keys the dashboard hands to the open session's header (state/shortcuts.ts): what its buttons and ⋯ menu do.
   const moreRef = useRef<HTMLButtonElement>(null);
   const act = useRef<(a: SessionAction) => void>(() => {});
@@ -265,6 +295,7 @@ function SessionHeader({
       if (r) setMenu({ x: r.right, y: r.bottom + 4 });
     } else if (a === 'prompt' && live) setPromptsOpen(true);
     else if (a === 'catchup') catchUp.run();
+    else if (a === 'copy-reply') copyReply();
     else if (a === 'timeline') onShowTimeline?.();
     else if (a === 'notes') setNotesOpen((o) => !o);
     else if (a === 'ship' && live) setShipOpen(true);
@@ -286,6 +317,7 @@ function SessionHeader({
     reconnectTerminal,
     ship: () => setShipOpen(true),
     catchUp: catchUp.run,
+    copyReply,
     timeline: () => onShowTimeline?.(),
     sendPrompt: () => setPromptsOpen(true),
     notes: () => setNotesOpen((o) => !o),
@@ -294,6 +326,7 @@ function SessionHeader({
     rename: () => setRenameKey((k) => k + 1),
     remove: onDelete,
     ...(onAddRepo ? { addRepo: onAddRepo } : {}),
+    ...(onAccount ? { account: onAccount } : {}),
   });
   // A session folder's repos, beside its name (a single repo's session: its target says it).
   const repos = headerRepos(session);
@@ -375,6 +408,7 @@ function SessionHeader({
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ClaudesChip session={session} quiet />
         <ContextChip session={session} quiet />
+        <AccountChip session={session} onOpen={onAccount} />
         {session.prStage ? <PrStageChip session={session} prs={prs} /> : <PrChips prs={prs} link />}
         <DevChip dev={dev} />
         {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}

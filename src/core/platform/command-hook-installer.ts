@@ -91,7 +91,11 @@ function removeUntaggedWorkEntries(s: { hooks?: Record<string, HookEntry[] | und
  * file). Stale entries (their process gone) and untagged copies of work's
  * own hooks are pruned on the way.
  */
-export function syncCommandHooks(install: CommandHookOptions[], remove: Array<{ owner: string; event: string }> = []): Promise<void> {
+export function syncCommandHooks(
+  install: CommandHookOptions[],
+  remove: Array<{ owner: string; event: string }> = [],
+  settingsFile?: string,
+): Promise<void> {
   return editSettings((s) => {
     if (!s.hooks) s.hooks = {};
     removeUntaggedWorkEntries(s, new Set([...install, ...remove].map((x) => x.event)));
@@ -102,15 +106,15 @@ export function syncCommandHooks(install: CommandHookOptions[], remove: Array<{ 
       cleaned.push(tag({ hooks: [{ type: HOOK_TYPE, command: opts.command, timeout: opts.timeoutSec ?? 5 }] }, opts.owner));
       s.hooks[opts.event] = cleaned;
     }
-  });
+  }, settingsFile);
 }
 
-/** Remove several owner + event entries in one write (signal handlers: synchronous). */
-export function removeCommandHooksSync(remove: Array<{ owner: string; event: string }>): void {
+/** Remove several owner + event entries in one write (signal handlers: synchronous). `settingsFile`: another account's settings. */
+export function removeCommandHooksSync(remove: Array<{ owner: string; event: string }>, settingsFile?: string): void {
   editSettingsSync((s) => {
     removeUntaggedWorkEntries(s, new Set(remove.map((r) => r.event)));
     for (const r of remove) removeOwnerEntries(s, r.owner, r.event);
-  });
+  }, settingsFile);
 }
 
 export function removeCommandHook(owner: string, event: string): Promise<void> {

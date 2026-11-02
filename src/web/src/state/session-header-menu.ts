@@ -3,6 +3,7 @@ import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { formatTokens } from '../utils/tokens.js';
 import { sessionKey } from './shortcuts.js';
 import { canAddRepo } from './add-repo.js';
+import { canSwitchAccount } from './accounts.js';
 
 /**
  * The session header's ⋯ menu. The header itself shows one action (Archive,
@@ -15,6 +16,8 @@ export interface HeaderMenuActions {
   reconnectTerminal: () => void;
   ship: () => void;
   catchUp: () => void;
+  /** Its agent's newest message, as written, to the clipboard (not the terminal's wrapped drawing of it). */
+  copyReply: () => void;
   /** How it got here (its prompts, turns, commits, PRs) and how long its Claude worked. */
   timeline: () => void;
   sendPrompt: () => void;
@@ -25,6 +28,8 @@ export interface HeaderMenuActions {
   remove: () => void;
   /** Open Add a repo… — offered only for a session folder that isn't archived (`canAddRepo`). */
   addRepo?: () => void;
+  /** Open Claude account… — given only while more than one account exists; offered for a live Claude session. */
+  account?: () => void;
 }
 
 export function sessionHeaderItems(session: SessionSummary, dev: DevServerState | null, a: HeaderMenuActions): MenuItem[] {
@@ -37,6 +42,9 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
         { label: 'Reconnect terminal', hint: sessionKey('reconnect'), run: a.reconnectTerminal },
         { label: 'Open in terminal', hint: sessionKey('terminal'), run: a.openTerminal },
         { label: 'Ship (push, PR, merge)…', hint: sessionKey('ship'), run: a.ship },
+        ...(a.account && canSwitchAccount(session, true)
+          ? [{ label: 'Claude account…', hint: sessionKey('account'), run: a.account }]
+          : []),
         ...(a.addRepo && canAddRepo(session) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: a.addRepo }] : []),
       ];
   const devItem: MenuItem[] =
@@ -50,6 +58,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
   return [
     ...live,
     { label: 'Catch me up', hint: sessionKey('catchup'), run: a.catchUp },
+    { label: 'Copy Claude’s last reply', hint: sessionKey('copy-reply'), run: a.copyReply },
     { label: 'Timeline', hint: sessionKey('timeline'), run: a.timeline },
     ...(archived ? [] : [{ label: 'Send a prompt…', hint: sessionKey('prompt'), run: a.sendPrompt }]),
     { label: session.hasNote ? 'Notes •' : 'Notes', hint: sessionKey('notes'), run: a.notes },

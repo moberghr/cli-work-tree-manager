@@ -1,4 +1,5 @@
 import type { AttentionLike } from './status/attention.js';
+import type { AgentUsage } from './usage/usage.js';
 
 /**
  * Wire types shared by the server (core) and the browser SPA — ONE
@@ -54,6 +55,8 @@ export interface SessionAgentWire {
     live: boolean;
     /** Its permission prompts can be answered from the dashboard. */
     answer: boolean;
+    /** It runs on one of several logins, and a session can be moved between them (absent: a server from before accounts). */
+    accounts?: boolean;
   };
 }
 
@@ -332,6 +335,8 @@ export interface AssistantView {
   note?: string;
   /** The Time tab's day on screen (`YYYY-MM-DD`). */
   day?: string;
+  /** The Time tab's Month view on screen (`YYYY-MM`): described in place of a day. */
+  month?: string;
 }
 
 // ---- cleanup --------------------------------------------------------------
@@ -480,6 +485,13 @@ export interface SessionOverlap {
  *  work web and the demo) sends. */
 export interface SessionWire {
   id: string;
+  /** Being archived right now (archiving.ts: the button, Ship, the PR watch, cleanup): shown as Archiving until it's gone. */
+  archiving?: true;
+  /** Its Claude was stopped by work while idle (idle sleep, `work stop`) and hasn't run since: Asleep —
+   *  opening the session starts it again, conversation and all (session-wire.ts `isAsleep`). */
+  asleep?: true;
+  /** Being restored right now (archiving.ts): listed with the live sessions meanwhile, still `archivedAt` until it's done. */
+  restoring?: true;
   /** Snoozed out of the Inbox right now (snooze.ts): until when, or null for "until it changes". */
   snoozed?: { until: string | null };
   /** Behind its main branch (behind-main.ts, as of the last fetch) — or, when stacked, behind the
@@ -533,6 +545,10 @@ export interface SessionWire {
   claudes?: SessionClaudes;
   /** The agent it runs, and what work can do with it (a feature it can't is hidden, not shown broken). */
   agent?: SessionAgentWire;
+  /** The account (login) its agent runs on, by its config name; absent = the default account. */
+  account?: string;
+  /** The account a switch waiting for its turn to end will move it to (kept in work web's memory). */
+  accountPending?: string;
   /** What its archive kept (archived sessions; session-archive.ts). */
   archive?: SessionArchiveInfo;
   /** Its name: the one you gave it, else its first prompt, else its Jira key. */
@@ -669,6 +685,8 @@ export interface TimeDayWire {
   posted: { at: string; entries: TimeEntryWire[] } | null;
   /** A vacation day (config `time.vacation`): a day off whatever was ticked. */
   vacation: boolean;
+  /** How each row got its hours, by key: the suggestion's arithmetic and what it came from, or "your hours". */
+  why: Record<string, string>;
   /** Rows whose ticket Jira had as done when the day was gathered. */
   resolved: string[];
   /** Rows whose ticket is a placeholder (`time.hints`): create it in Jira before posting. */
@@ -717,6 +735,64 @@ export interface TimeDaySummary {
 export interface TimeDaysWire {
   days: TimeDaySummary[];
   settings: TimeSettingsWire;
+}
+
+/** A day of the Month view: what will be posted for it. */
+export interface TimeMonthDay {
+  day: string;
+  status: TimeDayStatus;
+  workday: boolean;
+  dayOff: boolean;
+  /** Today: still going, never posted with the month. */
+  today: boolean;
+  /** Your rows, not the suggestion. */
+  edited: boolean;
+  /** How each row got its hours (TimeDayWire.why). */
+  why: Record<string, string>;
+  entries: TimeEntryWire[];
+  total: number;
+  /** Its rows whose ticket is a placeholder (`time.hints`): it can't be posted until they're made in Jira. */
+  placeholders: string[];
+}
+
+/** Why a day of the month isn't posted with it. */
+export type TimeMonthLeftOut = 'today' | 'placeholder' | 'posted' | 'empty' | 'not-gathered' | 'not-workday';
+
+/** A ticket's hours across days. */
+export interface TimeMonthTicket {
+  key: string;
+  title: string;
+  hours: number;
+  /** On how many days. */
+  days: number;
+  placeholder: boolean;
+}
+
+/** GET /api/time/month/:month (YYYY-MM): the month up to today as a grid, and what "Post the month" would do. */
+export interface TimeMonthWire {
+  month: string;
+  /** Oldest first: every workday, and a weekend or holiday when something happened on it. */
+  days: TimeMonthDay[];
+  /** The month's tickets with their totals: most hours first, time off and the gap ticket last. */
+  tickets: TimeMonthTicket[];
+  /** Posting the month: the days that go, oldest first, and the rest with why. */
+  plan: {
+    days: string[];
+    leftOut: Array<{ day: string; why: TimeMonthLeftOut }>;
+    /** What goes, per ticket. */
+    tickets: TimeMonthTicket[];
+    total: number;
+    /** Days that go with less or more than the day's hours. */
+    short: Array<{ day: string; total: number }>;
+  };
+  /** Past days never gathered, or gathered before they ended (Gather these days). */
+  missing: number;
+  settings: TimeSettingsWire;
+  /** Set by the server: a gather of the month under way, and how the last one failed. */
+  gathering?: boolean;
+  gatherError?: string | null;
+  /** Set by the server: whether it can post (a Tempo token and your account id), or why not. */
+  posting?: { ready: boolean; why: string | null };
 }
 
 // ---- start on a PR ---------------------------------------------------------
@@ -912,6 +988,20 @@ export interface OpenReviewThread {
   /** Its text is from someone with write access or a trusted review bot (the PR watch's rule); only
    *  such threads go to Claude in one "Ask Claude about all". Missing (an older server): not known. */
   trusted?: boolean;
+  /** The reviewer's whole comment, Markdown (`excerpt` is its start, for notes). Absent from an older server. */
+  body?: string;
+  /** The code it's on. Absent for a comment on no line, or from an older server. */
+  code?: ThreadCode;
+}
+
+/** The code a review thread is on: the end of the diff hunk GitHub keeps with it, and how many of its last lines the comment covers. */
+export interface ThreadCode {
+  /** Unified-diff lines from its `@@ … @@` header to the commented line (GitHub's `diffHunk`). */
+  hunk: string;
+  /** How many of the hunk's last lines are commented on (1 for a single line). */
+  lines: number;
+  /** The code has changed since: the comment is on an older version. */
+  outdated?: boolean;
 }
 
 /** GET /api/sessions/:id/replies: the threads handed to its Claude and its drafts, and the open threads that have no draft. */
@@ -1018,6 +1108,31 @@ export interface CodeFileWire {
   /** null with `reason`: not shown as text. */
   text: string | null;
   reason?: 'binary' | 'too-large';
+}
+
+// ---- agent usage (core/usage/) -----------------------------------------------------
+
+/** Tokens, with what was read from the prompt cache apart: `input` is the rest of the prompt. */
+export interface TokenTotals {
+  input: number;
+  cached: number;
+  output: number;
+}
+
+/** One agent in GET /api/usage: its readings, one `UsageAccount` per account, aged to the answer's time. */
+export type UsageAgentWire = AgentUsage;
+
+/** GET /api/usage: each agent's plan limits as last read, and the tokens work saw in the sessions' transcripts. */
+export interface UsageWire {
+  agents: UsageAgentWire[];
+  tokens: {
+    today: TokenTotals;
+    /** The last 7 local days, today included. */
+    week: TokenTotals;
+    byModel: Array<{ model: string; today: TokenTotals; week: TokenTotals }>;
+    topSessions: Array<{ id: string; label: string; week: TokenTotals }>;
+  };
+  at: string;
 }
 
 // ---- time per session (work-time.ts) ---------------------------------------------
@@ -1139,7 +1254,8 @@ export type ActivityKind =
   | 'groups'
   | 'updates'
   | 'time'
-  | 'agents';
+  | 'agents'
+  | 'accounts';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {
@@ -1200,6 +1316,10 @@ export interface PrReply {
   where: string | null;
   reviewer: string;
   excerpt: string;
+  /** The reviewer's whole comment, Markdown. Absent from a row from before. */
+  body?: string;
+  /** The code the thread is on. */
+  code?: ThreadCode;
   /** sent: Claude has it; draft: Claude wrote a reply; posted: on GitHub (your click, or `work pr post` on your yes). */
   status: 'sent' | 'draft' | 'posted';
   draft: string | null;
@@ -1240,6 +1360,32 @@ export interface AgentControlWire {
   how: 'started' | 'running' | 'stopped' | 'not-running';
 }
 
+/** One account of the agent new sessions run (accounts.ts): a login with its own folder. */
+export interface AccountWire {
+  name: string;
+  /** Its config folder. */
+  dir: string;
+  /** The one new sessions use. */
+  isDefault: boolean;
+  /** Logged in; null: unknown (the keychain on macOS). */
+  loggedIn: boolean | null;
+}
+
+/** GET /api/accounts. */
+export interface AccountsWire {
+  accounts: AccountWire[];
+  /** The name new sessions use. */
+  default: string;
+}
+
+/** POST /api/sessions/:id/account {to}: `switched` (its Claude restarted on it), `queued` (when its turn ends), `recorded` (not running: its next start). */
+export interface AccountSwitchWire {
+  ok: true;
+  outcome: 'switched' | 'queued' | 'recorded';
+  /** How many conversation entries went across to the new account's folders. */
+  moved?: number;
+}
+
 /** GET /api/agents: the agents in the PTY host still running a version from before their tool was updated (agent-restart.ts). */
 export interface AgentsWire {
   /** When the newest of their tools was installed (ISO): what a "Later" is for. Null when none is on PATH. */
@@ -1263,5 +1409,10 @@ export interface RestartWire {
 
 /** GET /api/sessions/:id/screen: its terminal as plain text (null: no terminal in the PTY host). */
 export interface ScreenWire {
+  text: string | null;
+}
+
+/** GET /api/sessions/:id/last-reply: its agent's newest message as written (last-reply.ts); null when there is none. */
+export interface LastReplyWire {
   text: string | null;
 }

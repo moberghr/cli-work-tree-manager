@@ -507,7 +507,7 @@ describe('the keeper (time-keeper.ts)', () => {
     built.length = 0;
     await k.run();
     expect(built.length).toBe(1); // today only
-  });
+  }, 60_000); // 15 real builds in state.db: CI's Windows runner took 21 s
 
   it('a day last built while it was still going is built again (late turns, a night with work web closed); a day only edited is gathered', async () => {
     // Wednesday 2026-07-08 built at 15:00 that day, Tuesday only edited; it's Thursday now, in a fresh process.

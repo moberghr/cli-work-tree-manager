@@ -3,6 +3,7 @@ import type { SnoozeFor } from '../../../core/rail/snooze.js';
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { sessionKey } from './shortcuts.js';
 import { canAddRepo } from './add-repo.js';
+import { canSwitchAccount } from './accounts.js';
 
 /**
  * A session's right-click menu, after Rename (which the rail adds itself):
@@ -26,6 +27,8 @@ export interface SessionMenuActions {
   fork?: (s: SessionSummary) => void;
   /** Open Add a repo… (a session folder that isn't archived only). */
   addRepo?: (s: SessionSummary) => void;
+  /** Open Claude account… — given only while more than one account exists; offered for a live Claude session. */
+  account?: (s: SessionSummary) => void;
 }
 
 export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): MenuItem[] {
@@ -55,6 +58,9 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
           { label: 'Open in terminal', hint: sessionKey('terminal'), run: () => a.openTerminal(s), separated: true },
           { label: 'Open in editor', hint: sessionKey('editor'), run: () => a.openEditor(s) },
           ...(a.fork ? [{ label: 'Fork…', hint: sessionKey('fork'), run: () => a.fork!(s) }] : []),
+          ...(a.account && canSwitchAccount(s, true)
+            ? [{ label: 'Claude account…', hint: sessionKey('account'), run: () => a.account!(s) }]
+            : []),
           ...(a.addRepo && canAddRepo(s) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: () => a.addRepo!(s) }] : []),
         ]),
     { label: 'Copy branch name', hint: sessionKey('copy'), run: () => a.copyBranch(s), ...(archived ? { separated: true } : {}) },

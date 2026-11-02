@@ -11,7 +11,8 @@ import {
   unsnoozeSession,
 } from '../../../api/client.js';
 import { snoozeLabel } from '../../../../../core/rail/snooze.js';
-import { isArchived, lastActiveAt, agentCan, agentName, displayStatus } from '../../../state/session-display.js';
+import { isArchived, lastActiveAt, agentCan, agentName, displayStatus, waitingOnOthers } from '../../../state/session-display.js';
+import { prNeedsLine } from '../../../state/pr-tab.js';
 import { StatusIcon } from '../StatusIcon.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank } from '../../../../../core/status/attention.js';
@@ -35,22 +36,23 @@ interface Section {
   rank: number;
   title: string;
   hint: string;
-  kind: 'needs_input' | 'done' | 'review' | 'pr';
+  /** Its rows' icon; none: each row's own status (what its Claude is doing). */
+  kind: 'needs_input' | 'done' | null;
   /** Where a row opens, and its one action's name. */
   open: SessionSubTab;
   action: string;
 }
 
-/** Only what wants you: a question, finished work, review comments. Everything else is in the rail. */
+/** Only what wants you: a question, finished work, what waits on you on GitHub. Everything else is in the rail. */
 const SECTIONS: Section[] = [
   { rank: 0, title: 'Needs your input', hint: 'Blocked on a permission or question', kind: 'needs_input', open: 'term', action: 'Open' },
   { rank: 1, title: 'Done', hint: 'Finished a turn since you last opened it', kind: 'done', open: 'diff', action: 'Review' },
   {
     rank: 2,
-    title: 'Pull requests',
-    hint: 'Reviewers left comments nobody has answered or resolved, or the PR is ready to merge, conflicts or fails its checks',
-    kind: 'review',
-    open: 'diff',
+    title: 'Needs you',
+    hint: 'Replies to post, review threads with no answer, a PR ready to merge, conflicting or failing its checks — whatever its Claude is doing',
+    kind: null,
+    open: 'pr',
     action: 'Open',
   },
 ];
@@ -144,7 +146,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
       else if (rank === 7) waiting.push(s);
       else if (rank === 3 && displayStatus(s) === 'background') rest.background++;
       else if (rank === 3) rest.working++;
-      else if (rank > 3 && displayStatus(s) === 'in_review') rest.inReview++;
+      else if (rank > 3 && waitingOnOthers(s)) rest.inReview++;
       else if (rank > 3) rest.quiet++;
       else bySection.set(rank, [...(bySection.get(rank) ?? []), s]);
     }
@@ -206,10 +208,11 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
               {bySection.get(sec.rank)!.map((s) => {
                 const request = sec.rank === 0 ? s.attention!.request : undefined;
                 const canAnswer = !!request && s.ptyStatus === 'running' && agentCan(s, 'answer');
-                // A pull request that wants you (not review comments) opens on its terminal: there's nothing new in the diff.
-                const prRow = sec.rank === 2 && !s.openReviewThreads && !!s.prStage;
-                const kind = prRow ? 'pr' : sec.kind;
-                const opensOn = prRow ? 'term' : sec.open;
+                // Only its PR's state (no replies, no threads): Mark seen takes it out until that changes.
+                const prRow = sec.rank === 2 && !s.openReviewThreads && !s.replyDrafts && !!s.prStage;
+                // Its icon is what its Claude is doing; the section says what waits on you.
+                const kind = sec.kind ?? displayStatus(s);
+                const opensOn = sec.open;
                 const open = () => onOpenSession(s.id, opensOn, sec.rank === 1 ? { lastTurn: true } : undefined);
                 return (
                   <li key={s.id} className="wd-inbox-item">
@@ -217,7 +220,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                       type="button"
                       className="wd-inbox-row"
                       onClick={open}
-                      title={`Open ${s.target} · ${s.branch} (${opensOn === 'term' ? 'terminal' : 'diff'})`}
+                      title={`Open ${s.target} · ${s.branch} (${opensOn === 'term' ? 'terminal' : opensOn === 'pr' ? 'PR tab' : 'diff'})`}
                     >
                       <StatusIcon kind={kind} />
                       <span className="wd-inbox-name">
@@ -229,13 +232,8 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                           <span className="wd-inbox-answer-error" role="alert">
                             {answerError[s.id]}
                           </span>
-                        ) : prRow ? (
-                          s.prStage!.text
                         ) : sec.rank === 2 ? (
-                          <>
-                            {s.openReviewThreads} open thread{s.openReviewThreads === 1 ? '' : 's'}
-                            {s.replyDrafts ? ` · ${s.replyDrafts} ${s.replyDrafts === 1 ? 'reply' : 'replies'} ready to post` : ''}
-                          </>
+                          <span className="wd-inbox-owed">{prNeedsLine(s) ?? s.prStage?.text}</span>
                         ) : request ? (
                           <code className="wd-inbox-request" title={`${request.tool}: ${request.detail}`}>
                             <span className="wd-inbox-request-tool">{request.tool}</span> {request.detail}

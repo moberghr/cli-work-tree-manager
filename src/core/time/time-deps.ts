@@ -5,14 +5,14 @@ import { loadHistory } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
-import { fetchMyIssuesOrThrow, issueIdOf, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
+import { fetchMyIssuesOrThrow, issueIdOf, issueNumberField, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
 import { chatsOf, chatsSince, graphApp, graphToken, meetingsOn, type ChatsRead } from './graph.js';
 import type { TimeJiraEvidence } from '../api-types.js';
 import { readIssueIds, rememberIssueId } from './time-store.js';
 import { isIssueKey } from './allocate.js';
 import type { TimeDeps } from './time-days.js';
-import { addDays, DEFAULT_CATCH_UP_DAYS, localDay, timeSettings } from './time-view.js';
+import { addDays, daysBetween, DEFAULT_CATCH_UP_DAYS, listFrom, localDay, MAX_RANGE_DAYS, timeSettings } from './time-view.js';
 
 /**
  * The Time tab's real I/O: the sessions in state.db and their transcripts,
@@ -108,6 +108,29 @@ export async function titlesOf(
   }
 }
 
+/**
+ * Story points of these tasks: one acli view each (a search can't return a custom field), a few at a time.
+ * A task with none, or one Jira refuses, is left out; throws when none could be asked about (acli down).
+ */
+export async function pointsOf(keys: string[], read: (key: string) => Promise<number | null>): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  let answered = 0;
+  for (let i = 0; i < keys.length; i += TITLES_AT_ONCE)
+    await Promise.all(
+      keys.slice(i, i + TITLES_AT_ONCE).map((k) =>
+        read(k).then(
+          (p) => {
+            answered++;
+            if (p !== null && p > 0) out[k] = p;
+          },
+          () => {},
+        ),
+      ),
+    );
+  if (keys.length && !answered) throw new Error('Jira could not be asked about story points');
+  return out;
+}
+
 const TITLES_AT_ONCE = 3;
 const REFUSED_FOR_MS = 60 * 60_000;
 const refused = new Map<string, number>();
@@ -163,8 +186,15 @@ async function commitLog(git: TimeIo['git'], repo: string, from: string): Promis
 
 export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
   const catchUpDays = () => timeSettings(loadConfig()?.time).catchUpDays ?? DEFAULT_CATCH_UP_DAYS;
+  // How many days the work-time reader goes back: as far as the list (the whole month at least), or to an older
+  // day being gathered (a past month's Gather these days) — never more than a quarter.
+  const reachFor = (day: string) => {
+    const today = localDay();
+    const from = listFrom(today, catchUpDays());
+    return Math.min(MAX_RANGE_DAYS, daysBetween(day < from ? day : from, today).length);
+  };
   // A session's working time, read once for every day a run builds (each read goes through all its transcripts).
-  const workTime = new Map<string, { at: number; byDay: Promise<Map<string, number>> }>();
+  const workTime = new Map<string, { at: number; reach: number; byDay: Promise<Map<string, number>> }>();
   const logs = new Map<string, { from: string; at: number; out: Promise<string> }>();
   // One read of the chats serves every day after its first: a 14-day catch-up is one read, not fourteen.
   let chats: { from: string; at: number; read: Promise<ChatsRead> } | null = null;
@@ -193,15 +223,16 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
     minutesOn: async (s, day) => {
       const id = sessionIdFor(s);
       let w = workTime.get(id);
-      if (!w || Date.now() - w.at > READ_FRESH_MS) {
-        const byDay = io.workTime(s, Date.now(), catchUpDays()).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
-        w = { at: Date.now(), byDay };
+      const reach = reachFor(day);
+      if (!w || Date.now() - w.at > READ_FRESH_MS || w.reach < reach) {
+        const byDay = io.workTime(s, Date.now(), reach).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
+        w = { at: Date.now(), reach, byDay };
         workTime.set(id, w);
         byDay.catch(() => workTime.delete(id)); // a failed read isn't kept
       }
       return ((await w.byDay).get(day) ?? 0) / 60_000;
     },
-    minutesFrom: () => addDays(localDay(), -(catchUpDays() - 1)),
+    minutesFrom: () => listFrom(localDay(), catchUpDays()),
     commits: async (day) => {
       const repos = io.repos();
       const aliasOf = new Map<string, string>();
@@ -232,6 +263,10 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
     },
     jiraMoved: (day) => once(`jira:${day}`, () => jiraOn(day)),
     titles: (keys) => once(`titles:${[...keys].sort().join(',')}`, () => titlesOf(keys, searchIssuesOrThrow)),
+    points: async (keys) => {
+      const field = timeSettings(loadConfig()?.time).storyPointsField;
+      return field ? once(`points:${field}:${[...keys].sort().join(',')}`, () => pointsOf(keys, (k) => issueNumberField(k, field))) : {};
+    },
     settings: () => timeSettings(loadConfig()?.time),
     // Outlook and Teams only once you signed in (the Time tab's Connect): none otherwise. A sign-in that stopped
     // working, or no network, throws (graphToken): the day keeps the meetings and chats it had.

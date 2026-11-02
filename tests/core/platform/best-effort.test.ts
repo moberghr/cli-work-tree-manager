@@ -5,6 +5,8 @@ import { describe, it, expect, vi } from 'vitest';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'best-effort-'));
 vi.mock('../../../src/core/platform/config.js', () => ({ getConfigDir: () => dir }));
+// The logger finds the folder through config-dir.js (not config.js, which reports through the logger).
+vi.mock('../../../src/core/platform/config-dir.js', () => ({ getConfigDir: () => dir }));
 
 import { bestEffort, bestEffortAsync, swallow } from '../../../src/core/platform/best-effort.js';
 

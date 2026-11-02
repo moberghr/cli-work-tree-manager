@@ -54,6 +54,62 @@ const advance = (ms: number) => {
 const sessions = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions?archived=1')).sessions;
 const byBranch = async (b: string) => (await sessions()).find((s) => s.branch === b)!;
 
+describe('demo server: Claude accounts', () => {
+  it('lists made-up accounts (one nobody logged in to), and a switch just records it on the session (and says so on the wire)', async () => {
+    const w = await get<{ accounts: Array<{ name: string; loggedIn: boolean | null }>; default: string }>('/api/accounts');
+    expect(w.accounts.map((a) => a.name)).toEqual(['default', 'work', 'spare']);
+    expect(w.accounts.find((a) => a.name === 'spare')?.loggedIn).toBe(false);
+    expect(w.default).toBe('default');
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    expect(s.account).toBeUndefined(); // the default account is not said
+    const res = await send('POST', `/api/sessions/${s.id}/account`, { to: 'work' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, outcome: 'recorded', moved: 0 });
+    expect((await sessions()).find((x) => x.id === s.id)?.account).toBe('work');
+    // Back to the default: absent again.
+    await send('POST', `/api/sessions/${s.id}/account`, { to: 'default' });
+    expect((await sessions()).find((x) => x.id === s.id)?.account).toBeUndefined();
+  });
+
+  it('refuses as the real one does: the same account, an unknown one, an unknown session', async () => {
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    expect((await send('POST', `/api/sessions/${s.id}/account`, { to: 'default' })).status).toBe(409);
+    expect((await send('POST', `/api/sessions/${s.id}/account`, { to: 'nope' })).status).toBe(400);
+    expect((await send('POST', `/api/sessions/${s.id}/account`, {})).status).toBe(400);
+    expect((await send('POST', '/api/sessions/nope/account', { to: 'work' })).status).toBe(404);
+  });
+
+  it('refuses an account nobody is logged in to, by the shared rules (account-switch-rules.ts)', async () => {
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    const res = await send('POST', `/api/sessions/${s.id}/account`, { to: 'spare' });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain('nobody is logged in on “spare”');
+    const archived = (await sessions()).find((x) => x.archivedAt);
+    expect(archived).toBeDefined();
+    if (archived) expect((await send('POST', `/api/sessions/${archived.id}/account`, { to: 'work' })).status).toBe(409);
+  });
+
+  it('a new worktree records the account New worktree picked, and refuses an unknown one', async () => {
+    const res = await send('POST', '/api/worktrees', { target: 'api', branch: 'feat/on-work', account: 'work' });
+    expect(res.status).toBe(200);
+    const { sessionId } = (await res.json()) as { sessionId: string };
+    expect((await sessions()).find((x) => x.id === sessionId)?.account).toBe('work');
+    const plain = (await (await send('POST', '/api/worktrees', { target: 'api', branch: 'feat/on-default' })).json()) as {
+      sessionId: string;
+    };
+    expect((await sessions()).find((x) => x.id === plain.sessionId)?.account).toBeUndefined();
+    expect((await send('POST', '/api/worktrees', { target: 'api', branch: 'feat/x2', account: 'nope' })).status).toBe(400);
+  });
+
+  it('the usage panel has a reading per account, the default marked', async () => {
+    const u = await get<{ agents: Array<{ accounts: Array<{ account: string; isDefault?: boolean }> }> }>('/api/usage');
+    expect(u.agents[0]!.accounts.map((a) => [a.account, !!a.isDefault])).toEqual([
+      ['default', true],
+      ['work', false],
+    ]);
+  });
+});
+
 describe('demo server', () => {
   it('serves the dashboard context and a realistic session list', async () => {
     expect(await get('/api/context')).toMatchObject({ mode: 'dashboard', demo: true });

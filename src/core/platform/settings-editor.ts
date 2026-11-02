@@ -1,6 +1,6 @@
 /**
  * Atomic read/edit/write helpers for `~/.claude/settings.json` — the user's
- * global Claude Code settings.
+ * global Claude Code settings (or another account's `<config dir>/settings.json`).
  *
  * `installCommandHook` mutates this file at `work web` startup/shutdown.
  * (The retired `work dash` also installed http-type hooks here; any it left
@@ -101,9 +101,13 @@ function applyEdit(file: string, mutate: (s: SettingsFile) => void): boolean {
     return false;
   }
   const s = read.kind === 'ok' ? read.settings : {};
+  const before = JSON.stringify(s);
   if (!s.hooks) s.hooks = {};
   mutate(s);
   if (s.hooks && Object.keys(s.hooks).length === 0) delete s.hooks;
+  // Nothing changed (hooks already in, status line already wrapped): no write and no backup — the file is often synced
+  // or in a dotfiles repo, and every work web start would otherwise touch it.
+  if (JSON.stringify(s) === before) return true;
   backupOnce(file);
   // Trailing newline: this file is commonly symlinked into a dotfiles repo,
   // and a missing one shows up as a diff artefact on every edit.
@@ -111,8 +115,8 @@ function applyEdit(file: string, mutate: (s: SettingsFile) => void): boolean {
   return true;
 }
 
-function target(): string {
-  const t = resolveLinkTarget(settingsPath());
+function target(file?: string): string {
+  const t = resolveLinkTarget(file ?? settingsPath());
   fs.mkdirSync(path.dirname(t), { recursive: true });
   return t;
 }
@@ -123,10 +127,10 @@ function target(): string {
  * An unparsable file is never replaced.
  */
 let editQueue: Promise<unknown> = Promise.resolve();
-export function editSettings(mutate: (s: SettingsFile) => void): Promise<void> {
+export function editSettings(mutate: (s: SettingsFile) => void, settingsFile?: string): Promise<void> {
   const run = editQueue.then(async () => {
     try {
-      const file = target();
+      const file = target(settingsFile);
       if (!fs.existsSync(file)) ensureFile(file, '{}\n');
       await withFileLock(file, () => applyEdit(file, mutate));
     } catch (err) {
@@ -139,14 +143,23 @@ export function editSettings(mutate: (s: SettingsFile) => void): Promise<void> {
 
 /** Synchronous variant — shutdown handlers, where there's no time to await.
  *  Same lock and the same refusal to overwrite an unparsable file. */
-export function editSettingsSync(mutate: (s: SettingsFile) => void): void {
+export function editSettingsSync(mutate: (s: SettingsFile) => void, settingsFile?: string): void {
   try {
-    const file = target();
+    const file = target(settingsFile);
     if (!fs.existsSync(file)) ensureFile(file, '{}\n');
     withFileLockSync(file, () => applyEdit(file, mutate));
   } catch (err) {
     report('error', `[work] could not update Claude settings: ${(err as Error).message}`);
   }
+}
+
+/**
+ * The settings as they are now, read only: `{}` when there is no file, null when it doesn't parse. `settingsFile`: another
+ * Claude account's settings.json (default: ~/.claude/settings.json — every edit function takes it the same way).
+ */
+export function readSettingsFile(settingsFile?: string): SettingsFile | null {
+  const read = readSettings(resolveLinkTarget(settingsFile ?? settingsPath()));
+  return read.kind === 'ok' ? read.settings : read.kind === 'missing' ? {} : null;
 }
 
 /** Common predicate: is this entry tagged with our owner? */

@@ -1,5 +1,7 @@
 import os from 'node:os';
 import { internalRunEnv } from '../../platform/internal-run.js';
+import { applyEnvDelta } from '../../platform/env-delta.js';
+import { accountEnv, defaultAccountName } from './accounts.js';
 
 /**
  * How to run an internal, text-only `claude -p`: args, cwd and env in one
@@ -16,11 +18,13 @@ import { internalRunEnv } from '../../platform/internal-run.js';
  * servers start — a text-only run has no use for them, and starting them
  * cost seconds and memory on every checkpoint name. `model` picks a model
  * (checkpoint names use a small one; they run once per changed turn).
+ *
+ * It runs on the configured default account (`claudeAccount`): work's own runs aren't any session's.
  */
 export function internalClaudeSpawn(opts: { model?: string } = {}): { args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
   return {
     args: ['-p', '--tools', '', '--strict-mcp-config', ...(opts.model ? ['--model', opts.model] : [])],
     cwd: os.tmpdir(),
-    env: { ...process.env, ...internalRunEnv() },
+    env: { ...applyEnvDelta(process.env, accountEnv(defaultAccountName())), ...internalRunEnv() } as NodeJS.ProcessEnv,
   };
 }

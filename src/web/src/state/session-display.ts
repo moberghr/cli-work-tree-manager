@@ -14,7 +14,12 @@ export function agentName(s: Pick<SessionSummary, 'agent'>): string {
 
 /** Whether work can do this with the session's agent (a row from before: what Claude could). */
 export function agentCan(s: Pick<SessionSummary, 'agent'>, what: keyof NonNullable<SessionSummary['agent']>['can']): boolean {
-  return s.agent ? s.agent.can[what] : true;
+  return s.agent ? (s.agent.can[what] ?? false) : true;
+}
+
+/** The badge's pill: blue for a finished turn to review (Done's colour), pink for what waits on you on GitHub. */
+export function owedClass(owed: { kind: string }): string {
+  return 'wd-rail-slot-owed' + (owed.kind === 'turn' ? ' wd-rail-slot-owed-turn' : '');
 }
 
 export function isArchived(s: SessionSummary): boolean {
@@ -53,7 +58,8 @@ export function railSessions(
   const current: SessionSummary[] = [];
   const older: SessionSummary[] = [];
   for (const s of sessions) {
-    if (isArchived(s)) continue;
+    // One being restored is back in the rail at once, as Restoring.
+    if (isArchived(s) && !s.restoring) continue;
     const recent = now - (Date.parse(s.lastAccessedAt) || 0) < RAIL_RECENT_MS;
     const live = !!s.attention || s.ptyStatus === 'running' || s.activityState === 'active' || s.activityState === 'open';
     (recent || live ? current : older).push(s);

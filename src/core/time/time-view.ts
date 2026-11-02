@@ -36,11 +36,18 @@ export interface TimeDayRecord {
   posted?: { at: string; entries: TimeEntry[]; worklogs: PostedWorklog[] } | null;
   /** The day's tickets Jira had as done when it was gathered (still yours to log to, but said). */
   resolved?: string[];
+  /** The day's tasks' story points as Jira had them when it was gathered (`time.storyPointsField`), by key. */
+  points?: Record<string, number>;
   /** Your assigned issues when it was gathered (the AI step's candidates): used again when they can't be read. */
   assigned?: string[];
 }
 
-export type TimeConfig = TimeSettings & { projects?: string[]; hints?: Record<string, TicketHint>; catchUpDays?: number };
+export type TimeConfig = TimeSettings & {
+  projects?: string[];
+  hints?: Record<string, TicketHint>;
+  catchUpDays?: number;
+  storyPointsField?: string;
+};
 
 /** How many days back the Time tab gathers when `time.catchUpDays` doesn't say. */
 export const DEFAULT_CATCH_UP_DAYS = 14;
@@ -114,7 +121,11 @@ export function dayWireOf(
   // A vacation day (config) is a day off whatever was ticked.
   const vacation = settings.vacation.includes(day);
   const dayOff = vacation || (rec?.dayOff ?? false);
-  const s = suggestDay(activityOf(evidence), settings, { dayOff, reserveMinutes: unplacedMeetingMinutes(evidence, settings.gapTicket) });
+  const s = suggestDay(activityOf(evidence), settings, {
+    dayOff,
+    reserveMinutes: unplacedMeetingMinutes(evidence, settings.gapTicket),
+    points: rec?.points,
+  });
   const edited = !!rec?.edited && !dayOff;
   const entries = edited ? rec!.edited! : s.entries;
   const posted = rec?.posted ?? null;
@@ -147,12 +158,52 @@ export function dayWireOf(
     settings: settingsWire(settings),
     posted: posted ? { at: posted.at, entries: posted.entries } : null,
     vacation,
+    why: rowsWhy(entries, s.why, evidence, edited),
     resolved: (rec?.resolved ?? []).filter((k) => entries.some((e) => e.key === k)),
     placeholders: placeholderKeys(
       entries.map((e) => e.key),
       settings.hints,
     ),
   };
+}
+
+/** What on a day went to a ticket, in a few words: "fix/settlement-flow, 3 commits — placed by the AI step". */
+export function sourcesOf(ev: TimeEvidence, key: string): string {
+  const items: Array<{ text: string; guessed?: true }> = [
+    ...ev.sessions.filter((s) => s.key === key).map((s) => ({ text: s.label.split(' · ').pop() ?? s.label, guessed: s.guessed })),
+    ...ev.commits.filter((c) => c.keys.includes(key)).map((c) => ({ text: 'a commit', guessed: c.guessed })),
+    ...ev.jira.filter((j) => j.key === key).map((j) => ({ text: j.what })),
+    ...(ev.meetings ?? []).filter((m) => m.key === key).map((m) => ({ text: m.subject, guessed: m.guessed })),
+    ...(ev.chats ?? []).filter((c) => c.key === key).map((c) => ({ text: `Teams: ${c.chat}`, guessed: c.guessed })),
+  ];
+  if (!items.length) return '';
+  // Commits counted, the rest by name.
+  const commits = items.filter((i) => i.text === 'a commit').length;
+  const named = [...new Set(items.filter((i) => i.text !== 'a commit').map((i) => i.text))];
+  const list = [...named, ...(commits ? [`${commits} commit${commits === 1 ? '' : 's'}`] : [])].join(', ');
+  const ai = items.filter((i) => i.guessed).length;
+  return ai === items.length
+    ? `${list} — placed by the AI step (none of it named the ticket)`
+    : ai
+      ? `${list} — some placed by the AI step`
+      : list;
+}
+
+/** Each row's why: the suggestion's arithmetic and where it came from; your own rows say so. */
+function rowsWhy(
+  entries: readonly TimeEntry[],
+  suggested: Record<string, string>,
+  ev: TimeEvidence,
+  edited: boolean,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const e of entries) {
+    const from = sourcesOf(ev, e.key);
+    const how = suggested[e.key];
+    const said = how ? `${how}${from ? `. From: ${from}` : ''}` : '';
+    out[e.key] = edited ? (said ? `Your hours. work suggested: ${said}` : 'Your hours (work suggested none for it).') : said;
+  }
+  return out;
 }
 
 /** The same rows, in any order. Pure. */
@@ -165,6 +216,23 @@ export function sameEntries(a: readonly TimeEntry[], b: readonly TimeEntry[]): b
   return k(a) === k(b);
 }
 
+/** Something happened on a day, or you set something on it: a weekend or holiday shows (and is posted) only then. */
+export function somethingOn(rec: TimeDayRecord | null): boolean {
+  return (
+    !!rec &&
+    !!(
+      rec.evidence.sessions.length ||
+      rec.evidence.commits.length ||
+      rec.evidence.meetings?.length ||
+      rec.evidence.jira.length ||
+      rec.evidence.chats?.length ||
+      rec.edited ||
+      rec.dayOff ||
+      rec.posted
+    )
+  );
+}
+
 /** The days from `from` to `to`, newest first; a weekend or holiday shows only when something happened on it. */
 export function daysWireOf(from: string, to: string, settings: TimeSettings, records: readonly TimeDayRecord[]): TimeDaysWire {
   const recs = new Map(records.map((r) => [r.day, r]));
@@ -172,21 +240,7 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
   for (const day of daysBetween(from, to).reverse()) {
     const rec = recs.get(day) ?? null;
     const workday = isWorkday(day, settings);
-    if (
-      !workday &&
-      !(
-        rec &&
-        (rec.evidence.sessions.length ||
-          rec.evidence.commits.length ||
-          rec.evidence.meetings?.length ||
-          rec.evidence.jira.length ||
-          rec.evidence.chats?.length ||
-          rec.edited ||
-          rec.dayOff ||
-          rec.posted)
-      )
-    )
-      continue;
+    if (!workday && !somethingOn(rec)) continue;
     const w = dayWireOf(day, settings, rec);
     days.push({ day, status: w.status, workday, total: w.total, tickets: w.entries.length });
   }
@@ -195,6 +249,17 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
 
 /** The most days one list asks for (a quarter): a range from year 1 would hold up every request while it's worked out. */
 export const MAX_RANGE_DAYS = 92;
+
+/**
+ * The first day the tab lists and the keeper builds: `catchUpDays` back, or
+ * the 1st of the month when that's earlier — so the whole month is there to
+ * post at its end, whatever `catchUpDays` says.
+ */
+export function listFrom(today: string, catchUpDays: number): string {
+  const back = addDays(today, -(Math.min(catchUpDays, MAX_RANGE_DAYS) - 1));
+  const first = `${today.slice(0, 7)}-01`;
+  return first < back ? first : back;
+}
 
 /**
  * `GET /api/time`'s range, as both servers read it: `to` (default today) and
@@ -207,7 +272,7 @@ export function timeRange(
   catchUpDays: number,
 ): { from: string; to: string } | { error: string } {
   const to = q.to ?? today;
-  const from = q.from ?? (isDay(to) ? addDays(to, -(Math.min(catchUpDays, MAX_RANGE_DAYS) - 1)) : '');
+  const from = q.from ?? (isDay(to) ? listFrom(to, catchUpDays) : '');
   if (!isDay(from) || !isDay(to) || from > to) return { error: 'from and to: real days (YYYY-MM-DD), from ≤ to' };
   if (addDays(from, MAX_RANGE_DAYS - 1) < to) return { error: `at most ${MAX_RANGE_DAYS} days at once` };
   return { from, to };
@@ -262,6 +327,8 @@ export function describeTimeDay(w: TimeDayWire): string {
     '<<<',
     `  Rows: ${rows(w.entries)}.`,
     ...(w.edited ? [`  work suggested: ${rows(w.suggested)}.`] : []),
+    // How each row got its hours (its arithmetic, and session names others' text can't reach — still fenced).
+    ...w.entries.filter((e) => w.why?.[e.key]).map((e) => `  Why ${e.key}: ${d(w.why[e.key])}.`),
     ...(w.posted ? [`  Posted to Tempo at ${w.posted.at}${w.status === 'changed' ? '; changed since' : ''}.`] : []),
     ...(w.vacation ? ['  A vacation day (time.vacation in config.json).'] : []),
     ...(w.resolved?.length ? [`  Done in Jira already: ${w.resolved.join(', ')}.`] : []),

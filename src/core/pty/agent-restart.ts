@@ -118,6 +118,12 @@ export interface RestarterDeps {
   changed?: () => void;
   /** A look again a little later (default setTimeout, unref'd): a turn-end the status hasn't caught up with yet. */
   later?: (fn: () => void, ms: number) => void;
+  /**
+   * Something else that restarts its agent anyway is waiting or under way (a switch of account, account-switch.ts): what
+   * it is, in a few words; null: nothing. A restart asked for then is folded into it (answered as waiting, never a
+   * second restart), and a queued one is dropped when its turn comes.
+   */
+  foldedInto?: (id: string) => string | null;
 }
 
 export interface RestartNote {
@@ -202,8 +208,18 @@ export function createRestarter(deps: RestarterDeps) {
 
   /** Restart these (the caller found them running in the host: its list is fresh, `running` is a cache). */
   const request = async (ids: readonly string[]): Promise<RestartOutcome> => {
-    const plan = restartPlan(ids, (id) => deps.busy(id));
     const notes: RestartNote[] = [];
+    const folded: string[] = [];
+    for (const id of ids) {
+      const into = deps.foldedInto?.(id);
+      if (!into) continue;
+      folded.push(id);
+      notes.push({ id, text: `restarts with ${into} (no second restart)`, level: 'info' });
+    }
+    const plan = restartPlan(
+      ids.filter((id) => !folded.includes(id)),
+      (id) => deps.busy(id),
+    );
     for (const id of plan.later) {
       queued.add(id);
       notes.push({ id, text: `${LATER_TEXT} (it is working or waiting on you)`, level: 'info' });
@@ -211,7 +227,7 @@ export function createRestarter(deps: RestarterDeps) {
     const { done, failed } = await run(plan.now, notes);
     finish(notes);
     tick();
-    return { now: done, later: plan.later, failed };
+    return { now: done, later: [...folded, ...plan.later], failed };
   };
 
   // While anything waits, it is looked at again every QUEUE_RECHECK_MS.
@@ -243,6 +259,12 @@ export function createRestarter(deps: RestarterDeps) {
         notes.push({ id, text: 'no longer waits to restart: it was stopped meanwhile (it starts on the new version)', level: 'info' });
         continue;
       }
+      const into = deps.foldedInto?.(id);
+      if (into) {
+        queued.delete(id);
+        notes.push({ id, text: `no longer waits to restart: ${into} restarts it`, level: 'info' });
+        continue;
+      }
       if (!deps.busy(id, opts)) ready.push(id);
     }
     await run(ready, notes);
@@ -258,6 +280,13 @@ export function createRestarter(deps: RestarterDeps) {
       later(() => void retry(id, { turnEnded: true }).catch(() => {}), TURN_END_GRACE_MS);
     },
     queued: (): string[] => [...queued],
+    /** Take one off the queue (it no longer waits for its turn); false when it wasn't waiting (not queued, or running now). */
+    cancel: (id: string): boolean => {
+      if (!queued.delete(id)) return false;
+      if (queued.size === 0) deps.scheduled?.(null);
+      deps.changed?.();
+      return true;
+    },
     /** Being restarted now (the host lists them as exited meanwhile: still this session's). */
     restarting: (): string[] => [...inFlight.keys()],
   };

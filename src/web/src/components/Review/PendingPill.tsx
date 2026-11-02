@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { selectDrafts, useReview } from '../../state/ReviewProvider.js';
 import { Modal } from './Modal.js';
+import { ask } from '../../state/ask.js';
 
 export function PendingPill() {
   const review = useReview();
@@ -29,7 +30,7 @@ export function PendingPill() {
               <button
                 type="button"
                 onClick={async () => {
-                  if (!confirm(`Discard all ${drafts.length} pending comment(s)?`)) return;
+                  if (!(await ask(`Discard all ${drafts.length} pending comment(s)?`, { ok: 'Discard' }))) return;
                   await review.discardReview();
                   setModalOpen(false);
                 }}

@@ -22,13 +22,18 @@ interface HunkLineHtml {
  *
  * Each side is highlighted in isolation, so context lines are (intentionally)
  * highlighted on both sides — they can sit in different grammar state on the
- * old vs new side. Limitation: a hunk is highlighted on its own, so when a
- * stateful opener (an `@code {`, a `/*`, a backtick) lives in elided context
- * ABOVE the hunk, that hunk renders unhighlighted — the opener isn't in the
- * block. "Open file ↗" (FileApp) highlights the whole file and is the escape
- * hatch; widening this would mean fetching full-file context per hunk.
+ * old vs new side.
+ *
+ * `context` (the file's newer side, from its first line: FileContext, read
+ * by DiffFile) is what's ABOVE the hunk: a hunk starting inside a raw string,
+ * a `/*` comment or a Razor `@code {` was highlighted from the middle — the
+ * closing `"""` read as an opening one, and the rest of the hunk coloured as
+ * a string (reported, twice). With it, the newer side's lines come from the
+ * whole file highlighted once, and the older side's are highlighted after the
+ * lines above the hunk (the newer side's: the same text but for earlier
+ * hunks). Without it (static mode, a file too big): the hunk alone, as before.
  */
-function buildHunkHighlight(hunk: Hunk, lang: string | null | undefined): HunkLineHtml | null {
+export function buildHunkHighlight(hunk: Hunk, lang: string | null | undefined, context?: FileContext | null): HunkLineHtml | null {
   if (!lang) return null;
   const oldRows: { num: number; content: string }[] = [];
   const newRows: { num: number; content: string }[] = [];
@@ -40,11 +45,8 @@ function buildHunkHighlight(hunk: Hunk, lang: string | null | undefined): HunkLi
       newRows.push({ num: ln.newNum, content: ln.content });
     }
   }
-  const toMap = (rows: { num: number; content: string }[]): Map<number, string> => {
-    const html = highlightBlock(
-      rows.map((r) => r.content),
-      lang,
-    );
+  const toMap = (rows: { num: number; content: string }[], before: string[] = []): Map<number, string> => {
+    const html = highlightBlock([...before, ...rows.map((r) => r.content)], lang).slice(before.length);
     const m = new Map<number, string>();
     rows.forEach((r, i) => {
       const h = html[i];
@@ -52,7 +54,22 @@ function buildHunkHighlight(hunk: Hunk, lang: string | null | undefined): HunkLi
     });
     return m;
   };
+  if (context && context.lang === lang && newRows.every((r) => context.lines[r.num - 1] === r.content)) {
+    const neu = new Map<number, string>();
+    for (const r of newRows) {
+      const h = context.html[r.num - 1];
+      if (h) neu.set(r.num, h);
+    }
+    return { old: oldRows.length ? toMap(oldRows, context.lines.slice(0, Math.max(0, hunk.newStart - 1))) : new Map(), new: neu };
+  }
   return { old: toMap(oldRows), new: toMap(newRows) };
+}
+
+/** The file's newer side from its first line, and that text highlighted as one block (DiffFile's useFileContext). */
+export interface FileContext {
+  lang: string;
+  lines: string[];
+  html: (string | null)[];
 }
 
 interface Props {
@@ -64,6 +81,8 @@ interface Props {
   file?: string;
   /** Resolved hljs language for this file, or null to render plain text. */
   lang?: string | null;
+  /** The file's newer side, for a hunk that starts inside a string or comment (null: the hunk alone). */
+  context?: FileContext | null;
   /** Whether this hunk renders its own `@@ … @@` heading row. The parent
    *  sets this false when the heading is already shown on the expander bar
    *  of the gap directly above (GitHub-style single bar), or when the lines
@@ -72,7 +91,7 @@ interface Props {
   showHeading?: boolean;
 }
 
-export function DiffHunk({ hunk, review = false, repo, file, lang, showHeading = true }: Props) {
+export function DiffHunk({ hunk, review = false, repo, file, lang, context = null, showHeading = true }: Props) {
   const mode = useDiffMode();
   // Intra-line diff computation walks every row pair. Memoize so resizing
   // the sidebar or scrolling doesn't re-run it on each render.
@@ -80,7 +99,7 @@ export function DiffHunk({ hunk, review = false, repo, file, lang, showHeading =
   const iRows = useMemo(() => (mode === 'unified' ? inlineRows(hunk) : []), [hunk, mode]);
   // Highlight both sides of the hunk as contiguous blocks (preserves
   // multi-line grammar state), keyed by line number for per-cell lookup.
-  const lineHtml = useMemo(() => buildHunkHighlight(hunk, lang), [hunk, lang]);
+  const lineHtml = useMemo(() => buildHunkHighlight(hunk, lang, context), [hunk, lang, context]);
   // The unified table has 3 columns (old-ln, new-ln, content); the split
   // table has 4 (old-ln, old-content, new-ln, new-content). The hunk
   // heading row spans them all.

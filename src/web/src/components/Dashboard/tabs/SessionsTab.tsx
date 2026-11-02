@@ -16,7 +16,17 @@ import {
 } from '../../../api/client.js';
 import { removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import { DISPLAY_LABEL, displayStatus, isArchived, statusBucket, CONTEXT_WARN, type StatusBucket } from '../../../state/session-display.js';
+import {
+  DISPLAY_LABEL,
+  displayStatus,
+  isArchived,
+  owedBadge,
+  owedClass,
+  sessionBucket,
+  waitingOnOthers,
+  CONTEXT_WARN,
+  type StatusBucket,
+} from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
@@ -227,9 +237,7 @@ export function SessionsTab({
 
   const filtered = useMemo(() => {
     const pool = scope === 'archived' ? archivedOnly : scope === 'all' ? sessions : live;
-    const matched = pool.filter(
-      (s) => (filter === 'all' || statusBucket(displayStatus(s)) === filter) && inRail(s) && sessionMatches(s, query),
-    );
+    const matched = pool.filter((s) => (filter === 'all' || sessionBucket(s) === filter) && inRail(s) && sessionMatches(s, query));
     return [...matched].sort((a, b) => {
       if (sort === 'name') {
         const an = (a.branch || a.target).toLowerCase();
@@ -465,91 +473,103 @@ export function SessionsTab({
           </button>
         </p>
       )}
-      {filtered.length === 0 ? (
-        <div className="wd-tab-empty">
-          {scope !== 'live' && !archivedLoaded && archivedCount === 0
-            ? 'Loading archived sessions…'
-            : scope === 'archived' && archivedCount === 0
-              ? 'No archived sessions.'
-              : sessions.length === 0
-                ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
-                : 'No sessions match the current filter.'}
-        </div>
-      ) : railGroups ? (
-        <div className="wd-session-groups">
-          {railGroups.map((g) => (
-            <section key={g.key} className="wd-session-group">
-              <h2 className="wd-session-group-header">
-                <span className="wd-session-group-name">{g.title ?? 'Not in a section'}</span>
-                <span className="wd-tab-header-muted">({g.sessions.length})</span>
-              </h2>
-              {renderTable(g.sessions)}
-            </section>
-          ))}
-        </div>
-      ) : ages ? (
-        <div className="wd-session-groups">
-          {ages.map((g, _i, all) => {
-            // A search shows its matches, the older ones too.
-            // Archived ones are mostly older: listing them is what that view is for.
-            const folded = (x: { key: AgeBucket }) => x.key === 'older' && !showOlder && query.trim() === '' && scope !== 'archived';
-            if (folded(g)) {
-              return (
-                <button key={g.key} type="button" className="wd-link-button wd-session-older" onClick={() => setShowOlder(true)}>
-                  Show {g.sessions.length} older
-                </button>
-              );
-            }
-            return (
-              <section key={g.key} className={`wd-session-group wd-session-age wd-session-age-${g.key}`}>
-                {/* A heading only to tell two shown tables apart. */}
-                {all.filter((x) => !folded(x)).length > 1 && (
-                  <h2 className="wd-session-group-header">
-                    <span className="wd-session-group-name">{AGE_LABEL[g.key]}</span>
-                    <span className="wd-tab-header-muted">({g.sessions.length})</span>
-                    {g.key === 'older' && query.trim() === '' && scope !== 'archived' && (
-                      <button type="button" className="wd-link-button wd-session-age-toggle" onClick={() => setShowOlder(false)}>
-                        Hide
-                      </button>
-                    )}
-                  </h2>
-                )}
+      {/* One scroller for the tables and the conversation hits: side by side in the pane, the hits squeezed the tables to nothing. */}
+      <div className="wd-session-scroll">
+        {filtered.length === 0 ? (
+          <div className="wd-tab-empty">
+            {scope !== 'live' && !archivedLoaded && archivedCount === 0
+              ? 'Loading archived sessions…'
+              : scope === 'archived' && archivedCount === 0
+                ? 'No archived sessions.'
+                : sessions.length === 0
+                  ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
+                  : 'No sessions match the current filter.'}
+          </div>
+        ) : railGroups ? (
+          <div className="wd-session-groups">
+            {railGroups.map((g) => (
+              <section key={g.key} className="wd-session-group">
+                <h2 className="wd-session-group-header">
+                  <span className="wd-session-group-name">{g.title ?? 'Not in a section'}</span>
+                  <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                </h2>
                 {renderTable(g.sessions)}
               </section>
-            );
-          })}
-        </div>
-      ) : groups ? (
-        <div className="wd-session-groups">
-          {groups.map((g) => (
-            <section key={g.key} className="wd-session-group">
-              <h2 className="wd-session-group-header">
-                <span className="wd-session-group-name">{g.key}</span>
-                {g.isGroup && (
-                  <span className="wd-session-group-kind" title="Multi-repo group">
-                    group
-                  </span>
-                )}
-                {g.repos.length > 0 && (
-                  <ul className="wd-session-group-repos" aria-label="Repos in this group">
-                    {g.repos.map((r) => (
-                      <li key={r}>{r}</li>
-                    ))}
-                  </ul>
-                )}
-                <span className="wd-tab-header-muted">({g.sessions.length})</span>
-              </h2>
-              {renderTable(g.sessions)}
-            </section>
-          ))}
-        </div>
-      ) : (
-        <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
-      )}
-      <ConversationHits query={query} onOpen={(id) => onOpenSession(id, 'diff')} />
+            ))}
+          </div>
+        ) : ages ? (
+          <div className="wd-session-groups">
+            {ages.map((g, _i, all) => {
+              // A search shows its matches, the older ones too.
+              // Archived ones are mostly older: listing them is what that view is for.
+              const folded = (x: { key: AgeBucket }) => x.key === 'older' && !showOlder && query.trim() === '' && scope !== 'archived';
+              if (folded(g)) {
+                return (
+                  <button key={g.key} type="button" className="wd-link-button wd-session-older" onClick={() => setShowOlder(true)}>
+                    Show {g.sessions.length} older
+                  </button>
+                );
+              }
+              return (
+                <section key={g.key} className={`wd-session-group wd-session-age wd-session-age-${g.key}`}>
+                  {/* A heading only to tell two shown tables apart. */}
+                  {all.filter((x) => !folded(x)).length > 1 && (
+                    <h2 className="wd-session-group-header">
+                      <span className="wd-session-group-name">{AGE_LABEL[g.key]}</span>
+                      <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                      {g.key === 'older' && query.trim() === '' && scope !== 'archived' && (
+                        <button type="button" className="wd-link-button wd-session-age-toggle" onClick={() => setShowOlder(false)}>
+                          Hide
+                        </button>
+                      )}
+                    </h2>
+                  )}
+                  {renderTable(g.sessions)}
+                </section>
+              );
+            })}
+          </div>
+        ) : groups ? (
+          <div className="wd-session-groups">
+            {groups.map((g) => (
+              <section key={g.key} className="wd-session-group">
+                <h2 className="wd-session-group-header">
+                  <span className="wd-session-group-name">{g.key}</span>
+                  {g.isGroup && (
+                    <span className="wd-session-group-kind" title="Multi-repo group">
+                      group
+                    </span>
+                  )}
+                  {g.repos.length > 0 && (
+                    <ul className="wd-session-group-repos" aria-label="Repos in this group">
+                      {g.repos.map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                </h2>
+                {renderTable(g.sessions)}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
+        )}
+        <ConversationHits query={query} scope={scope} onOpen={(id) => onOpenSession(id, 'diff')} />
+      </div>
       {rowMenu && <RowMenu x={rowMenu.x} y={rowMenu.y} items={menuItems(rowMenu.s)} onClose={() => setRowMenu(null)} />}
     </div>
   );
+}
+
+/**
+ * The conversation hits a view lists: Archived's archived ones; Live and All
+ * every one — an archived conversation found from Live is how you get back
+ * to it (Restore).
+ */
+export function hitsInScope<H extends { archived: boolean }>(hits: H[], scope: ArchiveScope): H[] {
+  return scope === 'archived' ? hits.filter((h) => h.archived) : hits;
 }
 
 /**
@@ -558,8 +578,10 @@ export function SessionsTab({
  * the matching lines. work keeps the conversations (conversation-store.ts),
  * so this reaches back past Claude Code's own 30 days.
  */
-function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: string) => void }) {
-  const [hits, setHits] = useState<ConversationHit[]>([]);
+function ConversationHits({ query, scope, onOpen }: { query: string; scope: ArchiveScope; onOpen: (id: string) => void }) {
+  const [found, setHits] = useState<ConversationHit[]>([]);
+  // Archived lists only archived ones (hitsInScope).
+  const hits = useMemo(() => hitsInScope(found, scope), [found, scope]);
   const [restoring, setRestoring] = useState<string | null>(null);
   // Why a Restore was refused (its folder held by an editor, the branch gone…), under its hit — for this search only.
   const [refused, setRefused] = useState<{ id: string; text: string } | null>(null);
@@ -698,6 +720,7 @@ interface RowProps {
 /** One session: status, name, project, summary, changes, when. Click opens it; ⋯ (or right-click) for the rest. */
 function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag, onRestore, archivedView = false }: RowProps) {
   const kind = displayStatus(s);
+  const owed = owedBadge(s);
   const archived = isArchived(s);
   const repos = groupRepoNames(s);
   const archiving = useArchivePending(s.id); // also one started elsewhere (the session header)
@@ -709,7 +732,7 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
       className={
         'wd-session-row' +
         (archived ? ' wd-session-row-archived' : '') +
-        (kind === 'needs_input' || kind === 'done' ? ' wd-session-row-unseen' : '')
+        (kind === 'needs_input' || (owed && !archived) ? ' wd-session-row-unseen' : '')
       }
       onClick={onOpen}
       onContextMenu={(e) => {
@@ -741,6 +764,16 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           <StatusIcon kind={kind} muted={!!s.snoozed} />
           <span className="wd-st-label">{DISPLAY_LABEL[kind]}</span>
         </span>
+        {/* What waits on you, beside what its Claude is doing (the rail's badge). */}
+        {owed && !archived ? (
+          <span className={owedClass(owed) + ' wd-st-owed'} title={owed.title}>
+            {owed.text}
+          </span>
+        ) : !archived && waitingOnOthers(s) ? (
+          <span className="wd-rail-slot-waiting wd-st-owed" title={s.prStage?.text}>
+            in review
+          </span>
+        ) : null}
       </td>
       <td className="wd-st-session">
         <span className="wd-st-branch" title={named ? `${s.title} (${s.branch})` : s.branch}>
