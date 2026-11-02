@@ -3,6 +3,8 @@ import { describeView, writeAssistantContext } from '../../core/agents/assistant
 import { findSession } from '../../core/sessions/web-state.js';
 import { sessionWire, type SessionWireOptions } from '../../core/sessions/session-wire.js';
 import type { AssistantView } from '../../core/api-types.js';
+import { readReview } from '../../core/review/review-store.js';
+import { describeReview } from '../../core/review/review-build.js';
 
 export interface AssistantRoutesOptions {
   /** The web server's cached stats and overlaps, for the selected session. */
@@ -28,14 +30,19 @@ export function mountAssistantRoutes(app: Hono, opts: AssistantRoutesOptions = {
       ...(typeof body.note === 'string' ? { note: body.note.slice(0, 500) } : {}),
       ...(typeof body.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.day) ? { day: body.day } : {}),
       ...(typeof body.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.month) ? { month: body.month } : {}),
+      ...(body.review && typeof body.review.repo === 'string' && typeof body.review.number === 'number'
+        ? { review: { repo: body.review.repo.slice(0, 80), number: Math.trunc(body.review.number) } }
+        : {}),
     };
     const s = view.sessionId ? findSession(view.sessionId) : null;
     let wire = s ? sessionWire(s, opts.wireOptions) : null;
     const o = wire ? opts.overlapsFor?.(wire.id) : undefined;
     if (wire && o) wire = { ...wire, overlaps: o };
     // The Time tab's day (or month) is kept by date: the hook describes it as it is at each prompt.
+    // The Reviews tab's PR: its prepared review, in words (fenced: the PR is someone else's text).
+    const review = view.tab === 'reviews' && view.review ? readReview(view.review.repo, view.review.number) : null;
     writeAssistantContext(
-      describeView(view, wire),
+      [describeView(view, wire), review ? describeReview(review) : ''].filter(Boolean).join('\n'),
       Date.now(),
       view.tab === 'time' && !view.month ? view.day : undefined,
       view.tab === 'time' ? view.month : undefined,

@@ -53,6 +53,7 @@ import { createDemoTime } from './demo-time.js';
 import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
 import { monthRange } from '../../core/time/time-month.js';
 import { mountDemoReplies } from './demo-replies.js';
+import { mountDemoReviews } from './demo-reviews.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
 import { DemoRepoError } from './demo-repos.js';
@@ -87,6 +88,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, demo: true, lean: false, build: buildStamp() }));
   // The demo is not the singleton and has nothing to clean up; refuse.
   app.post('/api/shutdown', (c) => c.json({ error: 'the demo is stopped with Ctrl+C' }, 501));
+  // PR reviews prepared in the background (demo-reviews.ts).
+  mountDemoReviews(app, (event, data) => broadcast({ event, data } as DemoEvent));
   // Reply drafts on review threads (demo-replies.ts).
   const draftsFor = mountDemoReplies(app, scenario, (sessionId) => {
     broadcast({ event: 'replies-changed', data: { sessionId } });

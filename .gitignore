@@ -17,3 +17,6 @@ test-results/
 .claude/worktrees/
 .playwright-mcp/
 .mtk/
+
+# Session handoff notes (mtk handoff): local only
+docs/handoffs/

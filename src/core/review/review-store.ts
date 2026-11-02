@@ -1,0 +1,91 @@
+import { json, tx, withDb } from '../platform/db.js';
+import type { PrReviewWire } from '../api-types.js';
+
+/**
+ * Prepared reviews, one per PR (`repo#number`), in state.db `pr_reviews`
+ * (schema v11). A row is the review for one head commit; a new push queues
+ * it again. Not a session's state: a PR is reviewed whether or not a session
+ * is on it, and its row goes when the PR is no longer open (`keepOnly`).
+ * Rows are parsed as unknown and shape-checked (`isReview`), never cast.
+ */
+
+export const reviewKey = (repo: string, number: number) => `${repo}#${number}`;
+
+const STATUSES = new Set(['queued', 'running', 'ready', 'waiting', 'failed']);
+
+/** A stored review as written here; anything else is dropped. */
+export function isReview(v: unknown): v is PrReviewWire {
+  const r = v as Partial<PrReviewWire> | null;
+  return (
+    !!r &&
+    typeof r === 'object' &&
+    typeof r.repo === 'string' &&
+    typeof r.number === 'number' &&
+    typeof r.title === 'string' &&
+    typeof r.url === 'string' &&
+    typeof r.headSha === 'string' &&
+    typeof r.status === 'string' &&
+    STATUSES.has(r.status) &&
+    typeof r.at === 'string' &&
+    !!r.size &&
+    typeof r.size.files === 'number' &&
+    Array.isArray(r.files) &&
+    !!r.tests &&
+    Array.isArray(r.tests.list) &&
+    Array.isArray(r.tests.gaps) &&
+    Array.isArray(r.stories) &&
+    Array.isArray(r.drafts) &&
+    Array.isArray(r.unstoried)
+  );
+}
+
+export function readReview(repo: string, number: number): PrReviewWire | null {
+  return withDb((d) => {
+    const row = d.prepare('SELECT data FROM pr_reviews WHERE key = ?').get(reviewKey(repo, number)) as { data: string } | undefined;
+    const v = row ? json.parse(row.data) : null;
+    return isReview(v) ? v : null;
+  });
+}
+
+export function allReviews(): PrReviewWire[] {
+  return withDb((d) =>
+    (d.prepare('SELECT data FROM pr_reviews').all() as Array<{ data: string }>).map((r) => json.parse(r.data)).filter(isReview),
+  );
+}
+
+export function writeReview(r: PrReviewWire): void {
+  withDb((d) =>
+    d.prepare('INSERT OR REPLACE INTO pr_reviews (key, data) VALUES (?, ?)').run(reviewKey(r.repo, r.number), JSON.stringify(r)),
+  );
+}
+
+/** Change a stored review in one transaction (a draft posted, a status moved); null when there is none. */
+export function updateReview(repo: string, number: number, change: (r: PrReviewWire) => PrReviewWire): PrReviewWire | null {
+  return tx((d) => {
+    const row = d.prepare('SELECT data FROM pr_reviews WHERE key = ?').get(reviewKey(repo, number)) as { data: string } | undefined;
+    const was = row ? json.parse(row.data) : null;
+    if (!isReview(was)) return null;
+    const next = change(was);
+    d.prepare('INSERT OR REPLACE INTO pr_reviews (key, data) VALUES (?, ?)').run(reviewKey(repo, number), JSON.stringify(next));
+    return next;
+  });
+}
+
+/** Drop the reviews of PRs no longer open (`open`: the keys still open, per repo asked); repos not asked keep theirs. */
+export function keepOnly(repos: string[], open: Set<string>): number {
+  const asked = new Set(repos);
+  return tx((d) => {
+    let gone = 0;
+    for (const r of d.prepare('SELECT key, data FROM pr_reviews').all() as Array<{ key: string; data: string }>) {
+      const v = json.parse(r.data);
+      const repo = isReview(v) ? v.repo : r.key.split('#')[0];
+      if (asked.has(repo) && !open.has(r.key)) {
+        d.prepare('DELETE FROM pr_reviews WHERE key = ?').run(r.key);
+        gone++;
+      }
+    }
+    return gone;
+  });
+}
+
+export { summaryOf } from './review-build.js';

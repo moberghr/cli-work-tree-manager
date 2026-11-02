@@ -81,6 +81,8 @@ import { applyArchiveRetention } from '../core/archive/archive-retention.js';
 import { defaultTimeDeps } from '../core/time/time-deps.js';
 import { createTimeKeeper, TIME_EVERY_MS } from '../core/time/time-keeper.js';
 import { mountTimeRoutes } from './routes/time-routes.js';
+import { mountReviewRoutes } from './routes/review-routes.js';
+import { realReviewQueue, realReviewRouteIo } from '../core/review/review-deps.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
 import { bestEffort } from '../core/platform/best-effort.js';
@@ -691,6 +693,22 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const timeTimer = !jobs ? null : setInterval(keepTime, TIME_EVERY_MS);
   timeTimer?.unref?.();
 
+  // PR reviews prepared in the background (#64, core/review/): every 10 minutes, the first a few minutes after start.
+  // The dev server serves them but prepares none (it acts on nothing; your clicks still do).
+  const REVIEWS_EVERY_MS = 10 * 60_000;
+  const reviewQueue = realReviewQueue({ activity, changed: () => broadcast('reviews-changed', {}) });
+  const reviewsSchedule = !jobs ? null : activity.schedule('reviews', 'Preparing PR reviews', REVIEWS_EVERY_MS);
+  const sweepReviews = () => {
+    reviewsSchedule?.next(Date.now() + REVIEWS_EVERY_MS);
+    void reviewQueue.sweep();
+  };
+  const reviewsFirst = !jobs ? null : setTimeout(sweepReviews, 4 * 60_000);
+  reviewsFirst?.unref?.();
+  reviewsSchedule?.next(Date.now() + 4 * 60_000);
+  const reviewsTimer = !jobs ? null : setInterval(sweepReviews, REVIEWS_EVERY_MS);
+  reviewsTimer?.unref?.();
+  mountReviewRoutes(app, { ...realReviewRouteIo(), runNow: (repo, n) => reviewQueue.runNow(repo, n), broadcast });
+
   // Old archived conversations get compressed (archive-retention.ts): a few
   // minutes after start, then daily.
   const RETENTION_EVERY_MS = 24 * 3600_000;
@@ -1127,6 +1145,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       if (conversationsTimer) clearInterval(conversationsTimer);
       if (conversationsFirst) clearTimeout(conversationsFirst);
       if (updatesFirst) clearTimeout(updatesFirst);
+      if (reviewsFirst) clearTimeout(reviewsFirst);
+      if (reviewsTimer) clearInterval(reviewsTimer);
       if (updatesTimer) clearInterval(updatesTimer);
       if (timeFirst) clearTimeout(timeFirst);
       if (timeTimer) clearInterval(timeTimer);

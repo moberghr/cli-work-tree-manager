@@ -55,6 +55,12 @@ export interface WorkConfig {
   /** The agent the Ctrl+K assistant runs (an adapter's id; Claude Code by default). */
   assistantAgent?: string;
   /**
+   * PR reviews prepared in the background (#64, core/review/): per project (a repo alias or a group) `all` open PRs
+   * (the default), only those `asked` of you, or `off`; the day's cap and the size above which a review waits for a
+   * click; and kind-of-change rules before the defaults (change-kinds.ts).
+   */
+  reviews?: { projects?: Record<string, 'all' | 'asked' | 'off'>; maxPerDay?: number; maxLines?: number; rules?: unknown[] };
+  /**
    * The git host of an origin whose URL can't tell (core/hosts/index.ts): its hostname (lower case) → a host id
    * (`{"git.corp.example": "github"}` for GitHub Enterprise). The registry reads it from the raw config.
    */
@@ -343,6 +349,25 @@ export function loadConfig(): WorkConfig | null {
       claudeAccount: typeof parsed.claudeAccount === 'string' ? parsed.claudeAccount : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
+      reviews:
+        parsed.reviews && typeof parsed.reviews === 'object' && !Array.isArray(parsed.reviews)
+          ? {
+              ...(parsed.reviews.projects && typeof parsed.reviews.projects === 'object'
+                ? {
+                    projects: Object.fromEntries(
+                      Object.entries(parsed.reviews.projects as Record<string, unknown>).filter(
+                        (e): e is [string, 'all' | 'asked' | 'off'] => e[1] === 'all' || e[1] === 'asked' || e[1] === 'off',
+                      ),
+                    ),
+                  }
+                : {}),
+              ...(typeof parsed.reviews.maxPerDay === 'number' && parsed.reviews.maxPerDay >= 0
+                ? { maxPerDay: parsed.reviews.maxPerDay }
+                : {}),
+              ...(typeof parsed.reviews.maxLines === 'number' && parsed.reviews.maxLines > 0 ? { maxLines: parsed.reviews.maxLines } : {}),
+              ...(Array.isArray(parsed.reviews.rules) ? { rules: parsed.reviews.rules as unknown[] } : {}),
+            }
+          : undefined,
       gitHosts:
         parsed.gitHosts && typeof parsed.gitHosts === 'object' && !Array.isArray(parsed.gitHosts)
           ? Object.fromEntries(

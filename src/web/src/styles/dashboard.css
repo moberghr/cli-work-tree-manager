@@ -5528,3 +5528,139 @@ a.wd-pr-chip:hover {
 .wd-account-pending {
   color: var(--accent, inherit);
 }
+
+/* Reviews (#64): PRs with a review prepared, and one review by kind of change. */
+.wd-reviews {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) 1fr;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px 16px;
+  overflow: hidden;
+}
+.wd-reviews-list,
+.wd-reviews-main {
+  overflow: auto;
+  min-height: 0;
+}
+.wd-reviews-list ul,
+.wd-review-files,
+.wd-review-tests {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wd-reviews-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wd-reviews-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.wd-reviews-row:hover,
+.wd-reviews-row-active {
+  border-color: var(--border, #8884);
+  background: var(--bg-subtle, #8881);
+}
+.wd-reviews-row-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-reviews-row-meta {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.wd-reviews-status {
+  font-weight: 600;
+}
+.wd-reviews-status-waiting,
+.wd-reviews-status-failed {
+  color: var(--warn, #b7791f);
+}
+.wd-reviews-status-ready {
+  color: var(--ok, #2f855a);
+}
+.wd-review-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.wd-review-actions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.wd-review-section {
+  margin: 16px 0;
+}
+.wd-review-section h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.wd-review-warn {
+  color: var(--warn, #b7791f);
+}
+.wd-review-story,
+.wd-review-draft {
+  border: 1px solid var(--border, #8884);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.wd-review-story p {
+  margin: 2px 0;
+}
+.wd-review-risk {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.wd-review-flag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--warn-bg, #b7791f22);
+}
+.wd-review-test-removed,
+.wd-review-test-skipped {
+  color: var(--warn, #b7791f);
+}
+.wd-review-kind {
+  margin: 4px 0;
+}
+.wd-review-files li {
+  margin: 2px 0 2px 12px;
+}
+.wd-review-diff {
+  margin: 6px 0;
+  overflow-x: auto;
+}
+.wd-review-draft textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+.wd-review-settings td {
+  padding: 4px 8px 4px 0;
+}
+@media (max-width: 760px) {
+  .wd-reviews {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+}

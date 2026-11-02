@@ -429,3 +429,39 @@ export const restartAgents = (which: { outdated: true } | { ids: string[] }) => 
 export function fetchReleaseNotes(): Promise<{ releases: ReleaseNote[]; checkError: string | null }> {
   return getJson('/api/updates/notes');
 }
+
+// ---- Reviews (#64: PR reviews prepared in the background) ----
+
+type PrReviewWire = import('../../../core/api-types.js').PrReviewWire;
+type ReviewsWire = import('../../../core/api-types.js').ReviewsWire;
+type ReviewSettingsWire = import('../../../core/api-types.js').ReviewSettingsWire;
+type ParsedFile = import('../../../core/diff/diff-parse.js').ParsedFile;
+
+const reviewPath = (repo: string, n: number) => `/api/reviews/${encodeURIComponent(repo)}/${n}`;
+
+export function fetchReviews(): Promise<ReviewsWire> {
+  return getJson('/api/reviews');
+}
+export function fetchReview(repo: string, n: number): Promise<PrReviewWire> {
+  return getJson(reviewPath(repo, n));
+}
+export function fetchReviewDiff(repo: string, n: number): Promise<{ files: ParsedFile[] }> {
+  return getJson(`${reviewPath(repo, n)}/diff`);
+}
+/** Prepare it now (your click: whatever its size or the day's count). */
+export function prepareReview(repo: string, n: number): Promise<PrReviewWire> {
+  return postJson(reviewPath(repo, n), {});
+}
+/** Post a draft comment on the PR, in your name — only from your click. */
+export function postReviewDraft(repo: string, n: number, id: string, body: string): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/drafts/${encodeURIComponent(id)}/post`, { body });
+}
+export function discardReviewDraft(repo: string, n: number, id: string): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/drafts/${encodeURIComponent(id)}`, {}, 'DELETE');
+}
+export function fetchReviewSettings(): Promise<ReviewSettingsWire> {
+  return getJson('/api/reviews/settings');
+}
+export function saveReviewMode(project: string, mode: 'all' | 'asked' | 'off'): Promise<ReviewSettingsWire> {
+  return postJson('/api/reviews/settings', { project, mode }, 'PUT');
+}

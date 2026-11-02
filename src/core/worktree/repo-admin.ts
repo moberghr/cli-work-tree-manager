@@ -202,3 +202,15 @@ export async function deleteGroup(name: string, history: WorktreeSession[], opts
   });
   fs.rmSync(path.join(getConfigDir(), `${name}.claude.md`), { force: true });
 }
+
+/** A project's automatic reviews (#64): `all`, `asked` or `off`, for a repo alias or a group name in config. */
+export async function setReviewMode(project: string, mode: 'all' | 'asked' | 'off'): Promise<void> {
+  await editConfig((raw) => {
+    if (!raw.repos?.[project] && !raw.groups?.[project]) throw new RepoAdminError(`${project} isn't one of your repos or groups`);
+    const reviews = (raw.reviews && typeof raw.reviews === 'object' && !Array.isArray(raw.reviews) ? raw.reviews : {}) as {
+      projects?: Record<string, string>;
+    };
+    reviews.projects = { ...(reviews.projects ?? {}), [project]: mode };
+    raw.reviews = reviews;
+  });
+}

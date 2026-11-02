@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -100,6 +100,9 @@ CREATE TABLE IF NOT EXISTS time_days (day TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- The PR watch's last check of each session, so a restart shows its PRs at once (pr-watch-store.ts). (v10)
 CREATE TABLE IF NOT EXISTS pr_watch_state (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- Prepared PR reviews, one per PR (repo alias + number), redone when its head moves (core/review/review-store.ts). (v11)
+CREATE TABLE IF NOT EXISTS pr_reviews (key TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.

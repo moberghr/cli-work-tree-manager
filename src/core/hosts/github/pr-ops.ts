@@ -249,7 +249,8 @@ export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<Ho
   const prs = list.flatMap((x): OpenPr[] => {
     const o = (x ?? {}) as Record<string, unknown>;
     if (typeof o.number !== 'number' || typeof o.headRefOid !== 'string') return [];
-    const login = (v: unknown) => (v && typeof v === 'object' && typeof (v as { login?: unknown }).login === 'string' ? (v as { login: string }).login : '');
+    const login = (v: unknown) =>
+      v && typeof v === 'object' && typeof (v as { login?: unknown }).login === 'string' ? (v as { login: string }).login : '';
     return [
       {
         number: o.number,

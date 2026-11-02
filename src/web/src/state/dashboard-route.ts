@@ -25,7 +25,7 @@
  * `/api/context` returning `{mode:'review'}` to pick `ReviewApp`.
  */
 
-export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'time' | 'repos' | 'welcome';
+export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'reviews' | 'time' | 'repos' | 'welcome';
 
 /** Pages that no longer exist, and where their links land now. */
 const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start' };
@@ -49,7 +49,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
   sessionSubTab: 'term',
 };
 
-const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|welcome|prs|jira|time|tasks)\/?$/;
+const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|welcome|prs|jira|reviews|time|tasks)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|timeline))?\/?$/;
 
 export function parseHash(hash: string): DashboardRoute {

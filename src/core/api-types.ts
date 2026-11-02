@@ -338,6 +338,8 @@ export interface AssistantView {
   day?: string;
   /** The Time tab's Month view on screen (`YYYY-MM`): described in place of a day. */
   month?: string;
+  /** The Reviews tab's PR on screen: its prepared review is described (#64). */
+  review?: { repo: string; number: number };
 }
 
 // ---- cleanup --------------------------------------------------------------
@@ -1249,6 +1251,7 @@ export interface JiraWatchState {
 /** What work does in the background (core/activity.ts), for the Activity panel. */
 export type ActivityKind =
   | 'pr-watch'
+  | 'reviews'
   | 'pr-list'
   | 'jira'
   | 'idle-sleep'
@@ -1431,4 +1434,110 @@ export interface LastReplyWire {
 export interface PtyHostRestartWire {
   outcome: 'stopped' | 'not-running' | 'stale-file';
   pid: number;
+}
+
+// ---- Reviews (#64: PR reviews prepared in the background, core/review/) ----
+
+/** Where a PR's prepared review stands. */
+export type ReviewStatus = 'queued' | 'running' | 'ready' | 'waiting' | 'failed';
+
+/** A file of the PR: its kind of change and why (change-kinds.ts). */
+export interface ReviewFileWire {
+  path: string;
+  oldPath?: string;
+  status: string;
+  added: number;
+  deleted: number;
+  kind: import('./review/change-kinds.js').ChangeKind;
+  why: string;
+  by: 'rule' | 'git';
+}
+
+/** A draft review comment (the agent pass's note): posted only on your click. */
+export interface ReviewDraftWire {
+  id: string;
+  path: string;
+  line: number;
+  body: string;
+  state: 'draft' | 'posted';
+  url?: string;
+}
+
+/** GET /api/reviews/:repo/:number — a PR's review, as prepared for its head. */
+export interface PrReviewWire {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  branch: string;
+  base: string;
+  headSha: string;
+  /** The host it's on (absent: GitHub). */
+  host?: string;
+  status: ReviewStatus;
+  /** Why it waits, failed, or was prepared without the AI step. */
+  why: string | null;
+  /** When the status last changed (ISO). */
+  at: string;
+  size: { files: number; added: number; deleted: number };
+  files: ReviewFileWire[];
+  tests: {
+    list: import('./review/test-breakdown.js').FoundTest[];
+    counts: Record<import('./review/test-breakdown.js').TestChange, number>;
+    /** Production files (logic, schema, API) no test of the PR touches. */
+    gaps: string[];
+    /** A test file → the production files it covers. */
+    covers: Record<string, string[]>;
+    unitOnlyForSchema: boolean;
+  };
+  stories: import('./review/review-plan.js').Story[];
+  /** Logic files no story names (never hidden). */
+  unstoried: string[];
+  drafts: ReviewDraftWire[];
+  /** A test's name → what it actually asserts (the AI step's word). */
+  asserts: Record<string, string>;
+  /** The AI step: ran, none (no agent, or too big), or failed (stories by folder then). */
+  aiStep: 'done' | 'none' | 'failed';
+  /** The commit its diff starts from (the merge-base with its base branch), for the diff view. */
+  mergeBase?: string;
+  /** When it was prepared (counts against the day's cap). */
+  preparedAt?: string;
+}
+
+/** One row of the Reviews list. */
+export interface ReviewSummaryWire {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  host?: string;
+  status: ReviewStatus;
+  why: string | null;
+  at: string;
+  size: { files: number; added: number; deleted: number };
+  stories: number;
+  /** Flags across its stories (no tests, a public contract changed, …). */
+  flags: number;
+  /** Production changes no test touches. */
+  gaps: number;
+}
+
+/** GET /api/reviews */
+export interface ReviewsWire {
+  reviews: ReviewSummaryWire[];
+  /** Reviews prepared today, against the day's cap. */
+  today: number;
+  maxPerDay: number;
+}
+
+/** A project's setting for automatic reviews: every open PR, only those asking you, or none. */
+export type ReviewMode = 'all' | 'asked' | 'off';
+
+/** GET /api/reviews/settings — each repo and group, its automatic-review mode, and the limits. PUT {project, mode} sets one. */
+export interface ReviewSettingsWire {
+  projects: Array<{ name: string; kind: 'repo' | 'group'; mode: ReviewMode; from: 'repo' | 'group' | 'default'; group?: string }>;
+  maxPerDay: number;
+  maxLines: number;
 }

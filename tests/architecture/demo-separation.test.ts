@@ -69,6 +69,8 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/time/time-view.ts', // pure: the Time tab's days as shown
       'src/core/time/time-month.ts', // pure: the Month view and what posting the month would do
       'src/core/sessions/account-switch-rules.ts', // pure: when a switch of account is refused
+      'src/core/review/review-build.ts', // pure: a PR's review from its diff (kinds, tests, stories)
+      'src/core/review/review-config.ts', // pure: review modes and limits
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

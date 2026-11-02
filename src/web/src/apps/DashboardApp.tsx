@@ -42,6 +42,7 @@ import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { ReposTab } from '../components/Dashboard/tabs/ReposTab.js';
 import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
 import { TimeTab } from '../components/Dashboard/tabs/TimeTab.js';
+import { ReviewsTab } from '../components/Dashboard/tabs/ReviewsTab.js';
 import { WelcomeTab } from '../components/Dashboard/tabs/WelcomeTab.js';
 import { fetchSetup } from '../api/panes.js';
 import { needsSetup } from '../state/setup.js';
@@ -94,6 +95,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   sessions: 'Sessions',
   start: 'Start',
   jira: 'Jira',
+  reviews: 'Reviews',
   time: 'Time',
   repos: 'Repos',
   welcome: 'Welcome',
@@ -187,6 +189,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // The Time tab's day on screen: the assistant is told about it.
   const [timeDay, setTimeDay] = useState<string | null>(null);
   const [timeMonth, setTimeMonth] = useState<string | null>(null);
+  // The Reviews tab's PR on screen: told to the Ctrl+K assistant with the view.
+  const [reviewShown, setReviewShown] = useState<{ repo: string; number: number } | null>(null);
   const toggleAssistant = useCallback(() => {
     setAssistantMounted(true);
     setAssistantOpen((o) => !o);
@@ -600,6 +604,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           c: 'cleanup',
           j: 'jira',
           h: 'time',
+          v: 'reviews',
           // The old chord for the PRs page: they're on Start.
           p: 'start',
         };
@@ -754,9 +759,10 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       : {
           tab: route.tab,
           ...(route.tab === 'time' && timeMonth ? { month: timeMonth } : route.tab === 'time' && timeDay ? { day: timeDay } : {}),
+          ...(route.tab === 'reviews' && reviewShown ? { review: reviewShown } : {}),
         };
     void reportAssistantView(view).catch(() => {});
-  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay, timeMonth]);
+  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay, timeMonth, reviewShown]);
 
   // Opening a session that wanted you counts as having seen it — once per
   // unseen episode (keyed by when it entered that state), and only while
@@ -888,6 +894,17 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             sessions={sessions}
             onPickIssue={(issue) => openNew({ branch: `feat/${issue.key}`, jiraKey: issue.key, prompt: jiraPrompt(issue) })}
             onOpenSession={(id) => openSession(id)}
+          />
+        );
+        break;
+      case 'reviews':
+        body = (
+          <ReviewsTab
+            onShown={setReviewShown}
+            onAsk={() => {
+              setAssistantMounted(true);
+              setAssistantOpen(true);
+            }}
           />
         );
         break;
