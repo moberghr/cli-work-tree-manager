@@ -167,6 +167,8 @@ describe('architecture boundaries', () => {
       'src/core/rail/rail-layout.js',
       'src/core/conversations/work-time-view.js',
       'src/core/rail/blocks.js',
+      'src/core/hosts/commands.js',
+      'src/core/hosts/links.js',
       'src/core/conversations/timeline.js',
       'src/core/pty/host-health.js',
       'src/core/pty/restart-view.js', // pure: how a restart of agents is said

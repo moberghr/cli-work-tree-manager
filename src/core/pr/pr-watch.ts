@@ -1,4 +1,6 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
+import { defaultHost, hostById } from '../hosts/index.js';
+import { commandsFor } from '../hosts/commands.js';
 import type { SessionCi, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
 import {
@@ -86,9 +88,9 @@ export interface PrWatchDeps {
   lookOnly?: boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
-  /** Who gh is signed in as: a PR by someone else (you work on it or review it) is theirs —
-   *  its review threads are addressed to its author, and its CI isn't yours to fix unasked. */
-  viewer?: () => Promise<string | null>;
+  /** Who you're signed in as on a host (`host`: its id; absent: GitHub): a PR by someone else (you work on it or
+   *  review it) is theirs — its review threads are addressed to its author, and its CI isn't yours to fix unasked. */
+  viewer?: (host?: string) => Promise<string | null>;
   /** Review threads/comments on a PR (null when gh can't say). */
   reviewFeedback?: (repoPath: string, prNumber: number) => Promise<ReviewFeedback | null>;
   /** Per session: what was already acted on — CI head commits reported,
@@ -127,7 +129,7 @@ export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
 export const THREADS_RECHECK_MS = 10 * 60_000;
 
 export function ciFixMessage(
-  failing: Array<{ repo: string; number: number; checks: string[] }>,
+  failing: Array<{ repo: string; number: number; checks: string[]; host?: string }>,
   isGroup: boolean,
   contextShare?: number | null,
 ): string {
@@ -137,7 +139,9 @@ export function ciFixMessage(
     'CI is failing:',
     ...lines,
     '',
-    'Look at the failures (`gh pr checks <n>`, `gh run view <run-id> --log-failed`), fix them, and push.',
+    `Look at the failures (${[...new Set(failing.map((f) => f.host))]
+      .map((h) => `\`${commandsFor(h).checks('<n>')}\`, \`${commandsFor(h).failedLog}\``)
+      .join('; ')}), fix them, and push.`,
     `If fixing one needs a decision from me — the check is right but the fix changes behaviour, or the check itself looks wrong — don't guess: start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
     ...(hint ? [hint] : []),
   ].join('\n');
@@ -372,7 +376,13 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   function failingOf(ci: SessionCi) {
     return ci.repos
       .filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail')
-      .map((r) => ({ repo: r.name, number: r.pr!.number, headSha: r.pr!.headSha, checks: (r.pr!.failing ?? []).map((f) => f.name) }));
+      .map((r) => ({
+        repo: r.name,
+        number: r.pr!.number,
+        headSha: r.pr!.headSha,
+        checks: (r.pr!.failing ?? []).map((f) => f.name),
+        ...(r.host ? { host: r.host } : {}),
+      }));
   }
 
   /** One check per session at a time: a second asker gets the one running. */
@@ -396,22 +406,33 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     }
     // GitHub refused: every PR reads as "none". Keep what we knew, act on
     // nothing, and let the sweeps rest (each would only spend more).
-    if (pre.repos.some((r) => r.ghError && RATE_LIMITED.test(r.ghError))) {
+    const limited = pre.repos.find((r) => r.ghError && (hostById(r.host) ?? defaultHost()).rateLimited(r.ghError));
+    if (limited) {
+      const hostName = (hostById(limited.host) ?? defaultHost()).name;
       pausedUntil = now() + RATE_LIMIT_PAUSE_MS;
-      schedule?.pause(pausedUntil, "GitHub's API limit is spent");
-      note(`GitHub says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
+      schedule?.pause(pausedUntil, `${hostName}'s API limit is spent`);
+      note(`${hostName} says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
       return states.get(id) ?? null;
     }
     const opts = deps.options();
     // Someone else's PR (a session working on it or reviewing it): its threads are for its
     // author, and its Claude was told to wait for what you want. Shown, never handed over.
-    const viewer = pre.repos.some((r) => r.pr?.author) ? await (deps.viewer?.() ?? Promise.resolve(null)).catch(() => null) : null;
+    const viewers = new Map<string | undefined, string | null>();
+    for (const r of pre.repos)
+      if (r.pr?.author && !viewers.has(r.host))
+        viewers.set(r.host, await (deps.viewer?.(r.host) ?? Promise.resolve(null)).catch(() => null));
+    const viewer = viewers.get(undefined) ?? [...viewers.values()].find((v) => !!v) ?? null;
     const theirs = new Set(
-      pre.repos.filter((r) => r.pr?.author && viewer && r.pr.author.toLowerCase() !== viewer.toLowerCase()).map((r) => r.name),
+      pre.repos
+        .filter((r) => {
+          const me = viewers.get(r.host);
+          return r.pr?.author && me && r.pr.author.toLowerCase() !== me.toLowerCase();
+        })
+        .map((r) => r.name),
     );
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
-    const feedback: Array<{ repo: string; number: number; items: FeedbackItem[] }> = [];
+    const feedback: Array<{ repo: string; number: number; items: FeedbackItem[]; host?: string }> = [];
     const feedbackSeen = staged(id);
     const threads = new Map<string, number>();
     const threadList = new Map<string, OpenReviewThread[]>();
@@ -453,7 +474,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {
             trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
           });
-          if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
+          if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items, ...(r.host ? { host: r.host } : {}) });
         }
       }
     }
@@ -462,6 +483,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       ...(viewer ? { viewer } : {}),
       repos: pre.repos.map((r) => ({
         name: r.name,
+        ...(r.host ? { host: r.host } : {}),
         pr: r.pr,
         done: r.done,
         ...(threads.has(r.name) ? { openThreads: threads.get(r.name)! } : {}),

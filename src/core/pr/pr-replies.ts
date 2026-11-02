@@ -7,8 +7,10 @@ import { isSessionCi } from './pr-watch-store.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { sessionRepos } from '../sessions/session-repos.js';
 import { loadConfig } from '../platform/config.js';
-import { readGitConfig } from '../worktree/repo-scan.js';
-import { githubRepoOf } from './pr.js';
+import { readGitConfig, originUrl } from '../worktree/repo-scan.js';
+import { defaultHost, hostForOrigin, hostOfThread, knownHosts } from '../hosts/index.js';
+import type { GitHost } from '../hosts/types.js';
+import { GITHUB_THREAD_ID } from '../hosts/github/threads.js';
 import { checkedOutBranch } from '../git/git-head.js';
 
 /**
@@ -27,8 +29,14 @@ import { checkedOutBranch } from '../git/git-head.js';
  * "Ask Claude to reply" hands one over as a plain note, with no row here.
  */
 
-/** GitHub review-thread node ids. Checked before a thread id reaches gh or the database. */
-export const THREAD_ID = /^PRRT_[A-Za-z0-9_-]{4,120}$/;
+/** A review-thread id of some host work knows (each host's own shape). Checked before an id reaches a CLI or the database. */
+export function isThreadId(id: string): boolean {
+  return knownHosts().some((h) => h.threads.isId(id));
+}
+/** GitHub's thread ids (`PRRT_…`). Kept for callers from before hosts: `isThreadId` takes every host's. */
+export const THREAD_ID = GITHUB_THREAD_ID;
+/** The host a thread id belongs to (GitHub's when none reads it: such an id was refused before reaching here). */
+const threadHost = (id: string): GitHost => hostOfThread(id) ?? defaultHost();
 export const MAX_REPLY_CHARS = 20_000;
 
 function parseRow(data: string): PrReply | null {
@@ -92,7 +100,7 @@ export function rememberSent(
   tx((d) => {
     const put = d.prepare('INSERT OR REPLACE INTO pr_replies (session_id, thread_id, data) VALUES (?, ?, ?)');
     for (const t of threads) {
-      if (!THREAD_ID.test(t.threadId)) continue;
+      if (!isThreadId(t.threadId)) continue;
       const row: PrReply = { ...t, status: 'sent', draft: null, sentAt: now.toISOString() };
       put.run(sessionId, t.threadId, JSON.stringify(row));
     }
@@ -144,7 +152,7 @@ export function saveDraft(
   now = new Date(),
   opts: { unsafe?: boolean; live?: PrReply } = {},
 ): DraftResult {
-  if (!THREAD_ID.test(threadId)) return { ok: false, error: `not a review thread id: ${threadId}` };
+  if (!isThreadId(threadId)) return { ok: false, error: `not a review thread id: ${threadId}` };
   const text = body.trim();
   if (!text) return { ok: false, error: 'the reply is empty' };
   if (text.length > MAX_REPLY_CHARS) return { ok: false, error: `the reply is over ${MAX_REPLY_CHARS} characters` };
@@ -188,16 +196,6 @@ function markPosted(sessionId: string, threadId: string, body: string, postedUrl
   });
 }
 
-const ADD_REPLY = `mutation($threadId: ID!, $body: String!) {
-  addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) { comment { url } }
-}`;
-const RESOLVE = `mutation($threadId: ID!) { resolveReviewThread(input: { threadId: $threadId }) { thread { isResolved } } }`;
-/** The thread as it is now, and who you are: the last check before a reply goes out. */
-const THREAD_NOW = `query($threadId: ID!) {
-  viewer { login }
-  node(id: $threadId) { ... on PullRequestReviewThread { isResolved comments(last: 1) { nodes { author { login } } } } }
-}`;
-
 /**
  * Why a reply mustn't go out now, from the thread as GitHub has it: the last
  * word in it is already yours (you'd be answering yourself — a PR author's
@@ -205,20 +203,12 @@ const THREAD_NOW = `query($threadId: ID!) {
  * Null to go ahead. When gh can't say, it isn't posted (it'd be in your name). Exported for tests.
  */
 export async function threadRefusal(threadId: string, cwd: string, run: CommandRunner): Promise<string | null> {
-  const r = await run('gh', ['api', 'graphql', '-f', `query=${THREAD_NOW}`, '-f', `threadId=${threadId}`], cwd);
-  if (r.code !== 0) return `couldn't read the thread on GitHub first: ${r.stderr.trim() || 'gh failed'}`;
-  const j = json.parse(r.stdout) as {
-    data?: {
-      viewer?: { login?: unknown };
-      node?: { isResolved?: unknown; comments?: { nodes?: Array<{ author?: { login?: unknown } | null } | null> } } | null;
-    };
-  } | null;
-  const me = j?.data?.viewer?.login;
-  const node = j?.data?.node;
-  if (typeof me !== 'string' || !me || !node) return "couldn't read the thread on GitHub first";
-  if (node.isResolved === true) return 'the thread was resolved on GitHub since: nothing to answer';
-  const last = node.comments?.nodes?.at(-1)?.author?.login;
-  if (typeof last === 'string' && last.toLowerCase() === me.toLowerCase())
+  const host = threadHost(threadId);
+  const r = await host.threads.now(run, cwd, threadId);
+  if (!r.ok) return r.error;
+  const { viewer: me, resolved, lastAuthor } = r.thread;
+  if (resolved) return `the thread was resolved on ${host.name} since: nothing to answer`;
+  if (lastAuthor && lastAuthor.toLowerCase() === me.toLowerCase())
     return 'the last word in this thread is already yours (@' + me + '): a reply would answer yourself';
   return null;
 }
@@ -236,7 +226,7 @@ export async function postReply(
   body: string,
   opts: { resolve: boolean; cwd: string; run: CommandRunner },
 ): Promise<PostResult> {
-  if (!THREAD_ID.test(threadId)) return { ok: false, error: 'not a review thread id' };
+  if (!isThreadId(threadId)) return { ok: false, error: 'not a review thread id' };
   const text = body.trim();
   if (!text || text.length > MAX_REPLY_CHARS) return { ok: false, error: 'the reply is empty or too long' };
   const cur = read(sessionId, threadId);
@@ -246,22 +236,12 @@ export async function postReply(
   // Claude answered his own comment, as if a reviewer's), nor a thread resolved meanwhile.
   const refusal = await threadRefusal(threadId, opts.cwd, opts.run);
   if (refusal) return { ok: false, error: refusal };
-  // -f: raw strings (never @file / number parsing), argv only (no shell).
-  const add = await opts.run(
-    'gh',
-    ['api', 'graphql', '-f', `query=${ADD_REPLY}`, '-f', `threadId=${threadId}`, '-f', `body=${text}`],
-    opts.cwd,
-  );
-  if (add.code !== 0) return { ok: false, error: add.stderr.trim() || 'gh could not post the reply' };
-  let url = cur.url;
-  const parsed = json.parse(add.stdout) as { data?: { addPullRequestReviewThreadReply?: { comment?: { url?: unknown } } } } | null;
-  const got = parsed?.data?.addPullRequestReviewThreadReply?.comment?.url;
-  if (typeof got === 'string') url = got;
+  const host = threadHost(threadId);
+  const add = await host.threads.reply(opts.run, opts.cwd, threadId, text);
+  if (!add.ok) return { ok: false, error: add.error };
+  const url = add.url ?? cur.url;
   let resolved = false;
-  if (opts.resolve) {
-    const r = await opts.run('gh', ['api', 'graphql', '-f', `query=${RESOLVE}`, '-f', `threadId=${threadId}`], opts.cwd);
-    resolved = r.code === 0;
-  }
+  if (opts.resolve) resolved = await host.threads.resolve(opts.run, opts.cwd, threadId);
   markPosted(sessionId, threadId, text, url, resolved);
   return { ok: true, url, resolved };
 }
@@ -313,22 +293,13 @@ export function markPostedAnswered(
   return threads;
 }
 
-/** A thread as GitHub has it now, with its pull request: what a draft can be made from when work's last check hasn't it. */
-const THREAD_LIVE = `query($threadId: ID!) {
-  viewer { login }
-  node(id: $threadId) { ... on PullRequestReviewThread {
-    isResolved isOutdated path line originalStartLine originalLine
-    first: comments(first: 1) { nodes { author { login } body url diffHunk } }
-    last: comments(last: 1) { nodes { author { login } url } }
-    pullRequest { number url headRefName repository { nameWithOwner } }
-  } }
-}`;
-
 /** The session's repos with what the live lookup matches a thread against: their GitHub name and checked-out branch. */
 export function sessionRepoRefs(s: WorktreeSession): SessionRepoRef[] {
   return sessionRepos(s, loadConfig()).map((r) => {
     const config = readGitConfig(r.path);
-    return { name: r.alias, path: r.path, github: config ? githubRepoOf(config) : null, branch: checkedOutBranch(r.path) };
+    const origin = config ? originUrl(config) : null;
+    const host = hostForOrigin(origin);
+    return { name: r.alias, path: r.path, github: origin ? host.repoId(origin) : null, host: host.id, branch: checkedOutBranch(r.path) };
   });
 }
 
@@ -337,8 +308,10 @@ export interface SessionRepoRef {
   /** Its alias (what the PR watch names the repo by). */
   name: string;
   path: string;
-  /** owner/name on github.com, lower case (`githubRepoOf`); null when not on GitHub. */
+  /** Its id on its host (GitHub: owner/name, lower case); null when its host can't tell. The name is from before hosts. */
   github: string | null;
+  /** The host it's on (absent: GitHub, as before hosts). */
+  host?: string;
   /** The branch checked out there now. */
   branch: string | null;
 }
@@ -357,54 +330,35 @@ export async function liveOpenThread(
   run: CommandRunner,
   now = new Date(),
 ): Promise<{ reply: PrReply } | { error: string }> {
-  if (!THREAD_ID.test(threadId)) return { error: `not a review thread id: ${threadId}` };
-  const cwd = repos[0]?.path;
-  if (!cwd) return { error: 'the session has no repo to ask GitHub from' };
-  const r = await run('gh', ['api', 'graphql', '-f', `query=${THREAD_LIVE}`, '-f', `threadId=${threadId}`], cwd);
-  if (r.code !== 0) return { error: `couldn't read the thread on GitHub: ${r.stderr.trim() || 'gh failed'}` };
-  type Who = { author?: { login?: unknown } | null; body?: unknown; url?: unknown; diffHunk?: unknown } | null;
-  const j = json.parse(r.stdout) as {
-    data?: {
-      viewer?: { login?: unknown };
-      node?: {
-        isResolved?: unknown;
-        isOutdated?: unknown;
-        path?: unknown;
-        line?: unknown;
-        originalStartLine?: unknown;
-        originalLine?: unknown;
-        first?: { nodes?: Who[] };
-        last?: { nodes?: Who[] };
-        pullRequest?: { number?: unknown; url?: unknown; headRefName?: unknown; repository?: { nameWithOwner?: unknown } };
-      } | null;
-    };
-  } | null;
-  const me = j?.data?.viewer?.login;
-  const t = j?.data?.node;
-  const pr = t?.pullRequest;
-  if (typeof me !== 'string' || !me || !t || !pr || typeof pr.number !== 'number')
-    return { error: `${threadId} isn't a review thread GitHub knows` };
-  const nameWithOwner = typeof pr.repository?.nameWithOwner === 'string' ? pr.repository.nameWithOwner.toLowerCase() : '';
-  const repo = repos.find((x) => x.github === nameWithOwner && !!x.branch && x.branch === pr.headRefName);
-  if (!repo) return { error: `${threadId} is on ${nameWithOwner || 'a repo'} #${pr.number}, not a pull request of this session` };
-  if (t.isResolved === true) return { error: 'the thread is resolved on GitHub: nothing to answer' };
-  const first = t.first?.nodes?.[0];
-  const last = t.last?.nodes?.at(-1);
-  const lastBy = typeof last?.author?.login === 'string' ? last.author.login : '';
+  if (!isThreadId(threadId)) return { error: `not a review thread id: ${threadId}` };
+  const host = threadHost(threadId);
+  // A repo of the session on that host to ask from (any folder does for GitHub's global ids).
+  const cwd = (repos.find((x) => (x.host ?? 'github') === host.id) ?? repos[0])?.path;
+  if (!cwd) return { error: `the session has no repo to ask ${host.name} from` };
+  const r = await host.threads.live(run, cwd, threadId);
+  if (!r.ok) return { error: r.error };
+  const t = r.thread;
+  const me = t.viewer;
+  const repo = repos.find(
+    (x) => (x.host ?? 'github') === host.id && x.github === t.pr.repoId && !!x.branch && x.branch === t.pr.headBranch,
+  );
+  if (!repo) return { error: `${threadId} is on ${t.pr.repoId || 'a repo'} #${t.pr.number}, not a pull request of this session` };
+  if (t.resolved) return { error: `the thread is resolved on ${host.name}: nothing to answer` };
+  const lastBy = t.last?.author ?? '';
   if (lastBy.toLowerCase() === me.toLowerCase()) return { error: `the last word in this thread is already yours (@${me})` };
-  const str = (v: unknown) => (typeof v === 'string' ? v : '');
-  const path = str(t.path);
+  const path = t.path ?? '';
+  const body = t.first?.body ?? '';
   return {
     reply: {
       threadId,
       repo: repo.name,
-      prNumber: pr.number,
-      url: str(last?.url) || str(pr.url),
+      prNumber: t.pr.number,
+      url: t.last?.url || t.pr.url,
       where: path ? `${path}${typeof t.line === 'number' ? `:${t.line}` : ''}` : null,
-      reviewer: str(first?.author?.login),
-      excerpt: str(first?.body).slice(0, 400),
-      body: str(first?.body).slice(0, MAX_THREAD_BODY),
-      ...withCode(threadCode(first?.diffHunk, t.originalStartLine, t.originalLine, t.isOutdated === true)),
+      reviewer: t.first?.author ?? '',
+      excerpt: body.slice(0, 400),
+      body: body.slice(0, MAX_THREAD_BODY),
+      ...withCode(threadCode(t.first?.diffHunk, t.originalStartLine, t.originalLine, t.outdated)),
       status: 'sent',
       draft: null,
       sentAt: now.toISOString(),
@@ -459,7 +413,6 @@ export async function draftReply(
   return saveDraft(sessionId, threadId, body, now, { live: live.reply });
 }
 
-const THREAD_RESOLVED = `query($threadId: ID!) { node(id: $threadId) { ... on PullRequestReviewThread { isResolved } } }`;
 /** At most this many threads looked up per check: a session with many old rows catches up over a few. */
 const RETIRE_PER_CHECK = 10;
 
@@ -480,10 +433,7 @@ export async function retireResolvedReplies(sessionId: string, ci: SessionCi, cw
     .slice(0, RETIRE_PER_CHECK);
   const gone: string[] = [];
   for (const r of suspects) {
-    const res = await run('gh', ['api', 'graphql', '-f', `query=${THREAD_RESOLVED}`, '-f', `threadId=${r.threadId}`], cwd);
-    if (res.code !== 0) continue;
-    const j = json.parse(res.stdout) as { data?: { node?: { isResolved?: unknown } | null } } | null;
-    if (j?.data?.node?.isResolved !== true) continue;
+    if ((await threadHost(r.threadId).threads.isResolved(run, cwd, r.threadId)) !== true) continue;
     if (discardReply(sessionId, r.threadId)) gone.push(r.threadId);
   }
   return gone;

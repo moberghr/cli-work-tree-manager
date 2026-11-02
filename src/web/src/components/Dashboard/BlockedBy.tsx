@@ -131,15 +131,9 @@ export function BlockedByDialog({
           </label>
           <label className="wd-modal-row">
             <span>…or a pull request</span>
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://github.com/org/repo/pull/12"
-              disabled={busy}
-            />
+            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="A pull request link" disabled={busy} />
           </label>
-          {url.trim() && !pr && <p className="wd-modal-error">Not a GitHub pull request URL.</p>}
+          {url.trim() && !pr && <p className="wd-modal-error">Not a pull request link of a git host work knows.</p>}
           {error && (
             <p className="wd-modal-error" role="alert">
               {error}

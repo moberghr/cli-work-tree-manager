@@ -30,6 +30,8 @@ export interface PrInfo {
   author?: string;
   /** It comes from a fork: its branch isn't on origin, so no one can work on it here. */
   fork?: boolean;
+  /** The host it's on (`github`, `azure`); absent: GitHub (and from a server before hosts). */
+  host?: string;
 }
 
 export interface JiraIssue {

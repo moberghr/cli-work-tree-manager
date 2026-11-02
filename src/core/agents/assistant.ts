@@ -85,7 +85,7 @@ Ask before you change anything, and say exactly what will happen:
 - A day's hours: \`work timesheet set <day> KEY=HOURS …\` (all its rows; quarter hours, the day's total as the user wants it), \`reset <day>\`, \`off <day>\`; several days: one command per day. Explain the change first. To look at a day again (its sessions, commits, Jira, meetings): \`work timesheet gather <day>\`, or \`gather <YYYY-MM>\` for a month's days not gathered yet. Posting to Tempo (\`work timesheet post <day>\`) only when the user asks for it.
 - Anything else (\`work remove\`, git, files in a worktree): only when asked, and show the command first.
 
-Don't post on GitHub, and don't send prompts to other sessions, unless the user asks. Keep answers short: the user is in the middle of something.
+Don't post on a git host (comments, reviews, replies), and don't send prompts to other sessions, unless the user asks. Keep answers short: the user is in the middle of something.
 `;
 
 /** What work wrote in the folder last time (relative paths), so files an earlier agent's setup left can go. */

@@ -240,7 +240,8 @@ export interface UpdateWire {
 
 /** A tool work leans on, and whether it answers here. */
 export interface ToolCheck {
-  id: 'git' | 'claude' | 'gh' | 'acli';
+  /** The tool's command: git, claude, each git host's CLI (gh, az), acli. */
+  id: string;
   label: string;
   /** work can't do without it (git, Claude Code); the others add features. */
   needed: boolean;
@@ -809,6 +810,8 @@ export interface PrToStart {
   /** Where it merges into. */
   base: string;
   author: string;
+  /** The host it's on; absent for GitHub (and from a server before hosts). */
+  host?: string;
 }
 
 /** GET /api/pr-start?ref=&target=: the PR, or (400) why not — a fork, closed, not one of your repos. */
@@ -850,6 +853,8 @@ export interface FailingCheck {
 export interface RepoShipState {
   /** Repo alias (group sub-repo folder, or the target for a single repo). */
   name: string;
+  /** The host its PRs are on (`github`, `azure`; absent from a server before hosts: GitHub). */
+  host?: string;
   path: string;
   branch: string;
   /** Local HEAD commit. */
@@ -970,6 +975,8 @@ export interface SessionCi {
   viewer?: string;
   repos: Array<{
     name: string;
+    /** The host its PR is on (absent: GitHub). */
+    host?: string;
     pr: ShipPr | null;
     done: boolean;
     /** Unresolved review threads waiting on the author (open PRs). */

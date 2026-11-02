@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaultRunner, type CommandRunner } from '../pr/ship.js';
+import { defaultRunner, type CommandRunner } from '../platform/command-runner.js';
 
 /**
  * Build output inside worktrees: node_modules, bin/obj, .next, target, … —

@@ -752,11 +752,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/pr-start', (c) => {
     const ref = parsePrRef(c.req.query('ref') ?? '');
     const target = c.req.query('target') || undefined;
-    if (!ref)
-      return c.json<PrStartWire>(
-        { error: 'Give a pull request link (https://github.com/owner/repo/pull/123), or its number with a repo.' },
-        400,
-      );
+    if (!ref) return c.json<PrStartWire>({ error: 'Give a pull request link (as your browser shows it), or its number with a repo.' }, 400);
     const pr = scenario
       .prs()
       .find((p) => p.number === ref.number && (ref.repo ? ref.repo.endsWith(`/${p.repoAlias}`) : !target || p.repoAlias === target));

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { hostName } from '../../../../../core/hosts/commands.js';
 import type { PrInfo } from '../../../api/panes.js';
 import type { SessionSummary } from '../../../api/client.js';
 import { isArchived, prsForSession } from '../../../state/session-display.js';
@@ -157,7 +158,7 @@ export function StartTab({
       )}
 
       <section className="wd-start-section" aria-label="Your pull requests">
-        <h2 className="wd-start-title">Your pull requests · GitHub</h2>
+        <h2 className="wd-start-title">Your pull requests · {hostsOf(mine)}</h2>
         {prNote && <p className="wd-start-note">{prNote}</p>}
         {!prNote && prs === null && <p className="wd-start-note">Loading…</p>}
         {!prNote && prs !== null && mine.length === 0 && (
@@ -170,7 +171,7 @@ export function StartTab({
 
       {toReview.length > 0 && (
         <section className="wd-start-section" aria-label="Waiting for your review">
-          <h2 className="wd-start-title">Waiting for your review · GitHub</h2>
+          <h2 className="wd-start-title">Waiting for your review · {hostsOf(toReview)}</h2>
           <PrList prs={toReview} sessions={sessions} onPick={onPickPr} onWork={onWorkOnPr} existing={existing} membersOf={membersOf} />
         </section>
       )}
@@ -200,7 +201,13 @@ function PrList({
         const state = prState(pr);
         return (
           <li key={`${pr.repoAlias}#${pr.number}`} className="wd-start-row wd-start-row-pr">
-            <a className="wd-start-key wd-start-key-pr" href={pr.url} target="_blank" rel="noreferrer" title="Open on GitHub">
+            <a
+              className="wd-start-key wd-start-key-pr"
+              href={pr.url}
+              target="_blank"
+              rel="noreferrer"
+              title={`Open on ${hostName(pr.host)}`}
+            >
               #{pr.number}
             </a>
             <span className="wd-start-what" title={!pr.isMine && pr.author ? `${pr.title} — by @${pr.author}` : pr.title}>
@@ -247,4 +254,10 @@ function PrList({
       })}
     </ul>
   );
+}
+
+/** The hosts these PRs are on, by name ("GitHub", "GitHub · Azure DevOps"); GitHub's when there are none yet. */
+function hostsOf(prs: ReadonlyArray<{ host?: string }>): string {
+  const names = [...new Set(prs.map((p) => hostName(p.host)))];
+  return names.length ? names.join(' · ') : hostName(undefined);
 }

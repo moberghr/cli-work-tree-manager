@@ -1,8 +1,8 @@
 import type { WorkConfig } from '../platform/config.js';
-import { githubRepoOf } from './pr.js';
-import { readGitConfig } from '../worktree/repo-scan.js';
-import { parsePrRef, type PrToStart } from './pr-ref.js';
+import { originUrl, readGitConfig } from '../worktree/repo-scan.js';
+import { parsePrRef, type PrRef, type PrToStart } from './pr-ref.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
+import { DEFAULT_HOST, hostForOrigin, hostOfPrUrl } from '../hosts/index.js';
 
 export type PrStartResult = { ok: true; pr: PrToStart } | { ok: false; error: string };
 
@@ -10,20 +10,6 @@ export interface PrStartDeps {
   run?: CommandRunner;
   /** A repo's `.git/config` text (tests pass their own). */
   gitConfig?: (repoPath: string) => string | null;
-}
-
-/** The fields of `gh pr view --json …` this reads; all optional — it is someone else's output. */
-interface GhPrView {
-  number?: number;
-  title?: string;
-  url?: string;
-  headRefName?: string;
-  headRefOid?: string;
-  baseRefName?: string;
-  state?: string;
-  isCrossRepository?: boolean;
-  author?: { login?: string } | null;
-  headRepositoryOwner?: { login?: string } | null;
 }
 
 /**
@@ -42,13 +28,23 @@ export async function resolvePrToStart(
 ): Promise<PrStartResult> {
   const run = deps.run ?? defaultRunner;
   const gitConfig = deps.gitConfig ?? readGitConfig;
-  const ref = parsePrRef(input);
-  if (!ref) return { ok: false, error: 'Give a pull request link (https://github.com/owner/repo/pull/123), or its number with a repo.' };
+  // A link any host reads (one registered at run time too), else a number.
+  const linked = hostOfPrUrl(input);
+  const ref: PrRef | null = linked ? { repo: linked.link.repoId, host: linked.host.id, number: linked.link.number } : parsePrRef(input);
+  if (!ref) return { ok: false, error: 'Give a pull request link (as your browser shows it), or its number with a repo.' };
 
-  const repoOf = (alias: string) => githubRepoOf(gitConfig(config.repos[alias]) ?? '');
+  // Each repo on its own host (its origin's), with its id there.
+  const repoOf = (alias: string) => {
+    const origin = originUrl(gitConfig(config.repos[alias]) ?? '');
+    const host = hostForOrigin(origin);
+    return { host, id: origin ? host.repoId(origin) : null };
+  };
   let alias: string | undefined;
   if (ref.repo) {
-    const matches = Object.keys(config.repos).filter((a) => repoOf(a) === ref.repo);
+    const matches = Object.keys(config.repos).filter((a) => {
+      const r = repoOf(a);
+      return r.id === ref.repo && (!ref.host || r.host.id === ref.host);
+    });
     if (!matches.length) return { ok: false, error: `${ref.repo} isn't one of your repos: add it first (work config add <alias> <path>).` };
     // A target named beside a link must hold it: the repo itself, or a group with it among its repos.
     const within = target ? (config.groups?.[target] ?? [target]) : matches;
@@ -61,52 +57,36 @@ export async function resolvePrToStart(
     if (!config.repos[target]) return { ok: false, error: `${target} isn't one of your repos.` };
     alias = target;
   }
-  const github = repoOf(alias);
-  if (!github) return { ok: false, error: `${alias} isn't on github.com: work can only look up GitHub PRs.` };
-
-  const view = await run(
-    'gh',
-    [
-      'pr',
-      'view',
-      String(ref.number),
-      '--repo',
-      github,
-      '--json',
-      'number,title,url,headRefName,headRefOid,baseRefName,state,isCrossRepository,author,headRepositoryOwner',
-    ],
-    config.repos[alias],
-  );
-  if (view.code === 127) return { ok: false, error: 'GitHub CLI (gh) not found: install it to start from a PR.' };
-  if (view.code !== 0)
-    return { ok: false, error: `PR #${ref.number} in ${github}: ${view.stderr.trim().split('\n')[0] || 'gh pr view failed'}` };
-  let pr: GhPrView;
-  try {
-    pr = JSON.parse(view.stdout) as GhPrView;
-  } catch {
-    return { ok: false, error: "Couldn't read what gh said about the PR." };
+  const { host, id: repoId } = repoOf(alias);
+  if (!repoId) {
+    return { ok: false, error: `${alias}'s origin isn't a ${host.name} repo work can read: it can only look up PRs on a host it knows.` };
   }
+
+  const view = await host.prByNumber(run, config.repos[alias], repoId, ref.number);
+  if (!view.ok) return { ok: false, error: view.error };
+  const pr = view.pr;
   if (pr.state && pr.state !== 'OPEN') return { ok: false, error: `PR #${ref.number} is ${pr.state.toLowerCase()}.` };
-  if (pr.isCrossRepository) {
-    const owner = pr.headRepositoryOwner?.login ?? 'a fork';
+  if (pr.fork) {
     return {
       ok: false,
-      error: `PR #${ref.number} comes from a fork (${owner}): its branch isn't on origin, so a session couldn't push to it.`,
+      error: `PR #${ref.number} comes from a fork (${pr.fork.owner}): its branch isn't on origin, so a session couldn't push to it.`,
     };
   }
-  if (!pr.headRefName) return { ok: false, error: `PR #${ref.number}: gh didn't say its branch.` };
-  const stale = await localGoneOtherWay(run, config.repos[alias], pr.headRefName, pr.headRefOid);
+  if (!pr.branch) return { ok: false, error: `PR #${ref.number}: ${host.cli.cmd} didn't say its branch.` };
+  const stale = await localGoneOtherWay(run, config.repos[alias], pr.branch, pr.headSha);
   if (stale) return { ok: false, error: stale };
   return {
     ok: true,
     pr: {
       alias,
-      number: pr.number ?? ref.number,
-      title: pr.title ?? '',
-      url: pr.url ?? '',
-      branch: pr.headRefName,
-      base: pr.baseRefName ?? '',
-      author: (pr.author?.login ?? '').replace(/^app\//, ''),
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      branch: pr.branch,
+      base: pr.base,
+      author: pr.author,
+      // Absent for GitHub (the wire's default), so a reader from before hosts sees what it always did.
+      ...(host.id === DEFAULT_HOST ? {} : { host: host.id }),
     },
   };
 }

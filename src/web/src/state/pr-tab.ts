@@ -17,8 +17,10 @@ export interface PrSection {
   number: number;
   url: string;
   title: string | null;
-  /** Who opened it on GitHub, when known (the PR watch's `gh pr view`, else the dashboard's list). */
+  /** Who opened it, when known (the PR watch's look, else the dashboard's list). */
   author: string | null;
+  /** The host it's on (absent: GitHub). */
+  host?: string;
   /** You did (the watch's viewer, else the list's isMine): its author isn't shown. */
   mine: boolean;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
@@ -70,6 +72,7 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
             repo: r.name,
             number: r.pr.number,
             url: r.pr.url,
+            ...(r.host ? { host: r.host } : {}),
             ...fromList(
               r.pr,
               listed.find((p) => p.url === r.pr!.url),
@@ -90,6 +93,7 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
     repo: p.repoAlias,
     number: p.number,
     url: p.url,
+    ...(p.host ? { host: p.host } : {}),
     title: p.title,
     author: p.author || null,
     mine: p.isMine,

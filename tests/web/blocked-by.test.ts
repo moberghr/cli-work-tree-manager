@@ -68,7 +68,7 @@ describe('BlockedByDialog', () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'https://example.com/x');
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    expect(container.textContent).toContain('Not a GitHub pull request URL');
+    expect(container.textContent).toContain('Not a pull request link of a git host work knows');
     act(() => {
       const sel = container.querySelector('select')!;
       sel.value = 'b';

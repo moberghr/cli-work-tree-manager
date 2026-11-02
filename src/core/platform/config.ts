@@ -54,6 +54,11 @@ export interface WorkConfig {
   internalAgent?: string;
   /** The agent the Ctrl+K assistant runs (an adapter's id; Claude Code by default). */
   assistantAgent?: string;
+  /**
+   * The git host of an origin whose URL can't tell (core/hosts/index.ts): its hostname (lower case) → a host id
+   * (`{"git.corp.example": "github"}` for GitHub Enterprise). The registry reads it from the raw config.
+   */
+  gitHosts?: Record<string, string>;
   /** Environment variable names to keep for a session restored after a reboot (the launching shell's values; secret-looking names are never kept). */
   hostEnv?: string[];
   /** Writing session time to Jira as worklogs (jira-worklog.ts): the site, your email, and the API token (from the env var `tokenEnv`, default JIRA_API_TOKEN, or `token`). */
@@ -338,6 +343,12 @@ export function loadConfig(): WorkConfig | null {
       claudeAccount: typeof parsed.claudeAccount === 'string' ? parsed.claudeAccount : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
+      gitHosts:
+        parsed.gitHosts && typeof parsed.gitHosts === 'object' && !Array.isArray(parsed.gitHosts)
+          ? Object.fromEntries(
+              Object.entries(parsed.gitHosts as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'),
+            )
+          : undefined,
       hostEnv: Array.isArray(parsed.hostEnv)
         ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
         : undefined,

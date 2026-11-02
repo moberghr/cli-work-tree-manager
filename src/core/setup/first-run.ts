@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { knownHosts } from '../hosts/index.js';
 import os from 'node:os';
 import path from 'node:path';
 import { getConfigDir, getConfigPath, loadConfig } from '../platform/config.js';
@@ -95,15 +96,6 @@ const TOOLS: ToolSpec[] = [
     missing: 'Install Claude Code (npm install -g @anthropic-ai/claude-code) and sign in once in a terminal.',
   },
   {
-    id: 'gh',
-    label: 'GitHub CLI',
-    needed: false,
-    cmd: 'gh',
-    args: ['auth', 'status'],
-    missing: 'Optional: install gh to see your pull requests, CI and review comments.',
-    failing: 'Optional: run `gh auth login` so work can see your pull requests.',
-  },
-  {
     id: 'acli',
     label: 'Atlassian CLI',
     needed: false,
@@ -113,10 +105,24 @@ const TOOLS: ToolSpec[] = [
   },
 ];
 
+/** Each git host's CLI, after git and Claude Code: optional, it adds that host's pull requests. */
+function toolsNow(): ToolSpec[] {
+  const hosts = knownHosts().map((h): ToolSpec => ({
+    id: h.cli.cmd,
+    label: h.cli.label,
+    needed: false,
+    cmd: h.cli.cmd,
+    args: h.cli.checkArgs,
+    missing: h.cli.missing,
+    failing: h.cli.failing,
+  }));
+  return [TOOLS[0], TOOLS[1], ...hosts, ...TOOLS.slice(2)];
+}
+
 /** Whether each tool answers. A command not found is "missing"; one that runs and fails says why. */
 export async function checkTools(run: CommandRunner = defaultRunner): Promise<ToolCheck[]> {
   return Promise.all(
-    TOOLS.map(async (t): Promise<ToolCheck> => {
+    toolsNow().map(async (t): Promise<ToolCheck> => {
       const r = await run(t.cmd, t.args, os.tmpdir()).catch(() => ({ code: 127, stdout: '', stderr: '' }));
       const ok = r.code === 0;
       const notFound = r.code === 127 || /not (found|recognized)|ENOENT/i.test(r.stderr);

@@ -1,5 +1,7 @@
 import { json, tx, withDb } from '../platform/db.js';
 import { prUrl } from './blocks.js';
+import { hostOfPrUrl } from '../hosts/index.js';
+import type { CommandRunner } from '../pr/ship.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { loadHistory } from '../sessions/history.js';
 import { blockerDone, blockKey, MAX_BLOCKERS, type BlockRef, type SessionBlock } from './blocks.js';
@@ -148,15 +150,34 @@ export async function sweepBlocks(deps: UnblockDeps): Promise<string[]> {
   return out;
 }
 
-/** A request's blocker, checked: a live session (by id), or a GitHub PR URL. */
+/** A request's blocker, checked: a live session (by id), or a pull request link of a host work knows. */
 export function blockRefFrom(body: { kind?: unknown; id?: unknown; url?: unknown } | null): BlockRef | null {
   if (body?.kind === 'session' && typeof body.id === 'string') {
     const s = loadHistory().find((x) => sessionIdFor(x) === body.id && !x.archivedAt);
     return s ? { kind: 'session', id: body.id, label: s.title && s.title.trim() ? s.title : s.branch } : null;
   }
   if (body?.kind === 'pr' && typeof body.url === 'string') {
-    const pr = prUrl(body.url);
+    // A built-in host's link, else one a registered host reads.
+    const reg = prUrl(body.url) ? null : hostOfPrUrl(body.url);
+    const pr = prUrl(body.url) ?? (reg ? { url: reg.link.url, label: reg.link.label } : null);
     return pr ? { kind: 'pr', url: pr.url, label: pr.label } : null;
   }
   return null;
+}
+
+/**
+ * Where a "blocked by" PR stands, asked of the host its link is on: its
+ * state; `rateLimited` when the host said its API limit is spent (the sweep
+ * rests, as the PR watch does); null when it couldn't say.
+ */
+export async function blockedPrState(
+  url: string,
+  run: CommandRunner,
+): Promise<{ state: 'OPEN' | 'MERGED' | 'CLOSED' } | { rateLimited: true; host: string } | null> {
+  const found = hostOfPrUrl(url);
+  if (!found) return null;
+  const r = await found.host.prState(run, url).catch(() => null);
+  if (!r) return null;
+  if (r.ok) return { state: r.state };
+  return found.host.rateLimited(r.error) ? { rateLimited: true, host: found.host.name } : null;
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { hostName } from '../../../../core/hosts/commands.js';
 import { askClaudeToFixCi, fetchSessionCi, sendPromptToSession, type SessionCi, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
@@ -202,7 +203,7 @@ function PrSectionView({
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
         {s.title && <span className="wd-pr-title">{s.title}</span>}
         {s.author && !s.mine && (
-          <span className="wd-pr-author" title={`Opened on GitHub by @${s.author}`}>
+          <span className="wd-pr-author" title={`Opened on ${hostName(s.host)} by @${s.author}`}>
             by @{s.author}
           </span>
         )}
@@ -211,7 +212,7 @@ function PrSectionView({
           {s.state === 'MERGED' && s.mergedAt ? ` ${relativeTime(s.mergedAt)} ago` : ''}
         </span>
         {wants > 0 && <span className="wd-session-subtab-badge">{wants}</span>}
-        <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title="Open it on GitHub">
+        <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title={`Open it on ${hostName(s.host)}`}>
           ↗
         </a>
       </div>

@@ -47,7 +47,7 @@ export function PrStageChip({ session, prs = [] }: { session: SessionSummary; pr
           href={p.url}
           target="_blank"
           rel="noreferrer"
-          title={`Open ${p.repo} #${p.number} on GitHub`}
+          title={`Open ${p.repo} #${p.number}`}
         >
           {many ? `${p.repo} #${p.number}` : `#${p.number}`} · {stagePhrase(p.kind)}
         </a>
@@ -90,7 +90,7 @@ export function RailPrPills({ session, prs }: { session: SessionSummary; prs: Pr
           className={'wd-pr-chip wd-pr-chip-open' + p.cls}
           role="link"
           tabIndex={-1}
-          title={`${p.title}\nClick to open it on GitHub`}
+          title={`${p.title}\nClick to open it`}
           onClick={(e) => {
             e.stopPropagation();
             window.open(p.url, '_blank', 'noopener');
@@ -131,7 +131,7 @@ export function PrChips({ prs, link = false }: { prs: PrInfo[]; link?: boolean }
           <span
             key={`${p.repoAlias}#${p.number}`}
             className={cls + ' wd-pr-chip-open'}
-            title={`${title}\nClick to open on GitHub`}
+            title={`${title}\nClick to open it`}
             role="link"
             onClick={(e) => {
               e.stopPropagation();

@@ -425,7 +425,7 @@ describe('start from a pull request', () => {
     author: 'ana',
   };
   const link = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Start from a pull request…')!;
-  const prInput = () => container.querySelector<HTMLInputElement>('input[placeholder^="https://github.com/"]')!;
+  const prInput = () => container.querySelector<HTMLInputElement>('input[placeholder^="A pull request link"]')!;
 
   it('a link fills in its repo, their branch and a first prompt saying whose branch it is; Create sends them', async () => {
     const findPr = vi.fn(async () => pr);

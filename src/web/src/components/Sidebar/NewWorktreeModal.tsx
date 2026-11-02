@@ -326,7 +326,7 @@ export function NewWorktreeModal({
                       lookUpPr();
                     }
                   }}
-                  placeholder="https://github.com/owner/repo/pull/123, or #123"
+                  placeholder="A pull request link, or #123"
                   disabled={submitting || prLooking}
                 />
                 <button type="button" className="wd-btn-secondary" onClick={lookUpPr} disabled={submitting || prLooking || !prRef.trim()}>

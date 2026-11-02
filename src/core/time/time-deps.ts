@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { knownHosts } from '../hosts/index.js';
 import { loadConfig } from '../platform/config.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { loadHistory } from '../sessions/history.js';
@@ -27,7 +28,7 @@ async function graphTokenNow(): Promise<string | null> {
 /**
  * The commits of a `git log --format=%H%x09%aI%x09%ce%x09%s` written on the
  * day: by author date, so a rebase, an amend or a cherry-pick counts on the
- * day of the work, not of the rewrite; and none GitHub committed (a squash
+ * day of the work, not of the rewrite; and none a git host committed (a squash
  * merge: the work is already counted by its own commits), nor a stash's own
  * commits. Pure.
  */
@@ -35,7 +36,7 @@ export function commitsWrittenOn(stdout: string, day: string): Array<{ sha: stri
   const out: Array<{ sha: string; subject: string }> = [];
   for (const line of stdout.split('\n').filter(Boolean)) {
     const [sha, authored, committer, ...rest] = line.split('\t');
-    if (committer === 'noreply@github.com') continue;
+    if (knownHosts().some((h) => h.hostCommit(committer ?? ''))) continue;
     // A stash's helper commits, should something other than refs/stash (left out of the log) still reach them.
     if (/^(index|untracked files) on /.test(rest.join('\t'))) continue;
     const at = Date.parse(authored ?? '');

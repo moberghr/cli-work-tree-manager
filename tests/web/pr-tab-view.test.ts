@@ -188,7 +188,7 @@ describe('the PR tab', () => {
     await render();
     expect(container.textContent).toContain('No pull request yet.');
     await act(async () => button('Open a pull request')!.click());
-    expect(h.prompts[0].body).toContain('gh pr create');
+    expect(h.prompts[0].body).toContain('open a pull request');
   });
 });
 

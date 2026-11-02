@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import { mountSessionControlRoutes } from './routes/session-control-routes.js';
-import os from 'node:os';
 import { defaultRunner } from '../core/pr/ship.js';
 import type { NotifyEvent } from '../core/api-types.js';
 import { sessionStacks } from '../core/stacks/stack-sessions.js';
@@ -31,7 +30,7 @@ import { buildUsage, realUsageDeps } from '../core/usage/usage-source.js';
 import { createUpdates, desktopUpdatePath, lookForUpdates } from '../core/updates/update-source.js';
 import { mountRepoRoutes } from './routes/repo-routes.js';
 import { mountTimelineRoutes } from './routes/timeline-routes.js';
-import { allBlocks, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from '../core/rail/session-blocks.js';
+import { allBlocks, blockedPrState, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from '../core/rail/session-blocks.js';
 import { mountBlockRoutes } from './routes/block-routes.js';
 import { mountJiraWatchRoutes } from './routes/jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
@@ -854,14 +853,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
         sessionGone: (id) => !live.has(id),
         prState: async (url) => {
           if (Date.now() < ghRestUntil) return null;
-          const r = await defaultRunner('gh', ['pr', 'view', url, '--json', 'state', '-q', '.state'], os.tmpdir());
-          if (r.code !== 0 && /rate limit/i.test(r.stderr)) {
+          const r = await blockedPrState(url, defaultRunner);
+          if (r && 'rateLimited' in r) {
             ghRestUntil = Date.now() + 10 * 60_000; // as the PR watch rests
-            run.note('GitHub API limit reached: resting 10 minutes', { level: 'warn' });
+            run.note(`${r.host} API limit reached: resting 10 minutes`, { level: 'warn' });
             return null;
           }
-          const st = r.code === 0 ? r.stdout.trim() : '';
-          return st === 'OPEN' || st === 'MERGED' || st === 'CLOSED' ? st : null;
+          return r?.state ?? null;
         },
         unblocked: async (id, done) => {
           const s = history.find((x) => sessionIdFor(x) === id);

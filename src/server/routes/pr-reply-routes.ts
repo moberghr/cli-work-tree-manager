@@ -9,7 +9,7 @@ import {
   postReply,
   draftReply,
   sessionRepoRefs,
-  THREAD_ID,
+  isThreadId,
 } from '../../core/pr/pr-replies.js';
 import { defaultRunner, type CommandRunner } from '../../core/pr/ship.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
@@ -88,7 +88,7 @@ export function mountPrReplyRoutes(
   app.delete('/api/sessions/:id/replies/:thread', (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    if (!THREAD_ID.test(c.req.param('thread'))) return c.json({ error: 'not a review thread id' }, 400);
+    if (!isThreadId(c.req.param('thread'))) return c.json({ error: 'not a review thread id' }, 400);
     const gone = discardReply(id, c.req.param('thread'));
     changed(id);
     return c.json({ ok: gone });
