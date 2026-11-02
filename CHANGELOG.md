@@ -3,8 +3,17 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## Unreleased
+## 2.9.2 — 2026-11-02
 
+- **PR tab: review comments on their code, as Markdown.** Each review
+  thread shows the lines of code it is about (numbered, added and removed
+  lines coloured, the commented lines marked; "Outdated" when the code has
+  changed since), then the reviewer's whole comment rendered as Markdown —
+  code, lists, links, and GitHub's suggestion blocks labelled "Suggested
+  change". Before, it was the first 400 characters as plain text. Threads
+  already handed over get theirs at the PR watch's next check.
+- **New worktrees don't copy `cdk.out`.** The AWS CDK's build output is left
+  out when copying config files into a worktree.
 - **Questions work in the macOS app.** "Are you sure?" questions (Archive, "It's
   not running — start it here…", Revert, Discard drafts, leaving an unsaved day
   on the Time tab) are now a dialog in the page. The macOS app's webview shows
