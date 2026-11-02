@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { ChecksState, FailingCheck, MergeMethod, ShipPr } from '../../api-types.js';
 import type { CommandRunner } from '../../platform/command-runner.js';
 import type { HostResult, OpenPr, PrForStart, PrLookup } from '../types.js';
@@ -301,5 +304,44 @@ export async function githubPostReviewComment(
     return { ok: true, ...(typeof url === 'string' ? { url } : {}) };
   } catch {
     return { ok: true };
+  }
+}
+
+const GITHUB_EVENT = { comment: 'COMMENT', approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES' } as const;
+
+/** One review with its line comments (`gh api …/pulls/<n>/reviews --input`; gh fills owner and repo from the cwd). */
+export async function githubSubmitReview(
+  run: CommandRunner,
+  cwd: string,
+  number: number,
+  review: {
+    commitId: string;
+    event: keyof typeof GITHUB_EVENT;
+    body: string;
+    comments: Array<{ path: string; line: number; body: string }>;
+  },
+): Promise<HostResult<{ url?: string }>> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-gh-'));
+  try {
+    const file = path.join(dir, 'review.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        commit_id: review.commitId,
+        event: GITHUB_EVENT[review.event],
+        body: review.body,
+        comments: review.comments.map((c) => ({ path: c.path, line: c.line, side: 'RIGHT', body: c.body })),
+      }),
+    );
+    const r = await run('gh', ['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '--input', file], cwd);
+    if (r.code !== 0) return { ok: false, error: oneLineErr(r.stderr) || 'gh could not submit the review' };
+    try {
+      const url = (JSON.parse(r.stdout) as { html_url?: unknown }).html_url;
+      return { ok: true, ...(typeof url === 'string' ? { url } : {}) };
+    } catch {
+      return { ok: true };
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }

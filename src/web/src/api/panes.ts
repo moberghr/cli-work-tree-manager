@@ -452,9 +452,17 @@ export function fetchReviewDiff(repo: string, n: number): Promise<{ files: Parse
 export function prepareReview(repo: string, n: number): Promise<PrReviewWire> {
   return postJson(reviewPath(repo, n), {});
 }
-/** Post a draft comment on the PR, in your name — only from your click. */
-export function postReviewDraft(repo: string, n: number, id: string, body: string): Promise<PrReviewWire> {
-  return postJson(`${reviewPath(repo, n)}/drafts/${encodeURIComponent(id)}/post`, { body });
+/** A draft of your own on a line of the PR's new side. */
+export function addReviewDraft(repo: string, n: number, d: { path: string; line: number; body: string }): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/drafts`, d);
+}
+/** Submit the review — the drafts you kept, a verdict, a summary — in your name, on your click. */
+export function submitReview(
+  repo: string,
+  n: number,
+  input: import('../../../core/api-types.js').ReviewSubmitInput,
+): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/submit`, input);
 }
 export function discardReviewDraft(repo: string, n: number, id: string): Promise<PrReviewWire> {
   return postJson(`${reviewPath(repo, n)}/drafts/${encodeURIComponent(id)}`, {}, 'DELETE');

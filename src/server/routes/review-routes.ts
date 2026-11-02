@@ -1,14 +1,15 @@
 import type { Hono } from 'hono';
 import type { ParsedFile } from '../../core/diff/diff-parse.js';
 import type { HostResult } from '../../core/hosts/types.js';
-import type { PrReviewWire, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
+import type { PrReviewWire, ReviewEvent, ReviewSettingsWire, ReviewsWire, ReviewSubmitInput } from '../../core/api-types.js';
+import { addDraft, afterSubmit, submitComments, submitRefusal } from '../../core/review/review-submit.js';
 import { summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 
 /**
  * Prepared PR reviews (#64): the list, a review, its diff, preparing one now,
- * and its draft comments — posted only on your click (POST …/post), as PR
- * replies are. The per-project settings for automatic reviews. Every change
+ * its draft comments (the AI step's and yours), and submitting them as one
+ * review — only on your click (POST …/submit), as PR replies are. The per-project settings for automatic reviews. Every change
  * broadcasts `reviews-changed`.
  */
 
@@ -17,16 +18,16 @@ export interface ReviewRouteDeps {
   read: (repo: string, number: number) => PrReviewWire | null;
   all: () => PrReviewWire[];
   update: (repo: string, number: number, change: (r: PrReviewWire) => PrReviewWire) => PrReviewWire | null;
-  limits: () => { maxPerDay: number; maxLines: number };
+  limits: () => { maxPerDay: number | null; maxLines: number };
   today: () => number;
   /** A repo alias's folder (where its git and host CLI run). */
   repoPath: (alias: string) => string | null;
   /** The PR's diff from its merge-base to its fetched head. */
   diff: (repoPath: string, from: string, number: number) => Promise<ParsedFile[] | null>;
-  postComment: (
+  submit: (
     repoPath: string,
     number: number,
-    c: { path: string; line: number; body: string; commitId: string },
+    review: { commitId: string; event: ReviewEvent; body: string; comments: Array<{ path: string; line: number; body: string }> },
   ) => Promise<HostResult<{ url?: string }>>;
   settings: () => ReviewSettingsWire;
   setMode: (project: string, mode: 'all' | 'asked' | 'off') => Promise<void>;
@@ -86,25 +87,40 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     return r.ok ? c.json(r.review) : c.json({ error: r.error }, 409);
   });
 
-  // Post a draft comment on the PR: in your name, so only on your click (never a sweep's or an agent's).
-  app.post('/api/reviews/:repo/:number/drafts/:id/post', async (c) => {
+  // Add a draft of your own on a line of the diff.
+  app.post('/api/reviews/:repo/:number/drafts', async (c) => {
+    const repo = c.req.param('repo');
+    const n = num(c.req.param('number'));
+    if (n === null || !deps.read(repo, n)) return c.json({ error: 'no review of that PR' }, 404);
+    const body: unknown = await c.req.json().catch(() => null);
+    let error: string | null = null;
+    const next = deps.update(repo, n, (cur) => {
+      const added = addDraft(cur, body);
+      if ('error' in added) {
+        error = added.error;
+        return cur;
+      }
+      return added.review;
+    });
+    if (error) return c.json({ error }, 400);
+    changed(repo, n);
+    return c.json(next);
+  });
+
+  // Submit the review — the drafts you kept, a verdict and a summary, as one review in your name: only on your click.
+  app.post('/api/reviews/:repo/:number/submit', async (c) => {
     const repo = c.req.param('repo');
     const n = num(c.req.param('number'));
     const r = n === null ? null : deps.read(repo, n);
-    const draft = r?.drafts.find((d) => d.id === c.req.param('id'));
     const at = deps.repoPath(repo);
-    if (!r || n === null || !draft || !at) return c.json({ error: 'no such draft' }, 404);
-    if (draft.state === 'posted') return c.json({ error: 'already posted' }, 409);
-    const body = (await c.req.json().catch(() => ({}))) as { body?: unknown };
-    const text = typeof body.body === 'string' && body.body.trim() ? body.body.trim() : draft.body;
-    const res = await deps.postComment(at, n, { path: draft.path, line: draft.line, body: text, commitId: r.headSha });
+    if (!r || n === null || !at) return c.json({ error: 'no review of that PR' }, 404);
+    const input: unknown = await c.req.json().catch(() => null);
+    const refusal = submitRefusal(r, input);
+    if (refusal) return c.json({ error: refusal }, 400);
+    const ok = input as ReviewSubmitInput;
+    const res = await deps.submit(at, n, { commitId: r.headSha, event: ok.event, body: ok.body.trim(), comments: submitComments(r, ok) });
     if (!res.ok) return c.json({ error: res.error }, 409);
-    const next = deps.update(repo, n, (cur) => ({
-      ...cur,
-      drafts: cur.drafts.map((d) =>
-        d.id === draft.id ? { ...d, body: text, state: 'posted' as const, ...(res.url ? { url: res.url } : {}) } : d,
-      ),
-    }));
+    const next = deps.update(repo, n, (cur) => afterSubmit(cur, ok, res.url, new Date()));
     changed(repo, n);
     return c.json(next);
   });

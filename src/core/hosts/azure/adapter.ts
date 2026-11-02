@@ -249,6 +249,29 @@ export const azure: GitHost = {
     return { ok: true, prs: (Array.isArray(list.value) ? list.value : []).flatMap((p) => openPrOf(r, p) ?? []) };
   },
 
+  async submitReview(run, cwd, number, review) {
+    const r = repoAt(cwd);
+    if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };
+    for (const c of review.comments) {
+      const made = await azure.postReviewComment(run, cwd, number, { ...c, commitId: review.commitId });
+      if (!made.ok) return { ok: false, error: `${c.path}:${c.line}: ${made.error}` };
+    }
+    if (review.body.trim()) {
+      const general = await invoke(run, cwd, r, 'pullRequestThreads', { pullRequestId: number }, 'POST', {
+        comments: [{ parentCommentId: 0, content: review.body, commentType: 1 }],
+        status: 'active',
+      });
+      if (!general.ok) return { ok: false, error: general.error };
+    }
+    // The verdict as Azure DevOps votes: approve 10, wait for author −5; a plain comment leaves the vote as it is.
+    if (review.event !== 'comment') {
+      const vote = review.event === 'approve' ? 'approve' : 'wait-for-author';
+      const v = await az(run, cwd, ['repos', 'pr', 'set-vote', '--id', String(number), '--vote', vote, '--org', r.orgUrl]);
+      if (!v.ok) return { ok: false, error: v.error };
+    }
+    return { ok: true, url: prWebUrl(r, number) };
+  },
+
   async postReviewComment(run, cwd, number, c) {
     const r = repoAt(cwd);
     if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };

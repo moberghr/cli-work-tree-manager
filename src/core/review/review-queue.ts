@@ -18,7 +18,7 @@ import { reviewKey } from './review-store.js';
  * - A review is for one head commit: a new push queues it again; the same
  *   head is never done twice.
  * - Automatic reviews spend the user's agent plan: one at a time, at most
- *   `maxPerDay` a day, and a PR over `maxLines` changed lines waits for a
+ *   `maxPerDay` a day when config sets one, and a PR over `maxLines` changed lines waits for a
  *   click (`runNow` ignores both: the user asked).
  * - Reviews of PRs no longer open go.
  * Each decision is noted in the Activity panel with its reason.
@@ -46,7 +46,8 @@ export interface ReviewQueueDeps {
   agent?: (prompt: string) => Promise<string | null>;
   rules?: () => KindRule[];
   store: ReviewStore;
-  limits: () => { maxPerDay: number; maxLines: number };
+  /** `maxPerDay` null: no daily cap. */
+  limits: () => { maxPerDay: number | null; maxLines: number };
   /** Something changed: tell the dashboard. */
   changed: () => void;
   now?: () => Date;
@@ -210,7 +211,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       if (gone) note(`${gone} review${gone === 1 ? '' : 's'} of PRs no longer open dropped`);
       deps.changed();
       for (const t of todo) {
-        if (preparedToday() >= maxPerDay) {
+        if (maxPerDay !== null && preparedToday() >= maxPerDay) {
           deps.store.write(
             placeholder(
               t.meta,

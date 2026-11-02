@@ -2,7 +2,8 @@ import type { Hono } from 'hono';
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { buildReview, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
-import type { PrReviewWire, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
+import type { PrReviewWire, ReviewMode, ReviewSettingsWire, ReviewsWire, ReviewSubmitInput } from '../../core/api-types.js';
+import { addDraft, afterSubmit, submitRefusal } from '../../core/review/review-submit.js';
 
 /**
  * The demo's PR reviews (#64): a large made-up pull request — a refunds
@@ -155,6 +156,9 @@ const DEMO_ANSWER = JSON.stringify({
 
 const FILES: ParsedFile[] = parseGitDiff(DIFF);
 
+/** The demo PR's diff, parsed (its review's diff view; tests render it). */
+export const demoReviewFiles = (): ParsedFile[] => FILES;
+
 export function demoReview(now = new Date()): PrReviewWire {
   return {
     ...buildReview(
@@ -207,7 +211,7 @@ export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unk
   const modes: Record<string, ReviewMode> = { api: 'all', web: 'asked', docs: 'off' };
   const settings = (): ReviewSettingsWire => ({
     projects: Object.entries(modes).map(([name, mode]) => ({ name, kind: 'repo' as const, mode, from: 'repo' as const })),
-    maxPerDay: 10,
+    maxPerDay: null,
     maxLines: 3000,
   });
   const key = (repo: string, n: string) => `${repo}#${n}`;
@@ -216,7 +220,7 @@ export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unk
     c.json({
       reviews: [...reviews.values()].map(summaryOf).sort((a, b) => b.at.localeCompare(a.at)),
       today: 1,
-      maxPerDay: 10,
+      maxPerDay: null,
     } satisfies ReviewsWire),
   );
   app.get('/api/reviews/settings', (c) => c.json(settings()));
@@ -246,20 +250,24 @@ export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unk
     broadcast('reviews-changed', { repo: r.repo, number: r.number });
     return c.json(r);
   });
-  app.post('/api/reviews/:repo/:number/drafts/:id/post', async (c) => {
+  app.post('/api/reviews/:repo/:number/drafts', async (c) => {
     const k = key(c.req.param('repo'), c.req.param('number'));
     const r = reviews.get(k);
-    const draft = r?.drafts.find((d) => d.id === c.req.param('id'));
-    if (!r || !draft) return c.json({ error: 'no such draft' }, 404);
-    if (draft.state === 'posted') return c.json({ error: 'already posted' }, 409);
-    const body = (await c.req.json().catch(() => ({}))) as { body?: unknown };
-    const text = typeof body.body === 'string' && body.body.trim() ? body.body.trim() : draft.body;
-    const next = {
-      ...r,
-      drafts: r.drafts.map((d) =>
-        d.id === draft.id ? { ...d, body: text, state: 'posted' as const, url: `${r.url}#discussion_${d.id}` } : d,
-      ),
-    };
+    if (!r) return c.json({ error: 'no review of that PR' }, 404);
+    const added = addDraft(r, await c.req.json().catch(() => null));
+    if ('error' in added) return c.json({ error: added.error }, 400);
+    reviews.set(k, added.review);
+    broadcast('reviews-changed', { repo: r.repo, number: r.number });
+    return c.json(added.review);
+  });
+  app.post('/api/reviews/:repo/:number/submit', async (c) => {
+    const k = key(c.req.param('repo'), c.req.param('number'));
+    const r = reviews.get(k);
+    if (!r) return c.json({ error: 'no review of that PR' }, 404);
+    const input: unknown = await c.req.json().catch(() => null);
+    const refusal = submitRefusal(r, input);
+    if (refusal) return c.json({ error: refusal }, 400);
+    const next = afterSubmit(r, input as ReviewSubmitInput, `${r.url}#pullrequestreview-1`, new Date());
     reviews.set(k, next);
     broadcast('reviews-changed', { repo: r.repo, number: r.number });
     return c.json(next);

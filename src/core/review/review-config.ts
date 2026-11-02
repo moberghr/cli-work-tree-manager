@@ -6,7 +6,8 @@ import type { ReviewMode } from '../api-types.js';
  * group (in config order) that names it and has one, then `all`.
  */
 
-export const DEFAULT_MAX_PER_DAY = 10;
+/** No daily cap unless config sets one (`reviews.maxPerDay`): a new head is reviewed whenever it comes. */
+export const DEFAULT_MAX_PER_DAY: number | null = null;
 export const DEFAULT_MAX_LINES = 3000;
 
 export interface ReviewConfig {
@@ -32,7 +33,7 @@ export function reviewProjects(config: ReviewConfig): Array<{ alias: string; pat
   return Object.entries(config.repos).map(([alias, path]) => ({ alias, path, mode: reviewModeOf(alias, config).mode }));
 }
 
-export function reviewLimits(config: Pick<ReviewConfig, 'reviews'>): { maxPerDay: number; maxLines: number } {
+export function reviewLimits(config: Pick<ReviewConfig, 'reviews'>): { maxPerDay: number | null; maxLines: number } {
   return {
     maxPerDay: config.reviews?.maxPerDay ?? DEFAULT_MAX_PER_DAY,
     maxLines: config.reviews?.maxLines ?? DEFAULT_MAX_LINES,

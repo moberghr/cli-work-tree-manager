@@ -71,6 +71,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/sessions/account-switch-rules.ts', // pure: when a switch of account is refused
       'src/core/review/review-build.ts', // pure: a PR's review from its diff (kinds, tests, stories)
       'src/core/review/review-config.ts', // pure: review modes and limits
+      'src/core/review/review-submit.ts', // pure: submitting a review, adding a draft
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

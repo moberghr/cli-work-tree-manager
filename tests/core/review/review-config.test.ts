@@ -23,8 +23,8 @@ describe('which repos get automatic reviews', () => {
     ]);
   });
 
-  it('limits default to 10 a day and 3000 lines', () => {
-    expect(reviewLimits({})).toEqual({ maxPerDay: 10, maxLines: 3000 });
+  it('no daily cap by default (config sets one), and 3000 lines', () => {
+    expect(reviewLimits({})).toEqual({ maxPerDay: null, maxLines: 3000 });
     expect(reviewLimits({ reviews: { maxPerDay: 2, maxLines: 500 } })).toEqual({ maxPerDay: 2, maxLines: 500 });
   });
 });

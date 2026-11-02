@@ -12,6 +12,7 @@ import {
   githubPrByNumber,
   githubPrForBranch,
   githubPrState,
+  githubSubmitReview,
 } from './pr-ops.js';
 import { githubReviewFeedback, githubViewer } from './review.js';
 import { GITHUB_THREAD_ID } from './origin.js';
@@ -48,6 +49,7 @@ export const github: GitHost = {
   mergedPr: githubMergedPr,
   openPrs: githubOpenPrs,
   postReviewComment: githubPostReviewComment,
+  submitReview: githubSubmitReview,
   reviewFeedback: (run, cwd, n) => githubReviewFeedback(run, cwd, n),
 
   threads: {

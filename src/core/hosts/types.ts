@@ -138,6 +138,20 @@ export interface GitHost {
   mergedPr(run: CommandRunner, cwd: string, branch: string, tip: string): Promise<number | null | undefined>;
   /** Every open PR of the repo at `cwd` (the review queue's candidates). */
   openPrs(run: CommandRunner, cwd: string): Promise<HostResult<{ prs: OpenPr[] }>>;
+  /**
+   * Submit a review — its line comments, a verdict and a summary — at `commitId`, in one go: only on the user's click.
+   */
+  submitReview(
+    run: CommandRunner,
+    cwd: string,
+    number: number,
+    review: {
+      commitId: string;
+      event: 'comment' | 'approve' | 'request-changes';
+      body: string;
+      comments: Array<{ path: string; line: number; body: string }>;
+    },
+  ): Promise<HostResult<{ url?: string }>>;
   /** Post a review comment on a line of a PR's new side, at `commitId` — only on the user's click. */
   postReviewComment(
     run: CommandRunner,

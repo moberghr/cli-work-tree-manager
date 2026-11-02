@@ -33,7 +33,7 @@ interface ReviewActions {
   closeReply: () => void;
 }
 
-type ReviewContextValue = ReviewState & ReviewActions;
+type ReviewContextValue = ReviewState & ReviewActions & { draftsOnly: boolean };
 
 const ReviewCtx = createContext<ReviewContextValue | null>(null);
 
@@ -131,6 +131,7 @@ export function ReviewProvider({ children, api: providedApi }: ReviewProviderPro
   const value = useMemo<ReviewContextValue>(
     () => ({
       comments,
+      draftsOnly: !!api.draftsOnly,
       error,
       openComposer,
       openReplyTo,
@@ -151,7 +152,19 @@ export function ReviewProvider({ children, api: providedApi }: ReviewProviderPro
       },
       closeReply: () => setOpenReplyTo(null),
     }),
-    [comments, error, openComposer, openReplyTo, postComment, deleteComment, resolveComment, submitReview, discardReview, done],
+    [
+      api.draftsOnly,
+      comments,
+      error,
+      openComposer,
+      openReplyTo,
+      postComment,
+      deleteComment,
+      resolveComment,
+      submitReview,
+      discardReview,
+      done,
+    ],
   );
 
   return <ReviewCtx.Provider value={value}>{children}</ReviewCtx.Provider>;

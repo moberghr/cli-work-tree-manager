@@ -7,7 +7,7 @@ import type { PrReviewWire, ReviewsWire, ReviewSettingsWire } from '../../../src
 function setup(over: Partial<ReviewRouteDeps> = {}) {
   const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
   const broadcast = vi.fn();
-  const postComment = vi.fn(async () => ({ ok: true as const, url: 'https://example/c/1' }));
+  const submit = vi.fn(async () => ({ ok: true as const, url: 'https://example/review/1' }));
   const setMode = vi.fn(async () => undefined);
   const deps: ReviewRouteDeps = {
     runNow: async (repo, n) =>
@@ -25,7 +25,7 @@ function setup(over: Partial<ReviewRouteDeps> = {}) {
     today: () => 1,
     repoPath: (a) => (a === 'api' ? '/repos/api' : null),
     diff: async () => [],
-    postComment,
+    submit,
     settings: (): ReviewSettingsWire => ({
       projects: [{ name: 'api', kind: 'repo', mode: 'all', from: 'default' }],
       maxPerDay: 10,
@@ -39,7 +39,7 @@ function setup(over: Partial<ReviewRouteDeps> = {}) {
   mountReviewRoutes(app, deps);
   const req = (method: string, url: string, body?: unknown) =>
     app.request(url, { method, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
-  return { req, rows, broadcast, postComment, setMode };
+  return { req, rows, broadcast, submit, setMode };
 }
 
 describe('review routes', () => {
@@ -54,32 +54,67 @@ describe('review routes', () => {
     expect((await req('GET', '/api/reviews/api/abc')).status).toBe(404);
   });
 
-  it("posts a draft on your click — your edit, at the review's head — and marks it posted; never twice", async () => {
-    const { req, postComment, broadcast } = setup();
-    const res = await req('POST', '/api/reviews/api/231/drafts/d1/post', { body: 'Guard with a row version.' });
+  it("submits the drafts you kept as one review — your edits, at the review's head — and marks them posted", async () => {
+    const { req, submit, broadcast } = setup();
+    const res = await req('POST', '/api/reviews/api/231/submit', {
+      event: 'request-changes',
+      body: 'Two things before this goes in.',
+      drafts: [{ id: 'd1', body: 'Guard with a row version.' }],
+    });
     expect(res.status).toBe(200);
-    expect(postComment).toHaveBeenCalledWith('/repos/api', 231, {
-      path: 'src/Shop.Orders/Refunds/RefundHandler.cs',
-      line: 6,
-      body: 'Guard with a row version.',
+    expect(submit).toHaveBeenCalledWith('/repos/api', 231, {
       commitId: 'a1b2c3d',
+      event: 'request-changes',
+      body: 'Two things before this goes in.',
+      comments: [{ path: 'src/Shop.Orders/Refunds/RefundHandler.cs', line: 6, body: 'Guard with a row version.' }],
     });
     const r = (await res.json()) as PrReviewWire;
-    expect(r.drafts.find((d) => d.id === 'd1')).toMatchObject({
-      state: 'posted',
-      url: 'https://example/c/1',
-      body: 'Guard with a row version.',
-    });
+    expect(r.drafts.map((d) => [d.id, d.state])).toEqual([
+      ['d1', 'posted'],
+      ['d2', 'draft'],
+    ]);
+    expect(r.submitted).toMatchObject({ event: 'request-changes', url: 'https://example/review/1' });
     expect(broadcast).toHaveBeenCalledWith('reviews-changed', { repo: 'api', number: 231 });
-    expect((await req('POST', '/api/reviews/api/231/drafts/d1/post')).status).toBe(409);
+    // A posted draft can't go again; a draft of another review, a bad verdict or an empty review are refused.
+    expect(
+      (await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'x' }] })).status,
+    ).toBe(400);
+    expect(
+      (await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'zz', body: 'x' }] })).status,
+    ).toBe(400);
+    expect((await req('POST', '/api/reviews/api/231/submit', { event: 'merge', body: 'x', drafts: [] })).status).toBe(400);
+    expect((await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: ' ', drafts: [] })).status).toBe(400);
   });
 
-  it("a host's refusal is 409 with its reason, and the draft stays a draft", async () => {
-    const { req, rows } = setup({ postComment: async () => ({ ok: false, error: 'line not in the diff' }) });
-    const res = await req('POST', '/api/reviews/api/231/drafts/d2/post');
+  it("a host's refusal is 409 with its reason, and the drafts stay drafts", async () => {
+    const { req, rows } = setup({ submit: async () => ({ ok: false, error: 'line not in the diff' }) });
+    const res = await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd2', body: 'x' }] });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'line not in the diff' });
-    expect(rows.get('api#231')!.drafts.find((d) => d.id === 'd2')!.state).toBe('draft');
+    expect(rows.get('api#231')!.drafts.every((d) => d.state === 'draft')).toBe(true);
+  });
+
+  it('adds a draft of your own on a line of a file of the PR; anything else is refused', async () => {
+    const { req, rows } = setup();
+    const res = await req('POST', '/api/reviews/api/231/drafts', {
+      path: 'src/Shop.Orders/Pricing/Rounding.cs',
+      line: 3,
+      body: 'Why away from zero?',
+    });
+    expect(res.status).toBe(200);
+    expect(rows.get('api#231')!.drafts.at(-1)).toEqual({
+      id: 'u1',
+      path: 'src/Shop.Orders/Pricing/Rounding.cs',
+      line: 3,
+      body: 'Why away from zero?',
+      state: 'draft',
+      by: 'you',
+    });
+    expect((await req('POST', '/api/reviews/api/231/drafts', { path: 'not/in/pr.cs', line: 3, body: 'x' })).status).toBe(400);
+    expect(
+      (await req('POST', '/api/reviews/api/231/drafts', { path: 'src/Shop.Orders/Pricing/Rounding.cs', line: 0, body: 'x' })).status,
+    ).toBe(400);
+    expect((await req('POST', '/api/reviews/web/1/drafts', { path: 'a', line: 1, body: 'x' })).status).toBe(404);
   });
 
   it('discards a draft (never a posted one), and prepares one now on a click', async () => {

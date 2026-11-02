@@ -1453,7 +1453,7 @@ export interface ReviewFileWire {
   by: 'rule' | 'git';
 }
 
-/** A draft review comment (the agent pass's note): posted only on your click. */
+/** A draft review comment — the AI step's note (`by: 'ai'`) or yours — on a line of the PR's new side; it goes out only in a review you submit. */
 export interface ReviewDraftWire {
   id: string;
   path: string;
@@ -1461,6 +1461,18 @@ export interface ReviewDraftWire {
   body: string;
   state: 'draft' | 'posted';
   url?: string;
+  /** Who wrote it: the AI step, or you (added on the diff). Absent: the AI step (from before). */
+  by?: 'ai' | 'you';
+}
+
+/** How a submitted review is cast. */
+export type ReviewEvent = 'comment' | 'approve' | 'request-changes';
+
+/** POST /api/reviews/:repo/:number/submit — the drafts to send (each with its body as you left it), the verdict, a summary. */
+export interface ReviewSubmitInput {
+  event: ReviewEvent;
+  body: string;
+  drafts: Array<{ id: string; body: string }>;
 }
 
 /** GET /api/reviews/:repo/:number — a PR's review, as prepared for its head. */
@@ -1503,6 +1515,8 @@ export interface PrReviewWire {
   mergeBase?: string;
   /** When it was prepared (counts against the day's cap). */
   preparedAt?: string;
+  /** Your submitted review: when, how, and its link. */
+  submitted?: { at: string; event: ReviewEvent; url?: string };
 }
 
 /** One row of the Reviews list. */
@@ -1527,9 +1541,9 @@ export interface ReviewSummaryWire {
 /** GET /api/reviews */
 export interface ReviewsWire {
   reviews: ReviewSummaryWire[];
-  /** Reviews prepared today, against the day's cap. */
+  /** Reviews prepared today, against the day's cap (null: none). */
   today: number;
-  maxPerDay: number;
+  maxPerDay: number | null;
 }
 
 /** A project's setting for automatic reviews: every open PR, only those asking you, or none. */
@@ -1538,6 +1552,7 @@ export type ReviewMode = 'all' | 'asked' | 'off';
 /** GET /api/reviews/settings — each repo and group, its automatic-review mode, and the limits. PUT {project, mode} sets one. */
 export interface ReviewSettingsWire {
   projects: Array<{ name: string; kind: 'repo' | 'group'; mode: ReviewMode; from: 'repo' | 'group' | 'default'; group?: string }>;
-  maxPerDay: number;
+  /** null: no daily cap. */
+  maxPerDay: number | null;
   maxLines: number;
 }

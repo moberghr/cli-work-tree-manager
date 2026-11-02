@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { demoReview } from '../../src/server/demo/demo-reviews.js';
+import { demoReview, demoReviewFiles } from '../../src/server/demo/demo-reviews.js';
 import { summaryOf } from '../../src/core/review/review-build.js';
 import type { PrReviewWire } from '../../src/core/api-types.js';
 
@@ -13,7 +13,8 @@ const api = vi.hoisted(() => ({
   fetchReview: vi.fn(),
   fetchReviewDiff: vi.fn(),
   prepareReview: vi.fn(),
-  postReviewDraft: vi.fn(),
+  submitReview: vi.fn(),
+  addReviewDraft: vi.fn(),
   discardReviewDraft: vi.fn(),
   fetchReviewSettings: vi.fn(),
   saveReviewMode: vi.fn(),
@@ -28,15 +29,25 @@ const { ReviewsTab } = await import('../../src/web/src/components/Dashboard/tabs
 let container: HTMLDivElement;
 let root: Root;
 let review: PrReviewWire;
-const flush = () => act(async () => new Promise((r) => setTimeout(r, 0)));
+const flush = async () => {
+  for (let i = 0; i < 3; i++) await act(async () => new Promise((r) => setTimeout(r, 0)));
+};
 const button = (text: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(text))!;
 
 beforeEach(() => {
   review = demoReview(new Date('2026-11-02T10:00:00Z'));
   for (const f of Object.values(api)) f.mockReset();
-  api.fetchReviews.mockResolvedValue({ reviews: [summaryOf(review)], today: 1, maxPerDay: 10 });
+  const azurePr = {
+    ...summaryOf(review),
+    repo: 'payments',
+    number: 57,
+    title: 'Retry declined payments',
+    host: 'azure',
+    at: '2026-11-01T10:00:00Z',
+  };
+  api.fetchReviews.mockResolvedValue({ reviews: [summaryOf(review), azurePr], today: 1, maxPerDay: null });
   api.fetchReview.mockResolvedValue(review);
-  api.fetchReviewDiff.mockResolvedValue({ files: [] });
+  api.fetchReviewDiff.mockResolvedValue({ files: demoReviewFiles() });
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -47,50 +58,81 @@ afterEach(() => {
 });
 
 describe('ReviewsTab', () => {
-  it('opens the newest review: tests and gaps first, stories riskiest first with their reasoning, files by kind with why', async () => {
-    const shown = vi.fn();
-    act(() => root.render(createElement(ReviewsTab, { onShown: shown })));
-    await flush();
-    await flush();
-    const text = container.textContent ?? '';
-    expect(text).toContain('1 of 10 automatic reviews today');
-    expect(text).toContain('2 added · 0 changed · 0 removed · 0 skipped');
-    expect(text).toContain('The schema changes, and only unit tests changed with it.');
-    expect(text).toContain('No test touches:');
-    expect(text.indexOf('Refunds an order')).toBeLessThan(text.indexOf('Rounding half away from zero'));
-    expect(text).toContain('Why ranked here: moves money');
-    expect(text).toContain('can lose data');
-    expect(text).toContain('asserts: nothing yet: its body is empty (AI)');
-    // Generated and mechanical are folded, with a count; the rest list each file and its rule.
-    expect(text).toContain('▸ Generated · 3');
-    expect(text).toContain('▸ Mechanical · 1');
-    expect(text).toContain('controller or endpoint');
-    expect(text).not.toContain('EF Core migration designer');
-    act(() => button('Generated · 3').click());
-    expect(container.textContent).toContain('EF Core migration designer');
-  });
-
-  it('a draft is posted only on its Post, with your edit; Discard drops it', async () => {
+  it('lists the reviews by repo (with the host where it isn’t GitHub), and None as one list; the review names its repo', async () => {
     act(() => root.render(createElement(ReviewsTab, {})));
     await flush();
+    const heads = [...container.querySelectorAll('.wd-reviews-group-head')].map((h) => h.textContent);
+    expect(heads).toEqual(['api · 1', 'payments · 1 · Azure DevOps']);
+    expect(container.textContent).toContain('1 prepared today');
+    expect(container.querySelector('.wd-review-header h2')!.textContent).toContain('api #231');
+    act(() => button('None').click());
+    expect(container.querySelectorAll('.wd-reviews-group-head')).toHaveLength(0);
+    expect(container.querySelector('.wd-reviews-list')!.textContent).toContain('payments #57');
+    expect(container.querySelector('.wd-resize-divider')).not.toBeNull();
+  });
+
+  it("the tree is the review's order: stories (with their tests) first, then kinds, generated and mechanical folded", async () => {
+    act(() => root.render(createElement(ReviewsTab, {})));
     await flush();
-    const area = container.querySelector('textarea')!;
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-    act(() => {
-      setter.call(area, 'Use a row version.');
-      area.dispatchEvent(new Event('input', { bubbles: true }));
+    const tree = container.querySelector('.wd-review-tree')!;
+    const heads = [...tree.querySelectorAll('.wd-review-tree-head')].map((b) => b.textContent);
+    expect(heads).toEqual([
+      '▾ Refunds an order: handler and validator',
+      '▾ Rounding half away from zero',
+      '▾ Schema · 1',
+      '▾ API surface · 1',
+      '▾ Wiring · 1',
+      '▾ Dependencies, build & CI · 1',
+      '▸ Mechanical · 1',
+      '▸ Generated · 3',
+    ]);
+    expect(tree.textContent).toContain('🧪 RefundHandlerTests.cs');
+    // The diff follows the tree: each story's reasoning above its files; folded kinds aren't drawn until opened.
+    const pane = container.querySelector('.wd-review-diff-pane')!;
+    expect(pane.textContent).toContain('Why ranked here: moves money');
+    expect(pane.textContent!.indexOf('RefundHandler.cs')).toBeLessThan(pane.textContent!.indexOf('Rounding.cs'));
+    expect(pane.textContent).not.toContain('ShopDbModelSnapshot.cs');
+    act(() => button('Generated · 3').click());
+    expect(container.querySelector('.wd-review-diff-pane')!.textContent).toContain('ShopDbModelSnapshot.cs');
+  });
+
+  it('the drafts sit on their lines in the diff; Submit sends them as one review with the verdict and summary', async () => {
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    const pane = container.querySelector('.wd-review-diff-pane')!;
+    expect(pane.textContent).toContain('Two refunds at once both read the old');
+    // A draft of the review: no reply or resolve, only Delete (it goes out with the review, or not at all).
+    const draft = pane.querySelector('.wd-status-draft')!;
+    expect([...draft.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Delete']);
+    expect(container.querySelector('.wd-review-submit')!.textContent).toContain('2 comments on the diff');
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Verdict"]')!;
+    await act(async () => {
+      select.value = 'request-changes';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    expect(api.postReviewDraft).not.toHaveBeenCalled();
-    api.postReviewDraft.mockResolvedValue({
+    api.submitReview.mockResolvedValue({
       ...review,
-      drafts: review.drafts.map((d, i) => (i === 0 ? { ...d, state: 'posted', url: 'u' } : d)),
+      drafts: review.drafts.map((d) => ({ ...d, state: 'posted' })),
+      submitted: { at: '2026-11-02T11:00:00Z', event: 'request-changes' },
     });
-    await act(async () => button('Post').click());
-    expect(api.postReviewDraft).toHaveBeenCalledWith('api', 231, 'd1', 'Use a row version.');
-    expect(container.textContent).toContain('posted ↗');
-    api.discardReviewDraft.mockResolvedValue({ ...review, drafts: [] });
-    await act(async () => button('Discard').click());
-    expect(api.discardReviewDraft).toHaveBeenCalledWith('api', 231, 'd2');
+    await act(async () => button('Submit review on GitHub').click());
+    expect(api.submitReview).toHaveBeenCalledWith('api', 231, {
+      event: 'request-changes',
+      body: '',
+      drafts: review.drafts.map((d) => ({ id: d.id, body: d.body })),
+    });
+    expect(container.textContent).toContain('you submitted changes requested');
+  });
+
+  it('the tests strip is one line that unfolds to the breakdown', async () => {
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    const strip = container.querySelector('.wd-review-tests-strip')!;
+    expect(strip.textContent).toContain('Tests: 2 added · 0 changed · 0 removed · 0 skipped');
+    expect(strip.textContent).toContain('the schema changes with unit tests only');
+    expect(strip.textContent).not.toContain('asserts:');
+    act(() => button('Tests:').click());
+    expect(container.querySelector('.wd-review-tests-strip')!.textContent).toContain('asserts: nothing yet: its body is empty (AI)');
   });
 
   it('a waiting review says why, and Prepare it now prepares it', async () => {
@@ -99,16 +141,17 @@ describe('ReviewsTab', () => {
       status: 'waiting',
       why: '4812 changed lines: over the size limit (3000), so it waits for your click',
     };
-    api.fetchReviews.mockResolvedValue({ reviews: [summaryOf(waiting)], today: 0, maxPerDay: 10 });
+    api.fetchReviews.mockResolvedValue({ reviews: [summaryOf(waiting)], today: 0, maxPerDay: null });
     api.fetchReview.mockResolvedValue(waiting);
     api.prepareReview.mockResolvedValue(review);
     act(() => root.render(createElement(ReviewsTab, {})));
     await flush();
-    await flush();
     expect(container.textContent).toContain('over the size limit (3000)');
+    expect(container.querySelector('.wd-review-submit')).toBeNull();
     await act(async () => button('Prepare it now').click());
+    await flush();
     expect(api.prepareReview).toHaveBeenCalledWith('api', 231);
-    expect(container.textContent).toContain('Stories, riskiest first');
+    expect(container.querySelector('.wd-review-tree')).not.toBeNull();
   });
 
   it('settings: each project with its mode and where it comes from; a change is saved', async () => {
@@ -117,7 +160,7 @@ describe('ReviewsTab', () => {
         { name: 'api', kind: 'repo', mode: 'asked', from: 'group', group: 'shop' },
         { name: 'shop', kind: 'group', mode: 'asked', from: 'repo' },
       ],
-      maxPerDay: 10,
+      maxPerDay: null,
       maxLines: 3000,
     });
     api.saveReviewMode.mockImplementation(async () => api.fetchReviewSettings());
@@ -126,7 +169,7 @@ describe('ReviewsTab', () => {
     act(() => button('Which PRs').click());
     await flush();
     expect(container.textContent).toContain('(from the group shop)');
-    expect(container.textContent).toContain('at most 10 a day');
+    expect(container.textContent).not.toContain('a day');
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="Reviews for api"]')!;
     await act(async () => {
       select.value = 'off';
