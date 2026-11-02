@@ -40,7 +40,7 @@ let livePids = new Set<number>();
 let outputs = new Map<string, PtyOutput & { pid: number }>();
 let refreshTimer: NodeJS.Timeout | null = null;
 /** The heartbeat (host-health.ts): each list request is one. */
-const beat: HostBeat = { known: false, lastOkAt: null, latencyMs: null, lastError: null };
+const beat: HostBeat = { known: false, lastOkAt: null, latencyMs: null, lastError: null, hostVersion: null };
 
 /** How the host answered lately (for GET /api/pty-host/health). */
 export function hostBeat(): HostBeat {
@@ -86,6 +86,7 @@ async function refresh(): Promise<void> {
     const c = await getClient(false);
     if (!c) {
       beat.known = false;
+      beat.hostVersion = null; // gone: the next host says its own
       live = new Set();
       livePids = new Set();
       outputs = new Map();
@@ -96,6 +97,8 @@ async function refresh(): Promise<void> {
     beat.lastOkAt = Date.now();
     beat.latencyMs = beat.lastOkAt - t0;
     beat.lastError = null;
+    // Asked once per host (the client keeps it): the release it runs, to say when it's older than this work.
+    beat.hostVersion = await c.workVersion();
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
     livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
     outputs = new Map(
@@ -107,6 +110,7 @@ async function refresh(): Promise<void> {
     beat.known = beat.known || err instanceof PtyHostBusyError;
     beat.lastError = (err as Error).message;
     client = null;
+    beat.hostVersion = null;
     live = new Set();
     livePids = new Set();
     outputs = new Map();

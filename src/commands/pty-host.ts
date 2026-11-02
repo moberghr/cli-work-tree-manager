@@ -1,18 +1,11 @@
-import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startPtyHost } from '../core/pty/pty-host.js';
-import {
-  ensureHost,
-  findHost,
-  probeHostDetailed,
-  PtyHostBusyError,
-  PtyHostClient,
-  PtyHostVersionError,
-} from '../core/pty/pty-host-client.js';
+import { ensureHost, findHost, PtyHostBusyError, PtyHostClient, PtyHostVersionError } from '../core/pty/pty-host-client.js';
 import { ensureFile, withFileLock } from '../core/platform/fs-safe.js';
+import { hostStartLockPath } from '../core/pty/pty-host-protocol.js';
+import { stopHost } from '../core/pty/host-control.js';
 import { killTree } from '../core/platform/process.js';
-import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty/pty-host-protocol.js';
 import { loadHistory } from '../core/sessions/history.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
 import { resolveWorkBinPath } from '../core/platform/work-bin.js';
@@ -22,49 +15,8 @@ function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
-export type StopOutcome = 'stopped' | 'not-running' | 'stale-file' | 'unresponsive' | 'failed';
-
-/**
- * Kill the running host and its PTYs. The persisted session list stays, so
- * the next host start restores them with --continue.
- *
- * Only a PID that proves it's our host gets killed: it must answer /health
- * with the discovery file's token and report that same PID. The file
- * survives crashes and reboots (TerminateProcess skips cleanup), and
- * Windows reuses PIDs — force-killing the recorded PID and its tree blind
- * could take down an unrelated process. A stale file is just removed.
- */
-export async function stopHost(kill: (pid: number) => boolean = killTree, probeTimeoutMs = 5000): Promise<StopOutcome> {
-  const hostInfo = readHostInfo();
-  if (!hostInfo) return 'not-running';
-  // A busy host (restoring many sessions) can miss a short probe; give it
-  // longer before concluding anything.
-  const probe = await probeHostDetailed(hostInfo, probeTimeoutMs);
-  if (probe.kind === 'timeout') {
-    // Alive-but-slow must NOT be treated as stale: deleting the file would
-    // orphan a live host, and --restart would then start a second one that
-    // restores every session again. Keep the file, kill nothing.
-    return 'unresponsive';
-  }
-  if (probe.kind !== 'host' || probe.pid !== hostInfo.pid) {
-    // Nothing listening, or someone else on that port: the file is stale
-    // (reboot, crash, PID/port reused). Remove it; kill nothing.
-    try {
-      fs.unlinkSync(hostInfoPath());
-    } catch {
-      /* */
-    }
-    return 'stale-file';
-  }
-  const ok = kill(hostInfo.pid);
-  // TerminateProcess means the host never runs its own cleanup.
-  try {
-    fs.unlinkSync(hostInfoPath());
-  } catch {
-    /* */
-  }
-  return ok ? 'stopped' : 'failed';
-}
+// Moved to core (host-control.ts): the dashboard's Restart uses it too. Re-exported for the tests.
+export { stopHost, type StopOutcome } from '../core/pty/host-control.js';
 
 async function printStatus(): Promise<void> {
   let host;
@@ -98,21 +50,28 @@ export const ptyHostCommand: CommandModule = {
     yargs
       .option('stop', { type: 'boolean', default: false, describe: 'Stop the PTY host (sessions restore on next start).' })
       .option('restart', { type: 'boolean', default: false, describe: 'Restart the PTY host, e.g. after upgrading work.' })
-      .option('status', { type: 'boolean', default: false, describe: 'List the sessions the PTY host owns.' }),
+      .option('status', { type: 'boolean', default: false, describe: 'List the sessions the PTY host owns.' })
+      .option('force', {
+        type: 'boolean',
+        default: false,
+        describe: "With --stop/--restart: also stop a host that doesn't answer (hung), once it proves to be work's PTY host.",
+      }),
   handler: async (argv) => {
     if (argv.status) {
       await printStatus();
       return;
     }
     if (argv.stop || argv.restart) {
-      const outcome = await stopHost();
+      const outcome = await stopHost(killTree, 5000, { force: argv.force as boolean });
       info(
         chalk.gray(
           {
             stopped: 'Stopped the PTY host.',
             'not-running': 'No PTY host running.',
             'stale-file': 'No PTY host running (removed a stale discovery file; nothing was killed).',
-            unresponsive: 'The PTY host is not responding (busy?). Nothing was stopped — try again in a moment.',
+            unresponsive: argv.force
+              ? "The PTY host is not responding, and its process doesn't look like work's PTY host: nothing was stopped."
+              : 'The PTY host is not responding (busy, or hung). Nothing was stopped — try again in a moment, or add --force to stop a hung one.',
             failed: 'Could not stop the PTY host.',
           }[outcome],
         ),

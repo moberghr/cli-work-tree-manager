@@ -1416,3 +1416,9 @@ export interface ScreenWire {
 export interface LastReplyWire {
   text: string | null;
 }
+
+/** POST /api/pty-host/restart: the host was stopped (or none ran) and a new one started; it restores the sessions. */
+export interface PtyHostRestartWire {
+  outcome: 'stopped' | 'not-running' | 'stale-file';
+  pid: number;
+}

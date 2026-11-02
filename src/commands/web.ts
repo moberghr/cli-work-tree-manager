@@ -99,6 +99,8 @@ function info(message: string): void {
 }
 
 import { buildStamp } from '../core/platform/build-stamp.js';
+import { previousEnd, readWebLife, recordExit, startWebLife, stopOnSignals } from '../core/platform/web-life.js';
+import { VERSION } from '../version.js';
 import { ensureAgentPath } from '../core/agents/agent-path.js';
 
 export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive' | 'failed';
@@ -275,8 +277,16 @@ export const webCommand: CommandModule = {
 
     // The PTY host is spawned from the `work` binary, not the `wd` shim.
     configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });
-    let shutdown = () => {};
-    const handle = await startWebServer({ lean, onShutdownRequest: () => shutdown() });
+    let shutdown = (_how: string) => {};
+    // How the last one ended, when it couldn't say (killed outright: nothing in the log), and this one's record.
+    const before = previousEnd(readWebLife(), isPidAlive, process.pid);
+    if (before) info(chalk.yellow(`Note: ${before}`));
+    const life = startWebLife(VERSION);
+    recordExit(process, life);
+    const handle = await startWebServer({
+      lean,
+      onShutdownRequest: () => shutdown('asked to stop (work web --stop, or the app replacing it)'),
+    });
     bestEffort('write work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
 
     info(chalk.gray(`work web running at ${handle.url}${lean ? ' (lean — diff-only mode)' : ''}`));
@@ -305,25 +315,27 @@ export const webCommand: CommandModule = {
     // An account added (or removed) while this runs gets the same, within seconds (account-sync.ts).
     const accountSync = startAccountSetupSync(lean);
 
-    shutdown = () => {
+    shutdown = (how: string) => {
+      life.end(how);
       accountSync.stop();
-      info(chalk.gray('\nStopping work web.'));
+      info(chalk.gray(`\nStopping work web (${how}).`));
       clearWebDiscovery(process.pid);
       removeAgentHooksSync(lean);
       void handle.stop().finally(() => process.exit(0));
     };
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+    stopOnSignals(process, (how) => shutdown(how));
     // Still the one? Two can start at once (a restart racing the desktop
     // app's watchdog); the one not in web.pid steps aside. It leaves the
     // Claude hooks alone — they are removed by owner, and the other server
     // installed the same ones — and the discovery files, which are the
     // other's. Nothing recorded: put ours back.
     const discoveryTimer = setInterval(() => {
+      life.beat(); // still alive: the next one can tell when this one was last seen
       void discoveryCheck({ pid: process.pid, url: handle.url }).then((d) => {
         if (d === 'reclaim') bestEffort('rewrite work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
         if (d !== 'retire') return;
         info(chalk.gray(`Another work web (${readWebUrl()}) is the running one; stopping this duplicate.`));
+        life.end(`stopped as a duplicate: ${readWebUrl()} is the running one`);
         clearInterval(discoveryTimer);
         void handle.stop().finally(() => process.exit(0));
       }, swallow('check work web discovery'));

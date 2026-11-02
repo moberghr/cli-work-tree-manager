@@ -124,6 +124,8 @@ import { accountSwitchNote, createAccountSwitcher } from '../core/sessions/accou
 import { defaultAccountSwitchDeps } from '../core/sessions/account-switch-deps.js';
 import { createAccountSwitchLink } from '../core/sessions/account-switch-link.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
+import { restartHost } from '../core/pty/host-control.js';
+import { mountPtyHostRoutes } from './routes/pty-host-routes.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates, sleepPlan } from '../core/pty/idle-sleep.js';
 import { sleepChecks } from '../core/pty/sleep-checks.js';
 import { loadConfig } from '../core/platform/config.js';
@@ -1042,15 +1044,22 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   if (jobs) fs.watchFile(desktopFile, { interval: 3000 }, onDesktopUpdate); // the installed app's: not the dev server's business
   // Agent usage (core/usage/): plan limits the status-line hook recorded, and token counts. Reads only, so every mode serves it.
   const usageWatcher = wireUsage(app, { broadcast, build: () => buildUsage(realUsageDeps()) });
-  // How the PTY host is doing (host-health.ts): the dashboard warns when it's slow or not answering.
-  app.get('/api/pty-host/health', (c) => c.json(hostHealth(hostBeat()) satisfies HostHealth));
-  let lastHostState = hostHealth(hostBeat()).state;
+  // How the PTY host is doing (host-health.ts), and its Restart (the banner's button). Not the dev server's restart: it
+  // never starts a host (the installed work owns it).
+  mountPtyHostRoutes(app, {
+    dev: !!dev,
+    health: () => hostHealth(hostBeat(), Date.now(), VERSION),
+    restart: () => restartHost(getWorkBin(), { force: true }),
+    broadcast,
+  });
+  const hostKey = (h: HostHealth) => `${h.state}:${h.outdated ?? ''}`;
+  let lastHostState = hostKey(hostHealth(hostBeat(), Date.now(), VERSION));
   const hostTick = lean
     ? null
     : setInterval(() => {
-        const h = hostHealth(hostBeat());
-        if (h.state === lastHostState) return;
-        lastHostState = h.state;
+        const h = hostHealth(hostBeat(), Date.now(), VERSION);
+        if (hostKey(h) === lastHostState) return;
+        lastHostState = hostKey(h);
         broadcast('host-health', h);
         if (h.state === 'unresponsive') report('warn', `[web] PTY host not answering: ${h.error ?? 'no reply'}`);
       }, 5_000);

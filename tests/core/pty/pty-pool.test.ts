@@ -31,6 +31,10 @@ const host = {
   restartFailsOnce: false,
   /** What `/health` says it supports: [] = a host from before features; null = it couldn't be asked. */
   features: ['agentEnv', 'halt'] as string[] | null,
+  /** The release `/health` says it runs: '' = a host from before it said. */
+  workVersion: '2.8.0' as string | null,
+  /** The list request fails (the host went away mid-way). */
+  listFails: false,
 };
 let hostRunning = false;
 const ensureHost = vi.fn(async () => {
@@ -79,6 +83,7 @@ vi.mock('../../../src/core/pty/pty-host-client.js', () => ({
       return {};
     }
     async list() {
+      if (host.listFails) throw new Error('fetch failed');
       return [...host.live].map((id) => ({ id, exited: false }));
     }
     async write(id: string, data: string) {
@@ -87,6 +92,9 @@ vi.mock('../../../src/core/pty/pty-host-client.js', () => ({
     }
     async features() {
       return host.features;
+    }
+    async workVersion() {
+      return host.workVersion;
     }
     async halt(id: string) {
       host.halted.push(id);
@@ -148,6 +156,8 @@ beforeEach(() => {
   host.resumed = [];
   host.restartAnswer = 'restarted';
   host.features = ['agentEnv', 'halt'];
+  host.workVersion = '2.8.0';
+  host.listFails = false;
   hostRunning = false;
   ensureHost.mockClear();
   findHost.mockClear();
@@ -484,6 +494,28 @@ describe('a PTY host from before accounts (review W4)', () => {
     host.features = [];
     await expect(pool.resumePty('single', { agentEnv: { CLAUDE_CONFIG_DIR: work } })).rejects.toThrow(pool.OLD_HOST_ACCOUNTS);
     expect(host.resumed).toEqual([]);
+  });
+});
+
+describe('the heartbeat knows the host\'s release (the banner\'s "older than this work")', () => {
+  it('read with each beat; forgotten when the host fails to answer or goes away, so a new host says its own', async () => {
+    const pool = await freshPool();
+    hostRunning = true;
+    await pool.syncPtyPool();
+    expect(pool.hostBeat().hostVersion).toBe('2.8.0');
+    host.listFails = true;
+    await pool.syncPtyPool();
+    expect(pool.hostBeat().hostVersion).toBeNull();
+    host.listFails = false;
+    host.workVersion = '2.9.3';
+    await pool.syncPtyPool();
+    expect(pool.hostBeat().hostVersion).toBe('2.9.3');
+    // Gone: its next answer fails, and then there's none to find.
+    hostRunning = false;
+    host.listFails = true;
+    await pool.syncPtyPool();
+    await pool.syncPtyPool();
+    expect(pool.hostBeat()).toMatchObject({ known: false, hostVersion: null });
   });
 });
 

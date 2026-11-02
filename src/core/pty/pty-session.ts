@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
+import { loadConfig } from '../platform/config.js';
 
 type Fork = typeof childProcess.fork;
 const HIDDEN = Symbol.for('work.forkHidesConsole');
@@ -110,6 +111,31 @@ export function resolvePtyCommand(
   return { file: parsed.file ?? parsed.command, args: parsed.args };
 }
 
+/** Config `useBundledConpty`, read at each start (off when config can't be read). */
+function readUseBundledConpty(): boolean {
+  try {
+    return loadConfig()?.useBundledConpty === true;
+  } catch {
+    return false;
+  }
+}
+
+/** node-pty's ConPTY choice: on Windows, the bundled one when asked for; nothing elsewhere (it's Windows-only). Pure. */
+export function conptyOptions(platform: NodeJS.Platform, useBundled: boolean): { useConptyDll?: boolean } {
+  return platform === 'win32' && useBundled ? { useConptyDll: true } : {};
+}
+
+/**
+ * What a terminal start that took `ms` is worth saying (node-pty's start is synchronous, so the host answered nothing
+ * meanwhile): a note in the debug line from 1 s, a warning from 5 s. Pure.
+ */
+export function slowStart(ms: number): { note: string; warn: string | null } {
+  return {
+    note: ms > 1000 ? `(the start took ${ms} ms)` : '',
+    warn: ms > 5000 ? `[pty] starting a terminal took ${Math.round(ms / 1000)} s: the PTY host answered nothing meanwhile` : null,
+  };
+}
+
 export class PtySession {
   readonly pty: IPty;
   readonly terminal: InstanceType<typeof Terminal>;
@@ -163,14 +189,19 @@ export class PtySession {
 
     debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows });
     ensureSpawnHelper();
+    const started = Date.now();
     this.pty = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-256color',
       cwd,
       cols,
       rows,
       env,
+      ...conptyOptions(process.platform, readUseBundledConpty()),
     });
-    debug('PtySession spawned pid=', this.pty.pid);
+    // node-pty's start is synchronous (Windows: creating the pseudo-console): a slow one holds up the whole host.
+    const slow = slowStart(Date.now() - started);
+    debug('PtySession spawned pid=', this.pty.pid, slow.note);
+    if (slow.warn) report('warn', slow.warn);
 
     this.pty.onData((data) => {
       this.terminal.write(data);

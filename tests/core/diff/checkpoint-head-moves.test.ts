@@ -52,35 +52,35 @@ function mainMovesOn() {
 }
 
 describe('headBroughtInOtherWork', () => {
-  it('nothing moved, or only its own commits on top: the turns stay', () => {
-    expect(headBroughtInOtherWork(HASH, repos())).toBe(false);
+  it('nothing moved, or only its own commits on top: the turns stay', async () => {
+    expect(await headBroughtInOtherWork(HASH, repos())).toBe(false);
     git(['add', '.'], wt);
     git(['commit', '-q', '-m', 'mine', '--no-gpg-sign'], wt);
     commitIn(wt, 'more.txt', 'more of mine');
-    expect(headBroughtInOtherWork(HASH, repos())).toBe(false);
+    expect(await headBroughtInOtherWork(HASH, repos())).toBe(false);
   });
 
-  it("main merged in (Update from main on a pushed branch): another's work came in", () => {
+  it("main merged in (Update from main on a pushed branch): another's work came in", async () => {
     mainMovesOn();
     git(['add', '.'], wt);
     git(['commit', '-q', '-m', 'mine', '--no-gpg-sign'], wt);
     git(['merge', '-q', '--no-edit', 'origin/main'], wt);
-    expect(headBroughtInOtherWork(HASH, repos())).toBe(true);
+    expect(await headBroughtInOtherWork(HASH, repos())).toBe(true);
   });
 
-  it('rebased onto main: what was underneath is gone', () => {
+  it('rebased onto main: what was underneath is gone', async () => {
     git(['add', '.'], wt);
     git(['commit', '-q', '-m', 'mine', '--no-gpg-sign'], wt);
-    expect(headBroughtInOtherWork(HASH, repos())).toBe(false);
+    expect(await headBroughtInOtherWork(HASH, repos())).toBe(false);
     mainMovesOn();
     git(['stash', '-q', '--include-untracked'], wt); // nothing, but keep rebase happy
     git(['rebase', '-q', 'origin/main'], wt);
-    expect(headBroughtInOtherWork(HASH, repos())).toBe(true);
+    expect(await headBroughtInOtherWork(HASH, repos())).toBe(true);
   });
 
-  it("fast-forwarded to main's new commits (a pull): another's work came in", () => {
+  it("fast-forwarded to main's new commits (a pull): another's work came in", async () => {
     mainMovesOn();
     git(['merge', '-q', '--ff-only', 'origin/main'], wt);
-    expect(headBroughtInOtherWork(HASH, repos())).toBe(true);
+    expect(await headBroughtInOtherWork(HASH, repos())).toBe(true);
   });
 });

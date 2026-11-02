@@ -43,6 +43,27 @@ jobs:
         with:
           name: coverage
           path: coverage/lcov.info
+  desktop:
+    # The desktop app's own tests (desktop/src-tauri: the runtime copy, PATH,
+    # updates, the taskbar badge, how its work web ended). Windows is where it
+    # mostly runs; Linux covers the non-Windows paths.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Tauri's Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf build-essential
+      - run: cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
   package:
     # The installed package on every OS and supported Node: the native
     # modules (better-sqlite3 for state.db, node-pty) must come down as

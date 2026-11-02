@@ -875,3 +875,17 @@ pre {
   background: #1e1e1e;
   pointer-events: none;
 }
+/* A start that failed: why, the countdown to the next try, and a button (so it takes clicks). */
+.wd-pty-failed {
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  text-align: center;
+  pointer-events: auto;
+}
+.wd-pty-failed p {
+  margin: 0;
+}
+.wd-pty-failed p:first-child {
+  color: #e8b4b4;
+}

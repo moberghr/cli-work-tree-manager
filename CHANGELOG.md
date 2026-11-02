@@ -3,8 +3,30 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## Unreleased
+## 2.9.3 — 2026-11-02
 
+- **No more two Claudes on one session.** A PTY host that hung (stuck starting
+  a terminal) was taken for gone when it reset a connection, so a second host
+  started and resumed every session again beside the first. Only a refused
+  connection now means no host.
+- **A terminal that can't start says so, and tries again.** Instead of
+  "Starting Claude… resuming conversation" for good, the Terminal tab shows why
+  the start failed and tries again after 3, 10, 30 and 60 seconds, with Try now.
+- **Restart the PTY host from the dashboard.** The host outlives updates; when
+  it runs an older release than work, or stops answering, the banner says so
+  and has **Restart it**. Sessions come back with their conversations.
+  `work pty-host --restart --force` does the same from a terminal: a host that
+  doesn't answer is stopped too, once its process proves to be work's.
+- **No freeze after each turn.** A turn's checkpoint ran git while holding up
+  every request (terminals, statuses) until it finished; it now runs alongside.
+- **How work web ended is recorded.** A work web that stops says how (a signal,
+  `--stop`, an exit code), and one killed from outside is named at the next
+  start with when it was last alive; the desktop app logs how its work web
+  exited.
+- **Optional: Windows Terminal's console for terminals.** Config
+  `"useBundledConpty": true` starts terminals on the console node-pty ships
+  instead of Windows' own, whose start hung a host once. Off by default. A
+  terminal start that takes over 5 seconds is now logged as a warning.
 - **The terminal's last row shows.** A session's terminal sized its grid 16px
   too tall and wide, so its bottom row (Claude's status line) was cut off, and
   what the rows didn't cover showed as a black bar under it and down the right

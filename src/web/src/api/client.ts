@@ -797,6 +797,14 @@ export function fetchHostHealth(): Promise<import('../../../core/pty/host-health
   return getJson('/api/pty-host/health');
 }
 
+/** Restart the PTY host (stuck, or older than this work): its sessions resume with --continue. The server's reason on a refusal. */
+export async function restartPtyHost(): Promise<import('../../../core/api-types.js').PtyHostRestartWire> {
+  const res = await fetch('/api/pty-host/restart', { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body as import('../../../core/api-types.js').PtyHostRestartWire;
+}
+
 // ---- a session's timeline ---------------------------------------------------
 
 export async function fetchTimeline(sessionId: string): Promise<import('../../../core/conversations/timeline.js').TimelineEvent[]> {

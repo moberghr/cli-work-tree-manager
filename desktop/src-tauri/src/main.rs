@@ -254,7 +254,7 @@ fn start_work_web(rt: Option<&runtime::Runtime>) -> std::io::Result<()> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    spawn_collected(&mut cmd)
+    spawn_collected_as(&mut cmd, Some("work web"))
 }
 
 /// Start a child the app doesn't wait for, and collect it once it exits: on
@@ -262,11 +262,38 @@ fn start_work_web(rt: Option<&runtime::Runtime>) -> std::io::Result<()> {
 /// which still answers `kill(pid, 0)` — `work web --dev --stop` then waited on
 /// a server that had already stopped.
 fn spawn_collected(cmd: &mut Command) -> std::io::Result<()> {
+    spawn_collected_as(cmd, None)
+}
+
+/// The same, saying in the app's log how it ended when `label` names it (work web: a crash leaves at least its
+/// exit code, and when it went).
+fn spawn_collected_as(cmd: &mut Command, label: Option<&'static str>) -> std::io::Result<()> {
+    spawn_collected_to(cmd, label, |line| log(&line))
+}
+
+/// `spawn_collected_as`, with where the line goes passed in (the app's log; a test's channel).
+fn spawn_collected_to(
+    cmd: &mut Command,
+    label: Option<&'static str>,
+    say: impl Fn(String) + Send + 'static,
+) -> std::io::Result<()> {
     let mut child = cmd.spawn()?;
+    let pid = child.id();
     thread::spawn(move || {
-        let _ = child.wait();
+        let status = child.wait();
+        if let Some(what) = label {
+            say(exit_line(what, pid, &status));
+        }
     });
     Ok(())
+}
+
+/// How a child ended, in the app's log.
+fn exit_line(what: &str, pid: u32, status: &std::io::Result<std::process::ExitStatus>) -> String {
+    match status {
+        Ok(s) => format!("{what} (pid {pid}) exited: {s}"),
+        Err(e) => format!("{what} (pid {pid}): couldn't wait for it: {e}"),
+    }
 }
 
 fn find_or_start_web(rt: Option<&runtime::Runtime>) -> Result<String, String> {
@@ -564,6 +591,35 @@ mod tests {
         assert_eq!(neutral_dir(Some(work.clone())), Some(work.clone()));
         assert_eq!(neutral_dir(None), None);
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A command that exits with code 3 at once.
+    fn exits_with_3() -> Command {
+        let mut c = if cfg!(windows) { Command::new("cmd") } else { Command::new("sh") };
+        c.args(if cfg!(windows) { ["/C", "exit 3"] } else { ["-c", "exit 3"] });
+        c
+    }
+
+    #[test]
+    fn a_named_child_says_how_it_ended_an_unnamed_one_nothing() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut cmd = exits_with_3();
+        spawn_collected_to(&mut cmd, Some("work web"), move |line| tx.send(line).unwrap()).unwrap();
+        let line = rx.recv_timeout(std::time::Duration::from_secs(20)).unwrap();
+        assert!(line.starts_with("work web (pid "), "{line}");
+        assert!(line.contains("exited:") && line.contains('3'), "{line}");
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let mut cmd = exits_with_3();
+        spawn_collected_to(&mut cmd, None, move |line| tx.send(line).unwrap()).unwrap();
+        // Collected without a word: the sender goes with the thread, nothing sent.
+        assert!(rx.recv_timeout(std::time::Duration::from_secs(20)).is_err());
+    }
+
+    #[test]
+    fn a_wait_that_failed_says_so() {
+        let err: std::io::Result<std::process::ExitStatus> = Err(std::io::Error::other("gone"));
+        assert_eq!(exit_line("work web", 7, &err), "work web (pid 7): couldn't wait for it: gone");
     }
 
     #[test]

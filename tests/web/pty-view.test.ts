@@ -295,6 +295,7 @@ describe('PtyView', () => {
   it('on an unexpected close offers reconnect; Enter reconnects', () => {
     const { ws, term } = mount();
     ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
     act(() => ws.serverClose());
     expect(term.writes.join('')).toMatch(/connection closed.*press Enter to reconnect/);
     act(() => term.type('\r'));
@@ -366,6 +367,64 @@ describe('PtyView', () => {
     confirm.mockReturnValueOnce(true);
     await act(async () => start.click());
     expect(FakeWebSocket.instances.at(-1)!.url).toMatch(/\/terminal\?force=1$/);
+  });
+
+  it("a start that fails says why over the pane, tries again by itself, a little later each time (the PTY host didn't answer, reported)", () => {
+    vi.useFakeTimers();
+    try {
+      const { ws } = mount();
+      ws.serverOpen();
+      act(() => ws.control({ type: 'error', message: 'The PTY host is running but not answering (busy?)' }));
+      act(() => ws.serverClose());
+      const cover = () => container.querySelector('.wd-pty-failed');
+      // Not "Starting Claude…" for ever: the reason, the countdown, a button.
+      expect(container.textContent).not.toContain('Starting Claude');
+      expect(cover()!.textContent).toContain("Couldn't start Claude: The PTY host is running but not answering (busy?).");
+      expect(cover()!.textContent).toContain('Trying again in 3 s');
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      expect(cover()).toBeNull(); // connecting again
+      // It fails again: the next wait is longer.
+      const again = FakeWebSocket.instances[1];
+      act(() => again.serverClose());
+      expect(cover()!.textContent).toContain('the connection closed before it started');
+      expect(cover()!.textContent).toContain('Trying again in 10 s');
+      // Once it starts, the next failure begins from the shortest wait again.
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      const third = FakeWebSocket.instances[2];
+      act(() => third.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
+      expect(cover()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('after the last try it waits for a click; Try now / Try again starts at once', () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      for (let i = 0; i < 5; i++) {
+        const ws = FakeWebSocket.instances.at(-1)!;
+        act(() => ws.serverClose());
+        act(() => {
+          vi.advanceTimersByTime(60_000);
+        });
+      }
+      const tries = FakeWebSocket.instances.length;
+      expect(tries).toBe(5); // the first, then four on its own
+      expect(container.querySelector('.wd-pty-failed')!.textContent).toContain('Stopped trying on its own.');
+      const button = [...container.querySelectorAll('.wd-pty-failed button')].find(
+        (b) => b.textContent === 'Try again',
+      ) as HTMLButtonElement;
+      act(() => button.click());
+      expect(FakeWebSocket.instances).toHaveLength(tries + 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('prints an error control frame', () => {

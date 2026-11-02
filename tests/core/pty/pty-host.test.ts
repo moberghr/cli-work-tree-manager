@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 import { isTerminalReply, startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
 import { PtyRegistry, type PtyLike } from '../../../src/core/pty/pty-registry.js';
 import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
+import { VERSION } from '../../../src/version.js';
 
 class EchoPty implements PtyLike {
   readonly pty = { pid: 1 };
@@ -84,6 +85,10 @@ describe('PTY host', () => {
 
   it('says what it supports on /health (the accounts agentEnv, halt / resume): clients ask before relying on them', async () => {
     expect(await client.features()).toEqual(['agentEnv', 'halt']);
+  });
+
+  it('says on /health which release it runs (it outlives updates: the dashboard says when it is older)', async () => {
+    expect(await client.workVersion()).toBe(VERSION);
   });
 
   it('spawns, lists, streams input/output and replays to a second client', async () => {

@@ -113,6 +113,12 @@ export interface WorkConfig {
    */
   sleepIdleAfterMinutes?: number;
   /**
+   * Windows: start terminals on the ConPTY node-pty ships (`conpty.dll` + `OpenConsole.exe`, the one Windows Terminal
+   * uses) instead of the one built into Windows, whose console start can hang — and with it the PTY host. Read at
+   * each terminal start; nothing restarts. Default off (node-pty calls it experimental).
+   */
+  useBundledConpty?: boolean;
+  /**
    * Archived conversations (archive-retention.ts): gzip them once this many
    * days old (default 30; 0 = never; lossless), and delete them after this
    * many (default 0 = never; the summary and prompts stay).
@@ -312,6 +318,7 @@ export function loadConfig(): WorkConfig | null {
       devCommands: validateDevCommands(parsed.devCommands),
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
+      useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,
       prompts: validatePrompts(parsed.prompts),
       time: validateTime(parsed.time),
       archive:

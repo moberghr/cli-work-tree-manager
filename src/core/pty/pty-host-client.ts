@@ -32,8 +32,8 @@ export type ProbeResult =
   | { kind: 'refused' }
   /** Something answered, but not as our host (wrong token, bad body). */
   | { kind: 'not-ours' }
-  /** No answer in time — could be a BUSY host (e.g. restoring many
-   *  sessions). Never treat this as proof the host is gone. */
+  /** No answer in time, or the connection dropped (reset, hang-up) — could be a BUSY or hung host
+   *  (e.g. restoring many sessions, a ConPTY start that blocks). Never treat this as proof the host is gone. */
   | { kind: 'timeout' };
 
 export async function probeHostDetailed(info: HostInfo, timeoutMs = 800): Promise<ProbeResult> {
@@ -48,9 +48,11 @@ export async function probeHostDetailed(info: HostInfo, timeoutMs = 800): Promis
     return { kind: 'host', version: body.version, pid: body.pid };
   } catch (err) {
     const e = err as { name?: string; cause?: { code?: string } };
+    // Only a refused connection proves nothing listens. Anything else — a reset, a dropped socket — is no answer,
+    // not proof it's gone: a hung host keeps its port, and once requests pile up unanswered Windows resets new
+    // connections. Read as "refused", that started a second host beside the hung one (two Claudes per conversation).
     if (e.cause?.code === 'ECONNREFUSED') return { kind: 'refused' };
-    if (e.name === 'TimeoutError' || e.name === 'AbortError') return { kind: 'timeout' };
-    return { kind: 'refused' };
+    return { kind: 'timeout' };
   }
 }
 
@@ -188,6 +190,8 @@ export class PtyHostClient {
 
   /** What the host said it supports (`/health`'s `features`), asked once per host (a client is one host). */
   private featureList: readonly string[] | null = null;
+  /** The work release it runs (`/health`'s `work`); '' for a host from before it said. */
+  private hostWork: string | null = null;
 
   /**
    * The host's features (HOST_FEATURES): [] for a host from before they were answered. Null when it couldn't be asked
@@ -201,13 +205,20 @@ export class PtyHostClient {
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) return null;
-      const body = (await res.json()) as { features?: unknown };
+      const body = (await res.json()) as { features?: unknown; work?: unknown };
       const list = Array.isArray(body.features) ? body.features.filter((f): f is string => typeof f === 'string') : [];
       this.featureList = list;
+      this.hostWork = typeof body.work === 'string' ? body.work : '';
       return list;
     } catch {
       return null;
     }
+  }
+
+  /** The work release the host runs: '' for one from before it said (older than 2.9.3), null when it couldn't be asked. */
+  async workVersion(): Promise<string | null> {
+    if (this.hostWork === null) await this.features();
+    return this.hostWork;
   }
 
   private async call<T>(method: string, p: string, body?: unknown): Promise<T> {

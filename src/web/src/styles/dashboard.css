@@ -4586,6 +4586,15 @@ a.wd-pr-chip:hover {
 .wd-host-health-unresponsive {
   border-color: var(--status-deleted-fg);
 }
+/* Older than this work: worth a restart, not an alarm. */
+.wd-host-health-outdated {
+  border-color: var(--accent);
+}
+.wd-host-health .wd-btn-secondary {
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
 /* A keystroke's round trip (PtyView). */
 .wd-pty-frame {
   position: relative;

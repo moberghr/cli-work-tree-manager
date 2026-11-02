@@ -35,6 +35,7 @@ import type {
   PrStartWire,
   UsageWire,
   AccountsWire,
+  PtyHostRestartWire,
 } from '../../core/api-types.js';
 import { demoUsage } from './demo-usage.js';
 import { DEMO_ACCOUNTS, isDemoAccount } from './demo-accounts.js';
@@ -158,7 +159,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
 
   // The PTY host's heartbeat: the demo's never stalls.
-  app.get('/api/pty-host/health', (c) => c.json({ state: 'ok', latencyMs: 4, quietMs: 1000, error: null } satisfies HostHealth));
+  app.get('/api/pty-host/health', (c) =>
+    c.json({ state: 'ok', latencyMs: 4, quietMs: 1000, error: null, outdated: null } satisfies HostHealth),
+  );
+  // Nothing to restart in the demo: say it was done.
+  app.post('/api/pty-host/restart', (c) => c.json({ outcome: 'stopped', pid: 4242 } satisfies PtyHostRestartWire));
 
   // Jira worklogs, simulated: set up, and a log is remembered (in memory).
   const worklogs = new Map<string, Record<string, number>>();

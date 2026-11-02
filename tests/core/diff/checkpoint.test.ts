@@ -378,7 +378,7 @@ describe('headAdvancedSinceInitial', () => {
     // Dirty the working tree — uncommitted changes don't move HEAD's tree.
     writeFile(repoA, 'README.md', '# dirty\n');
     writeFile(repoA, 'untracked.txt', 'x\n');
-    expect(headAdvancedSinceInitial('hashH', [{ name: repoA, root: repoA }])).toBe(false);
+    expect(await headAdvancedSinceInitial('hashH', [{ name: repoA, root: repoA }])).toBe(false);
   });
 
   it('is true once HEAD advances past the baseline (a commit landed)', async () => {
@@ -388,11 +388,11 @@ describe('headAdvancedSinceInitial', () => {
     writeFile(repoA, 'feature.txt', 'upstream work\n');
     git(['add', '.'], repoA);
     git(['commit', '-m', 'advance', '--no-gpg-sign'], repoA);
-    expect(headAdvancedSinceInitial('hashH2', [{ name: repoA, root: repoA }])).toBe(true);
+    expect(await headAdvancedSinceInitial('hashH2', [{ name: repoA, root: repoA }])).toBe(true);
   });
 
-  it('is false when there is no manifest yet', () => {
-    expect(headAdvancedSinceInitial('never-seen', [{ name: repoA, root: repoA }])).toBe(false);
+  it('is false when there is no manifest yet', async () => {
+    expect(await headAdvancedSinceInitial('never-seen', [{ name: repoA, root: repoA }])).toBe(false);
   });
 
   it('is true when ANY repo in a group advanced', async () => {
@@ -405,7 +405,7 @@ describe('headAdvancedSinceInitial', () => {
     git(['add', '.'], repoB);
     git(['commit', '-m', 'b advance', '--no-gpg-sign'], repoB);
     expect(
-      headAdvancedSinceInitial('hashHG', [
+      await headAdvancedSinceInitial('hashHG', [
         { name: repoA, root: repoA },
         { name: repoB, root: repoB },
       ]),

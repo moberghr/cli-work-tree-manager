@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LatencyMeter } from '../../state/keystroke-latency.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
+import { startFailure, startRetryDelay } from '../../state/terminal-start.js';
 import { ask } from '../../state/ask.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
@@ -69,6 +70,11 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const [phase, setPhase] = useState<'connecting' | 'starting' | 'ready'>('connecting');
   // Bumped to tear down and re-run the connect effect (restart after exit).
   const [generation, setGeneration] = useState(0);
+  // A start that failed before the first screen (the host didn't answer, or was replaced meanwhile):
+  // why, and when it tries again by itself (null: it has stopped trying — a click starts it again).
+  const [failed, setFailed] = useState<{ reason: string; retryAt: number | null } | null>(null);
+  // How many tries again in a row; back to 0 once a screen arrives.
+  const retries = useRef(0);
   // Its Claude runs in a plain terminal: nothing spawned, explain instead.
   const [elsewhere, setElsewhere] = useState<Elsewhere | null>(null);
   // "Start it here" (only offered when nothing is known to run): reconnect
@@ -230,7 +236,11 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
     setPhase('connecting');
+    setFailed(null);
     const slowStart = setTimeout(() => setPhase((p) => (p === 'connecting' ? 'starting' : p)), 700);
+    // The server's reason when a start fails (said before it closes), and the timer of the try again.
+    let failReason: string | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     let ready = false;
     const pendingInput: string[] = [];
@@ -241,6 +251,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const finishReplay = () => {
       clearTimeout(slowStart);
       setPhase('ready');
+      setFailed(null);
+      retries.current = 0;
       setElsewhere(null);
       setChecking(false);
       fit.fit();
@@ -299,6 +311,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         exited = true;
         term.write(`\r\n\x1b[33m[session exited${msg.code ? ` with code ${msg.code}` : ''} — press Enter to start it again]\x1b[0m\r\n`);
       } else if (msg.type === 'error') {
+        failReason = msg.message ?? null;
         term.write(`\r\n\x1b[31m[${msg.message ?? 'error'}]\x1b[0m\r\n`);
       } else if (msg.type === 'elsewhere') {
         exited = true; // the server closes; no reconnect prompt
@@ -312,7 +325,18 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     });
 
     ws.addEventListener('close', () => {
-      if (!exited) {
+      if (!ready && !exited && !disposed) {
+        // It never started: say why over the pane (the "Starting…" cover would hide it for good) and try again
+        // by itself — a PTY host that was busy or replaced is usually back within seconds.
+        clearTimeout(slowStart);
+        const delay = startRetryDelay(retries.current);
+        setFailed({ reason: startFailure(failReason), retryAt: delay === null ? null : Date.now() + delay });
+        if (delay !== null)
+          retryTimer = setTimeout(() => {
+            retries.current += 1;
+            setGeneration((g) => g + 1);
+          }, delay);
+      } else if (!exited) {
         term.write('\r\n\x1b[33m[connection closed — press Enter to reconnect]\x1b[0m\r\n');
       }
       exited = true;
@@ -380,6 +404,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     return () => {
       disposed = true;
       clearTimeout(slowStart);
+      clearTimeout(retryTimer);
       clearTimeout(webglRetry);
       term.textarea?.removeEventListener('paste', onPaste, true);
       term.element?.removeEventListener('copy', onCopy, true);
@@ -457,9 +482,28 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
             {badge.text}
           </span>
         )}
-        {phase !== 'ready' && !elsewhere && (
+        {phase !== 'ready' && !elsewhere && !failed && (
           <div className="wd-pty-connecting" role="status">
             {phase === 'starting' ? 'Starting Claude — resuming the conversation…' : 'Connecting…'}
+          </div>
+        )}
+        {phase !== 'ready' && !elsewhere && failed && (
+          <div className="wd-pty-connecting wd-pty-failed" role="alert">
+            <p>Couldn&apos;t start Claude: {failed.reason}.</p>
+            <p>
+              {failed.retryAt !== null ? <RetryCountdown at={failed.retryAt} /> : 'Stopped trying on its own.'}{' '}
+              <button
+                type="button"
+                className="wd-btn-secondary"
+                onClick={() => {
+                  retries.current = 0;
+                  setFailed(null);
+                  setGeneration((g) => g + 1);
+                }}
+              >
+                {failed.retryAt !== null ? 'Try now' : 'Try again'}
+              </button>
+            </p>
           </div>
         )}
       </div>
@@ -484,4 +528,14 @@ function cornerBadge(
     .filter(Boolean)
     .join(' ');
   return { text, title, slow: dom || (latency ?? 0) > 100 };
+}
+
+/** "Trying again in 8 s…", counting down. */
+function RetryCountdown({ at }: { at: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <>Trying again in {Math.max(1, Math.ceil((at - now) / 1000))} s…</>;
 }

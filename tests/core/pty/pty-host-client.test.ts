@@ -9,7 +9,13 @@ vi.mock('../../../src/core/platform/config.js', () => ({ getConfigDir: () => con
 // The logger finds the folder through config-dir.js (not config.js, which reports through the logger).
 vi.mock('../../../src/core/platform/config-dir.js', () => ({ getConfigDir: () => configDir }));
 
-import { findHost, PtyHostVersionError, PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
+import {
+  findHost,
+  probeHostDetailed,
+  PtyHostBusyError,
+  PtyHostVersionError,
+  PtyHostClient,
+} from '../../../src/core/pty/pty-host-client.js';
 import { PROTOCOL_VERSION } from '../../../src/core/pty/pty-host-protocol.js';
 
 let server: http.Server | null = null;
@@ -28,6 +34,7 @@ async function fakeHost(version: number, token = 'tok'): Promise<number> {
   return (server.address() as { port: number }).port;
 }
 const writeInfo = (info: object) => fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify(info));
+const readInfo = () => JSON.parse(fs.readFileSync(path.join(configDir, 'pty-host.json'), 'utf-8'));
 
 beforeEach(() => {
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-client-'));
@@ -51,6 +58,18 @@ describe('findHost', () => {
     server = null;
     writeInfo({ pid: 1, port, token: 'tok', version: PROTOCOL_VERSION });
     expect(await findHost()).toBeNull();
+  });
+
+  it('a host whose connections are reset (hung, its backlog full) is busy while its process lives — never gone, or a second host starts (reported)', async () => {
+    server = http.createServer((req) => req.socket.destroy());
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    writeInfo({ pid: process.pid, port, token: 'tok', version: PROTOCOL_VERSION });
+    expect(await probeHostDetailed(readInfo(), 800)).toEqual({ kind: 'timeout' });
+    await expect(findHost([200, 200])).rejects.toBeInstanceOf(PtyHostBusyError);
+    // Its process gone (a crash left the file, something else resets on that port): no host.
+    writeInfo({ pid: 2 ** 22 + 7, port, token: 'tok', version: PROTOCOL_VERSION });
+    expect(await findHost([200, 200])).toBeNull();
   });
 
   it('is null when the token is wrong (another process owns the port)', async () => {
@@ -168,5 +187,27 @@ describe('PtyHostClient.halt / resume', () => {
     expect(ok.seen[0]).toContain('POST /ptys/s/resume {"agentEnv":{"CLAUDE_CONFIG_DIR":"/acc/work"}}');
     await closeServer();
     expect(await (await host(409)).client.resume('s')).toBe('not-halted');
+  });
+});
+
+describe('PtyHostClient.workVersion: the release the host runs (it outlives updates)', () => {
+  const serve = async (body: object) => {
+    server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()));
+    return new PtyHostClient({ pid: 1, port: (server.address() as { port: number }).port, token: 'tok', version: PROTOCOL_VERSION });
+  };
+
+  it("what /health says; '' for a host from before it said", async () => {
+    expect(await (await serve({ version: PROTOCOL_VERSION, pid: 1, features: [], work: '2.9.3' })).workVersion()).toBe('2.9.3');
+    await new Promise<void>((r) => server!.close(() => r()));
+    expect(await (await serve({ version: PROTOCOL_VERSION, pid: 1 })).workVersion()).toBe('');
+  });
+
+  it("null when it can't be asked (unknown, asked again next time)", async () => {
+    const c = new PtyHostClient({ pid: 1, port: 1, token: 'tok', version: PROTOCOL_VERSION });
+    expect(await c.workVersion()).toBeNull();
   });
 });

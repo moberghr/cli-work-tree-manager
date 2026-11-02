@@ -38,6 +38,8 @@ let tmpHome: string;
 let repoDir: string;
 let app: Hono;
 
+let routes: ReturnType<typeof mountScopeRoutes>;
+
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'work-sr-test-'));
   vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
@@ -52,14 +54,16 @@ beforeEach(() => {
   git(['commit', '-m', 'init', '--no-gpg-sign'], repoDir);
 
   app = new Hono();
-  mountScopeRoutes(app, {
+  routes = mountScopeRoutes(app, {
     broadcast: () => {
       /* */
     },
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Background checkpoint git still running would hold the repo folder (Windows): let it finish first.
+  await routes.settled();
   disposeAllScopes();
   vi.restoreAllMocks();
   fs.rmSync(tmpHome, { recursive: true, force: true });
@@ -416,8 +420,8 @@ describe('re-baseline on branch advance', () => {
 
     // Re-register with a dirty-but-not-advanced worktree → history preserved.
     await register();
-    // Give any (incorrect) async re-baseline a chance to run.
-    await new Promise((r) => setTimeout(r, 100));
+    // Its re-baseline check runs in the background: wait until it has decided.
+    await routes.settled();
     expect(loadManifest(hash).entries.length).toBe(before);
   });
 });

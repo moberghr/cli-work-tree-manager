@@ -86,7 +86,18 @@ export function mountScopeRoutes(
   releaseSessionScope: (paths: string[], clearRefs: boolean) => boolean;
   /** A comment of this scope's page changed (a session's, which the page lists too): tell its stream and the dashboard. */
   emitCommentsChanged: (payload: { scopeHash: string } & Record<string, unknown>) => void;
+  /** Resolves once the checkpoint work started in the background so far has finished (tests). */
+  settled: () => Promise<void>;
 } {
+  // Checkpoint work started in the background (a scope registered, a manual edit settled): kept so a test can wait
+  // for it to finish before it deletes the repo (`settled`); git on Windows holds its folder while it runs.
+  const background = new Set<Promise<unknown>>();
+  const inBackground = <T>(p: Promise<T>): Promise<T> => {
+    background.add(p);
+    void p.finally(() => background.delete(p)).catch(() => {});
+    return p;
+  };
+
   // -- Lifecycle -----------------------------------------------------------
 
   // Scopes that already have an auto-snapshot subscriber wired. The
@@ -219,7 +230,7 @@ export function mountScopeRoutes(
         hash,
         loadHistory().map((s) => s.paths),
       ) &&
-      !headBroughtInOtherWork(hash, repos)
+      !(await headBroughtInOtherWork(hash, repos))
     )
       return false;
     // Cheap pre-check OUTSIDE the lock so the common no-commit path (every
@@ -228,7 +239,7 @@ export function mountScopeRoutes(
     // idempotent (both produce the same single-Initial manifest), so there's
     // no half-state. The dangerous interleaving (clear vs new-Initial) is
     // what the single lock inside `resetBaseline` closes.
-    if (!headAdvancedSinceInitial(hash, repos)) return false;
+    if (!(await headAdvancedSinceInitial(hash, repos))) return false;
     liveCheckpoint.delete(hash);
     lastStatus.delete(hash);
     const entry = await resetBaseline(hash, repos).catch(() => null);
@@ -282,7 +293,7 @@ export function mountScopeRoutes(
     // separately and will see the entry once it lands (or via the
     // `checkpoints-changed` SSE event below).
     if (loadManifest(scope.hash).entries.length === 0) {
-      takeCheckpoint(scope.hash, scopeRepos(scope.paths))
+      void inBackground(takeCheckpoint(scope.hash, scopeRepos(scope.paths)))
         .then((entry) => {
           if (entry) announceCheckpoint(entry);
         })
@@ -294,7 +305,7 @@ export function mountScopeRoutes(
           report('warn', `[checkpoint] initial snapshot failed: ${(err as Error).message}`);
         });
     } else {
-      rebaselineIfHeadAdvanced(scope.hash, scope.paths).catch((err) => {
+      inBackground(rebaselineIfHeadAdvanced(scope.hash, scope.paths)).catch((err) => {
         report('warn', `[checkpoint] re-baseline failed: ${(err as Error).message}`);
       });
     }
@@ -334,8 +345,7 @@ export function mountScopeRoutes(
         // A manual commit (no Claude around) advances HEAD — re-baseline
         // first so the strip resets to "since the last commit", then
         // capture any remaining uncommitted edits as the first new step.
-        rebaselineIfHeadAdvanced(hash, scope.paths)
-          .then(() => takeCheckpoint(hash, scopeRepos(scope.paths)))
+        inBackground(rebaselineIfHeadAdvanced(hash, scope.paths).then(() => takeCheckpoint(hash, scopeRepos(scope.paths))))
           .then((entry) => {
             if (entry) {
               announceCheckpoint(entry);
@@ -872,5 +882,9 @@ export function mountScopeRoutes(
 
   /** A session's scope, by its paths (archive / delete). */
   const releaseSessionScope = (paths: string[], clearRefs: boolean) => dropScope(scopeHashForPaths(paths), { clearRefs });
-  return { ensureScope, sessionScope, releaseSessionScope, emitCommentsChanged };
+  /** Resolves once the checkpoint work started in the background so far has finished (tests). */
+  const settled = async (): Promise<void> => {
+    while (background.size) await Promise.allSettled([...background]);
+  };
+  return { ensureScope, sessionScope, releaseSessionScope, emitCommentsChanged, settled };
 }

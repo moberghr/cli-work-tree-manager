@@ -6,6 +6,7 @@ import { atomicWriteFile } from '../platform/fs-safe.js';
 import { PtyRegistry } from './pty-registry.js';
 import { adoptLegacyRestoreList } from './pty-sessions-file.js';
 import { bestEffort } from '../platform/best-effort.js';
+import { VERSION } from '../../version.js';
 import { HOST_FEATURES, PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type HostInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { report } from '../platform/report.js';
 import { isEnvDelta } from '../platform/env-delta.js';
@@ -101,7 +102,8 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
 
     try {
       if (req.method === 'GET' && url.pathname === '/health') {
-        return send(res, 200, { version: PROTOCOL_VERSION, pid: process.pid, features: HOST_FEATURES });
+        // `work`: the release it runs (additive) — it outlives updates, so the dashboard can say when it's older.
+        return send(res, 200, { version: PROTOCOL_VERSION, pid: process.pid, features: HOST_FEATURES, work: VERSION });
       }
       if (req.method === 'GET' && url.pathname === '/ptys') {
         return send(res, 200, registry.list());

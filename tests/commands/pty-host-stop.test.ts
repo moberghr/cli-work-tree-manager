@@ -11,6 +11,7 @@ vi.mock('../../src/core/platform/config.js', async (orig) => ({
 }));
 
 import { stopHost } from '../../src/commands/pty-host.js';
+import { looksLikeHost } from '../../src/core/pty/host-control.js';
 import { PROTOCOL_VERSION } from '../../src/core/pty/pty-host-protocol.js';
 
 let server: http.Server | null = null;
@@ -88,5 +89,49 @@ describe('a busy host is not mistaken for a stale file (reviewed bug)', () => {
     expect(kill).not.toHaveBeenCalled();
     expect(fs.existsSync(infoFile())).toBe(true);
     for (const res of hung) res.destroy();
+  });
+});
+
+describe('stopHost --force: a hung host', () => {
+  const hungHost = async () => {
+    const hung: http.ServerResponse[] = [];
+    server = http.createServer((_req, res) => void hung.push(res));
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()));
+    writeInfo(4242, (server.address() as { port: number }).port);
+    return () => hung.forEach((r) => r.destroy());
+  };
+
+  it("is stopped when its process proves to be work's PTY host; the file goes", async () => {
+    const release = await hungHost();
+    const kill = vi.fn(() => true);
+    const isOurHost = vi.fn(async (pid: number) => pid === 4242);
+    expect(await stopHost(kill, 300, { force: true, isOurHost })).toBe('stopped');
+    expect(kill).toHaveBeenCalledWith(4242);
+    expect(fs.existsSync(infoFile())).toBe(false);
+    release();
+  });
+
+  it('is left alone when its pid now belongs to something else, and without --force', async () => {
+    const release = await hungHost();
+    const kill = vi.fn(() => true);
+    expect(await stopHost(kill, 300, { force: true, isOurHost: async () => false })).toBe('unresponsive');
+    expect(await stopHost(kill, 300, { isOurHost: async () => true })).toBe('unresponsive');
+    expect(kill).not.toHaveBeenCalled();
+    expect(fs.existsSync(infoFile())).toBe(true);
+    release();
+  });
+});
+
+describe('looksLikeHost: the recorded pid runs `work pty-host`', () => {
+  it('a host, from the runtime copy or a checkout; not a --stop / --restart / --status call, nor anything else', () => {
+    expect(
+      looksLikeHost('"C:\\Users\\me\\.work\\runtime\\2.8.0\\node.exe" C:\\Users\\me\\.work\\runtime\\2.8.0\\dist\\bin.js pty-host'),
+    ).toBe(true);
+    expect(looksLikeHost('node /usr/lib/node_modules/@moberg_hr/work-tree/dist/bin.js pty-host')).toBe(true);
+    expect(looksLikeHost('node dist/bin.js pty-host --restart --force')).toBe(false);
+    expect(looksLikeHost('node dist/bin.js pty-host --status')).toBe(false);
+    expect(looksLikeHost('node dist/bin.js web --no-open')).toBe(false);
+    expect(looksLikeHost('node my-pty-host-thing.js')).toBe(false);
+    expect(looksLikeHost(null)).toBe(false);
   });
 });
