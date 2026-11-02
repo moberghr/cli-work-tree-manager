@@ -16,6 +16,7 @@ import {
   rememberSent,
   retireResolvedReplies,
   saveDraft,
+  withThreadContext,
 } from '../../../src/core/pr/pr-replies.js';
 import type { SessionCi } from '../../../src/core/api-types.js';
 import { createCiStore } from '../../../src/core/pr/pr-watch-store.js';
@@ -547,5 +548,33 @@ describe('retireResolvedReplies — a draft for a thread resolved on GitHub goes
     rememberSent(id, [thread(T2)]);
     expect(await retireResolvedReplies(id, ci([]), null, run)).toEqual([]);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("a reply's comment and its code", () => {
+  const hunk = '@@ -1,2 +1,2 @@\n-const a = 1;\n+let a = 1;';
+  const base = { repo: 'api', prNumber: 7, url: 'u', where: 'a.ts:1', reviewer: 'dana', excerpt: 'Why let?' };
+
+  it('kept with the row when handed over; a malformed code read back is dropped, the row kept', () => {
+    rememberSent('s1', [{ threadId: T1, ...base, body: 'Why **let**?', code: { hunk, lines: 1 } }]);
+    expect(listReplies('s1')[0]).toMatchObject({ body: 'Why **let**?', code: { hunk, lines: 1 } });
+    withDb((d) =>
+      d
+        .prepare('UPDATE pr_replies SET data = ? WHERE thread_id = ?')
+        .run(JSON.stringify({ ...listReplies('s1')[0], code: { hunk: 'nope', lines: 1 } }), T1),
+    );
+    const [row] = listReplies('s1');
+    expect(row.threadId).toBe(T1);
+    expect(row.code).toBeUndefined();
+  });
+
+  it("a row from before is filled from the watch's open thread of the same id, nothing written", () => {
+    rememberSent('s1', [{ threadId: T1, ...base }]);
+    const [filled] = withThreadContext(listReplies('s1'), [{ threadId: T1, body: 'Why **let**?', code: { hunk, lines: 1 } }]);
+    expect(filled).toMatchObject({ body: 'Why **let**?', code: { hunk, lines: 1 } });
+    expect(listReplies('s1')[0].body).toBeUndefined();
+    // Its own stays: the watch's isn't laid over it.
+    const own = withThreadContext([{ ...listReplies('s1')[0], body: 'mine' }], [{ threadId: T1, body: 'theirs' }]);
+    expect(own[0].body).toBe('mine');
   });
 });

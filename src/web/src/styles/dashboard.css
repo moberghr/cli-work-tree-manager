@@ -3738,6 +3738,85 @@ a.wd-pr-chip:hover {
   color: var(--muted);
   white-space: pre-wrap;
 }
+/* A review thread's code (the end of its diff hunk) and its comment as Markdown. */
+.wd-reply-comment {
+  margin: 4px 0 6px;
+}
+.wd-reply-code {
+  margin-bottom: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+.wd-reply-code table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.wd-reply-code td {
+  padding: 0 6px;
+  white-space: pre;
+  line-height: 1.5;
+}
+.wd-reply-code-no {
+  width: 1%;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+.wd-reply-code-sign {
+  width: 1%;
+  color: var(--muted);
+  user-select: none;
+}
+.wd-reply-code-add {
+  background: rgba(46, 160, 67, 0.12);
+}
+.wd-reply-code-del {
+  background: rgba(248, 81, 73, 0.12);
+}
+.wd-reply-code-on .wd-reply-code-no {
+  color: inherit;
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.wd-reply-code-on {
+  outline: 1px solid rgba(127, 127, 127, 0.25);
+}
+.wd-reply-code-note {
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.wd-reply-body {
+  padding-left: 8px;
+  border-left: 3px solid var(--border);
+}
+.wd-reply-body > :first-child {
+  margin-top: 0;
+}
+.wd-reply-body > :last-child {
+  margin-bottom: 0;
+}
+.wd-reply-body pre {
+  overflow-x: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--hover, rgba(127, 127, 127, 0.08));
+}
+/* GitHub's ```suggestion block: the change the reviewer proposes. */
+.wd-reply-body pre:has(> code.language-suggestion)::before {
+  content: 'Suggested change';
+  display: block;
+  margin-bottom: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
 .wd-reply-text {
   width: 100%;
   box-sizing: border-box;

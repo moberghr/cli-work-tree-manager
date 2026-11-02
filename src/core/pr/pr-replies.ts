@@ -1,5 +1,6 @@
 import { json, tx, withDb, type Db } from '../platform/db.js';
-import type { PrReply, SessionCi } from '../api-types.js';
+import type { PrReply, SessionCi, ThreadCode } from '../api-types.js';
+import { isThreadCode, MAX_THREAD_BODY, threadCode } from './pr-review.js';
 import type { CommandRunner } from './ship.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { isSessionCi } from './pr-watch-store.js';
@@ -46,7 +47,11 @@ function parseRow(data: string): PrReply | null {
   )
     return null;
   if (r.status !== 'sent' && r.status !== 'draft' && r.status !== 'posted') return null;
-  return v as PrReply;
+  // What's only shown (the whole comment, its code): a malformed one is dropped, the row kept.
+  const row = v as PrReply;
+  if (row.body !== undefined && typeof row.body !== 'string') delete row.body;
+  if (row.code !== undefined && !isThreadCode(row.code)) delete row.code;
+  return row;
 }
 
 function read(sessionId: string, threadId: string): PrReply | null {
@@ -81,7 +86,7 @@ export function draftCounts(): Map<string, number> {
  */
 export function rememberSent(
   sessionId: string,
-  threads: Array<Pick<PrReply, 'threadId' | 'repo' | 'prNumber' | 'url' | 'where' | 'reviewer' | 'excerpt'>>,
+  threads: Array<Pick<PrReply, 'threadId' | 'repo' | 'prNumber' | 'url' | 'where' | 'reviewer' | 'excerpt' | 'body' | 'code'>>,
   now = new Date(),
 ): void {
   tx((d) => {
@@ -107,7 +112,7 @@ function openThreadOf(d: Db, sessionId: string, threadId: string, now: Date): { 
   for (const r of ci.repos) {
     const t = r.threads?.find((x) => x.threadId === threadId);
     if (!t) continue;
-    const { repo, prNumber, url, where, reviewer, excerpt } = t;
+    const { repo, prNumber, url, where, reviewer, excerpt, body, code } = t;
     const reply: PrReply = {
       threadId,
       repo,
@@ -116,6 +121,8 @@ function openThreadOf(d: Db, sessionId: string, threadId: string, now: Date): { 
       where,
       reviewer,
       excerpt,
+      ...(body !== undefined ? { body } : {}),
+      ...(code ? { code } : {}),
       status: 'sent',
       draft: null,
       sentAt: now.toISOString(),
@@ -310,8 +317,8 @@ export function markPostedAnswered(
 const THREAD_LIVE = `query($threadId: ID!) {
   viewer { login }
   node(id: $threadId) { ... on PullRequestReviewThread {
-    isResolved path line
-    first: comments(first: 1) { nodes { author { login } body url } }
+    isResolved isOutdated path line originalStartLine originalLine
+    first: comments(first: 1) { nodes { author { login } body url diffHunk } }
     last: comments(last: 1) { nodes { author { login } url } }
     pullRequest { number url headRefName repository { nameWithOwner } }
   } }
@@ -355,14 +362,17 @@ export async function liveOpenThread(
   if (!cwd) return { error: 'the session has no repo to ask GitHub from' };
   const r = await run('gh', ['api', 'graphql', '-f', `query=${THREAD_LIVE}`, '-f', `threadId=${threadId}`], cwd);
   if (r.code !== 0) return { error: `couldn't read the thread on GitHub: ${r.stderr.trim() || 'gh failed'}` };
-  type Who = { author?: { login?: unknown } | null; body?: unknown; url?: unknown } | null;
+  type Who = { author?: { login?: unknown } | null; body?: unknown; url?: unknown; diffHunk?: unknown } | null;
   const j = json.parse(r.stdout) as {
     data?: {
       viewer?: { login?: unknown };
       node?: {
         isResolved?: unknown;
+        isOutdated?: unknown;
         path?: unknown;
         line?: unknown;
+        originalStartLine?: unknown;
+        originalLine?: unknown;
         first?: { nodes?: Who[] };
         last?: { nodes?: Who[] };
         pullRequest?: { number?: unknown; url?: unknown; headRefName?: unknown; repository?: { nameWithOwner?: unknown } };
@@ -393,11 +403,36 @@ export async function liveOpenThread(
       where: path ? `${path}${typeof t.line === 'number' ? `:${t.line}` : ''}` : null,
       reviewer: str(first?.author?.login),
       excerpt: str(first?.body).slice(0, 400),
+      body: str(first?.body).slice(0, MAX_THREAD_BODY),
+      ...withCode(threadCode(first?.diffHunk, t.originalStartLine, t.originalLine, t.isOutdated === true)),
       status: 'sent',
       draft: null,
       sentAt: now.toISOString(),
     },
   };
+}
+
+const withCode = (code: ThreadCode | null): { code?: ThreadCode } => (code ? { code } : {});
+
+/**
+ * Reply rows from before they carried the whole comment and its code: those
+ * filled in from the PR watch's open threads (same thread id), for the PR tab.
+ * Nothing is written. Pure.
+ */
+export function withThreadContext(
+  replies: PrReply[],
+  open: ReadonlyArray<{ threadId: string; body?: string; code?: ThreadCode }>,
+): PrReply[] {
+  const byId = new Map(open.map((t) => [t.threadId, t]));
+  return replies.map((r) => {
+    const t = byId.get(r.threadId);
+    if (!t || (r.body !== undefined && r.code)) return r;
+    return {
+      ...r,
+      ...(r.body === undefined && t.body !== undefined ? { body: t.body } : {}),
+      ...(!r.code && t.code ? { code: t.code } : {}),
+    };
+  });
 }
 
 /** What `saveDraft` refuses that GitHub may know better: a thread it can't find, or one answered before

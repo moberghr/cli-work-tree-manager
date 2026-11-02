@@ -110,6 +110,10 @@ describe("PR watch's last check", () => {
     expect(isSessionCi(withThread({ ...ok, where: 'src/a.ts:3' }))).toBe(true);
     expect(isSessionCi(withThread(null))).toBe(false);
     expect(isSessionCi(withThread({ ...ok, where: 3 }))).toBe(false);
+    // The whole comment and its code: optional, but checked when there.
+    expect(isSessionCi(withThread({ ...ok, body: '**b**', code: { hunk: '@@ -1 +1 @@\n+x', lines: 1 } }))).toBe(true);
+    expect(isSessionCi(withThread({ ...ok, code: { hunk: 'x', lines: 1 } }))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, body: 3 }))).toBe(false);
     expect(isSessionCi(withThread({ ...ok, reviewer: undefined }))).toBe(false);
     expect(isSessionCi(withThread({ ...ok, prNumber: '7' }))).toBe(false);
   });

@@ -1,4 +1,4 @@
-import type { FailingCheck, OpenReviewThread, PrReply, SessionCi } from '../../../core/api-types.js';
+import type { FailingCheck, OpenReviewThread, PrReply, SessionCi, ThreadCode } from '../../../core/api-types.js';
 import { prsBeyondStage, stageOfPr, stagePhrase, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
 import { owedToYou } from '../../../core/status/attention.js';
 import type { PrInfo } from '../api/panes.js';
@@ -197,4 +197,42 @@ export function prNeedsLine(s: SessionPrFacts): string | null {
     }
   });
   return parts.length ? parts.join(' · ') : null;
+}
+
+/** A line of the code a review thread is on, as the PR tab draws it. */
+export interface ThreadCodeLine {
+  kind: 'add' | 'del' | 'ctx';
+  /** Its number in the old / new file (none for the side it isn't on). */
+  oldNo: number | null;
+  newNo: number | null;
+  text: string;
+  /** One of the lines the comment is on. */
+  commented: boolean;
+}
+
+/**
+ * The end of a thread's diff hunk, numbered: the lines the comment is on
+ * (the hunk's last `lines`) and a few before them for context — GitHub's
+ * hunk ends at the commented line. `skipped`: lines of the hunk not shown
+ * above. Pure.
+ */
+export function threadCodeLines(code: ThreadCode, before = 4): { lines: ThreadCodeLine[]; skipped: number } {
+  const [header, ...body] = code.hunk.replace(/\r/g, '').split('\n');
+  if (body[body.length - 1] === '') body.pop(); // the hunk ended with a newline: no line after it
+  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(header ?? '');
+  let oldNo = m ? Number(m[1]) : 0;
+  let newNo = m ? Number(m[2]) : 0;
+  const all: ThreadCodeLine[] = [];
+  for (const raw of body) {
+    if (raw.startsWith('\\')) continue; // "\ No newline at end of file"
+    const sign = raw[0];
+    const text = raw.slice(1);
+    if (sign === '+') all.push({ kind: 'add', oldNo: null, newNo: newNo++, text, commented: false });
+    else if (sign === '-') all.push({ kind: 'del', oldNo: oldNo++, newNo: null, text, commented: false });
+    else all.push({ kind: 'ctx', oldNo: oldNo++, newNo: newNo++, text, commented: false });
+  }
+  const commented = Math.min(code.lines, all.length);
+  for (let i = all.length - commented; i < all.length; i++) all[i].commented = true;
+  const from = Math.max(0, all.length - commented - before);
+  return { lines: all.slice(from), skipped: from };
 }

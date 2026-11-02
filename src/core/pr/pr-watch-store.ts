@@ -1,5 +1,6 @@
 import { json, withDb } from '../platform/db.js';
 import type { SessionCi } from '../api-types.js';
+import { isThreadCode } from './pr-review.js';
 
 /**
  * What the PR watch has already acted on, per session: state.db's
@@ -49,7 +50,9 @@ function isOpenThread(t: unknown): boolean {
     ['threadId', 'repo', 'url', 'reviewer', 'excerpt'].every((k) => typeof t[k] === 'string') &&
     typeof t.prNumber === 'number' &&
     (t.where === null || typeof t.where === 'string') &&
-    (t.trusted === undefined || typeof t.trusted === 'boolean')
+    (t.trusted === undefined || typeof t.trusted === 'boolean') &&
+    (t.body === undefined || typeof t.body === 'string') &&
+    (t.code === undefined || isThreadCode(t.code))
   );
 }
 

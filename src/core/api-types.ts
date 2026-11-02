@@ -988,6 +988,20 @@ export interface OpenReviewThread {
   /** Its text is from someone with write access or a trusted review bot (the PR watch's rule); only
    *  such threads go to Claude in one "Ask Claude about all". Missing (an older server): not known. */
   trusted?: boolean;
+  /** The reviewer's whole comment, Markdown (`excerpt` is its start, for notes). Absent from an older server. */
+  body?: string;
+  /** The code it's on. Absent for a comment on no line, or from an older server. */
+  code?: ThreadCode;
+}
+
+/** The code a review thread is on: the end of the diff hunk GitHub keeps with it, and how many of its last lines the comment covers. */
+export interface ThreadCode {
+  /** Unified-diff lines from its `@@ … @@` header to the commented line (GitHub's `diffHunk`). */
+  hunk: string;
+  /** How many of the hunk's last lines are commented on (1 for a single line). */
+  lines: number;
+  /** The code has changed since: the comment is on an older version. */
+  outdated?: boolean;
 }
 
 /** GET /api/sessions/:id/replies: the threads handed to its Claude and its drafts, and the open threads that have no draft. */
@@ -1302,6 +1316,10 @@ export interface PrReply {
   where: string | null;
   reviewer: string;
   excerpt: string;
+  /** The reviewer's whole comment, Markdown. Absent from a row from before. */
+  body?: string;
+  /** The code the thread is on. */
+  code?: ThreadCode;
   /** sent: Claude has it; draft: Claude wrote a reply; posted: on GitHub (your click, or `work pr post` on your yes). */
   status: 'sent' | 'draft' | 'posted';
   draft: string | null;

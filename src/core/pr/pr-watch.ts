@@ -1,5 +1,5 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
-import type { SessionCi, ShipPreflight, OpenReviewThread } from '../api-types.js';
+import type { SessionCi, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
 import {
   newFeedback,
@@ -11,7 +11,7 @@ import {
   openThreadsOf,
 } from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from '../platform/activity.js';
-import { DEFAULT_TRUSTED_BOTS, subAgentHint } from './pr-review.js';
+import { DEFAULT_TRUSTED_BOTS, MAX_THREAD_BODY, subAgentHint } from './pr-review.js';
 
 /** What waking a session's Claude did: started it; it was already running (it has the note);
  *  waking is off; or it couldn't (no PTY host, no worktree). */
@@ -59,6 +59,8 @@ export interface PrWatchDeps {
       where: string | null;
       reviewer: string;
       excerpt: string;
+      body?: string;
+      code?: ThreadCode;
     }>,
   ) => void;
   /**
@@ -494,6 +496,8 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
                 where: it.where ?? null,
                 reviewer: it.author,
                 excerpt: it.body.slice(0, 400),
+                body: it.body.slice(0, MAX_THREAD_BODY),
+                ...(it.code ? { code: it.code } : {}),
               })),
           ),
         );

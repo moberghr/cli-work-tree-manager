@@ -3,6 +3,7 @@ import { findSession } from '../../core/sessions/web-state.js';
 import {
   discardReply,
   listReplies,
+  withThreadContext,
   markPostedAnswered,
   MAX_REPLY_CHARS,
   postReply,
@@ -61,8 +62,10 @@ export function mountPrReplyRoutes(
   app.get('/api/sessions/:id/replies', (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    const replies = listReplies(id);
-    return c.json({ replies, waiting: threadsWithoutDraft(opts.openThreads?.(id) ?? [], replies) } satisfies RepliesWire);
+    const open = opts.openThreads?.(id) ?? [];
+    // A row from before it carried the comment's whole text and code: from the watch's last check.
+    const replies = withThreadContext(listReplies(id), open);
+    return c.json({ replies, waiting: threadsWithoutDraft(open, replies) } satisfies RepliesWire);
   });
 
   app.put('/api/sessions/:id/replies/:thread', async (c) => {
