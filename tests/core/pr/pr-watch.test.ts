@@ -540,6 +540,25 @@ describe('PR watch', () => {
     });
   });
 
+  it('merged at a commit after the checked-out one (a bot updated the branch, never pulled): archived; unpushed commits still keep it (reported)', () => {
+    // api: worktree at b0b0b0b, PR merged at c1c1c1c — a merge of dev made on GitHub.
+    // web: merged at the checked-out commit, one generated file left uncommitted.
+    const backend = { ...repo('api', merged(), false), localSha: 'b0b0b0b', dirtyFiles: 0 } as RepoShipState;
+    backend.pr = { ...backend.pr!, headSha: 'c1c1c1c' };
+    const frontend = { ...repo('web', merged(), false), localSha: 'd2d2d2d', dirtyFiles: 1 } as RepoShipState;
+    frontend.pr = { ...frontend.pr!, headSha: 'd2d2d2d' };
+    const s = { lastAccessedAt: ENTERED };
+    expect(autoArchiveVerdict({ repos: [backend, frontend] }, s, LATER)).toEqual({
+      archive: false,
+      why: 'api: PR merged, but a commit checked out that the PR didn’t merge',
+    });
+    expect(autoArchiveVerdict({ repos: [{ ...backend, behindMergedHead: true }, frontend] }, s, LATER)).toEqual({ archive: true });
+    expect(autoArchiveVerdict({ repos: [{ ...backend, behindMergedHead: true, ahead: 1 }, frontend] }, s, LATER)).toEqual({
+      archive: false,
+      why: 'api: PR merged, but 1 unpushed commit',
+    });
+  });
+
   it('merged work isn’t held up by replies to post or notes for Claude: archived, and the note says what was kept (reported)', async () => {
     const activity = createActivityLog();
     const h = harness([repo('api', merged(), true)], ON, false, null, { waiting: () => ['2 replies to post on review threads'], activity });

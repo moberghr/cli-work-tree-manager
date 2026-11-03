@@ -131,6 +131,15 @@ export function checksFromRollup(rollup: CheckRollupItem[] | null | undefined): 
 
 type RepoFacts = Omit<RepoShipState, 'mergeBlockers' | 'done' | 'doneReason'>;
 
+/**
+ * The checked-out commit is in its merged PR: the PR's head, or behind it on
+ * the same line (the PR got commits on GitHub the worktree never pulled). A
+ * commit after the head, or on another line, is work the merge didn't take.
+ */
+export function checkedOutMerged(r: Pick<RepoFacts, 'localSha' | 'behindMergedHead' | 'pr'>): boolean {
+  return !r.localSha || r.localSha === r.pr?.headSha || r.behindMergedHead === true;
+}
+
 /** Done = nothing left to ship from this repo. */
 export function repoDone(r: RepoFacts): { done: boolean; reason?: 'merged' | 'untouched' } {
   // Merged AND nothing since: a follow-up commit (pushed or not) or an
@@ -139,7 +148,7 @@ export function repoDone(r: RepoFacts): { done: boolean; reason?: 'merged' | 'un
   // A tree git couldn't read may hold anything: never done on a guess.
   if (r.gitError) return { done: false };
   if (r.pr?.state === 'MERGED') {
-    const nothingSince = r.dirtyFiles === 0 && !r.ahead && (!r.localSha || r.localSha === r.pr.headSha);
+    const nothingSince = r.dirtyFiles === 0 && !r.ahead && checkedOutMerged(r);
     return nothingSince ? { done: true, reason: 'merged' } : { done: false };
   }
   // Untouched only when every fact was read: a gh that failed (no network right after a
@@ -301,11 +310,19 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
     ghError = oneLineErr(view.stderr) || 'gh pr view failed';
   }
 
+  // Merged at another commit: is HEAD inside it? Exit 0 = yes, 1 = no; anything else (the
+  // head was never fetched here) is unknown, and unknown is no — never done on a guess.
+  let behindMergedHead = false;
+  if (pr?.state === 'MERGED' && localSha && pr.headSha && localSha !== pr.headSha && /^[0-9a-f]{7,64}$/i.test(pr.headSha)) {
+    behindMergedHead = (await git('merge-base', '--is-ancestor', 'HEAD', pr.headSha)).code === 0;
+  }
+
   const facts: RepoFacts = {
     name: repo.name,
     path: repo.path,
     branch,
     localSha,
+    ...(behindMergedHead ? { behindMergedHead } : {}),
     dirtyFiles,
     hasUpstream,
     tracksRemote,

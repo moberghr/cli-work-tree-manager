@@ -191,21 +191,27 @@ export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSess
   return autoArchiveVerdict(pre, session, now)?.archive === true;
 }
 
+/** The checked-out commit is the merged PR's head, or behind it (ship.ts checkedOutMerged). */
+function checkedOutMerged(r: ShipPreflight['repos'][number]): boolean {
+  return !r.localSha || !r.pr?.headSha || r.localSha === r.pr.headSha || r.behindMergedHead === true;
+}
+
 /**
  * A repo the archive may take: done (ship.ts repoDone), or merged at the
- * checked-out commit with only uncommitted files left — archiving saves
+ * checked-out commit (or one after it: the PR got commits on GitHub the
+ * worktree never pulled) with only uncommitted files left — archiving saves
  * those and Restore puts them back (archive-uncommitted.ts).
  */
 function archivable(r: ShipPreflight['repos'][number]): boolean {
   if (r.done) return true;
-  return r.pr?.state === 'MERGED' && !r.ahead && (!r.localSha || !r.pr.headSha || r.localSha === r.pr.headSha);
+  return r.pr?.state === 'MERGED' && !r.ahead && checkedOutMerged(r);
 }
 
 /** What keeps a merged repo from being archived: work after the merge that only lives in commits. */
 function workBeyondMerge(r: ShipPreflight['repos'][number]): string | null {
   const parts: string[] = [];
   if (r.ahead) parts.push(`${r.ahead} unpushed commit${r.ahead === 1 ? '' : 's'}`);
-  if (r.localSha && r.pr?.headSha && r.localSha !== r.pr.headSha) parts.push('a commit checked out that the PR didn’t merge');
+  if (!checkedOutMerged(r)) parts.push('a commit checked out that the PR didn’t merge');
   return parts.length ? `${r.name}: PR merged, but ${parts.join(' and ')}` : null;
 }
 

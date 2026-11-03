@@ -26,6 +26,8 @@ interface RepoScript {
   pr?: Record<string, unknown> | null;
   ghMissing?: boolean;
   fail?: Partial<Record<'push' | 'pr create' | 'pr merge', string>>;
+  /** `merge-base --is-ancestor HEAD <pr head>`: yes, no, or the head isn't here (default no). */
+  ancestor?: 'yes' | 'no' | 'missing';
   /** Right after a wake: git times out and gh can't reach GitHub. */
   down?: boolean;
 }
@@ -53,6 +55,10 @@ function fakeRunner(scripts: Record<string, RepoScript>) {
       if (a === 'rev-parse --abbrev-ref origin/HEAD') return ok('origin/main\n');
       if (a.startsWith('rev-list --count')) return ok(String(s.vsBase ?? 1) + '\n');
       if (args[0] === 'push') return s.fail?.push ? err(s.fail.push) : ok();
+      if (a.startsWith('merge-base --is-ancestor HEAD ')) {
+        if (s.ancestor === 'yes') return ok();
+        return s.ancestor === 'missing' ? err(`fatal: Not a valid commit name ${args[3]}`, 128) : err('', 1);
+      }
       return ok();
     }
     if (cmd === 'gh') {
@@ -228,6 +234,34 @@ describe('preflight', () => {
       ['backend', true, 'merged', []],
       ['docs', true, 'untouched', []],
     ]);
+  });
+
+  it('merged at a commit after the checked-out one (a bot updated the branch on GitHub, never pulled): done (reported)', async () => {
+    const MERGED_HEAD = 'c1c1c1c1c1c1';
+    const behind = fakeRunner({
+      [P('api')]: ready({ head: 'b0b0b0b0b0b0', ancestor: 'yes', pr: pr({ state: 'MERGED', headRefOid: MERGED_HEAD }) }),
+    });
+    const [r] = (await shipPreflight(single(), behind.run)).repos;
+    expect(r).toMatchObject({ behindMergedHead: true, done: true, doneReason: 'merged', mergeBlockers: [] });
+    expect(behind.calls.filter((c) => c.args[0] === 'merge-base').map((c) => c.args)).toEqual([
+      ['merge-base', '--is-ancestor', 'HEAD', MERGED_HEAD],
+    ]);
+    // A commit the merge didn't take (after the head, or another line), or a head git doesn't
+    // have here: not done.
+    for (const ancestor of ['no', 'missing'] as const) {
+      const other = fakeRunner({
+        [P('api')]: ready({ head: 'b0b0b0b0b0b0', ancestor, pr: pr({ state: 'MERGED', headRefOid: MERGED_HEAD }) }),
+      });
+      const [o] = (await shipPreflight(single(), other.run)).repos;
+      expect(o.behindMergedHead).toBeUndefined();
+      expect(o.done).toBe(false);
+    }
+    // At the head, or an open PR: git isn't asked.
+    for (const p of [pr({ state: 'MERGED' }), pr()]) {
+      const { run, calls } = fakeRunner({ [P('api')]: ready({ ancestor: 'yes', pr: p }) });
+      await shipPreflight(single(), run);
+      expect(calls.some((c) => c.args[0] === 'merge-base')).toBe(false);
+    }
   });
 
   it('a repo that couldn\'t be read is never done: a failed gh isn\'t "no PR", a failed git isn\'t "0 commits" (it archived a group with an open PR)', async () => {

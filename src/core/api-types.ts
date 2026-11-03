@@ -854,6 +854,9 @@ export interface RepoShipState {
   branch: string;
   /** Local HEAD commit. */
   localSha: string;
+  /** Its PR is merged at a later commit that contains HEAD — commits added on GitHub (a bot's
+   *  "Update branch") the worktree never pulled — so everything checked out is in the merge. */
+  behindMergedHead?: boolean;
   /** Uncommitted (incl. untracked) files — shipping needs a clean tree. */
   dirtyFiles: number;
   /** git couldn't read the working tree (a timeout under load): its facts are unknown, so it's never done. */
