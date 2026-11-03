@@ -13,7 +13,7 @@ import type { WorktreeSession } from '../../../src/core/sessions/session-types.j
 import { fetchAllPullRequests } from '../../../src/core/pr/pr.js';
 import { mergeSelected, shipPreflight, defaultRunner as realRunner, type CommandRunner } from '../../../src/core/pr/ship.js';
 import { createPrWatch } from '../../../src/core/pr/pr-watch.js';
-import { prWatchHostDeps } from '../../../src/core/pr/pr-watch-hosts.js';
+import { prWatchHostDeps, watchAskGh } from '../../../src/core/pr/pr-watch-hosts.js';
 import { prStageOf } from '../../../src/core/pr/pr-stage.js';
 import { listReplies, postReply, rememberSent, saveDraft, threadRefusal } from '../../../src/core/pr/pr-replies.js';
 import { blockedPrState, blockRefFrom } from '../../../src/core/rail/session-blocks.js';
@@ -21,6 +21,8 @@ import { resolvePrToStart } from '../../../src/core/pr/pr-start.js';
 import { workOnPrPrompt } from '../../../src/core/pr/pr-ref.js';
 import { prPrompt } from '../../../src/web/src/state/start-prompts.js';
 import { commitsWrittenOn } from '../../../src/core/time/time-deps.js';
+import { createActivityLog } from '../../../src/core/platform/activity.js';
+import { runAll } from '../../functional/fixtures/processes.js';
 
 /**
  * #63's proof that work is ready for another git host: a made-up one
@@ -215,11 +217,10 @@ beforeAll(() => {
   };
 }, 60_000);
 
-afterAll(() => {
-  expect(ghCalls).toEqual([]);
-  for (const u of unregister) u();
-  fs.rmSync(tmp, { recursive: true, force: true });
-});
+// Cleanup first, each step on its own (a failed one can't keep the temp repos or the fake hosts registered); the gh check last.
+afterAll(() =>
+  runAll([...unregister.map((u) => () => u()), () => fs.rmSync(tmp, { recursive: true, force: true }), () => expect(ghCalls).toEqual([])]),
+);
 
 describe('a repo is on the host its origin says', () => {
   it('each repo resolves on its own; nobody claims a plain server, which is asked as GitHub (as before hosts)', () => {
@@ -267,7 +268,7 @@ describe('the PR list', () => {
     });
     fake.state.list = [row('api', 7)];
     other.state.list = [row('web', 8)];
-    const { map, incomplete } = await fetchAllPullRequests({ api: api.path, web: web.path });
+    const { map, incomplete } = await fetchAllPullRequests({ api: api.path, web: web.path }, { run: defaultRunner });
     expect(incomplete).toEqual([]);
     expect(map.get('feat/refunds')?.map((p) => [p.repoAlias, p.number, p.host])).toEqual([
       ['api', 7, 'fake'],
@@ -304,7 +305,7 @@ describe('Ship', () => {
 });
 
 describe('the PR watch, its stage and its notes', () => {
-  const watch = (told: string[]) =>
+  const watch = (told: string[], extra: Partial<Parameters<typeof createPrWatch>[0]> = {}) =>
     createPrWatch({
       sessions: () => [{ id: 'shop1', session: group }],
       preflight: (s) => shipPreflight(s, defaultRunner),
@@ -318,6 +319,7 @@ describe('the PR watch, its stage and its notes', () => {
         const seen = new Set<string>();
         return { has: (k) => seen.has(k), add: (k) => void seen.add(k) };
       },
+      ...extra,
     });
 
   it("failing checks and review threads on Fakehub: the stage, and notes in Fakehub's words — never GitHub's", async () => {
@@ -397,16 +399,136 @@ describe('the PR watch, its stage and its notes', () => {
     fake.state.viewer = 'me';
   }, 60_000);
 
-  it("the host's own words for its API limit: the watch keeps what it knew and tells nobody", async () => {
-    const told: string[] = [];
-    const w = watch(told);
-    fake.state.prs.set('feat/refunds', openPr(7, api.head));
-    const first = await w.refresh('shop1');
-    fake.state.limited = true;
-    told.length = 0;
-    expect(await w.refresh('shop1')).toEqual(first);
+  /** A review read with one open thread by a trusted reviewer; `viewer`: who it says you are ('' : it can't say). */
+  const oneThread = (viewer: string, comment = 'c9'): ReviewFeedback => ({
+    viewer,
+    threads: [
+      {
+        id: 'FAKE-9',
+        isResolved: false,
+        isOutdated: false,
+        path: 'a.txt',
+        line: 1,
+        comments: [
+          {
+            id: comment,
+            author: 'rev',
+            association: 'MEMBER',
+            body: 'Split this up',
+            url: `https://code.fake.example/${comment}`,
+            createdAt: '2026-11-01T00:00:00Z',
+          },
+        ],
+      },
+    ],
+    reviews: [],
+    comments: [],
+  });
+  const notesOf = (activity: ReturnType<typeof createActivityLog>) =>
+    activity.snapshot().recent.flatMap((r) => r.notes.map((n) => ({ level: n.level, text: n.text })));
+
+  it("who you are can't be told, but the review read says it: that settles whose PR it is (#63 N001)", async () => {
+    other.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null; // `whoami` fails, the review read doesn't
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], author: 'me' }));
+
+    // The read can't say either: the threads are counted, held, and said so; nothing goes to Claude.
+    fake.state.feedback = oneThread('');
+    let told: string[] = [];
+    let activity = createActivityLog();
+    await watch(told, { activity }).tick();
     expect(told).toEqual([]);
-    fake.state.limited = false;
+    expect(notesOf(activity)).toEqual(
+      expect.arrayContaining([
+        {
+          level: 'warn',
+          text: expect.stringContaining(
+            '1 open review thread on #7, but who you are on Fakehub is unknown: not handing it to its Claude until it can tell the PR is yours',
+          ),
+        },
+        { level: 'warn', text: expect.stringContaining('checks fail on #7, but who you are on Fakehub is unknown') },
+      ]),
+    );
+
+    // It says you are its author: yours — the thread and the failing checks go to its Claude.
+    fake.state.feedback = oneThread('me');
+    told = [];
+    await watch(told).refresh('shop1');
+    expect(told.filter((t) => t.startsWith('New review feedback'))).toHaveLength(1);
+    expect(told.filter((t) => t.startsWith('CI is failing'))).toHaveLength(1);
+
+    // It says you are someone else: theirs — shown, never handed over, its threads not counted as owed to you.
+    fake.state.feedback = oneThread('someone-else', 'c10');
+    told = [];
+    activity = createActivityLog();
+    const w = watch(told, { activity });
+    await w.tick();
+    expect(told).toEqual([]);
+    expect(w.state('shop1')?.repos.find((r) => r.name === 'api')?.openThreads).toBeUndefined();
+    expect(notesOf(activity).filter((n) => n.text.includes('unknown'))).toEqual([]);
+    fake.state.viewer = 'me';
+    fake.state.feedback = null;
+  }, 60_000);
+
+  it("a conflict on a PR whose owner can't be told is held, and said so (#63 N002, N003)", async () => {
+    other.state.feedback = null;
+    fake.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { mergeStateStatus: 'DIRTY', author: 'me' }));
+    fake.state.viewer = null;
+    const told: string[] = [];
+    const activity = createActivityLog();
+    await watch(told, { activity, options: () => ({ autoArchive: false, fixCi: true, reviewComments: true }) }).tick();
+    expect(told).toEqual([]);
+    expect(notesOf(activity)).toContainEqual({
+      level: 'warn',
+      text: expect.stringContaining(
+        'merge conflict on #7, but who you are on Fakehub is unknown: not asking its Claude until it can tell the PR is yours',
+      ),
+    });
+    fake.state.viewer = 'me'; // known again: the conflict goes to its Claude
+    await watch(told).refresh('shop1');
+    expect(told.filter((t) => /conflict/i.test(t))).toHaveLength(1);
+    fake.state.prs.set('feat/refunds', openPr(7, api.head));
+  }, 60_000);
+
+  it("the host's own words for its API limit: the watch keeps what it knew, tells nobody, and rests that host by name", async () => {
+    const told: string[] = [];
+    let t = Date.now();
+    const activity = createActivityLog({ now: () => t });
+    // The preflight as work web wires it (ci-routes.ts): a resting host isn't asked.
+    const w: ReturnType<typeof createPrWatch> = watch(told, {
+      activity,
+      now: () => t,
+      preflight: (s, o) => shipPreflight(s, defaultRunner, { askGh: watchAskGh(o?.resting, () => false) }),
+    });
+    const stop = w.start(180_000, 60_000);
+    try {
+      fake.state.prs.set('feat/refunds', openPr(7, api.head));
+      const first = await w.refresh('shop1');
+      fake.state.limited = true;
+      told.length = 0;
+      await w.tick();
+      expect(w.state('shop1')).toEqual(first);
+      expect(told).toEqual([]);
+      expect(notesOf(activity)[0]).toEqual({
+        level: 'warn',
+        text: expect.stringContaining('Fakehub says its API limit is spent: keeping what it knew, resting'),
+      });
+      expect(activity.snapshot().schedules[0]).toMatchObject({ kind: 'pr-watch', pausedWhy: "Fakehub's API limit is spent" });
+      // The next sweep: Fakehub rests (not asked), Otherhub is — the session is checked, keeping what it knew.
+      t += 60_000;
+      await w.tick();
+      expect(notesOf(activity)[0]).toEqual({
+        level: 'info',
+        text: expect.stringContaining("Fakehub's API limit is spent: keeping what it knew"),
+      });
+      for (const n of notesOf(activity)) expect(n.text).not.toMatch(NO_GITHUB);
+    } finally {
+      stop();
+      fake.state.limited = false;
+    }
   }, 60_000);
 });
 
@@ -446,7 +568,12 @@ describe('blocked by a PR on another host', () => {
 
 describe('Start from a PR, and what its session is told', () => {
   it("a Fakehub link finds its repo by origin; the prompts use Fakehub's commands", async () => {
-    const r = await resolvePrToStart('https://code.fake.example/team/api/pr/12', { repos: { api: api.path, web: web.path }, groups: {} });
+    const r = await resolvePrToStart(
+      'https://code.fake.example/team/api/pr/12',
+      { repos: { api: api.path, web: web.path }, groups: {} },
+      undefined,
+      { run: defaultRunner },
+    );
     expect(r).toMatchObject({ ok: true, pr: { alias: 'api', number: 12, branch: 'feat/refunds', host: 'fake' } });
     const first = workOnPrPrompt({ number: 12, title: 'Add refunds', url: 'u', author: 'ana', host: 'fake' });
     expect(first).toContain('fk show 12');

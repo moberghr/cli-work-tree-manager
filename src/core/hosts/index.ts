@@ -1,6 +1,7 @@
 import { originUrl, readGitConfig } from '../worktree/repo-scan.js';
 import { configView } from '../platform/config-cache.js';
 import { addCommands, DEFAULT_HOST } from './commands.js';
+import { originHostname } from './origin-hostname.js';
 import { github } from './github/adapter.js';
 import { azure } from './azure/adapter.js';
 import type { GitHost } from './types.js';
@@ -61,14 +62,7 @@ const overrides = configView((raw) => {
   return out;
 });
 
-/** An origin URL's hostname, lower case (https, ssh://, and scp-like `git@host:path`); null when it has none. Pure. */
-export function originHostname(origin: string): string | null {
-  const s = origin.trim();
-  const url = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)/i.exec(s);
-  if (url) return url[1].toLowerCase();
-  const scp = /^(?:[^@/]+@)?([^/:]+):(?!\/\/)/.exec(s);
-  return scp ? scp[1].toLowerCase() : null;
-}
+export { originHostname };
 
 export interface HostLookupDeps {
   /** A repo's git config text (tests pass their own). */

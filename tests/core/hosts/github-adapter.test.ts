@@ -7,6 +7,8 @@ import { fetchAllPullRequests } from '../../../src/core/pr/pr.js';
 import type { CommandRunner, RunResult } from '../../../src/core/platform/command-runner.js';
 import { registerHost } from '../../../src/core/hosts/index.js';
 import type { GitHost } from '../../../src/core/hosts/types.js';
+import { enterpriseHostname, githubViewer } from '../../../src/core/hosts/github/review.js';
+import { viewerLogin } from '../../../src/core/pr/pr-watch-hosts.js';
 
 /**
  * GitHub's adapter on the paths real users take (#63 review F009, F010):
@@ -159,5 +161,60 @@ describe("GitHub's review-queue groundwork", () => {
 
   it("prRef: a PR's head, fetchable from origin without a checkout", () => {
     expect(github.prRef(42)).toBe('refs/pull/42/head');
+  });
+});
+
+describe("a branch's PR, when gh can't say (#63 re-review N005)", () => {
+  it('the API-limit line is the reason, wherever gh printed it (the watch rests on it); else the first line', async () => {
+    const limited = recorder(() => ({ code: 1, stderr: 'warning: something first\nGraphQL: API rate limit exceeded for user\n' }));
+    expect(await github.prForBranch(limited.run, '/repo', 'feat/x')).toEqual({
+      kind: 'error',
+      error: 'GraphQL: API rate limit exceeded for user',
+    });
+    const other = recorder(() => ({ code: 1, stderr: 'HTTP 502\nmore' }));
+    expect(await github.prForBranch(other.run, '/repo', 'feat/x')).toEqual({ kind: 'error', error: 'HTTP 502' });
+    const none = recorder(() => ({ code: 1, stderr: 'no pull requests found for branch "feat/x"' }));
+    expect(await github.prForBranch(none.run, '/repo', 'feat/x')).toEqual({ kind: 'none' });
+  });
+});
+
+describe('who you are on GitHub Enterprise (#63 re-review: one login for github.com and GHE)', () => {
+  const config = (origin: string | null) => () => (origin ? `[remote "origin"]\n\turl = ${origin}\n` : null);
+
+  it("enterpriseHostname: a GHE origin's server; none for github.com, an SSH alias of it, no origin or a name gh mustn't get", () => {
+    expect(enterpriseHostname('https://ghe.corp.example/acme/api.git')).toBe('ghe.corp.example');
+    expect(enterpriseHostname('git@ghe.corp.example:acme/api.git')).toBe('ghe.corp.example');
+    expect(enterpriseHostname('git@github.com:acme/api.git')).toBeNull();
+    expect(enterpriseHostname('ssh://git@ssh.github.com:443/acme/api.git')).toBeNull();
+    expect(enterpriseHostname('git@github-work:acme/api.git')).toBeNull(); // an alias in ~/.ssh/config
+    expect(enterpriseHostname(null)).toBeNull();
+    expect(enterpriseHostname('ssh://-oProxy.example/x')).toBeNull();
+  });
+
+  it("gh api user is asked of the repo's server: --hostname for GHE, nothing extra for github.com", async () => {
+    const { run, calls } = recorder(() => ({ stdout: 'ana\n' }));
+    expect(await githubViewer(run, '/ghe-repo', config('https://ghe.corp.example/acme/api.git'))).toBe('ana');
+    expect(await githubViewer(run, '/gh-repo', config('git@github.com:acme/api.git'))).toBe('ana');
+    expect(calls.map((c) => [c.args, c.cwd])).toEqual([
+      [['api', 'user', '--jq', '.login', '--hostname', 'ghe.corp.example'], '/ghe-repo'],
+      [['api', 'user', '--jq', '.login'], '/gh-repo'],
+    ]);
+  });
+
+  it('the PR watch keeps one login per host and server: github.com and a GHE origin are asked apart, each once', async () => {
+    const logins: Record<string, string> = { '/gh-a': 'me', '/gh-b': 'me', '/ghe': 'me-at-work' };
+    const asked: string[] = [];
+    const host = { id: 'github', viewer: async (_run: CommandRunner, cwd: string) => (asked.push(cwd), logins[cwd]) };
+    const servers: Record<string, string> = { '/gh-a': 'github.com', '/gh-b': 'github.com', '/ghe': 'ghe.corp.example' };
+    const viewer = viewerLogin(
+      recorder(() => ({})).run,
+      () => host,
+      (p) => servers[p],
+    );
+    expect(await viewer(undefined, '/gh-a')).toBe('me');
+    expect(await viewer(undefined, '/ghe')).toBe('me-at-work');
+    expect(await viewer(undefined, '/gh-b')).toBe('me'); // github.com's, already known
+    expect(await viewer(undefined, '/ghe')).toBe('me-at-work');
+    expect(asked).toEqual(['/gh-a', '/ghe']);
   });
 });

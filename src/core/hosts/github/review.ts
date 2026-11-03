@@ -1,5 +1,8 @@
 import type { CommandRunner } from '../../platform/command-runner.js';
 import { threadCode, type ReviewComment, type ReviewFeedback } from '../../pr/review-types.js';
+import { originUrl, readGitConfig } from '../../worktree/repo-scan.js';
+import { originHostname } from '../origin-hostname.js';
+import { onGithub } from './origin.js';
 
 /**
  * GitHub's review feedback: one `gh api graphql` call per PR fetches its
@@ -93,9 +96,26 @@ export function parseReviewFeedback(stdout: string): ReviewFeedback | null {
   }
 }
 
-/** The login gh is signed in as (`gh api user`); null when gh can't say. */
-export async function githubViewer(run: CommandRunner, cwd: string): Promise<string | null> {
-  const r = await run('gh', ['api', 'user', '--jq', '.login'], cwd).catch(() => null);
+/**
+ * The server a repo's origin names when it isn't github.com (a GitHub Enterprise one), for `gh api --hostname`:
+ * `gh api` asks github.com unless told, whatever repo it runs in. Null on github.com, with no origin, for a
+ * name without a dot (an SSH alias of github.com, `git@github-work:…`, is no server of its own), or one that
+ * isn't a plain hostname.
+ */
+export function enterpriseHostname(origin: string | null): string | null {
+  if (!origin || onGithub(origin)) return null;
+  const name = originHostname(origin);
+  return name && name.includes('.') && /^[a-z0-9][a-z0-9.-]*$/.test(name) ? name : null;
+}
+
+/**
+ * The login gh is signed in as on the server of the repo at `cwd` (`gh api user`, with `--hostname` for a
+ * GitHub Enterprise origin: you are someone else there); null when gh can't say.
+ */
+export async function githubViewer(run: CommandRunner, cwd: string, readConfig = readGitConfig): Promise<string | null> {
+  const text = readConfig(cwd);
+  const server = enterpriseHostname(text ? originUrl(text) : null);
+  const r = await run('gh', ['api', 'user', '--jq', '.login', ...(server ? ['--hostname', server] : [])], cwd).catch(() => null);
   const login = r?.code === 0 ? r.stdout.trim() : '';
   return login || null;
 }

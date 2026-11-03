@@ -92,8 +92,9 @@ export interface PrWatchDeps {
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
   /** Who you're signed in as on a host (`host`: its id; absent: GitHub): a PR by someone else (you work on it or
-   *  review it) is theirs — its review threads are addressed to its author, and its CI isn't yours to fix unasked. */
-  viewer?: (host?: string) => Promise<string | null>;
+   *  review it) is theirs — its review threads are addressed to its author, and its CI isn't yours to fix unasked.
+   *  `repoPath`: the repo it's asked for (its origin's server: a GitHub Enterprise login isn't github.com's). */
+  viewer?: (host?: string, repoPath?: string) => Promise<string | null>;
   /** The host (`host`: its id; absent: GitHub) refused for its API limit, in its own words (absent: `RATE_LIMITED`).
    *  Wired per host by pr-watch-hosts.ts, as `viewer` and `reviewFeedback` are. */
   rateLimited?: (host: string | undefined, text: string) => boolean;
@@ -453,23 +454,32 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const opts = deps.options();
     // Someone else's PR (a session working on it or reviewing it): its threads are for its
     // author, and its Claude was told to wait for what you want. Shown, never handed over.
-    const viewers = new Map<string | undefined, string | null>();
+    // Who you are, per repo: on its host and its origin's server (deps.viewer asks each once).
+    const viewers = new Map<string, string | null>();
     for (const r of pre.repos)
-      if (r.pr?.author && !viewers.has(r.host))
-        viewers.set(r.host, await (deps.viewer?.(r.host) ?? Promise.resolve(null)).catch(() => null));
-    const viewer = viewers.get(undefined) ?? [...viewers.values()].find((v) => !!v) ?? null;
+      if (r.pr?.author) viewers.set(r.name, await (deps.viewer?.(r.host, r.path) ?? Promise.resolve(null)).catch(() => null));
+    const viewer =
+      pre.repos
+        .filter((r) => !r.host)
+        .map((r) => viewers.get(r.name))
+        .find((v) => !!v) ??
+      [...viewers.values()].find((v) => !!v) ??
+      null;
     const theirs = new Set(
       pre.repos
         .filter((r) => {
-          const me = viewers.get(r.host);
+          const me = viewers.get(r.name);
           return r.pr?.author && me && r.pr.author.toLowerCase() !== me.toLowerCase();
         })
         .map((r) => r.name),
     );
     // Who you are on its host couldn't be told this time (signed out, offline): mine or theirs is unknown, so
-    // nothing of it is handed over — its CI and conflicts wait for a check that can tell (review threads are
-    // held by the feedback's own viewer, newFeedback). Never read as yours: someone else's would go to Claude.
-    const unsure = new Set(pre.repos.filter((r) => deps.viewer && r.pr?.author && !viewers.get(r.host)).map((r) => r.name));
+    // nothing of it is handed over — its review threads, CI and conflicts wait for a check that can tell. The
+    // review read below says who you are too (its own viewer): when it does, that settles it. Never read as
+    // yours: someone else's would go to Claude.
+    const unsure = new Set(pre.repos.filter((r) => deps.viewer && r.pr?.author && !viewers.get(r.name)).map((r) => r.name));
+    const unknownOn = (repos: string[]) =>
+      [...new Set(repos.map((name) => hostName(pre.repos.find((r) => r.name === name)?.host)))].join(' / ');
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
     const feedback: Array<{ repo: string; number: number; items: FeedbackItem[]; host?: string }> = [];
@@ -504,13 +514,31 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           if (was?.pr?.number === r.pr.number && was.threads) threadList.set(r.name, was.threads);
           continue;
         }
+        // Who you are wasn't known on its host: the review read's own viewer says it, or it stays held.
+        let held = false;
+        if (unsure.has(r.name) && r.pr.author) {
+          const me = fb.viewer.trim();
+          if (me && me.toLowerCase() === r.pr.author.toLowerCase()) unsure.delete(r.name);
+          else if (me) {
+            unsure.delete(r.name);
+            theirs.add(r.name); // theirs: shown, never handed over (and not counted, as above)
+            continue;
+          } else held = true;
+        }
         threads.set(r.name, openThreadCount(fb));
         const prNumber = r.pr.number;
         threadList.set(
           r.name,
           openThreadsOf(fb, opts.trustedBots ?? DEFAULT_TRUSTED_BOTS).map((t) => ({ ...t, repo: r.name, prNumber })),
         );
-        if (act && deliverReviews) {
+        if (act && deliverReviews && held) {
+          const open = fb.threads.filter((t) => !t.isResolved).length; // unresolved, whoever spoke last: unknown
+          if (open)
+            note(
+              `${open} open review thread${open === 1 ? '' : 's'} on #${r.pr.number}, but who you are on ${unknownOn([r.name])} is unknown: not handing ${open === 1 ? 'it' : 'them'} to its Claude until it can tell the PR is yours`,
+              'warn',
+            );
+        } else if (act && deliverReviews) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {
             trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
           });
@@ -577,7 +605,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       const held = failing.filter((f) => unsure.has(f.repo));
       if (held.length)
         note(
-          `checks fail on ${held.map((f) => `#${f.number}`).join(', ')}, but who you are on ${[...new Set(held.map((f) => hostName(pre.repos.find((r) => r.name === f.repo)?.host)))].join(' / ')} is unknown: not asking its Claude until it can tell the PR is yours`,
+          `checks fail on ${held.map((f) => `#${f.number}`).join(', ')}, but who you are on ${unknownOn(held.map((f) => f.repo))} is unknown: not asking its Claude until it can tell the PR is yours`,
           'warn',
         );
       const fresh = failing.filter((f) => !unsure.has(f.repo));
@@ -593,9 +621,16 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     // A conflict: once per PR head (a push that conflicts again — the base moved on — is told again).
     // Someone else's PR is theirs to bring up to date, as its CI is.
     if (opts.fixConflicts !== false) {
-      const fresh = conflictingOf(ci).filter(
-        (c) => !theirs.has(c.repo) && !unsure.has(c.repo) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`),
+      const conflicting = conflictingOf(ci).filter(
+        (c) => !theirs.has(c.repo) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`),
       );
+      const held = conflicting.filter((c) => unsure.has(c.repo));
+      if (held.length)
+        note(
+          `merge conflict on ${held.map((c) => `#${c.number}`).join(', ')}, but who you are on ${unknownOn(held.map((c) => c.repo))} is unknown: not asking its Claude until it can tell the PR is yours`,
+          'warn',
+        );
+      const fresh = conflicting.filter((c) => !unsure.has(c.repo));
       if (fresh.length) {
         const seen = staged(id);
         for (const c of fresh) seen.add(`${id}:${c.repo}:conflict:${c.headSha}`);

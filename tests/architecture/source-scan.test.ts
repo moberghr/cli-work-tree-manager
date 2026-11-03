@@ -49,3 +49,66 @@ describe('importsOf / loadedBy', () => {
     expect([...stopped.files]).toEqual(['src/core/pr/pr-watch-hosts.ts']);
   });
 });
+
+describe('dynamic import() (#63 re-review N007)', () => {
+  it('a lazy import with a literal specifier loads; one read as a type is erased; a computed one is not followed', () => {
+    const text = [
+      "const m = await import('./lazy.js');",
+      'void import("./then.js").then((x) => x);',
+      'const t = await import(`./tpl.js`);',
+      "type T = typeof import('./typeof.js');",
+      "let u: import('./named.js').Name;",
+      'const v = await import(name);',
+      "// await import('./gone.js');",
+      "obj.import('./method.js');",
+    ].join('\n');
+    expect(importsOf(text)).toEqual({ runtime: ['./lazy.js', './then.js', './tpl.js'], types: ['./typeof.js', './named.js'] });
+  });
+
+  it('the walks follow it: what a module loads later is still what it reaches', () => {
+    // `work <verb>` loads only that verb, by import() (cli.ts's COMMANDS): the walk reaches the verbs.
+    const { files } = loadedBy(['src/cli.ts']);
+    expect(files.has('src/commands/tree.ts')).toBe(true);
+  });
+});
+
+describe('JSX in a .tsx file (#63 re-review N008)', () => {
+  it("an element's text is text: a URL in it isn't a comment, an apostrophe doesn't hide the code after it", () => {
+    const text = [
+      'const a = <p>See https://example.com/x for more</p>;',
+      "const b = <p>Don't stop</p>; const c = run('after');",
+      'const d = <A href="https://example.org/y" on={() => go(\'inner\')}>hi {name} there<B x={1} /></A>;',
+      'const e = <>frag text</>;',
+    ].join('\n');
+    const { code, strings } = scan(text, { jsx: true });
+    expect(code).toContain('https://example.com/x'); // was blanked from `//` as a comment
+    expect(strings.map((s) => s.value)).toEqual([
+      'See https://example.com/x for more',
+      "Don't stop",
+      'after', // was hidden: the apostrophe read as a string's start
+      'https://example.org/y',
+      'inner',
+      'hi',
+      'there',
+      'frag text',
+    ]);
+  });
+
+  it('a comment between attributes is a comment (its apostrophe starts nothing)', () => {
+    const text = "const a = (\n  <input\n    // it's focused first\n    value={v} /* don't */\n  />\n);\nrun('after');";
+    const { code, strings } = scan(text, { jsx: true });
+    expect(code).not.toContain('focused');
+    expect(strings.map((s) => s.value)).toEqual(['after']);
+  });
+
+  it("a comparison and a generic aren't elements", () => {
+    const { strings } = scan("const x = a < b ? 'y' : 'n';\nfunction f<T>(v: T) { return 'z'; }\nconst g = <T,>(v: T) => 'w';", {
+      jsx: true,
+    });
+    expect(strings.map((s) => s.value)).toEqual(['y', 'n', 'z', 'w']);
+  });
+
+  it('without jsx (a .ts file) the text is code, as before', () => {
+    expect(scan("const s = 'a'; // c\n").code).toBe("const s = 'a';     \n");
+  });
+});

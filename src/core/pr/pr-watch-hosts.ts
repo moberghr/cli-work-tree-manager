@@ -1,5 +1,5 @@
 import type { CommandRunner } from '../platform/command-runner.js';
-import { defaultHost, hostById, hostForRepo } from '../hosts/index.js';
+import { defaultHost, hostById, hostForRepo, originHostname } from '../hosts/index.js';
 import type { GitHost } from '../hosts/types.js';
 import type { ReviewFeedback } from './review-types.js';
 import type { PrWatchDeps } from './pr-watch.js';
@@ -15,23 +15,33 @@ import type { AskGh } from './ship.js';
 /** A host by its id on the wire (absent or unknown: the default host's, as an older row's is everywhere else). */
 const hostOf = (id: string | null | undefined): GitHost => hostById(id) ?? defaultHost();
 
+/** The hostname of a repo's origin (lower case); null with none. */
+function repoServer(repoPath: string): string | null {
+  const { origin } = hostForRepo(repoPath);
+  return origin ? originHostname(origin) : null;
+}
+
 /**
- * Who you're signed in as on each host, asked once per host: the PR watch
- * tells your PRs from someone else's by it (its `viewer`, given a host's id).
- * Each host is asked through its own adapter: GitHub's login is no one's name
- * on Azure DevOps. A failed ask answers null and is asked again next time.
+ * Who you're signed in as on each host, asked once per host and server: the
+ * PR watch tells your PRs from someone else's by it (its `viewer`, given a
+ * host's id and the repo). Each host is asked through its own adapter, in the
+ * repo's folder: GitHub's login is no one's name on Azure DevOps, and a GitHub
+ * Enterprise origin's login isn't github.com's (GitHub's adapter asks that
+ * server). A failed ask answers null and is asked again next time.
  */
 export function viewerLogin(
   run: CommandRunner,
   lookup: (id: string | undefined) => Pick<GitHost, 'id' | 'viewer'> = hostOf,
-): (host?: string) => Promise<string | null> {
+  serverOf: (repoPath: string) => string | null = repoServer,
+): (host?: string, repoPath?: string) => Promise<string | null> {
   const known = new Map<string, string>();
-  return async (hostId) => {
+  return async (hostId, repoPath) => {
     const host = lookup(hostId);
-    const was = known.get(host.id);
+    const key = `${host.id}\n${repoPath ? (serverOf(repoPath) ?? '') : ''}`;
+    const was = known.get(key);
     if (was) return was;
-    const login = await host.viewer(run, process.cwd()).catch(() => null);
-    if (login) known.set(host.id, login);
+    const login = await host.viewer(run, repoPath ?? process.cwd()).catch(() => null);
+    if (login) known.set(key, login);
     return login || null;
   };
 }
