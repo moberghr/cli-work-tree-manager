@@ -127,6 +127,14 @@ export interface AgentInput {
 export interface AgentOneShot {
   /** How to start one; `small`: a few words are wanted (a smaller, cheaper model). */
   command(opts: { small?: boolean }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  /**
+   * Optional: a one-shot run that may READ a folder — a pull request's temporary checkout, for the Reviews AI step
+   * (review-tree.ts). Read-only file tools only, confined to `cwd`; nothing that runs a command, writes, or reaches
+   * the network; none of the folder's own settings, hooks or MCP servers (they are the PR author's), but its
+   * instructions file (the repo's conventions); the env tagged internal like `command`. Absent: the agent has no
+   * such mode, and callers use the text-only `command` with the diff alone.
+   */
+  readOnly?(opts: { small?: boolean; cwd: string }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
 }
 
 /** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */

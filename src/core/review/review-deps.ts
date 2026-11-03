@@ -1,7 +1,8 @@
 import { loadConfig } from '../platform/config.js';
-import { defaultRunner } from '../platform/command-runner.js';
+import { defaultRunner, type CommandRunner } from '../platform/command-runner.js';
 import { hostForRepo } from '../hosts/index.js';
-import { runInternal } from '../diff/checkpoint-summary.js';
+import { internalCanRead, runInternal, runInternalReadOnly } from '../diff/checkpoint-summary.js';
+import { sweepReviewTrees, withReviewTree, type ReviewTreeAt } from './review-tree.js';
 import { bootTime, isPidAlive } from '../platform/process.js';
 import { setReviewMode } from '../worktree/repo-admin.js';
 import type { ReviewEvent, ReviewSettingsWire } from '../api-types.js';
@@ -24,6 +25,35 @@ import { preparedOn } from './review-submit.js';
 /** How long the AI step may take: a large PR's logic is a long prompt. */
 const AGENT_TIMEOUT_MS = 180_000;
 
+/** How long the AI step may take in a checkout of the PR: it reads files (callers, interfaces, tests) besides the diff. */
+export const CHECKOUT_AGENT_TIMEOUT_MS = 300_000;
+
+/** A temporary checkout younger than this may be another work web's, still read (the dev server's click): not swept. */
+const TREE_SWEEP_MIN_AGE_MS = CHECKOUT_AGENT_TIMEOUT_MS + 5 * 60_000;
+
+/**
+ * The AI step read-only in a temporary checkout of the PR (review-tree.ts), removed whatever happens: null when the
+ * summarising agent has no read-only mode. Its I/O passed in for tests.
+ */
+export async function agentInCheckout(
+  at: ReviewTreeAt,
+  prompt: string,
+  io: {
+    run: CommandRunner;
+    canRead: () => boolean;
+    agent: (prompt: string, cwd: string) => Promise<string | null>;
+    root?: string;
+  },
+): Promise<{ answer: string | null; why?: string } | null> {
+  if (!io.canRead()) return null;
+  const r = await withReviewTree(io.run, at, (dir) => io.agent(prompt, dir), io.root);
+  if (!r.ok) return { answer: null, why: r.error };
+  const left = r.left ? ` (its checkout ${r.left} wouldn't go: the next start sweeps it)` : '';
+  return r.value
+    ? { answer: r.value, ...(left ? { why: left.trim() } : {}) }
+    : { answer: null, why: `no answer: it failed or took over ${CHECKOUT_AGENT_TIMEOUT_MS / 60_000} minutes${left}` };
+}
+
 /** config.json, or an empty one (no repos: nothing to review). */
 const configNow = (): Pick<WorkConfig, 'repos' | 'groups' | 'reviews'> => loadConfig() ?? { repos: {}, groups: {} };
 
@@ -36,6 +66,13 @@ export function realReviewQueueDeps(opts: { activity?: ActivityLog; changed: () 
     prepare: (repoPath, host, pr) => preparePr(defaultRunner, repoPath, host, pr),
     dropRef: (repoPath, number) => dropReviewRef(defaultRunner, repoPath, number),
     agent: (prompt) => runInternal(prompt, AGENT_TIMEOUT_MS),
+    agentInCheckout: (at, prompt) =>
+      agentInCheckout(at, prompt, {
+        run: defaultRunner,
+        canRead: internalCanRead,
+        agent: (p, cwd) => runInternalReadOnly(p, cwd, CHECKOUT_AGENT_TIMEOUT_MS),
+      }),
+    sweepTrees: () => sweepReviewTrees(defaultRunner, { olderThanMs: TREE_SWEEP_MIN_AGE_MS }),
     rules: () => rulesWith(config().reviews?.rules),
     store: { read: readReview, upsert: upsertReview, all: allReviews, keepOnly },
     limits: () => reviewLimits(config()),

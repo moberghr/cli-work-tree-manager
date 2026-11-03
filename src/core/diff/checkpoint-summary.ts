@@ -108,6 +108,28 @@ export function runInternal(prompt: string, timeoutMs = 25_000, opts: { small?: 
   return internalQueue(() => runNow(prompt, timeoutMs, oneShot.command(opts)));
 }
 
+/** The summarising agent has a read-only run in a folder (`oneShot.readOnly`): the Reviews AI step can read a checkout. */
+export function internalCanRead(): boolean {
+  return !!internalAgent(agentSettings()).oneShot?.readOnly;
+}
+
+/**
+ * `runInternal`, read-only in `cwd` (a PR's temporary checkout): the agent's `oneShot.readOnly` run — file reads
+ * confined to that folder, nothing that runs or writes, none of the folder's settings. Null when the agent has no
+ * such mode, or on error or timeout (its process tree killed first, so the caller can remove the folder).
+ */
+export function runInternalReadOnly(
+  prompt: string,
+  cwd: string,
+  timeoutMs: number,
+  opts: { small?: boolean } = {},
+): Promise<string | null> {
+  const oneShot = internalAgent(agentSettings()).oneShot;
+  if (!oneShot?.readOnly) return Promise.resolve(null);
+  const command = oneShot.readOnly({ ...opts, cwd });
+  return internalQueue(() => runNow(prompt, timeoutMs, command));
+}
+
 function runNow(
   prompt: string,
   timeoutMs: number,

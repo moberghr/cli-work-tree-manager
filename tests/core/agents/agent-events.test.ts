@@ -147,6 +147,47 @@ describe('work’s own summaries (agents/: `oneShot`, config internalAgent)', ()
     ]);
   });
 
+  it('Claude’s read-only one-shot in a folder (a PR’s checkout): read-only file tools confined to it, none of its settings or MCP servers, its CLAUDE.md loaded, tagged internal', async () => {
+    const { claudeAgent, CLAUDE_SMALL_MODEL } = await import('../../../src/core/agents/claude/adapter.js');
+    const dir = path.join(tmp, 'review-trees', 'api-5-abc');
+    const run = claudeAgent.oneShot!.readOnly!({ cwd: dir });
+    expect(run).toEqual({
+      cmd: 'claude',
+      args: [
+        '-p',
+        '--restricted',
+        '--tools',
+        'Read,Grep,Glob',
+        '--setting-sources',
+        'user',
+        '--add-dir',
+        dir,
+        '--strict-mcp-config',
+        '--permission-mode',
+        'dontAsk',
+      ],
+      cwd: dir,
+      env: expect.objectContaining({ WORK_INTERNAL_CLAUDE: '1', CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' }) as unknown,
+    });
+    // Nothing that runs or writes is named anywhere.
+    expect(run.args.join(' ')).not.toMatch(/Bash|Edit|Write|WebFetch|WebSearch|bypassPermissions|--mcp-config/);
+    expect(claudeAgent.oneShot!.readOnly!({ cwd: dir, small: true }).args.slice(-2)).toEqual(['--model', CLAUDE_SMALL_MODEL]);
+  });
+
+  it('an agent without a read-only mode: none, and runInternalReadOnly starts nothing', async () => {
+    const { internalAgent } = await import('../../../src/core/agents/index.js');
+    expect(internalAgent({ internalAgent: 'opencode' }).oneShot?.readOnly).toBeUndefined();
+    fs.writeFileSync(
+      path.join(tmp, '.work', 'config.json'),
+      JSON.stringify({ worktreesRoot: tmp, repos: {}, groups: {}, copyFiles: [], internalAgent: 'opencode' }),
+    );
+    const { internalCanRead, runInternalReadOnly } = await import('../../../src/core/diff/checkpoint-summary.js');
+    expect(internalCanRead()).toBe(false);
+    const started = Date.now();
+    expect(await runInternalReadOnly('review this', tmp, 300_000)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it('the summarising agent is config internalAgent (Claude by default); one without one-shot runs writes nothing — no process started', async () => {
     const { internalAgent } = await import('../../../src/core/agents/index.js');
     expect(internalAgent(null).id).toBe('claude');

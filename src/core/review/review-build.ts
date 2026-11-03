@@ -91,14 +91,17 @@ const asLines = (f: ParsedFile): DiffFileLines => ({
   hunks: f.hunks,
 });
 
-/** The agent pass's prompt for this PR: its Logic files, and the tests it touches (null: nothing to ask about). */
-export function reviewPrompt(meta: ReviewMeta, files: ParsedFile[], kinds: FileKind[]): string | null {
+/**
+ * The agent pass's prompt for this PR: its Logic files, and the tests it touches (null: nothing to ask about).
+ * `checkout`: the agent reads it in a checkout of the PR (review-tree.ts), and is told so.
+ */
+export function reviewPrompt(meta: ReviewMeta, files: ParsedFile[], kinds: FileKind[], opts: { checkout?: boolean } = {}): string | null {
   const logic = new Set(kinds.filter((k) => k.kind === 'logic').map((k) => k.path));
   if (!logic.size) return null;
   const kindMap = Object.fromEntries(kinds.map((k) => [k.path, k.kind]));
   const tests = testBreakdown(files.map(asLines), kindMap).tests.filter((t) => t.change !== 'removed');
   const shown: PromptFile[] = files.filter((f) => logic.has(f.path)).map((f) => ({ path: f.path, diff: diffText(f) }));
-  return agentPrompt({ title: meta.title, number: meta.number }, shown, tests);
+  return agentPrompt({ title: meta.title, number: meta.number }, shown, tests, undefined, opts);
 }
 
 /**

@@ -5,8 +5,10 @@ import {
   upToDate,
   withStatus,
   type ReviewProject,
+  type ReviewQueueDeps,
   type ReviewStore,
 } from '../../../src/core/review/review-queue.js';
+import { CHECKOUT_LINES } from '../../../src/core/review/review-plan.js';
 import { reviewKey } from '../../../src/core/review/review-store.js';
 import { parseGitDiff } from '../../../src/core/diff/diff-parse.js';
 import { createActivityLog } from '../../../src/core/platform/activity.js';
@@ -74,6 +76,8 @@ function harness(
   opts: {
     prs?: OpenPr[];
     agent?: (p: string) => Promise<string | null>;
+    agentInCheckout?: ReviewQueueDeps['agentInCheckout'];
+    sweepTrees?: ReviewQueueDeps['sweepTrees'];
     maxPerDay?: number | null;
     maxLines?: number;
     mode?: ReviewProject['mode'];
@@ -122,6 +126,8 @@ function harness(
     prepare,
     dropRef,
     ...(opts.agent ? { agent: opts.agent } : {}),
+    ...(opts.agentInCheckout ? { agentInCheckout: opts.agentInCheckout } : {}),
+    ...(opts.sweepTrees ? { sweepTrees: opts.sweepTrees } : {}),
     store,
     limits: () => ({ maxPerDay: opts.maxPerDay === undefined ? 10 : opts.maxPerDay, maxLines: opts.maxLines ?? 3000 }),
     changed,
@@ -398,12 +404,86 @@ describe('the review queue', () => {
     release();
     await Promise.all([a, click]);
     expect(most).toBe(1);
-    expect(h.activity.snapshot().recent.filter((r) => r.kind === 'reviews')).toHaveLength(1);
+    // One sweep's run (the click has its own, saying how it was read).
+    expect(h.activity.snapshot().recent.filter((r) => r.kind === 'reviews' && r.label === 'Preparing PR reviews')).toHaveLength(1);
     // #1 is the click's: the sweep, finding it being prepared, leaves it alone.
     expect(h.prepare.mock.calls.map((c) => c[2].number)).toEqual([1, 2]);
     expect(h.rows.get('api#1')!.status).toBe('ready');
     expect(h.notes().filter((n) => n.startsWith('action: api #'))).toEqual([
       'action: api #2: prepared — 1 story, 1 untested change (no agent for the AI step: stories are by folder)',
     ]);
+  });
+});
+
+describe('the AI step in a temporary checkout of the PR', () => {
+  const answer = JSON.stringify({
+    stories: [{ title: 'Adds refunds', why: 'w', risk: 'money', riskLevel: 4, flags: [], files: ['src/Refunds.cs'] }],
+  });
+
+  it('read in a checkout at the fetched head, told so in the prompt; the diff-only run is not asked; Activity says which', async () => {
+    const agent = vi.fn(async (_p: string) => 'unused');
+    const agentInCheckout = vi.fn(async () => ({ answer }));
+    const h = harness({ agent, agentInCheckout });
+    await h.queue.sweep();
+    expect(agentInCheckout).toHaveBeenCalledTimes(1);
+    const [at, prompt] = agentInCheckout.mock.calls[0] as unknown as [unknown, string];
+    expect(at).toEqual({ repoPath: '/repos/api', alias: 'api', number: 7, headSha: 'sha7' });
+    for (const line of CHECKOUT_LINES) expect(prompt).toContain(line);
+    expect(prompt).toContain('src/Refunds.cs');
+    expect(agent).not.toHaveBeenCalled();
+    expect(h.rows.get('api#7')).toMatchObject({ aiStep: 'done', stories: [expect.objectContaining({ title: 'Adds refunds', by: 'ai' })] });
+    expect(h.notes()).toContain('action: api #7: prepared — 1 story, 1 untested change; read in a temporary checkout of the PR');
+  });
+
+  it('an agent with no read-only mode (null), or a checkout run with no answer: the diff alone, without the checkout lines, and why', async () => {
+    const agent = vi.fn(async (_p: string) => answer);
+    const none = harness({ agent, agentInCheckout: async () => null });
+    await none.queue.sweep();
+    expect(agent.mock.calls[0][0]).not.toContain(CHECKOUT_LINES[0]);
+    expect(none.rows.get('api#7')!.aiStep).toBe('done');
+    expect(none.notes()).toContain(
+      'action: api #7: prepared — 1 story, 1 untested change; read from the diff alone (the agent has no read-only mode)',
+    );
+    const failed = harness({ agent, agentInCheckout: async () => ({ answer: null, why: 'timed out' }) });
+    await failed.queue.sweep();
+    expect(failed.rows.get('api#7')!.aiStep).toBe('done');
+    expect(failed.notes()).toContain(
+      'action: api #7: prepared — 1 story, 1 untested change; read from the diff alone (the checkout run gave no answer: timed out)',
+    );
+    const threw = harness({
+      agent,
+      agentInCheckout: async () => {
+        throw new Error('disk full');
+      },
+    });
+    await threw.queue.sweep();
+    expect(threw.notes().some((n) => n.endsWith('(the checkout run gave no answer: disk full)'))).toBe(true);
+  });
+
+  it('no agent at all: neither run is asked (stories by folder)', async () => {
+    const agentInCheckout = vi.fn(async () => ({ answer }));
+    const h = harness({ agentInCheckout });
+    await h.queue.sweep();
+    expect(agentInCheckout).not.toHaveBeenCalled();
+    expect(h.rows.get('api#7')!.stories[0].by).toBe('folder');
+  });
+
+  it('a click (runNow) says in Activity how it was read', async () => {
+    const h = harness({ agent: async () => answer, agentInCheckout: async () => ({ answer }) });
+    const r = await h.queue.runNow('api', 7);
+    expect(r).toMatchObject({ ok: true });
+    expect(Object.keys(r)).toEqual(['ok', 'review']);
+    const run = h.activity.snapshot().recent.find((x) => x.label === 'Preparing the review of api #7');
+    expect(run).toMatchObject({ kind: 'reviews', summary: 'prepared; read in a temporary checkout of the PR' });
+  });
+
+  it('leftover checkouts are swept once, at the first sweep, and said in Activity', async () => {
+    const sweepTrees = vi.fn(async () => ({ swept: ['api-3-abc'], failed: ['web-4-def'] }));
+    const h = harness({ sweepTrees });
+    await h.queue.sweep();
+    await h.queue.sweep();
+    expect(sweepTrees).toHaveBeenCalledTimes(1);
+    expect(h.notes()).toContain('action: removed 1 temporary PR checkout a stopped run left: api-3-abc');
+    expect(h.notes()).toContain("warn: couldn't remove 1 temporary PR checkout: web-4-def");
   });
 });

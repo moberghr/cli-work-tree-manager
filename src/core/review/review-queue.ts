@@ -4,6 +4,7 @@ import type { PrReviewWire, ReviewMode, ReviewStatus } from '../api-types.js';
 import type { ActivityLog } from '../platform/activity.js';
 import type { KindRule } from './change-kinds.js';
 import type { PreparedPr } from './review-source.js';
+import type { ReviewTreeAt } from './review-tree.js';
 import { buildReview, kindsOf, reviewPrompt, type ReviewMeta } from './review-build.js';
 import { carryForward, isStaleRunning, preparedOn } from './review-submit.js';
 
@@ -56,6 +57,14 @@ export interface ReviewQueueDeps {
   dropRef?: (repoPath: string, number: number) => Promise<void>;
   /** The summarising agent's one-shot run (`runInternal`); absent: no AI step, stories by folder. */
   agent?: (prompt: string) => Promise<string | null>;
+  /**
+   * The AI step read-only in a temporary checkout of the PR at its head (review-tree.ts, `runInternalReadOnly`),
+   * tried before `agent`: null when the agent has no read-only mode; `answer` null when the run gave none (`why`) —
+   * either way `agent` then reads the diff alone.
+   */
+  agentInCheckout?: (at: ReviewTreeAt, prompt: string) => Promise<{ answer: string | null; why?: string } | null>;
+  /** Remove the temporary checkouts a stopped run left: once, before the first sweep's reviews (review-tree.ts). */
+  sweepTrees?: () => Promise<{ swept: string[]; failed: string[] }>;
   rules?: () => KindRule[];
   store: ReviewStore;
   /** `maxPerDay` null: no daily cap. */
@@ -178,11 +187,14 @@ const metaOf = (repo: string, host: GitHost, pr: OpenPr): ReviewMeta => ({
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-type Prepared = HostResult<{ review: PrReviewWire }> | { ok: false; error: string; held: true };
+/** `how`: whether the AI step read the PR in a checkout or the diff alone (none when it wasn't asked). */
+type Prepared = HostResult<{ review: PrReviewWire; how?: string }> | { ok: false; error: string; held: true };
 
 export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
   const now = () => deps.now?.() ?? new Date();
   let sweeping: Promise<void> | null = null;
+  /** The temporary checkouts a stopped run left are swept at the first sweep. */
+  let treesSwept = false;
   /** The reviews this queue is preparing now (a `running` row not among them was left by a run that stopped). */
   const active = new Set<string>();
   /** One review at a time, the user's clicks included. */
@@ -196,6 +208,36 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
 
   const setStatus = (meta: ReviewMeta, status: ReviewStatus, why: string | null, opts: Parameters<typeof withStatus>[5] = {}) =>
     deps.store.upsert(meta.repo, meta.number, (was) => withStatus(was, meta, status, why, now(), opts));
+
+  /**
+   * The AI step: read-only in a temporary checkout of the PR when the agent can (`agentInCheckout`), else — or when
+   * that run gave no answer — the diff alone (`agent`). `answer` undefined: not asked (no agent, no Logic files).
+   * `how`: which it was, for the Activity note.
+   */
+  async function aiStep(
+    project: ReviewProject,
+    at: ReviewMeta,
+    prepared: PreparedPr,
+    rules: KindRule[] | undefined,
+  ): Promise<{ answer: string | null | undefined; how?: string }> {
+    if (!deps.agent) return { answer: undefined };
+    const kinds = kindsOf(prepared.files, prepared.extras, rules);
+    const prompt = reviewPrompt(at, prepared.files, kinds);
+    if (!prompt) return { answer: undefined };
+    let fellBack = 'the agent has no read-only mode';
+    if (deps.agentInCheckout) {
+      const inTree = await deps
+        .agentInCheckout(
+          { repoPath: project.path, alias: project.alias, number: at.number, headSha: at.headSha },
+          reviewPrompt(at, prepared.files, kinds, { checkout: true }) ?? prompt,
+        )
+        .catch((err: Error) => ({ answer: null, why: err.message }));
+      if (inTree?.answer) return { answer: inTree.answer, how: 'read in a temporary checkout of the PR' };
+      if (inTree) fellBack = `the checkout run gave no answer${inTree.why ? `: ${inTree.why}` : ''}`;
+    }
+    const answer = await deps.agent(prompt).catch(() => null);
+    return { answer, how: `read from the diff alone (${fellBack})` };
+  }
 
   /** Prepare one PR. `auto`: the sweep's (the size limit applies to the fetched diff too); your click ignores it. */
   async function prepareOne(project: ReviewProject, meta: ReviewMeta, size: OpenPr | undefined, auto: boolean): Promise<Prepared> {
@@ -226,8 +268,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       const rules = deps.rules?.();
       // The fetched head (a push since the list moved it); the listed one stays what the next sweep compares.
       const at = { ...meta, headSha: prepared.headSha || meta.headSha };
-      const prompt = deps.agent ? reviewPrompt(at, prepared.files, kindsOf(prepared.files, prepared.extras, rules)) : null;
-      const answer = prompt && deps.agent ? await deps.agent(prompt).catch(() => null) : undefined;
+      const { answer, how } = await aiStep(project, at, prepared, rules);
       const fresh: PrReviewWire = {
         ...buildReview(at, prepared.files, prepared.extras, answer, {
           rules,
@@ -241,7 +282,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       // Read and written in one transaction: a draft you add meanwhile is carried over, never overwritten.
       const review = deps.store.upsert(meta.repo, meta.number, (was) => carryForward(was, fresh));
       deps.changed();
-      return { ok: true, review };
+      return { ok: true, review, ...(how ? { how } : {}) };
     } catch (err) {
       // Whatever threw, the row doesn't stay `running` (its button would stay disabled for good).
       const error = `couldn't prepare it: ${(err as Error).message}`;
@@ -262,6 +303,18 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     const paths = new Map<string, string>();
     const todo: Array<{ project: ReviewProject; meta: ReviewMeta; pr: OpenPr }> = [];
     try {
+      if (!treesSwept && deps.sweepTrees) {
+        treesSwept = true;
+        // In the one-at-a-time chain: never while a click's review reads its checkout.
+        const left = await oneAtATime(deps.sweepTrees).catch((err: Error) => {
+          note(`couldn't sweep the temporary checkouts: ${err.message}`, 'warn');
+          return { swept: [], failed: [] };
+        });
+        if (left.swept.length)
+          note(`removed ${plural(left.swept.length, 'temporary PR checkout')} a stopped run left: ${left.swept.join(', ')}`, 'action');
+        if (left.failed.length)
+          note(`couldn't remove ${plural(left.failed.length, 'temporary PR checkout')}: ${left.failed.join(', ')}`, 'warn');
+      }
       for (const project of deps.projects()) {
         if (project.mode === 'off') continue;
         paths.set(project.alias, project.path);
@@ -320,7 +373,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
         const r = await oneAtATime(() => prepareOne(t.project, t.meta, t.pr, true));
         if (r.ok)
           note(
-            `${t.project.alias} #${t.pr.number}: prepared — ${plural(r.review.stories.length, 'story', 'stories')}, ${plural(r.review.tests.gaps.length, 'untested change')}${r.review.why ? ` (${r.review.why})` : ''}`,
+            `${t.project.alias} #${t.pr.number}: prepared — ${plural(r.review.stories.length, 'story', 'stories')}, ${plural(r.review.tests.gaps.length, 'untested change')}${r.review.why ? ` (${r.review.why})` : ''}${r.how ? `; ${r.how}` : ''}`,
             'action',
           );
         else if ('held' in r) note(`${t.project.alias} #${t.pr.number}: ${r.error}`);
@@ -349,8 +402,11 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       if (!list.ok) return { ok: false, error: list.error };
       const pr = list.prs.find((p) => p.number === number);
       if (!pr) return { ok: false, error: `#${number} isn't an open pull request of ${repo}` };
+      const run = deps.activity?.start('reviews', `Preparing the review of ${repo} #${number}`);
       const r = await oneAtATime(() => prepareOne(project, metaOf(repo, host, pr), pr, false));
-      return r.ok ? r : { ok: false, error: r.error };
+      if (r.ok) run?.done(`prepared${r.how ? `; ${r.how}` : ''}`);
+      else run?.fail(r.error);
+      return r.ok ? { ok: true, review: r.review } : { ok: false, error: r.error };
     },
   };
 }
