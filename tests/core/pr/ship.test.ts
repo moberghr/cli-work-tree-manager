@@ -236,10 +236,10 @@ describe('preflight', () => {
     ]);
   });
 
-  it('merged at a commit after the checked-out one (a bot updated the branch on GitHub, never pulled): done (reported: SD-4013)', async () => {
-    const MERGED_HEAD = 'a1e49b3780d8';
+  it('merged at a commit after the checked-out one (a bot updated the branch on GitHub, never pulled): done (reported)', async () => {
+    const MERGED_HEAD = 'c1c1c1c1c1c1';
     const behind = fakeRunner({
-      [P('api')]: ready({ head: 'e9fca6987000', ancestor: 'yes', pr: pr({ state: 'MERGED', headRefOid: MERGED_HEAD }) }),
+      [P('api')]: ready({ head: 'b0b0b0b0b0b0', ancestor: 'yes', pr: pr({ state: 'MERGED', headRefOid: MERGED_HEAD }) }),
     });
     const [r] = (await shipPreflight(single(), behind.run)).repos;
     expect(r).toMatchObject({ behindMergedHead: true, done: true, doneReason: 'merged', mergeBlockers: [] });
@@ -250,7 +250,7 @@ describe('preflight', () => {
     // have here: not done.
     for (const ancestor of ['no', 'missing'] as const) {
       const other = fakeRunner({
-        [P('api')]: ready({ head: 'e9fca6987000', ancestor, pr: pr({ state: 'MERGED', headRefOid: MERGED_HEAD }) }),
+        [P('api')]: ready({ head: 'b0b0b0b0b0b0', ancestor, pr: pr({ state: 'MERGED', headRefOid: MERGED_HEAD }) }),
       });
       const [o] = (await shipPreflight(single(), other.run)).repos;
       expect(o.behindMergedHead).toBeUndefined();

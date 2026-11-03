@@ -540,22 +540,22 @@ describe('PR watch', () => {
     });
   });
 
-  it('merged at a commit after the checked-out one (a bot updated the branch, never pulled): archived; unpushed commits still keep it (reported: SD-4013)', () => {
-    // Backend: worktree at e9fca69, PR merged at a1e49b3 — a merge of dev made on GitHub.
-    // Frontend: merged at the checked-out commit, one generated file left uncommitted.
-    const backend = { ...repo('straumur-backend', merged(), false), localSha: 'e9fca69', dirtyFiles: 0 } as RepoShipState;
-    backend.pr = { ...backend.pr!, headSha: 'a1e49b3' };
-    const frontend = { ...repo('straumur-frontend', merged(), false), localSha: 'a3ebcf6', dirtyFiles: 1 } as RepoShipState;
-    frontend.pr = { ...frontend.pr!, headSha: 'a3ebcf6' };
+  it('merged at a commit after the checked-out one (a bot updated the branch, never pulled): archived; unpushed commits still keep it (reported)', () => {
+    // api: worktree at b0b0b0b, PR merged at c1c1c1c — a merge of dev made on GitHub.
+    // web: merged at the checked-out commit, one generated file left uncommitted.
+    const backend = { ...repo('api', merged(), false), localSha: 'b0b0b0b', dirtyFiles: 0 } as RepoShipState;
+    backend.pr = { ...backend.pr!, headSha: 'c1c1c1c' };
+    const frontend = { ...repo('web', merged(), false), localSha: 'd2d2d2d', dirtyFiles: 1 } as RepoShipState;
+    frontend.pr = { ...frontend.pr!, headSha: 'd2d2d2d' };
     const s = { lastAccessedAt: ENTERED };
     expect(autoArchiveVerdict({ repos: [backend, frontend] }, s, LATER)).toEqual({
       archive: false,
-      why: 'straumur-backend: PR merged, but a commit checked out that the PR didn’t merge',
+      why: 'api: PR merged, but a commit checked out that the PR didn’t merge',
     });
     expect(autoArchiveVerdict({ repos: [{ ...backend, behindMergedHead: true }, frontend] }, s, LATER)).toEqual({ archive: true });
     expect(autoArchiveVerdict({ repos: [{ ...backend, behindMergedHead: true, ahead: 1 }, frontend] }, s, LATER)).toEqual({
       archive: false,
-      why: 'straumur-backend: PR merged, but 1 unpushed commit',
+      why: 'api: PR merged, but 1 unpushed commit',
     });
   });
 
