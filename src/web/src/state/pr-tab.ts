@@ -21,7 +21,7 @@ export interface PrSection {
   author: string | null;
   /** The host it's on (absent: GitHub). */
   host?: string;
-  /** You did (the watch's viewer, else the list's isMine): its author isn't shown. */
+  /** You did (the watch's viewer for its repo — older: the session's one —, else the list's isMine): its author isn't shown. */
   mine: boolean;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   kind: PrStageKind;
@@ -76,7 +76,7 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
             ...fromList(
               r.pr,
               listed.find((p) => p.url === r.pr!.url),
-              ci?.viewer,
+              r.viewer ?? ci?.viewer,
             ),
             state: r.pr.state,
             kind: stageOfPr(r.pr),

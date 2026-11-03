@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importsOf, loadedBy, scan } from './source-scan.js';
+import { computedImports, importsOf, loadedBy, scan } from './source-scan.js';
 
 /** The architecture guards' reader: a guard that misreads source can't fail (#63 review F002, F004, F007). */
 
@@ -65,6 +65,21 @@ describe('dynamic import() (#63 re-review N007)', () => {
     expect(importsOf(text)).toEqual({ runtime: ['./lazy.js', './then.js', './tpl.js'], types: ['./typeof.js', './named.js'] });
   });
 
+  it('computedImports names every import() whose specifier is not a literal, by line; strings and comments are not code (S2)', () => {
+    const text = [
+      "const m = await import('./lazy.js');",
+      'const v = await import(name);',
+      'const w = await import(`./x/${name}.js`);',
+      "const s = 'not import(code)';",
+      '// await import(gone);',
+      'obj.import(thing);',
+      "type T = typeof import('./typeof.js');",
+      'const u = import (\n  spec);',
+    ].join('\n');
+    expect(computedImports(text)).toEqual([2, 3, 8]);
+    expect(computedImports('const a = <p>import(x) is prose</p>;', { jsx: true })).toEqual([]);
+  });
+
   it('the walks follow it: what a module loads later is still what it reaches', () => {
     // `work <verb>` loads only that verb, by import() (cli.ts's COMMANDS): the walk reaches the verbs.
     const { files } = loadedBy(['src/cli.ts']);
@@ -106,6 +121,15 @@ describe('JSX in a .tsx file (#63 re-review N008)', () => {
       jsx: true,
     });
     expect(strings.map((s) => s.value)).toEqual(['y', 'n', 'z', 'w']);
+  });
+
+  it("an arrow's `<T extends X>` generic isn't an element: the code after it stays code (#63 S1)", () => {
+    const text = "const g = <T extends object>(v: T) => 'w';\nrun('gh', []);\nconst h = <K extends keyof T,>(k: K) => k;\nrun('az');";
+    const { strings, code } = scan(text, { jsx: true });
+    expect(strings.map((s) => s.value)).toEqual(['w', 'gh', 'az']);
+    expect(code).toContain("run('gh', [])");
+    // An element whose first attribute is named something else is still an element.
+    expect(scan("const e = <Foo extendsX='a'>t</Foo>;", { jsx: true }).strings.map((s) => s.value)).toEqual(['a', 't']);
   });
 
   it('without jsx (a .ts file) the text is code, as before', () => {

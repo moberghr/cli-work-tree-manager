@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ASSISTANT_INSTRUCTIONS } from '../../src/core/agents/assistant.js';
 import { DEFAULT_PROMPTS } from '../../src/core/sessions/saved-prompts.js';
-import { importsOf, lineOf, resolveLocal, ROOT, scanFile, sourceFiles } from './source-scan.js';
+import { computedImports, importsOf, lineOf, resolveLocal, ROOT, scanFile, sourceFiles } from './source-scan.js';
 
 /**
  * work talks to git hosts through the GitHost adapter (core/hosts/types.ts):
@@ -89,6 +89,16 @@ describe('git hosts', () => {
         if (target && dirs.some((d) => target.startsWith(d))) offenders.push(`${f} → ${target}`);
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it('every import() in src/core and src/web names its module literally: what it loads is followed by these guards (S2)', () => {
+    // A computed specifier can't be followed: a host's folder reached through one would pass the import bans
+    // above unseen. None is needed today; one that is goes here, with the reason.
+    const ALLOWED: string[] = [];
+    const offenders = [...sourceFiles('src/core'), ...sourceFiles('src/web')]
+      .filter((f) => !ALLOWED.includes(f))
+      .flatMap((f) => computedImports(fs.readFileSync(path.join(ROOT, f), 'utf8'), { jsx: f.endsWith('.tsx') }).map((l) => `${f}:${l}`));
     expect(offenders).toEqual([]);
   });
 

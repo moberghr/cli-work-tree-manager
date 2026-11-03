@@ -5,6 +5,7 @@ import type { ChecksState, FailingCheck, MergeMethod, ShipPr } from '../../api-t
 import { RUN_TIMED_OUT, type CommandRunner } from '../../platform/command-runner.js';
 import type { HostResult, OpenPr, PrForStart, PrLookup, SubmitReviewResult } from '../types.js';
 import { refusedClearly } from '../submit-doubt.js';
+import { ghApi } from './server.js';
 
 /**
  * GitHub's PR operations through `gh` (argv only): a branch's PR (Ship and
@@ -290,7 +291,7 @@ export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<Ho
 
 const GITHUB_EVENT = { comment: 'COMMENT', approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES' } as const;
 
-/** One review with its line comments (`gh api …/pulls/<n>/reviews --input`; gh fills owner and repo from the cwd). */
+/** One review with its line comments (`gh api …/pulls/<n>/reviews --input` on the repo's server; gh fills owner and repo from the cwd). */
 export async function githubSubmitReview(
   run: CommandRunner,
   cwd: string,
@@ -314,7 +315,9 @@ export async function githubSubmitReview(
         comments: review.comments.map((c) => ({ path: c.path, line: c.line, side: 'RIGHT', body: c.body })),
       }),
     );
-    const r = await run('gh', ['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '--input', file], cwd);
+    const r = await ghApi(run, cwd, ['--method', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '--input', file]);
+    // Which server the repo is on wasn't known: nothing was asked, so nothing went out.
+    if ('serverUnknown' in r) return { ok: false, error: r.stderr };
     // One call makes the whole review, or none of it — unless it failed without a clear refusal (timed out, a 5xx, a
     // dropped connection): then GitHub may have made it.
     if (r.code !== 0) {

@@ -14,7 +14,7 @@ import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.j
 import { lastConversationWriteMs } from '../../core/sessions/session-activity.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
 import type { WakeResult } from '../../core/pr/pr-watch.js';
-import { rememberSent, retireResolvedReplies } from '../../core/pr/pr-replies.js';
+import { rememberSent, replyFolder, retireResolvedReplies } from '../../core/pr/pr-replies.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
 import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import { readContextUsage } from '../../core/conversations/context-usage.js';
@@ -119,7 +119,11 @@ export function mountCiRoutes(
     },
     retireReplies: async (id, ci) => {
       const s = findSession(id);
-      const gone = await retireResolvedReplies(id, ci, s?.paths.find((p) => fs.existsSync(p)) ?? null, defaultRunner);
+      const folder = (repo: string) => {
+        const own = s ? replyFolder(s, repo) : null;
+        return own && fs.existsSync(own) ? own : (s?.paths.find((p) => fs.existsSync(p)) ?? null);
+      };
+      const gone = await retireResolvedReplies(id, ci, folder, defaultRunner);
       if (gone.length) opts.broadcast('replies-changed', { sessionId: id });
       return gone;
     },

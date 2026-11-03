@@ -1,8 +1,6 @@
 import type { CommandRunner } from '../../platform/command-runner.js';
 import { threadCode, type ReviewComment, type ReviewFeedback } from '../../pr/review-types.js';
-import { originUrl, readGitConfig } from '../../worktree/repo-scan.js';
-import { originHostname } from '../origin-hostname.js';
-import { onGithub } from './origin.js';
+import { ghApi, type ServerDeps } from './server.js';
 
 /**
  * GitHub's review feedback: one `gh api graphql` call per PR fetches its
@@ -97,35 +95,27 @@ export function parseReviewFeedback(stdout: string): ReviewFeedback | null {
 }
 
 /**
- * The server a repo's origin names when it isn't github.com (a GitHub Enterprise one), for `gh api --hostname`:
- * `gh api` asks github.com unless told, whatever repo it runs in. Null on github.com, with no origin, for a
- * name without a dot (an SSH alias of github.com, `git@github-work:…`, is no server of its own), or one that
- * isn't a plain hostname.
+ * The login gh is signed in as on the server of the repo at `cwd` (`gh api user` on that server: on a GitHub
+ * Enterprise one you are someone else); null when gh can't say, or which server it is isn't known.
  */
-export function enterpriseHostname(origin: string | null): string | null {
-  if (!origin || onGithub(origin)) return null;
-  const name = originHostname(origin);
-  return name && name.includes('.') && /^[a-z0-9][a-z0-9.-]*$/.test(name) ? name : null;
-}
-
-/**
- * The login gh is signed in as on the server of the repo at `cwd` (`gh api user`, with `--hostname` for a
- * GitHub Enterprise origin: you are someone else there); null when gh can't say.
- */
-export async function githubViewer(run: CommandRunner, cwd: string, readConfig = readGitConfig): Promise<string | null> {
-  const text = readConfig(cwd);
-  const server = enterpriseHostname(text ? originUrl(text) : null);
-  const r = await run('gh', ['api', 'user', '--jq', '.login', ...(server ? ['--hostname', server] : [])], cwd).catch(() => null);
+export async function githubViewer(run: CommandRunner, cwd: string, deps?: ServerDeps): Promise<string | null> {
+  const r = await ghApi(run, cwd, ['user', '--jq', '.login'], deps).catch(() => null);
   const login = r?.code === 0 ? r.stdout.trim() : '';
   return login || null;
 }
 
-export async function githubReviewFeedback(run: CommandRunner, repoPath: string, prNumber: number): Promise<ReviewFeedback | null> {
-  // gh fills {owner}/{repo} from the repository in the cwd.
-  const res = await run(
-    'gh',
-    ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-F', `number=${prNumber}`, '-f', `query=${QUERY}`],
+export async function githubReviewFeedback(
+  run: CommandRunner,
+  repoPath: string,
+  prNumber: number,
+  deps?: ServerDeps,
+): Promise<ReviewFeedback | null> {
+  // gh fills {owner}/{repo} from the repository in the cwd; the server is the repo's own (its viewer is who you are there).
+  const res = await ghApi(
+    run,
     repoPath,
+    ['graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-F', `number=${prNumber}`, '-f', `query=${QUERY}`],
+    deps,
   );
   return res.code === 0 ? parseReviewFeedback(res.stdout) : null;
 }

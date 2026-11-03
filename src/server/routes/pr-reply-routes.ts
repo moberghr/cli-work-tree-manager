@@ -7,6 +7,7 @@ import {
   markPostedAnswered,
   MAX_REPLY_CHARS,
   postReply,
+  replyFolder,
   draftReply,
   sessionRepoRefs,
   isThreadId,
@@ -102,7 +103,7 @@ export function mountPrReplyRoutes(
     if (typeof b.body !== 'string' || !b.body.trim() || b.body.length > MAX_REPLY_CHARS)
       return c.json({ error: 'body: the reply text' }, 400);
     const thread = c.req.param('thread');
-    const cwd = session.paths.find((p) => p) ?? process.cwd();
+    const cwd = replyFolder(session, listReplies(id).find((r) => r.threadId === thread)?.repo);
     const r = await postReply(id, thread, b.body, { resolve: b.resolve === true, cwd, run });
     if (!r.ok) return c.json({ error: r.error }, 502);
     const act = opts.activity?.start('pr-watch', 'Posting a review reply');

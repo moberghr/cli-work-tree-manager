@@ -102,6 +102,9 @@ describe("PR watch's last check", () => {
     expect(isSessionCi(check())).toBe(true);
     expect(isSessionCi({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, openThreads: 'two' }] })).toBe(false);
     expect(isSessionCi(null)).toBe(false);
+    // Who you are per repo: a login, or absent.
+    expect(isSessionCi({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, viewer: 'ana' }] })).toBe(true);
+    expect(isSessionCi({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, viewer: 7 }] })).toBe(false);
     expect(isSessionCi([])).toBe(false);
     // Its open threads too: an entry missing what readers use (a reply's row is made from it) refuses the check.
     const withThread = (t: unknown) => ({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, threads: [t] }] });

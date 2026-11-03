@@ -973,12 +973,17 @@ export interface DevServerState {
 /** GET /api/sessions/:id/ci — what GitHub says about the session's PRs. */
 export interface SessionCi {
   checkedAt: string;
-  /** Who gh is signed in as, when the watch knew it: tells your PRs from others' (the PR tab's "by @…"). */
+  /**
+   * Who gh is signed in as, when the watch knew it: tells your PRs from others' (the PR tab's "by @…"). One
+   * repo's (a github.com one's first): each repo's own is `repos[].viewer`; kept for older readers.
+   */
   viewer?: string;
   repos: Array<{
     name: string;
     /** The host its PR is on (absent: GitHub). */
     host?: string;
+    /** Who you are on its host and server (a GitHub Enterprise login isn't github.com's). Absent: unknown, or an older server. */
+    viewer?: string;
     pr: ShipPr | null;
     done: boolean;
     /** Unresolved review threads waiting on the author (open PRs). */

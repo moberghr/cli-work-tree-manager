@@ -12,6 +12,7 @@ import {
   markPostedAnswered,
   postDrafts,
   postReply,
+  replyFolder,
   postedSince,
   rememberSent,
   retireResolvedReplies,
@@ -548,6 +549,50 @@ describe('retireResolvedReplies — a draft for a thread resolved on GitHub goes
     rememberSent(id, [thread(T2)]);
     expect(await retireResolvedReplies(id, ci([]), null, run)).toEqual([]);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("a reply is asked from its own repo's folder: that repo's host server (#63 final H1)", () => {
+  const session = {
+    target: 'shop',
+    isGroup: true,
+    paths: ['/wt/shop/api', '/wt/shop/web'],
+    repos: ['api', 'web'],
+  } as unknown as WorktreeSession;
+
+  it("replyFolder: the reply's repo, else the session's first folder", () => {
+    expect(replyFolder(session, 'web')).toBe('/wt/shop/web');
+    expect(replyFolder(session, 'api')).toBe('/wt/shop/api');
+    expect(replyFolder(session, 'gone')).toBe('/wt/shop/api');
+    expect(replyFolder(session, undefined)).toBe('/wt/shop/api');
+  });
+
+  it('retireResolvedReplies asks each thread from the folder its repo has; no folder for it: not asked', async () => {
+    const id = 'r3';
+    rememberSent(id, [thread(T1, { repo: 'web' }), thread(T2, { repo: 'nowhere' })]);
+    const run = vi.fn<CommandRunner>(async () => ({
+      code: 0,
+      stdout: JSON.stringify({ data: { node: { isResolved: true } } }),
+      stderr: '',
+    }));
+    const folders: Record<string, string> = { web: '/wt/shop/web' };
+    const ci = { checkedAt: 'x', repos: [] } as unknown as SessionCi;
+    expect(await retireResolvedReplies(id, ci, (repo) => folders[repo] ?? null, run)).toEqual([T1]);
+    expect(run.mock.calls.map((c) => c[2])).toEqual(['/wt/shop/web']);
+  });
+
+  it("postDrafts posts each draft from its repo's folder", async () => {
+    const s = { ...session, branch: 'feat/x' } as WorktreeSession;
+    const id = sessionIdFor(s);
+    rememberSent(id, [thread(T1, { repo: 'web' })]);
+    saveDraft(id, T1, 'Done');
+    const cwds: string[] = [];
+    const run: CommandRunner = async (_cmd, args, cwd) => {
+      cwds.push(cwd);
+      return isThreadRead(args) ? threadNow() : { code: 0, stdout: '{}', stderr: '' };
+    };
+    await postDrafts(s, listReplies(id), false, run);
+    expect(new Set(cwds)).toEqual(new Set(['/wt/shop/web']));
   });
 });
 

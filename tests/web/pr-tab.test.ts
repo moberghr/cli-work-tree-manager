@@ -78,6 +78,23 @@ describe('prSections', () => {
     expect(prSections(noViewer, [])[0].mine).toBe(false);
   });
 
+  it("each repo's PR is yours by who you are on its own server: a GitHub Enterprise login isn't github.com's (#63 final H3)", () => {
+    const mixed = {
+      checkedAt: '',
+      viewer: 'sam', // the session's one (github.com's): what an older server sent
+      repos: [
+        { name: 'frontend', done: false, viewer: 'sam', pr: { ...shipPr(1), author: 'sam' } },
+        { name: 'backend', done: false, viewer: 'sam-corp', pr: { ...shipPr(2, { url: 'https://ghe/2' }), author: 'sam-corp' } },
+        { name: 'docs', done: false, pr: { ...shipPr(3, { url: 'https://gh/3' }), author: 'sam' } },
+      ],
+    } as unknown as SessionCi;
+    expect(prSections(mixed, []).map((s) => [s.repo, s.mine])).toEqual([
+      ['frontend', true],
+      ['backend', true],
+      ['docs', true], // no viewer of its own: the session's
+    ]);
+  });
+
   it('who opened it: from the PR watch, else from the PR list; unknown is null', () => {
     const withAuthors = {
       ...ci,

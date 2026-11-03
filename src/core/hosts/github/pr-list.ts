@@ -3,6 +3,7 @@ import { explainNotOnPath, programPath } from '../../platform/program-path.js';
 import { originUrl, ownerRepo, readGitConfig } from '../../worktree/repo-scan.js';
 import type { PullRequestInfo } from '../../pr/pr-types.js';
 import { defaultRunner, type CommandRunner } from '../../platform/command-runner.js';
+import { githubServerArgs } from './server.js';
 
 /**
  * GitHub's PR list: one GraphQL search for every repo on github.com (your
@@ -236,9 +237,9 @@ async function fetchPullRequests(
  * Runs all repo fetches in parallel.
  * Returns a map from branch name → array of PRs across repos.
  */
-async function getCurrentUser(exec: ListExec): Promise<string> {
+async function getCurrentUser(exec: ListExec, cwd: string, server: string[]): Promise<string> {
   try {
-    const stdout = await exec('gh', ['api', 'user', '--jq', '.login'], process.cwd(), 5000);
+    const stdout = await exec('gh', ['api', 'user', '--jq', '.login', ...server], cwd, 5000);
     return stdout.trim();
   } catch {
     return '';
@@ -268,7 +269,17 @@ export function defaultPrListDeps(run: CommandRunner = defaultRunner): PrListDep
           if (r.code !== 0) throw new Error(r.stderr || `${cmd} failed`);
           return r.stdout;
         };
-  let user: Promise<string> | null = null;
+  // Who you are on each server (`gh api` asks github.com unless told): a GitHub Enterprise repo's list is matched
+  // against your login there. A repo whose server isn't known has no "mine".
+  const users = new Map<string, Promise<string>>();
+  const userFor = async (repoPath: string): Promise<string> => {
+    const server = await githubServerArgs(run, repoPath);
+    if (!server.ok) return '';
+    const key = server.args.join(' ');
+    let p = users.get(key);
+    if (!p) users.set(key, (p = getCurrentUser(exec, repoPath, server.args)));
+    return p;
+  };
   return {
     search: async () => {
       try {
@@ -282,7 +293,7 @@ export function defaultPrListDeps(run: CommandRunner = defaultRunner): PrListDep
         return null;
       }
     },
-    listRepo: async (repoPath, alias) => fetchPullRequests(exec, repoPath, alias, await (user ??= getCurrentUser(exec))),
+    listRepo: async (repoPath, alias) => fetchPullRequests(exec, repoPath, alias, await userFor(repoPath)),
     gitConfig: readGitConfig,
   };
 }

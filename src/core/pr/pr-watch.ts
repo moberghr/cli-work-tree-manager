@@ -512,12 +512,22 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           const was = states.get(id)?.repos.find((p) => p.name === r.name);
           if (was?.pr?.number === r.pr.number && was.openThreads !== undefined) threads.set(r.name, was.openThreads);
           if (was?.pr?.number === r.pr.number && was.threads) threadList.set(r.name, was.threads);
+          // Who you are is unknown too (GitHub's read answers nothing without a viewer): its threads stay held.
+          if (act && deliverReviews && unsure.has(r.name))
+            note(
+              `couldn't read the review threads on #${r.pr.number}, and who you are on ${unknownOn([r.name])} is unknown: nothing of it is handed to its Claude until it can tell the PR is yours`,
+              'warn',
+            );
           continue;
         }
         // Who you are wasn't known on its host: the review read's own viewer says it, or it stays held.
         let held = false;
         if (unsure.has(r.name) && r.pr.author) {
+          // The read is made on the repo's own server (the host's adapter asks that one), so its viewer is
+          // who you are there. GitHub's read answers nothing without one (the `!fb` path above); an empty
+          // viewer is another host's way of saying it can't tell.
           const me = fb.viewer.trim();
+          if (me) viewers.set(r.name, me);
           if (me && me.toLowerCase() === r.pr.author.toLowerCase()) unsure.delete(r.name);
           else if (me) {
             unsure.delete(r.name);
@@ -552,6 +562,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       repos: pre.repos.map((r) => ({
         name: r.name,
         ...(r.host ? { host: r.host } : {}),
+        ...(viewers.get(r.name) ? { viewer: viewers.get(r.name)! } : {}),
         pr: r.pr,
         done: r.done,
         ...(threads.has(r.name) ? { openThreads: threads.get(r.name)! } : {}),

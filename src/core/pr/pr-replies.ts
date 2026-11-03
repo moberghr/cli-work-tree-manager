@@ -244,21 +244,39 @@ export async function postReply(
 }
 
 /**
+ * The folder a reply to a thread on `repo` is posted from: that repo's, since its host's server is asked from
+ * there (a GitHub Enterprise repo's thread isn't github.com's); else the session's first folder.
+ */
+export function replyFolder(
+  session: Pick<WorktreeSession, 'target' | 'paths'> & Partial<Pick<WorktreeSession, 'isGroup' | 'repos'>>,
+  repo: string | undefined,
+): string {
+  let own: string | undefined;
+  try {
+    const s = { ...session, isGroup: session.isGroup ?? false };
+    own = repo ? sessionRepos(s, loadConfig()).find((r) => r.alias === repo)?.path : undefined;
+  } catch {
+    own = undefined; // an unreadable config: the first folder, as before
+  }
+  return own ?? session.paths.find((p) => p) ?? process.cwd();
+}
+
+/**
  * Post saved drafts as they stand (your edits in the dashboard included):
  * `work pr post`, which a session's Claude runs once you've said yes to
  * them in the conversation. One at a time, each re-checked by postReply.
  */
 export async function postDrafts(
-  session: { target: string; branch: string; paths: string[] },
+  session: Pick<WorktreeSession, 'target' | 'branch' | 'paths'> & Partial<Pick<WorktreeSession, 'isGroup' | 'repos'>>,
   drafts: PrReply[],
   resolve: boolean,
   run: CommandRunner,
 ): Promise<{ posted: Array<PrReply & { url: string; resolved: boolean }>; failed: Array<{ threadId: string; error: string }> }> {
   const id = sessionIdFor(session);
-  const cwd = session.paths.find((p) => p) ?? process.cwd();
   const posted: Array<PrReply & { url: string; resolved: boolean }> = [];
   const failed: Array<{ threadId: string; error: string }> = [];
   for (const d of drafts) {
+    const cwd = replyFolder(session, d.repo);
     const r = await postReply(id, d.threadId, d.draft ?? '', { resolve, cwd, run });
     if (r.ok) posted.push({ ...d, url: r.url, resolved: r.resolved });
     else failed.push({ threadId: d.threadId, error: r.error });
@@ -428,15 +446,23 @@ const RETIRE_PER_CHECK = 10;
  * too, so only GitHub's own "resolved" retires one. Returns the thread ids
  * that went.
  */
-export async function retireResolvedReplies(sessionId: string, ci: SessionCi, cwd: string | null, run: CommandRunner): Promise<string[]> {
-  if (!cwd) return [];
+export async function retireResolvedReplies(
+  sessionId: string,
+  ci: SessionCi,
+  cwd: string | null | ((repo: string) => string | null),
+  run: CommandRunner,
+): Promise<string[]> {
+  // Asked from the reply's own repo when the caller can say (its host's server is that repo's).
+  const folderOf = typeof cwd === 'function' ? cwd : () => cwd;
   const open = new Set(ci.repos.flatMap((r) => (r.threads ?? []).map((t) => t.threadId)));
   const suspects = listReplies(sessionId)
     .filter((r) => r.status !== 'posted' && !open.has(r.threadId))
     .slice(0, RETIRE_PER_CHECK);
   const gone: string[] = [];
   for (const r of suspects) {
-    if ((await threadHost(r.threadId).threads.isResolved(run, cwd, r.threadId)) !== true) continue;
+    const folder = folderOf(r.repo);
+    if (!folder) continue;
+    if ((await threadHost(r.threadId).threads.isResolved(run, folder, r.threadId)) !== true) continue;
     if (discardReply(sessionId, r.threadId)) gone.push(r.threadId);
   }
   return gone;

@@ -72,6 +72,7 @@ export function isSessionCi(v: unknown): v is SessionCi {
           PR_STATES.has(r.pr.state) &&
           typeof r.pr.headSha === 'string')) &&
       (r.openThreads === undefined || typeof r.openThreads === 'number') &&
+      (r.viewer === undefined || typeof r.viewer === 'string') &&
       (r.threads === undefined || (Array.isArray(r.threads) && r.threads.every(isOpenThread))),
   );
 }

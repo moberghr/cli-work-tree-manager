@@ -471,6 +471,79 @@ describe('the PR watch, its stage and its notes', () => {
     fake.state.feedback = null;
   }, 60_000);
 
+  it("GitHub's shape: with who you are unknown the review read answers nothing either — held, and said so (#63 final T1/H4)", async () => {
+    other.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null;
+    fake.state.feedback = null; // GitHub's read is null without a viewer, never an empty one
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], author: 'me' }));
+    const told: string[] = [];
+    const activity = createActivityLog();
+    const w = watch(told, { activity });
+    await w.tick();
+    expect(told).toEqual([]);
+    expect(notesOf(activity)).toEqual(
+      expect.arrayContaining([
+        {
+          level: 'warn',
+          text: expect.stringContaining(
+            "couldn't read the review threads on #7, and who you are on Fakehub is unknown: nothing of it is handed to its Claude",
+          ),
+        },
+        { level: 'warn', text: expect.stringContaining('checks fail on #7, but who you are on Fakehub is unknown') },
+      ]),
+    );
+    expect(w.state('shop1')?.repos.find((r) => r.name === 'api')?.viewer).toBeUndefined();
+    fake.state.viewer = 'me';
+  }, 60_000);
+
+  it('with review comments off, or a PR not open, no review read settles it: CI and conflicts stay held (#63 final T1)', async () => {
+    other.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null;
+    fake.state.feedback = oneThread('me'); // would settle it, were it read
+    fake.state.prs.set(
+      'feat/refunds',
+      openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], mergeStateStatus: 'DIRTY', author: 'me' }),
+    );
+    const told: string[] = [];
+    const activity = createActivityLog();
+    await watch(told, { activity, options: () => ({ autoArchive: false, fixCi: true, reviewComments: false }) }).tick();
+    expect(told).toEqual([]);
+    expect(notesOf(activity).map((n) => n.text)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('checks fail on #7, but who you are on Fakehub is unknown'),
+        expect.stringContaining('merge conflict on #7, but who you are on Fakehub is unknown'),
+      ]),
+    );
+    // A closed PR isn't read for review threads: its viewer stays unknown, nothing goes out.
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { state: 'CLOSED', author: 'me' }));
+    const w = watch(told);
+    await w.refresh('shop1');
+    expect(told).toEqual([]);
+    expect(w.state('shop1')?.repos.find((r) => r.name === 'api')?.viewer).toBeUndefined();
+    fake.state.viewer = 'me';
+    fake.state.feedback = null;
+    fake.state.prs.set('feat/refunds', openPr(7, api.head));
+  }, 60_000);
+
+  it("each repo's check carries who you are on its own host and server; one settled by the review read is written too (#63 final H3)", async () => {
+    other.state.feedback = null;
+    other.state.viewer = 'me-on-other';
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null;
+    fake.state.feedback = oneThread('me', 'c11');
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { author: 'me' }));
+    const w = watch([]);
+    const ci = (await w.refresh('shop1')) as SessionCi;
+    expect(ci.repos.map((r) => [r.name, r.viewer])).toEqual([
+      ['api', 'me'],
+      ['web', 'me-on-other'],
+    ]);
+    fake.state.viewer = 'me';
+    fake.state.feedback = null;
+  }, 60_000);
+
   it("a conflict on a PR whose owner can't be told is held, and said so (#63 N002, N003)", async () => {
     other.state.feedback = null;
     fake.state.feedback = null;

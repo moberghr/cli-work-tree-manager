@@ -1,11 +1,13 @@
 import { json } from '../../platform/db.js';
 import type { CommandRunner } from '../../platform/command-runner.js';
 import type { HostResult, LiveThread, ThreadNow } from '../types.js';
+import { ghApi } from './server.js';
 
 /**
  * GitHub's review threads through `gh api graphql` (-f: raw strings, never
  * @file or number parsing; argv only). Thread ids are GitHub's global node
- * ids (`PRRT_…`), so any of the session's folders works as the cwd. Moved
+ * ids (`PRRT_…`) on the server of the repo in the cwd (`ghApi`), so any of
+ * the session's repos on that server works as the cwd. Moved
  * from core/pr/pr-replies.ts; the queries and their reading are unchanged.
  */
 
@@ -32,8 +34,9 @@ const THREAD_LIVE = `query($threadId: ID!) {
 }`;
 const THREAD_RESOLVED = `query($threadId: ID!) { node(id: $threadId) { ... on PullRequestReviewThread { isResolved } } }`;
 
+/** On the server of the repo at `cwd` (`ghApi`): a thread id is that server's, and so is who you are. */
 const graphql = (run: CommandRunner, cwd: string, query: string, vars: Record<string, string>) =>
-  run('gh', ['api', 'graphql', '-f', `query=${query}`, ...Object.entries(vars).flatMap(([k, v]) => ['-f', `${k}=${v}`])], cwd);
+  ghApi(run, cwd, ['graphql', '-f', `query=${query}`, ...Object.entries(vars).flatMap(([k, v]) => ['-f', `${k}=${v}`])]);
 
 export async function githubThreadNow(run: CommandRunner, cwd: string, id: string): Promise<HostResult<{ thread: ThreadNow }>> {
   const r = await graphql(run, cwd, THREAD_NOW, { threadId: id });

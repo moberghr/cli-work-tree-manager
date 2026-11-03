@@ -30,6 +30,8 @@ export interface Scanned {
   code: string;
   /** Every string literal, and every template literal's text between substitutions. */
   strings: Literal[];
+  /** `code` with every string's text (and JSX text) blanked too: what is code alone. */
+  bare: string;
 }
 
 const KEYWORDS_BEFORE_REGEX = new Set([
@@ -60,6 +62,8 @@ const STARTS_JSX = '(,=:[!&|?{};>';
 export function scan(text: string, opts: { jsx?: boolean } = {}): Scanned {
   const out = text.split('');
   const strings: Literal[] = [];
+  /** Where each string's text is (its offsets), for `bare`. */
+  const spans: Array<[number, number]> = [];
   const lineAt = (i: number) => text.slice(0, i).split('\n').length;
   const blank = (from: number, to: number) => {
     for (let k = from; k < to; k++) if (out[k] !== '\n' && out[k] !== '\r') out[k] = ' ';
@@ -94,6 +98,7 @@ export function scan(text: string, opts: { jsx?: boolean } = {}): Scanned {
         let j = i + 1;
         while (j < n && text[j] !== c && text[j] !== '\n') j += text[j] === '\\' ? 2 : 1;
         strings.push({ value: text.slice(i + 1, j), line: lineAt(i) });
+        spans.push([i + 1, j]);
         i = j + 1;
         prev = c;
         prevWord = '';
@@ -170,10 +175,12 @@ export function scan(text: string, opts: { jsx?: boolean } = {}): Scanned {
       }
       if (c === '`') {
         strings.push({ value: text.slice(chunk, j), line: lineAt(chunk) });
+        spans.push([chunk, j]);
         return j + 1;
       }
       if (c === '$' && text[j + 1] === '{') {
         strings.push({ value: text.slice(chunk, j), line: lineAt(chunk) });
+        spans.push([chunk, j]);
         j = code(j + 2, true) + 1;
         chunk = j;
         continue;
@@ -190,7 +197,8 @@ export function scan(text: string, opts: { jsx?: boolean } = {}): Scanned {
       const name = /^[A-Za-z][\w.:-]*/.exec(text.slice(j, j + 200));
       if (!name) return null;
       j += name[0].length;
-      if (!/[\s/>{]/.test(text[j] ?? '')) return null; // `<T,>` or `<T extends …`-like: not an element
+      if (!/[\s/>{]/.test(text[j] ?? '')) return null; // `<T,>`-like: not an element
+      if (/^\s+extends\b/.test(text.slice(j, j + 40))) return null; // `<T extends X>(…) =>`: a generic, not an element
       // Attributes: strings are strings, `{…}` is code; to `>` or `/>`.
       for (;;) {
         if (j >= n) return n;
@@ -211,6 +219,7 @@ export function scan(text: string, opts: { jsx?: boolean } = {}): Scanned {
           const end = text.indexOf(c, j + 1);
           const stop = end < 0 ? n : end;
           strings.push({ value: text.slice(j + 1, stop), line: lineAt(j) });
+          spans.push([j + 1, stop]);
           j = stop + 1;
           continue;
         }
@@ -225,6 +234,7 @@ export function scan(text: string, opts: { jsx?: boolean } = {}): Scanned {
     const flush = (to: number) => {
       const value = text.slice(run, to);
       if (value.trim()) strings.push({ value: value.trim(), line: lineAt(run + value.length - value.trimStart().length) });
+      spans.push([run, to]);
     };
     while (j < n) {
       const c = text[j];
@@ -252,7 +262,10 @@ export function scan(text: string, opts: { jsx?: boolean } = {}): Scanned {
   };
 
   code(0, false);
-  return { code: out.join(''), strings };
+  const codeText = out.join('');
+  const bare = out.slice();
+  for (const [from, to] of spans) for (let k = from; k < to; k++) if (bare[k] !== '\n' && bare[k] !== '\r') bare[k] = ' ';
+  return { code: codeText, strings, bare: bare.join('') };
 }
 
 /** A file's text as `scan` should read it: JSX in a .tsx file. */
@@ -283,6 +296,20 @@ export function importsOf(text: string, opts: { jsx?: boolean } = {}): { runtime
   }
   for (const m of code.matchAll(DYNAMIC_RE)) (m[1] || m[4] ? types : runtime).push(m[3]!);
   return { runtime, types };
+}
+
+const ANY_IMPORT_CALL = /(?<![\w$.])import\s*\(/g;
+const LITERAL_IMPORT_CALL = /^import\s*\(\s*(['"`])([^'"`$]+)\1\s*\)/;
+
+/**
+ * Every `import(…)` whose specifier isn't a literal (a variable, a template with `${…}`), by line: what it
+ * loads can't be followed, so a guard over what a module reaches can't vouch for it.
+ */
+export function computedImports(text: string, opts: { jsx?: boolean } = {}): number[] {
+  const { code, bare } = scan(text, opts);
+  const lines: number[] = [];
+  for (const m of bare.matchAll(ANY_IMPORT_CALL)) if (!LITERAL_IMPORT_CALL.test(code.slice(m.index))) lines.push(lineOf(text, m.index));
+  return lines;
 }
 
 /** A relative specifier from `file` (repo-relative) as the repo-relative `.ts`/`.tsx` file it names; null when none. */
