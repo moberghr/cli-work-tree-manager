@@ -12,12 +12,12 @@ jobs:
     # What a PR touches. The package and desktop jobs test what only a change
     # to packaging or to desktop/ can break, so a PR runs them only then; a
     # push to main runs them all, before anything is released from it.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       packaging: ${{ steps.diff.outputs.packaging }}
       desktop: ${{ steps.diff.outputs.desktop }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - id: diff
@@ -49,11 +49,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'push' && '[{"os":"ubuntu-latest","node":24,"checks":true},{"os":"windows-latest","node":24,"shard":"1/3"},{"os":"windows-latest","node":24,"shard":"2/3"},{"os":"windows-latest","node":24,"shard":"3/3"},{"os":"ubuntu-latest","node":22}]' || '[{"os":"ubuntu-latest","node":24,"checks":true},{"os":"windows-latest","node":24,"shard":"1/3"},{"os":"windows-latest","node":24,"shard":"2/3"},{"os":"windows-latest","node":24,"shard":"3/3"}]') }}
+        include: ${{ fromJSON(github.event_name == 'push' && '[{"os":"ubuntu-26.04","node":24,"checks":true},{"os":"windows-latest","node":24,"shard":"1/3"},{"os":"windows-latest","node":24,"shard":"2/3"},{"os":"windows-latest","node":24,"shard":"3/3"},{"os":"ubuntu-26.04","node":22}]' || '[{"os":"ubuntu-26.04","node":24,"checks":true},{"os":"windows-latest","node":24,"shard":"1/3"},{"os":"windows-latest","node":24,"shard":"2/3"},{"os":"windows-latest","node":24,"shard":"3/3"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -76,7 +76,7 @@ jobs:
       # The checks leg measures coverage (a report, no threshold yet) and keeps the lcov.
       - run: npm run test:coverage
         if: ${{ matrix.checks }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ matrix.checks }}
         with:
           name: coverage
@@ -90,10 +90,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-26.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -116,12 +116,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest","windows-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-26.04","macos-latest","windows-latest"]' || '["ubuntu-26.04","windows-latest"]') }}
         node: ${{ fromJSON(github.event_name == 'push' && '[22,24]' || '[24]') }}
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -151,17 +151,17 @@ jobs:
   e2e:
     # Real `work web` + PTY host + browser, each test in an isolated HOME
     # (see e2e/fixtures.ts); Claude is replaced by e2e/fake-ai.cjs.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
