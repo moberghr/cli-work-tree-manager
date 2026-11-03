@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { forkSession, type SessionSummary } from '../../api/client.js';
 import { onBranchChange } from '../../utils/branch-input.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 interface Props {
   session: SessionSummary;
@@ -58,13 +59,16 @@ export function ForkSessionModal({ session, sessions, onForked, onClose }: Props
     }
   }
 
+  const backdrop = useBackdropClose(close);
+
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={`Fork ${session.branch}`}
-      onClick={(e) => e.target === e.currentTarget && close()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => e.key === 'Escape' && close()}
     >
       <form className="wd-modal" onSubmit={submit}>

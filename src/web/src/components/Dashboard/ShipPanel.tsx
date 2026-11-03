@@ -9,6 +9,7 @@ import {
   type ShipPreflight,
   type ShipResult,
 } from '../../api/client.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 interface Props {
   session: SessionSummary;
@@ -160,13 +161,10 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
   const disabled = busy !== null || loading;
   const multi = (pre?.repos.length ?? 0) > 1;
 
+  const backdrop = useBackdropClose(() => !busy && onClose());
+
   return (
-    <div
-      className="wd-modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose();
-      }}
-    >
+    <div className="wd-modal-backdrop" onMouseDown={backdrop.onMouseDown} onClick={backdrop.onClick}>
       <div className="wd-modal wd-ship-panel" role="dialog" aria-label="Ship session" aria-busy={loading || busy !== null}>
         <div className="wd-modal-header">
           <h2>

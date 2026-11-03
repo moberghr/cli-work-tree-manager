@@ -11,6 +11,7 @@ import {
   statusText,
   type MonthPostResult,
 } from '../../../state/time-month.js';
+import { useBackdropClose } from '../../../hooks/use-backdrop-close.js';
 
 /**
  * The Time tab's Month view: the month up to today as tickets × days, and
@@ -35,6 +36,7 @@ export function TimeMonth({
   const [summary, setSummary] = useState<string | null>(null);
   // A cell being typed in: its day and ticket, the text so far; `saving` while its day is being saved.
   const [editing, setEditing] = useState<{ day: string; key: string; text: string; saving?: boolean } | null>(null);
+  const backdrop = useBackdropClose(() => setConfirming(false));
   const stop = useRef(false);
   // The month on screen: an answer for another one (a slow fetch from before ‹ ›) isn't shown.
   const monthRef = useRef(month);
@@ -343,7 +345,8 @@ export function TimeMonth({
           role="dialog"
           aria-modal="true"
           aria-label="Post the month to Tempo"
-          onClick={(e) => e.target === e.currentTarget && setConfirming(false)}
+          onMouseDown={backdrop.onMouseDown}
+          onClick={backdrop.onClick}
           onKeyDown={(e) => e.key === 'Escape' && setConfirming(false)}
         >
           <div className="wd-modal">

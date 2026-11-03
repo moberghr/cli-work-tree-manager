@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_SNOOZE_MS, parseWhen } from '../../../../core/rail/snooze.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 /** What the typed time means, in words ("Fri 3 Oct, 14:00"), or why it isn't one. */
 export function whenPreview(text: string, now = new Date()): { at: Date | null; text: string } {
@@ -36,13 +37,16 @@ export function SnoozeUntilDialog({
   const pick = () => {
     if (preview.at) onPick(preview.at.toISOString());
   };
+  const backdrop = useBackdropClose(onClose);
+
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label="Snooze until"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
     >
       <form
         className="wd-modal wd-snooze-until"
