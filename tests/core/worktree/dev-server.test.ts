@@ -170,4 +170,21 @@ describe('startDev / stopDev', () => {
     expect((await devState('s1', s, config)).running).toBeNull();
     expect(stopDev('s1')).toBe(false);
   }, 40_000);
+
+  // A branch's own `probex.bat` (echo-only, a marker each): a bare `probex` in the dev command is PATH's — not
+  // found — while the branch's script named by its path runs, as intended.
+  it.runIf(process.platform === 'win32')(
+    "a bare name in the command never runs the worktree's file; one by its path does (Windows)",
+    async () => {
+      const s = session({ port: await freePort() });
+      fs.writeFileSync(path.join(home, 'probex.bat'), `@echo CWD> "${path.join(home, 'bare.txt')}"\r\n`);
+      fs.writeFileSync(path.join(home, 'mine.bat'), `@echo MINE> "${path.join(home, 'by-path.txt')}"\r\n`);
+      const config = { repos: {}, groups: {}, devCommands: { web: 'probex & .\\mine.bat' } };
+      expect(startDev('s2', s, config)).toMatchObject({ ok: true });
+      await expect.poll(() => fs.existsSync(path.join(home, 'by-path.txt')), { timeout: 15_000 }).toBe(true);
+      expect(fs.existsSync(path.join(home, 'bare.txt'))).toBe(false);
+      stopDev('s2');
+    },
+    30_000,
+  );
 });

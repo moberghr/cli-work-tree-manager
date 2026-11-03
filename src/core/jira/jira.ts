@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { programPath } from '../platform/program-path.js';
+import { explainNotOnPath, programPath } from '../platform/program-path.js';
 
 export interface JiraIssue {
   key: string;
@@ -19,7 +19,7 @@ function execAsync(cmd: string, args: string[], timeout: number): Promise<string
     // Without it, opening the Jira pane in `work web` triggers a
     // visible terminal popup.
     execFile(programPath(cmd), args, { encoding: 'utf-8', timeout, windowsHide: true }, (err, stdout) => {
-      if (err) reject(err);
+      if (err) reject(explainNotOnPath(err));
       else resolve(stdout ?? '');
     });
   });

@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import spawn from '../core/platform/spawn.js';
+import { shellEnv } from '../core/platform/shell-env.js';
 import type { CommandModule } from 'yargs';
 import { loadHistory } from '../core/sessions/history.js';
 import { selectSessions, expandRunUnits, anyFailed, type RunResult, type RunUnit } from '../core/sessions/fleet.js';
@@ -7,12 +8,18 @@ import { selectSessions, expandRunUnits, anyFailed, type RunResult, type RunUnit
 /** Build the shell invocation for the current platform. `sh -c <cmd>` on
  *  POSIX, `cmd.exe /c <cmd>` on Windows. We pass cross-spawn an argv array
  *  with shell:false — the user's command string is the intentional payload,
- *  but we never interpolate paths/branches into a shell string ourselves. */
-function shellInvocation(cmd: string): { bin: string; args: string[] } {
-  if (process.platform === 'win32') {
-    return { bin: 'cmd.exe', args: ['/c', cmd] };
+ *  but we never interpolate paths/branches into a shell string ourselves.
+ *  The environment keeps cmd.exe from taking the command's program from the
+ *  worktree (shell-env.ts): a branch's own script runs by its path. */
+export function shellInvocation(
+  cmd: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): { bin: string; args: string[]; env: NodeJS.ProcessEnv } {
+  if (platform === 'win32') {
+    return { bin: 'cmd.exe', args: ['/c', cmd], env: shellEnv(env, platform) };
   }
-  return { bin: 'sh', args: ['-c', cmd] };
+  return { bin: 'sh', args: ['-c', cmd], env };
 }
 
 /** Live children so a SIGINT (Ctrl-C) can tear the whole fleet down instead
@@ -36,12 +43,13 @@ function killAllChildren(signal: NodeJS.Signals = 'SIGTERM'): void {
  * `stdio: 'inherit'` for a transparent, unprefixed passthrough.
  */
 function runInPath(unit: RunUnit, cmd: string, prefix?: string): Promise<RunResult> {
-  const { bin, args } = shellInvocation(cmd);
+  const { bin, args, env } = shellInvocation(cmd);
   return new Promise((resolve) => {
     const child = spawn(bin, args, {
       cwd: unit.path,
       stdio: prefix ? ['ignore', 'pipe', 'pipe'] : 'inherit',
       shell: false,
+      env,
       // Piped (prefixed) output is ours to show: no window of its own. Inherited, it is this terminal's.
       windowsHide: Boolean(prefix),
     });

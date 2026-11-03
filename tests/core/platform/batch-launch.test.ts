@@ -239,3 +239,102 @@ describe.runIf(process.platform === 'win32')('the runner never starts a program 
     expect(fs.existsSync(path.join(repo, 'marker.txt'))).toBe(false);
   });
 });
+
+// Batch-ness is judged on the file that really starts. A Node shim's `node` can itself be a batch file (a version
+// manager's node.cmd first on PATH), and an extension-less path (`C:\npm\claude`, `where`'s first line) starts the
+// .cmd beside it.
+describe('batch-ness of the file that really starts', () => {
+  const script = 'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js';
+  const io = (found: Record<string, string>, execPath: string, existing: string[] = [script]) => ({
+    platform: 'win32' as const,
+    env: { PATH: 'C:\\vm;C:\\npm' },
+    find: (c: string) => found[c] ?? null,
+    read: () => NPM_SHIM,
+    exists: (f: string) => existing.includes(f),
+    execPath,
+  });
+
+  it("a shim whose node on PATH is a batch file runs on work's own node.exe instead — the prompt stays argv", () => {
+    const args = ['--continue', 'x"&echo INJECTED&"'];
+    const found = { claude: 'C:\\npm\\claude.cmd', node: 'C:\\vm\\node.cmd' };
+    expect(launchFor('claude', args, io(found, 'C:\\Program Files\\nodejs\\node.exe'))).toEqual({
+      cmd: 'C:\\Program Files\\nodejs\\node.exe',
+      args: [script, ...args],
+    });
+    // A real node.exe on PATH is the one the shim would run: kept.
+    expect(programFor('claude', io({ ...found, node: 'C:\\node\\node.exe' }, 'C:\\other\\node.exe'))?.file).toBe('C:\\node\\node.exe');
+  });
+
+  it('with no real node to run it on, the shim is the batch file it is: unsafe arguments refused', () => {
+    const found = { claude: 'C:\\npm\\claude.cmd', node: 'C:\\vm\\node.bat' };
+    expect(programFor('claude', io(found, 'C:\\vm\\node.cmd'))).toEqual({ file: 'C:\\npm\\claude.cmd', pre: [], batch: true });
+    expect(launchFor('claude', ['x"&echo INJECTED&"'], io(found, '/usr/bin/node'))).toEqual({
+      refused: `claude: refused: an argument has """, which a Windows batch file can't be given safely`,
+    });
+  });
+
+  it('a path is looked up as the file it starts, and judged on that', () => {
+    const seen: (string | undefined)[] = [];
+    const r = programFor('C:\\npm\\claude', {
+      env: {},
+      find: (c, _e, _p, cwd) => {
+        seen.push(cwd);
+        return c === 'C:\\npm\\claude' ? 'C:\\npm\\claude.cmd' : null;
+      },
+      read: () => '@echo %*',
+      cwd: 'C:\\work',
+    });
+    expect(r).toEqual({ file: 'C:\\npm\\claude.cmd', pre: [], batch: true });
+    expect(seen).toEqual(['C:\\work']);
+  });
+});
+
+// The reviewer's probes, for real (Windows, echo-only files): each printed INJECTED before the fix.
+describe.runIf(process.platform === 'win32')('the injections that went through, now refused or harmless (Windows)', () => {
+  let root: string;
+  let vm: string;
+  let npm: string;
+  let ext: string;
+  const prompt = 'PAY-1 x"&echo INJECTED&"';
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-class-'));
+    vm = path.join(root, 'vm');
+    npm = path.join(root, 'npm');
+    ext = path.join(root, 'ext');
+    fs.mkdirSync(path.join(npm, 'node_modules', 'fake'), { recursive: true });
+    fs.mkdirSync(vm);
+    fs.mkdirSync(ext);
+    // A version manager's node.cmd that would echo whatever cmd.exe makes of its arguments.
+    fs.writeFileSync(path.join(vm, 'node.cmd'), '@echo NODECMD %*\r\n');
+    fs.writeFileSync(path.join(npm, 'node_modules', 'fake', 'cli.js'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)));\n');
+    fs.writeFileSync(path.join(npm, 'fakeagent.cmd'), NPM_SHIM.replace('@anthropic-ai\\claude-code', 'fake'));
+    // npm writes an extension-less sh script beside each .cmd; `where` prints it first.
+    fs.writeFileSync(path.join(ext, 'agent'), '#!/bin/sh\n');
+    fs.writeFileSync(path.join(ext, 'agent.cmd'), '@echo ARGS:%*\r\n');
+  });
+  afterAll(() => {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  });
+
+  it("npm's shim with a node.cmd first on PATH: started on a real node, the prompt one argument", async () => {
+    const env = { ...process.env, PATH: `${vm};${npm};${process.env.PATH ?? ''}` };
+    const launch = launchFor('fakeagent', [prompt], { env });
+    expect(launch).toEqual({ cmd: process.execPath, args: [path.join(npm, 'node_modules', 'fake', 'cli.js'), prompt] });
+    const { default: spawn } = await import('../../../src/core/platform/spawn.js');
+    if ('refused' in launch) throw new Error(launch.refused);
+    const r = spawn.sync(launch.cmd, launch.args, { env, encoding: 'utf8', windowsHide: true });
+    expect(JSON.parse(String(r.stdout))).toEqual([prompt]);
+    expect(String(r.stdout)).not.toContain('NODECMD');
+  });
+
+  it('an extension-less path to a .cmd: refused such a prompt, given a plain one', async () => {
+    expect(launchFor(path.join(ext, 'agent'), [prompt])).toEqual({
+      refused: `${path.join(ext, 'agent')}: refused: an argument has """, which a Windows batch file can't be given safely`,
+    });
+    const plain = launchFor(path.join(ext, 'agent'), ['fix', 'it']);
+    expect(plain).toEqual({ cmd: path.join(ext, 'agent.cmd'), args: ['fix', 'it'] });
+    const { default: spawn } = await import('../../../src/core/platform/spawn.js');
+    if ('refused' in plain) throw new Error(plain.refused);
+    expect(String(spawn.sync(plain.cmd, plain.args, { encoding: 'utf8', windowsHide: true }).stdout).trim()).toBe('ARGS:"fix" "it"');
+  });
+});

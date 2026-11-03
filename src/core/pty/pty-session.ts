@@ -89,15 +89,21 @@ type CrossSpawnParse = (
 ) => { command: string; args: string[]; file?: string; options: { windowsVerbatimArguments?: boolean } };
 
 /** Whether `cmd` starts as a batch file on Windows — cmd.exe would parse its arguments (a Node or Python shim doesn't: it's skipped). */
-export function startsAsBatch(cmd: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
-  return platform === 'win32' && programFor(cmd, { env })?.batch === true;
+export function startsAsBatch(
+  cmd: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  cwd?: string,
+): boolean {
+  return platform === 'win32' && programFor(cmd, { env, cwd })?.batch === true;
 }
 
 /**
  * Turn `cmd args` into what node-pty should spawn, safely.
  *
  * Windows: the program is the absolute file PATH gives it, never one in the working folder (`programFor`,
- * batch-launch.ts: a worktree's own `claude.cmd` doesn't run); a missing one throws. A real .exe is spawned
+ * batch-launch.ts: a worktree's own `claude.cmd` doesn't run); a missing one throws. A path is the file Windows
+ * would start for it (`C:\npm\claude` is `claude.cmd` beside it: that is what's started, and judged). A real .exe is spawned
  * directly with normal argv quoting. A batch file that starts a Node script — npm's `claude.cmd` — or a Python
  * module is skipped: its interpreter is spawned on the script, the arguments as argv, no cmd.exe. Any other batch
  * file goes through `cmd.exe /d /s /c "…"` (cross-spawn's escaping, a verbatim command line), and only with
@@ -111,8 +117,8 @@ export function resolvePtyCommand(
   opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
 ): { file: string; args: string[] | string } {
   if (process.platform !== 'win32') return { file: cmd, args };
-  const program = programFor(cmd, { env: opts.env ?? process.env });
-  if (!program) throw new Error(`${cmd} isn't on PATH`);
+  const program = programFor(cmd, { env: opts.env ?? process.env, cwd: opts.cwd });
+  if (!program) throw new Error(`${cmd} not found on PATH`);
   if (!program.batch) return { file: program.file, args: [...program.pre, ...args] };
   const why = batchArgProblem(args);
   if (why) throw new Error(`${cmd}: ${why}`);
@@ -128,6 +134,48 @@ export function resolvePtyCommand(
 export const PROMPT_SETTLE_MS = 800;
 /** The longest a prompt waits for that quiet before it is typed anyway. */
 export const PROMPT_WAIT_MS = 20_000;
+
+/** What `typeWhenSettled` watches: a terminal's output and its end (node-pty's `IPty`, or a stand-in in tests). */
+export interface SettleTarget {
+  onData(listener: (data: string) => void): { dispose(): void };
+  onExit(listener: () => void): unknown;
+}
+
+/**
+ * Type `text` into the agent's prompt once it is up: after its first output and `settleMs` of quiet (at most
+ * `waitMs` in all), through `submit` (the agent's own, agents/: the whole text, line breaks and all, then Enter).
+ * Once only; never after the terminal ended. For a prompt that can't go on its command line (a batch-file agent).
+ */
+export function typeWhenSettled(
+  target: SettleTarget,
+  text: string,
+  opts: { exited: () => boolean; submit: (text: string) => Promise<unknown>; settleMs?: number; waitMs?: number },
+): void {
+  let quiet: ReturnType<typeof setTimeout> | undefined;
+  let typed = false;
+  const stop = () => {
+    typed = true;
+    clearTimeout(quiet);
+    clearTimeout(cap);
+    sub.dispose();
+  };
+  const type = () => {
+    if (typed) return;
+    stop();
+    if (opts.exited()) return;
+    opts.submit(text).catch((err: unknown) => debug('PtySession: typing the first prompt failed', (err as Error).message));
+  };
+  const cap = setTimeout(type, opts.waitMs ?? PROMPT_WAIT_MS);
+  cap.unref?.();
+  const sub = target.onData(() => {
+    if (typed) return;
+    clearTimeout(quiet);
+    quiet = setTimeout(type, opts.settleMs ?? PROMPT_SETTLE_MS);
+  });
+  target.onExit(() => {
+    if (!typed) stop();
+  });
+}
 
 /** Config `useBundledConpty`, read at each start (off when config can't be read). */
 function readUseBundledConpty(): boolean {
@@ -189,7 +237,11 @@ export class PtySession {
       ({ cmd: rawCmd, args: rawArgs } = buildAiLaunchArgs(aiOptions.tool, { ...launchOpts, initialPrompt: aiOptions.initialPrompt }));
       // A batch-file agent (not a Node or Python shim) on Windows: cmd.exe would parse the prompt — its `&` runs,
       // a line break cuts it. Never on its command line: typed in once it's up, as any note to a session is.
-      if (aiOptions.initialPrompt && batchArgProblem([aiOptions.initialPrompt]) && startsAsBatch(aiOptions.tool.cmd, aiOptions.env)) {
+      if (
+        aiOptions.initialPrompt &&
+        batchArgProblem([aiOptions.initialPrompt]) &&
+        startsAsBatch(aiOptions.tool.cmd, aiOptions.env, process.platform, cwd)
+      ) {
         ({ cmd: rawCmd, args: rawArgs } = buildAiLaunchArgs(aiOptions.tool, launchOpts));
         typeLater = aiOptions.initialPrompt;
       }
@@ -238,7 +290,17 @@ export class PtySession {
       }
     });
 
-    if (typeLater !== undefined) this.typeWhenSettled(typeLater, aiOptions?.tool.cmd ?? 'claude');
+    if (typeLater !== undefined) {
+      const agent = agentById(aiOptions?.tool.cmd ?? 'claude');
+      typeWhenSettled(this.pty, typeLater, {
+        exited: () => this._exited,
+        submit: (text) =>
+          agent.input.submit((d) => {
+            this.write(d);
+            return Promise.resolve(!this._exited);
+          }, text),
+      });
+    }
 
     this.pty.onExit(({ exitCode }) => {
       if (!this._loggedOutput && this._outputBuffer) {
@@ -248,40 +310,6 @@ export class PtySession {
       debug('PtySession exited', { cwd, exitCode });
       this._exited = true;
       this.onExit?.(exitCode);
-    });
-  }
-
-  /**
-   * Type `text` into the agent's prompt once it is up: after its first output and `PROMPT_SETTLE_MS` of quiet (at
-   * most `PROMPT_WAIT_MS`), through the agent's own submit (agents/). For a prompt that can't go on its command line.
-   */
-  private typeWhenSettled(text: string, tool: string): void {
-    let quiet: ReturnType<typeof setTimeout> | undefined;
-    let typed = false;
-    const type = () => {
-      if (typed) return;
-      typed = true;
-      clearTimeout(quiet);
-      clearTimeout(cap);
-      sub.dispose();
-      if (this._exited) return;
-      void agentById(tool)
-        .input.submit((d) => {
-          this.write(d);
-          return Promise.resolve(!this._exited);
-        }, text)
-        .catch((err: unknown) => debug('PtySession: typing the first prompt failed', (err as Error).message));
-    };
-    const cap = setTimeout(type, PROMPT_WAIT_MS);
-    cap.unref?.();
-    const sub = this.pty.onData(() => {
-      clearTimeout(quiet);
-      quiet = setTimeout(type, PROMPT_SETTLE_MS);
-    });
-    this.pty.onExit(() => {
-      typed = true;
-      clearTimeout(quiet);
-      clearTimeout(cap);
     });
   }
 

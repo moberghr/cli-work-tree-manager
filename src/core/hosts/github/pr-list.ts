@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { programPath } from '../../platform/program-path.js';
+import { explainNotOnPath, programPath } from '../../platform/program-path.js';
 import { originUrl, ownerRepo, readGitConfig } from '../../worktree/repo-scan.js';
 import type { PullRequestInfo } from '../../pr/pr-types.js';
 import { defaultRunner, type CommandRunner } from '../../platform/command-runner.js';
@@ -21,7 +21,7 @@ function execAsync(cmd: string, args: string[], cwd: string, timeout: number): P
     // the PRs pane in `work web` triggers a visible terminal popup
     // for every configured repo's `gh pr list` invocation.
     execFile(programPath(cmd), args, { cwd, encoding: 'utf-8', timeout, windowsHide: true }, (err, stdout) => {
-      if (err) reject(err);
+      if (err) reject(explainNotOnPath(err));
       else resolve(stdout ?? '');
     });
   });

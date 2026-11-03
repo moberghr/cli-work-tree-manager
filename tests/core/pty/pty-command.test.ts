@@ -50,13 +50,26 @@ describe.runIf(win)('resolvePtyCommand with batch files on PATH and in the worki
   it('another batch file goes through cmd.exe, and only with arguments cmd.exe would leave alone', () => {
     const r = resolvePtyCommand('plainagent', ['--continue', 'fix it'], { env: env(), cwd });
     expect(path.basename(r.file).toLowerCase()).toBe('cmd.exe');
-    expect(r.args as string).toContain(path.join(bin, 'plainagent.cmd'));
+    // One verbatim command line: /d /s /c "<the file PATH gave> <each argument quoted, cmd's characters ^-escaped>".
+    const file = path.join(bin, 'plainagent.cmd');
+    expect(file).not.toMatch(/[()\][%!^"`<>&|;, *?]/); // a temp path cmd.exe has nothing to escape in
+    expect(r.args).toBe(`/d /s /c "${file} ^"--continue^" ^"fix^ it^""`);
     expect(startsAsBatch('plainagent', env())).toBe(true);
     expect(() => resolvePtyCommand('plainagent', [NASTY], { env: env(), cwd })).toThrow(/refused: an argument has/);
   });
 
   it("a program only the working folder has isn't started: it isn't on PATH", () => {
-    expect(() => resolvePtyCommand('cwdagent', [], { env: env(), cwd })).toThrow(/isn't on PATH/);
+    expect(() => resolvePtyCommand('cwdagent', [], { env: env(), cwd })).toThrow(/^cwdagent not found on PATH$/);
+  });
+
+  it('an extension-less path (npm writes `claude` beside `claude.cmd`) starts the .cmd: judged a batch file', () => {
+    fs.writeFileSync(path.join(bin, 'plainagent'), '#!/bin/sh\n');
+    const agent = path.join(bin, 'plainagent');
+    expect(startsAsBatch(agent, env())).toBe(true);
+    const r = resolvePtyCommand(agent, ['--continue'], { env: env(), cwd });
+    expect(path.basename(r.file).toLowerCase()).toBe('cmd.exe');
+    expect(r.args).toBe(`/d /s /c "${path.join(bin, 'plainagent.cmd')} ^"--continue^""`);
+    expect(() => resolvePtyCommand(agent, [NASTY], { env: env(), cwd })).toThrow(/refused: an argument has/);
   });
 });
 
@@ -139,30 +152,63 @@ describe.runIf(win)('the first prompt reaches a batch-file agent intact (Windows
     expect(JSON.parse(fs.readFileSync(marker, 'utf8'))).toEqual([NASTY]);
   }, 30_000);
 
-  it('another batch-file agent: the prompt is typed in once it is up, not given to cmd.exe', async () => {
-    const reader = path.join(bin, 'reader.cjs');
-    const typed = path.join(cwd, 'typed.txt');
+  it("npm's shim with a version manager's node.cmd first on PATH: work's node.exe runs the script, node.cmd never", async () => {
+    const vm = path.join(bin, 'vm');
+    fs.mkdirSync(vm);
+    fs.writeFileSync(path.join(vm, 'node.cmd'), `@echo NODECMD %* > "${path.join(cwd, 'nodecmd.txt')}"\r\n`);
+    const pkg = path.join(bin, 'node_modules', 'fake');
+    fs.mkdirSync(pkg, { recursive: true });
+    const marker = path.join(cwd, 'argv.json');
     fs.writeFileSync(
-      reader,
-      [
-        "process.stdout.write('agent ready\\r\\n');",
-        "let buf = '';",
-        "process.stdin.on('data', (d) => {",
-        '  buf += d;',
-        `  if (/[\\r\\n]/.test(buf)) { require('fs').writeFileSync(${JSON.stringify(typed)}, buf); process.exit(0); }`,
-        '});',
-      ].join('\n'),
+      path.join(pkg, 'cli.js'),
+      `require('fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.argv.slice(2))); setTimeout(() => {}, 500);`,
     );
-    // Not a Node shim (no %* after the script): cmd.exe runs it. It records its own arguments, then reads a line.
     fs.writeFileSync(
-      path.join(bin, 'batchagent.cmd'),
-      `@echo off\r\n>"%~dp0args.txt" echo ARGS:%*\r\n"${process.execPath}" "${reader}"\r\n`,
+      path.join(bin, 'fakeagent.cmd'),
+      '@ECHO off\r\nSETLOCAL\r\nSET "_prog=node"\r\nendLocal & "%_prog%"  "%~dp0\\node_modules\\fake\\cli.js" %*\r\n',
     );
-    const prompt = 'fix "it" & echo INJECTED | more %PATH%';
-    session = new PtySession(cwd, 120, 30, undefined, { tool: tool('batchagent'), initialPrompt: prompt, env: env() });
-    expect(await waitFor(() => fs.existsSync(typed), 25_000)).toBe(true);
-    expect(fs.readFileSync(typed, 'utf8')).toContain(prompt);
-    expect(fs.readFileSync(path.join(bin, 'args.txt'), 'utf8').trim()).toBe('ARGS:');
-    expect(session.screenText()).not.toMatch(/^\s*INJECTED\s*$/m);
-  }, 40_000);
+    const vmEnv = { ...env(), PATH: `${vm};${bin};${process.env.PATH ?? ''}` };
+    expect(resolvePtyCommand('fakeagent', [NASTY], { env: vmEnv, cwd }).file).toBe(process.execPath);
+    session = new PtySession(cwd, 120, 30, undefined, { tool: tool('fakeagent'), initialPrompt: NASTY, env: vmEnv });
+    expect(await waitFor(() => fs.existsSync(marker), 15_000)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(marker, 'utf8'))).toEqual([NASTY]);
+    expect(fs.existsSync(path.join(cwd, 'nodecmd.txt'))).toBe(false);
+  }, 30_000);
+
+  it.each([
+    ['by name on PATH', false],
+    ['by an extension-less path (it used to fail to start)', true],
+  ])(
+    'another batch-file agent %s: the prompt is typed in once it is up, not given to cmd.exe',
+    async (_, byPath) => {
+      const reader = path.join(bin, 'reader.cjs');
+      const typed = path.join(cwd, 'typed.txt');
+      fs.writeFileSync(
+        reader,
+        [
+          "process.stdout.write('agent ready\\r\\n');",
+          "let buf = '';",
+          "process.stdin.on('data', (d) => {",
+          '  buf += d;',
+          `  if (/[\\r\\n]/.test(buf)) { require('fs').writeFileSync(${JSON.stringify(typed)}, buf); process.exit(0); }`,
+          '});',
+        ].join('\n'),
+      );
+      // Not a Node shim (no %* after the script): cmd.exe runs it. It records its own arguments, then reads a line.
+      fs.writeFileSync(
+        path.join(bin, 'batchagent.cmd'),
+        `@echo off\r\n>"%~dp0args.txt" echo ARGS:%*\r\n"${process.execPath}" "${reader}"\r\n`,
+      );
+      const prompt = 'fix "it" & echo INJECTED | more %PATH%';
+      // npm writes an extension-less sh script beside each .cmd; a path to it starts the .cmd.
+      if (byPath) fs.writeFileSync(path.join(bin, 'batchagent'), '#!/bin/sh\n');
+      const cmd = byPath ? path.join(bin, 'batchagent') : 'batchagent';
+      session = new PtySession(cwd, 120, 30, undefined, { tool: tool(cmd), initialPrompt: prompt, env: env() });
+      expect(await waitFor(() => fs.existsSync(typed), 25_000)).toBe(true);
+      expect(fs.readFileSync(typed, 'utf8')).toContain(prompt);
+      expect(fs.readFileSync(path.join(bin, 'args.txt'), 'utf8').trim()).toBe('ARGS:');
+      expect(session.screenText()).not.toMatch(/^\s*INJECTED\s*$/m);
+    },
+    40_000,
+  );
 });

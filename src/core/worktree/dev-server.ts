@@ -3,6 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { getConfigDir, type WorkConfig } from '../platform/config.js';
+import { shellEnv } from '../platform/shell-env.js';
 import { bootTime, isPidAlive, killTree, processName } from '../platform/process.js';
 import { json, withDb } from '../platform/db.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
@@ -159,7 +160,8 @@ export function startDev(
       detached: process.platform !== 'win32',
       windowsHide: true,
       stdio: ['ignore', log, log],
-      env: { ...process.env, PORT: String(session.port) },
+      // Windows: a bare name in the command is PATH's, never the worktree's (a branch's script runs by its path: shell-env.ts).
+      env: shellEnv({ ...process.env, PORT: String(session.port) }),
     });
     child.on('error', () => {});
     if (child.pid === undefined) return { ok: false, status: 400, error: 'could not start the dev command' };

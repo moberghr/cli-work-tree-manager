@@ -43,7 +43,9 @@ export function starterCalls(text: string): RegExp | null {
       if (STARTERS.includes(orig)) names.push(alias ?? orig);
     }
   }
-  for (const m of text.matchAll(/import\s+(?!type\b)([\w$]+)\s+from\s+['"](?:cross-spawn|[./]+(?:platform\/)?spawn\.js)['"]/g))
+  for (const m of text.matchAll(
+    /import\s+(?!type\b)([\w$]+)\s+from\s+['"](?:cross-spawn|(?:\.{1,2}\/)+(?:(?:core\/)?platform\/)?spawn\.js)['"]/g,
+  ))
     names.push(m[1], `${m[1]}\\.sync`);
   return names.length ? new RegExp(`(?<![\\w$.])(?:${names.join('|')})\\s*\\(`, 'g') : null;
 }
@@ -107,6 +109,20 @@ describe('every process work starts says windowsHide (no console windows flashin
     expect(found).toEqual([]);
   });
 
+  it('every importer of the spawn wrapper is read (the files moved onto it among them)', () => {
+    const importers = walk(SRC)
+      .map((abs) => ({ rel: path.relative(SRC, abs).split(path.sep).join('/'), text: fs.readFileSync(abs, 'utf8') }))
+      .filter((f) => /from\s+['"][./]+(?:[\w-]+\/)*spawn\.js['"]/.test(f.text));
+    for (const rel of [
+      'commands/run.ts',
+      'commands/shared/setup-completions.ts',
+      'server/routes/repo-routes.ts',
+      'server/routes/worktree-routes.ts',
+    ])
+      expect(importers.map((f) => f.rel)).toContain(rel);
+    for (const f of importers) expect(starterCalls(f.text), f.rel).not.toBeNull();
+  });
+
   it('nothing but spawnDetachedWork starts detached on Windows (detachHere: POSIX only)', () => {
     const found = walk(SRC).flatMap((abs) =>
       detachedOnWindows(path.relative(path.resolve(SRC, '..'), abs).split(path.sep).join('/'), fs.readFileSync(abs, 'utf8')),
@@ -117,6 +133,9 @@ describe('every process work starts says windowsHide (no console windows flashin
   });
 
   it('the check finds a call that forgot it, in each import form, and passes one that has it', () => {
+    // The spawn wrapper at any depth: from core (`../platform/`), commands and server (`../core/platform/`, `../../core/platform/`), beside it.
+    for (const spec of ['./spawn.js', '../platform/spawn.js', '../core/platform/spawn.js', '../../core/platform/spawn.js'])
+      expect(unhidden('a.ts', `import spawn from '${spec}';\nspawn('git', []);`)).toHaveLength(1);
     expect(unhidden('a.ts', "import { execFile } from 'node:child_process';\nexecFile('git', ['status'], (e) => {});")).toHaveLength(1);
     expect(unhidden('a.ts', "import cp from 'node:child_process';\ncp.spawnSync('git', []);")).toHaveLength(1);
     expect(

@@ -56,9 +56,13 @@ export type Launch = { cmd: string; args: string[] } | { refused: string };
 interface LaunchIo {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
-  find?: (cmd: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform) => string | null;
+  find?: (cmd: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform, cwd?: string) => string | null;
   read?: (file: string) => string | null;
   exists?: (file: string) => boolean;
+  /** The start's working folder, which a relative path is resolved against (this process's when not given). */
+  cwd?: string;
+  /** The node the PTY host / CLI runs on (`process.execPath`), for a Node shim whose `node` is no real program. */
+  execPath?: string;
 }
 
 const readText = (file: string) => {
@@ -69,26 +73,47 @@ const readText = (file: string) => {
   }
 };
 
+const isBatchFile = (file: string) => /\.(cmd|bat)$/i.test(file);
+
+/**
+ * The node.exe a Node shim's script is run on: the one beside the shim (npm's shim prefers it), else `node` from
+ * PATH when that is a real program, else the node work itself runs on (`process.execPath`). Never a batch file:
+ * version managers (nvm-windows' and fnm's shims, scoop's) can put a `node.cmd` first on PATH, and starting that
+ * with the script's arguments is cmd.exe parsing them twice — a prompt's `"&echo X&"` ran (measured with an
+ * echo-only `node.cmd`). work's own node is a real node.exe and runs any npm-installed CLI, so it stands in for
+ * one; the script's own `node` (a version pinned by a manager) is what's given up. Null when none is a real
+ * program (the shim then counts as the batch file it is).
+ */
+function nodeFor(localNode: string, env: NodeJS.ProcessEnv, io: LaunchIo): string | null {
+  const exists = io.exists ?? fs.existsSync;
+  if (exists(localNode)) return localNode;
+  const onPath = (io.find ?? whereOnPath)('node', env, 'win32');
+  if (onPath && /\.(exe|com)$/i.test(onPath)) return onPath;
+  const own = io.execPath ?? process.execPath;
+  return /\.exe$/i.test(own) ? own : null;
+}
+
 /**
  * What starts `cmd` on Windows: `file` with `pre` before the caller's arguments. `batch` when that is still a
- * batch file (cmd.exe will parse the arguments); a Python or Node shim is skipped for its interpreter. Null when
- * PATH has no such program. Looked up on PATH at every call — never the working folder (`whereOnPath`), never a
- * remembered miss.
+ * batch file (cmd.exe will parse the arguments) — judged on the file that really starts: a path without an
+ * extension resolves as Windows would (`C:\npm\claude` is `claude.cmd`), and a Python or Node shim is skipped for
+ * its interpreter only when that interpreter is a real program (`nodeFor`). Null when PATH has no such program.
+ * Looked up on PATH at every call — never the working folder (`whereOnPath`), never a remembered miss.
  */
 export type Program = { file: string; pre: string[]; batch: boolean };
 export function programFor(cmd: string, io: LaunchIo = {}): Program | null {
   const env = io.env ?? process.env;
-  const file = (io.find ?? whereOnPath)(cmd, env, 'win32');
+  const file = (io.find ?? whereOnPath)(cmd, env, 'win32', io.cwd);
   if (!file) return null;
-  if (!/\.(cmd|bat)$/i.test(file)) return { file, pre: [], batch: false };
+  if (!isBatchFile(file)) return { file, pre: [], batch: false };
   const text = (io.read ?? readText)(file);
   const exists = io.exists ?? fs.existsSync;
   const py = text ? pythonShimOf(text, file) : null;
-  if (py && exists(py.cmd)) return { file: py.cmd, pre: py.pre, batch: false };
+  if (py && exists(py.cmd) && !isBatchFile(py.cmd)) return { file: py.cmd, pre: py.pre, batch: false };
   const js = text ? nodeShimOf(text, file) : null;
   if (js && exists(js.script)) {
-    const node = exists(js.localNode) ? js.localNode : (whereOnPath('node', env, 'win32') ?? process.execPath);
-    return { file: node, pre: [js.script], batch: false };
+    const node = nodeFor(js.localNode, env, io);
+    if (node && !isBatchFile(node)) return { file: node, pre: [js.script], batch: false };
   }
   return { file, pre: [], batch: true };
 }
