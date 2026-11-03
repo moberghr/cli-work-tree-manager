@@ -3,6 +3,7 @@ import type { SessionSummary } from '../../api/client.js';
 import { addRepoToSession, fetchProjects } from '../../api/panes.js';
 import type { AddRepoWire } from '../../../../core/api-types.js';
 import { addableRepos, headerRepos } from '../../state/add-repo.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 interface Props {
   session: SessionSummary;
@@ -70,13 +71,16 @@ export function AddRepoDialog({ session, onAdded, onClose }: Props) {
   }
 
   const name = session.title && session.titleIsYours ? session.title : session.branch;
+  const backdrop = useBackdropClose(close);
+
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={`Add a repo to ${session.branch}`}
-      onClick={(e) => e.target === e.currentTarget && close()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => e.key === 'Escape' && close()}
     >
       <form className="wd-modal" onSubmit={submit}>

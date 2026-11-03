@@ -22,6 +22,9 @@ export default defineConfig({
     // push past the 5 s default when the suite runs in parallel.
     // Raise the floor to 20 s so flaky timeouts don't mask real bugs.
     testTimeout: 20_000,
+    // The same for beforeEach / afterEach: many make a real repo and a worktree before each test (git init,
+    // commit, worktree add), and on a busy Windows runner that passed vitest's 10 s default for hooks.
+    hookTimeout: 20_000,
     // Half the cores: the git-heavy files saturate every core (git.exe
     // under AV scanning), and with one worker per core the main process got
     // starved enough to miss a worker RPC ("Timeout calling onTaskUpdate")

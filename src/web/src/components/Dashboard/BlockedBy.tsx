@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { addBlocker, removeBlocker, type SessionSummary } from '../../api/client.js';
 import { prUrl } from '../../../../core/rail/blocks.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 /**
  * In the session strip: what this session waits on (core/session-blocks.ts) —
@@ -87,13 +88,16 @@ export function BlockedByDialog({
       setBusy(false);
     }
   };
+  const backdrop = useBackdropClose(() => !busy && onClose());
+
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label="Blocked by"
-      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
     >
       <form
         className="wd-modal"

@@ -46,9 +46,27 @@ const flush = () =>
   });
 const picker = () => container.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const options = () => [...container.querySelectorAll('[role="option"]')].map((o) => o.firstElementChild!.textContent);
-const type = (el: HTMLInputElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+const type = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
+};
+/** Text typed where the caret is: over the selection, if there is one. */
+const typeAtCaret = (el: HTMLInputElement, text: string) => {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  type(el, el.value.slice(0, start) + text + el.value.slice(end));
+};
+/** A mouse press on `el`; returns the event, to see whether the browser's own handling was prevented. */
+const press = async (el: Element, init: MouseEventInit = {}) => {
+  const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, ...init });
+  await act(async () => void el.dispatchEvent(ev));
+  return ev;
+};
+const pointerDown = (pointerType: string) => {
+  const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'pointerType', { value: pointerType });
+  return ev;
 };
 const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 const submit = () =>
@@ -91,15 +109,50 @@ describe('the project field', () => {
     await open();
     await act(async () => picker().focus());
     picker().setSelectionRange(5, 5); // a caret left at the end
-    const opening = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-    await act(async () => void picker().dispatchEvent(opening));
+    const opening = await press(picker());
     expect(opening.defaultPrevented).toBe(true); // the browser doesn't put its caret over the selection
     expect([picker().selectionStart, picker().selectionEnd]).toEqual([0, 'jobly'.length]);
-    await act(async () => type(picker(), 'work'));
+    // Typed where the caret is, as a key would: over the selection, or after the name had the click not selected it.
+    await act(async () => typeAtCaret(picker(), 'work'));
+    expect(picker().value).toBe('work');
     expect(options()).toEqual(['work-tree']);
-    const inside = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-    await act(async () => void picker().dispatchEvent(inside));
+    const inside = await press(picker());
     expect(inside.defaultPrevented).toBe(false);
+  });
+
+  it('a double-click on the name keeps it all selected; once you typed, a double-click is the browser’s', async () => {
+    await open();
+    await act(async () => picker().focus());
+    await press(picker(), { detail: 1 });
+    picker().setSelectionRange(2, 2); // as if the browser had moved the caret meanwhile
+    const second = await press(picker(), { detail: 2 });
+    expect(second.defaultPrevented).toBe(true); // no word selected out of "jobly (group)"
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([0, 'jobly'.length]);
+    await act(async () => typeAtCaret(picker(), 'wo'));
+    expect((await press(picker(), { detail: 2 })).defaultPrevented).toBe(false);
+  });
+
+  it('a right- or middle-click is left to the browser and opens nothing', async () => {
+    await open();
+    await act(async () => picker().focus());
+    picker().setSelectionRange(5, 5);
+    for (const button of [1, 2]) {
+      expect((await press(picker(), { button })).defaultPrevented).toBe(false);
+      expect(container.querySelector('[role="listbox"]')).toBeNull();
+    }
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([5, 5]);
+  });
+
+  it('a tap is left to the browser (its focus brings the keyboard), and opens the list', async () => {
+    await open();
+    await act(async () => void picker().dispatchEvent(pointerDown('touch')));
+    const tap = await press(picker());
+    expect(tap.defaultPrevented).toBe(false);
+    expect(options().length).toBeGreaterThan(0);
+    // The next mouse press is a mouse's again.
+    await act(async () => key(picker(), 'Escape'));
+    await act(async () => void picker().dispatchEvent(pointerDown('mouse')));
+    expect((await press(picker())).defaultPrevented).toBe(true);
   });
 
   it('type to narrow, ↓ and Enter to pick (not submitting), Escape closes the list but not the dialog', async () => {
@@ -434,5 +487,27 @@ describe('start from a pull request', () => {
     await act(async () => type(picker(), 'work'));
     await act(async () => void key(picker(), 'Enter'));
     expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+});
+
+describe('closing on the backdrop', () => {
+  const backdrop = () => container.querySelector<HTMLElement>('[role="dialog"]')!;
+  const prompt = () => container.querySelector('textarea')!;
+  const click = (el: Element) => act(async () => void el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+  it('a press in the dialog let go outside it (a drag over the prompt) keeps it open', async () => {
+    const { onClose } = await open();
+    await act(async () => type(prompt(), 'Add CSV export'));
+    await press(prompt());
+    await click(backdrop()); // the browser sends the click to where press and release meet: the backdrop
+    expect(onClose).not.toHaveBeenCalled();
+    expect(prompt().value).toBe('Add CSV export');
+  });
+
+  it('a click on the backdrop itself closes it', async () => {
+    const { onClose } = await open();
+    await press(backdrop());
+    await click(backdrop());
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

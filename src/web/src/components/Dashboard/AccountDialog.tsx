@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AccountSwitchWire, AccountsWire } from '../../../../core/api-types.js';
 import { cancelAccountSwitch, fetchAccounts, switchSessionAccount, type SessionSummary } from '../../api/client.js';
 import { accountName, accountRow, currentAccount, loginText, pendingText } from '../../state/accounts.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 interface Props {
   session: SessionSummary;
@@ -81,13 +82,16 @@ export function AccountDialog({
   }
 
   const name = session.title && session.titleIsYours ? session.title : session.branch;
+  const backdrop = useBackdropClose(close);
+
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={`Claude account of ${session.branch}`}
-      onClick={(e) => e.target === e.currentTarget && close()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => e.key === 'Escape' && close()}
     >
       <form className="wd-modal" onSubmit={submit}>

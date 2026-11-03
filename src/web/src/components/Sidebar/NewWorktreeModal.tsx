@@ -4,6 +4,7 @@ import { createWorktree, fetchBranchCheck, fetchProjects, lookupPr, type Project
 import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
 import { onBranchChange } from '../../utils/branch-input.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 import { fetchAccounts } from '../../api/client.js';
 import { accountLabel, accountName } from '../../state/accounts.js';
 import type { AccountsWire } from '../../../../core/api-types.js';
@@ -267,16 +268,15 @@ export function NewWorktreeModal({
     }
   }
 
-  function onBackdropClick(e: React.MouseEvent) {
-    if (e.target === e.currentTarget) onClose();
-  }
+  const backdrop = useBackdropClose(onClose);
 
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
-      onClick={onBackdropClick}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => {
         if (e.key === 'Escape') onClose();
       }}

@@ -8,7 +8,13 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 - **Click the project field and type.** In New worktree, a click on the
   project field selects the project in it, so what you type replaces it and
   searches. The click used to leave the cursor after the name, and what you
-  typed was added to it.
+  typed was added to it. A double-click keeps the whole name selected, a
+  right- or middle-click is the browser's again (menu, paste), and a tap on a
+  phone or tablet still brings up its keyboard.
+- **New worktree no longer closes while you edit the prompt.** Selecting text
+  in "What should Claude do?" with a drag that ended outside the dialog closed
+  it, and what you had typed was lost. Only a click that starts and ends on
+  the backdrop closes it now.
 
 ## 2.9.3 — 2026-11-02
 
