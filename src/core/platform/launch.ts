@@ -13,7 +13,8 @@ export function getEditor(): string {
 export function openInEditor(filePath: string): void {
   const editor = getEditor();
   // This terminal's (vi) or a window of its own (notepad): to be seen.
-  spawn.sync(editor, [filePath], { stdio: 'inherit', windowsHide: false });
+  // Not a tool run: the editor keeps cmd.exe's usual lookup for its own terminals (spawn.ts `keepCwdLookup`).
+  spawn.sync(editor, [filePath], { stdio: 'inherit', windowsHide: false, keepCwdLookup: true });
 }
 
 /** Open a URL in the default browser. */
@@ -21,7 +22,7 @@ export function openUrl(url: string): void {
   const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   // `cmd /c start` is a console program: hidden, or a window flashes before the browser opens.
-  spawn(cmd, args, { stdio: 'ignore', detached: detachHere(), windowsHide: true }).unref();
+  spawn(cmd, args, { stdio: 'ignore', detached: detachHere(), windowsHide: true, keepCwdLookup: true }).unref();
 }
 
 /** VS Code and the editors built on it: the folder, then `--goto file:line`, opens the file at its line in that folder's window. */
@@ -48,7 +49,8 @@ export function editorArgs(editor: string, folder: string, file?: { path: string
 
 /** Open VS Code in the given directory. */
 export function openVSCode(dir: string): void {
-  spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit', windowsHide: false }); // the editor's window is the point
+  // The editor's window is the point; its terminals and tasks keep cmd.exe's usual lookup (spawn.ts `keepCwdLookup`).
+  spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit', windowsHide: false, keepCwdLookup: true });
 }
 
 /**

@@ -19,7 +19,7 @@ import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import { readContextUsage } from '../../core/conversations/context-usage.js';
 import { ensurePty, peekPty, ptyPids } from '../../core/pty/pty-pool.js';
 import { agentsBySession } from '../../core/sessions/live-agents.js';
-import { runsUnsafeFromBefore } from '../../core/sessions/legacy-unsafe-io.js';
+import { legacyUnsafeCheck } from '../../core/sessions/legacy-unsafe-io.js';
 import { liveAgents } from '../../core/agents/index.js';
 
 /** The first message of a Claude started for a PR note: the note itself
@@ -43,6 +43,9 @@ async function wakeForNote(id: string): Promise<WakeResult> {
   const url = await ensurePty(id, { initialPrompt: WAKE_PROMPT }).catch(() => null);
   return url ? 'started' : 'failed';
 }
+
+/** The PR watch's `runsUnsafe`: an agent from before --unsafe was retired (legacy-unsafe.ts; remove next release). */
+export const watchRunsUnsafe = legacyUnsafeCheck(ptyPids);
 
 /**
  * The PR watch (pr-watch.ts) wired to real sessions, gh and the comment
@@ -92,7 +95,7 @@ export function mountCiRoutes(
     // Who you are, review feedback and API-limit words: each repo asked of its own host.
     ...prWatchHostDeps(defaultRunner),
     // An agent from before --unsafe was retired (legacy-unsafe.ts; remove next release).
-    runsUnsafe: (id) => runsUnsafeFromBefore(id, findSession(id), ptyPids()),
+    runsUnsafe: watchRunsUnsafe,
     ...(opts.activity ? { activity: opts.activity } : {}),
     busy: midTurn,
     // A repo's own checkout isn't archived when its PR merges: you go on working there.

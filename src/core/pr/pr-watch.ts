@@ -1,4 +1,5 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
+import { howToLift, type LegacyUnsafe } from '../sessions/legacy-unsafe.js';
 import { commandsFor, hostName } from '../hosts/commands.js';
 import type { SessionCi, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
@@ -90,8 +91,8 @@ export interface PrWatchDeps {
    *  What you click (Fix CI) still happens. */
   lookOnly?: boolean;
   /** Its agent still runs as started `--unsafe` before the retirement (legacy-unsafe.ts): no review text goes to it.
-   *  REMOVE IN THE NEXT RELEASE. */
-  runsUnsafe?: (sessionId: string) => boolean;
+   *  Which case (legacy-unsafe.ts), so the Activity note can say what lifts it. REMOVE IN THE NEXT RELEASE. */
+  runsUnsafe?: (sessionId: string) => LegacyUnsafe | null;
   /** Who you're signed in as on a host (`host`: its id; absent: GitHub): a PR by someone else (you work on it or
    *  review it) is theirs — its review threads are addressed to its author, and its CI isn't yours to fix unasked.
    *  `repoPath`: the repo it's asked for (its origin's server: a GitHub Enterprise login isn't github.com's). */
@@ -488,8 +489,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const threads = new Map<string, number>();
     const threadList = new Map<string, OpenReviewThread[]>();
     // Review text is other people's writing; an agent still running with permission checks off from before --unsafe
-    // was retired would act on it unreviewed. Count threads for the strip, but don't hand them over (remove next release).
-    const deliverReviews = !deps.runsUnsafe?.(id);
+    // was retired would act on it unreviewed. Count threads for the strip, but don't hand them over, and say so in Activity (remove next release).
+    const unsafeFromBefore = deps.runsUnsafe?.(id) ?? null;
+    const deliverReviews = !unsafeFromBefore;
     if (deps.reviewFeedback && opts.reviewComments) {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN' || theirs.has(r.name)) continue;
@@ -548,7 +550,18 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
               `${open} open review thread${open === 1 ? '' : 's'} on #${r.pr.number}, but who you are on ${unknownOn([r.name])} is unknown: not handing ${open === 1 ? 'it' : 'them'} to its Claude until it can tell the PR is yours`,
               'warn',
             );
-        } else if (act && deliverReviews) {
+        } else if (act && unsafeFromBefore) {
+          // What it would have been handed, read into a throwaway set: nothing is recorded as told, so it goes
+          // over once the agent was restarted.
+          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, staged(id), {
+            trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
+          });
+          if (items.length)
+            note(
+              `${items.length} new review comment${items.length === 1 ? '' : 's'} on #${r.pr.number} held: its agent still runs as started --unsafe, so review text waits until it is restarted — ${howToLift(unsafeFromBefore)}`,
+              'warn',
+            );
+        } else if (act) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {
             trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
           });

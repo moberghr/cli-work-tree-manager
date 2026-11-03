@@ -4,10 +4,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   atLeast,
+  binaryStamp,
   claudeReadOnlyAvailable,
   forgetClaudeVersions,
   parseClaudeVersion,
   runVersion,
+  VERSION_TTL_MS,
   type VersionIo,
 } from '../../../../src/core/agents/claude/version.js';
 import { READ_ONLY_MIN_VERSION } from '../../../../src/core/agents/claude/internal.js';
@@ -19,7 +21,7 @@ afterEach(() => forgetClaudeVersions());
 
 const io = (over: Partial<VersionIo> = {}) => ({
   find: () => '/bin/claude',
-  mtime: () => 1000,
+  stamp: (): string | null => '/bin/claude|1000|10',
   version: vi.fn(async () => '2.1.317 (Claude Code)\n'),
   ...over,
 });
@@ -56,18 +58,54 @@ describe("Claude Code's version for the read-only review run", () => {
     expect(version).toHaveBeenCalledTimes(2); // asked again
   });
 
-  it('asked once per binary: the same path and time answer from memory; an update (new time) or another path asks again', async () => {
-    let mtime = 1000;
-    const x = io({ mtime: () => mtime });
+  it('asked once per binary: the same stamp answers from memory; an update (new stamp) or another path asks again', async () => {
+    let stamp = 'a|1000|10';
+    const x = io({ stamp: () => stamp });
     await claudeReadOnlyAvailable(x);
     await claudeReadOnlyAvailable(x);
     expect(x.version).toHaveBeenCalledTimes(1);
-    mtime = 2000;
+    stamp = 'a|1000|11';
     await claudeReadOnlyAvailable(x);
     expect(x.version).toHaveBeenCalledTimes(2);
     const other = io({ find: () => '/other/claude' });
     await claudeReadOnlyAvailable(other);
     expect(other.version).toHaveBeenCalledTimes(1);
+  });
+
+  it('an answer is kept at most VERSION_TTL_MS; a binary that cannot be identified is never remembered', async () => {
+    let t = 0;
+    const x = io({ now: () => t });
+    await claudeReadOnlyAvailable(x);
+    t = VERSION_TTL_MS - 1;
+    await claudeReadOnlyAvailable(x);
+    expect(x.version).toHaveBeenCalledTimes(1);
+    t = VERSION_TTL_MS + 1;
+    await claudeReadOnlyAvailable(x);
+    expect(x.version).toHaveBeenCalledTimes(2);
+    const unknown = io({ stamp: () => null });
+    await claudeReadOnlyAvailable(unknown);
+    await claudeReadOnlyAvailable(unknown);
+    expect(unknown.version).toHaveBeenCalledTimes(2);
+  });
+
+  it('binaryStamp sees an npm update though npm dates every file 1985: the real file, its install time and size', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-stamp-'));
+    try {
+      const file = path.join(dir, 'cli.js');
+      const npm1985 = new Date('1985-10-26T08:15:00Z');
+      fs.writeFileSync(file, '// 2.1.300');
+      fs.utimesSync(file, npm1985, npm1985);
+      const before = binaryStamp(file);
+      expect(before).toContain(fs.realpathSync(file));
+      expect(binaryStamp(file)).toBe(before); // nothing changed: the same
+      // npm unpacks the new version over it, dated 1985 again.
+      fs.writeFileSync(file, '// 2.1.317, a longer file');
+      fs.utimesSync(file, npm1985, npm1985);
+      expect(binaryStamp(file)).not.toBe(before);
+      expect(binaryStamp(path.join(dir, 'gone'))).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
   });
 
   it("the adapter's read-only mode asks it", () => {
@@ -79,7 +117,7 @@ describe("Claude Code's version for the read-only review run", () => {
     try {
       const file = path.join(dir, 'claude.cmd');
       fs.writeFileSync(file, '@echo 2.1.400 (Claude Code)\r\n');
-      expect(await claudeReadOnlyAvailable({ find: () => file, mtime: () => 1, version: runVersion })).toEqual({ ok: true });
+      expect(await claudeReadOnlyAvailable({ find: () => file, stamp: binaryStamp, version: runVersion })).toEqual({ ok: true });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }

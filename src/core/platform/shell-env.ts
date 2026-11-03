@@ -6,6 +6,11 @@
  * `NoDefaultCurrentDirectoryInExePath`, turns that lookup off for the shell and what it starts. A command that
  * means a file of the branch names it by its path (`.\scripts\dev.cmd`), which still runs. Off Windows: the
  * environment as given (a POSIX shell never looks in the working folder unless PATH says so).
+ *
+ * Only for tool runs — the CommandRunner, agents in the PTY host and `launchAi`, status hooks, `work run`, a dev
+ * server. Not for long-lived interactive programs work opens for you (the editor, a URL, a terminal): their own
+ * terminals and tasks would inherit the switch, changing how your shells there behave. Those calls pass
+ * `keepCwdLookup: true` to the spawn wrapper (spawn.ts).
  */
 export const NO_CWD_LOOKUP = 'NoDefaultCurrentDirectoryInExePath';
 

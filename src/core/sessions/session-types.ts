@@ -40,7 +40,7 @@ export interface WorktreeSession {
   archivedAt?: string;
   /** From before `--unsafe` was retired: its agent was last launched directly with the skip-permissions flag.
    *  Written no more; read only by legacy-unsafe.ts for one release, and cleared by a current direct launch
-   *  (`clearLaunchedUnsafe`). REMOVE IN THE NEXT RELEASE. */
+   *  when no agent of the session still runs (`clearLaunchedUnsafeWhenIdle`). REMOVE IN THE NEXT RELEASE. */
   launchedUnsafe?: boolean;
   /** The agent it runs (`claude`, `codex`, …: agents/), recorded when it was
    *  created — when work has an adapter for it — so changing the default

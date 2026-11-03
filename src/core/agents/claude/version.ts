@@ -3,6 +3,8 @@ import os from 'node:os';
 import { findOnPath } from '../../platform/find-on-path.js';
 import { launchFor } from '../../platform/batch-launch.js';
 import spawn from '../../platform/spawn.js';
+import { killTreeAsync } from '../../platform/process.js';
+import { installTime } from '../../pty/agent-restart.js';
 import { READ_ONLY_MIN_VERSION } from './internal.js';
 
 /**
@@ -15,6 +17,10 @@ import { READ_ONLY_MIN_VERSION } from './internal.js';
 
 /** How long `claude --version` may take. */
 export const VERSION_TIMEOUT_MS = 10_000;
+
+/** How long an answer is kept even when nothing about the binary seems to have changed: a backstop for an update the
+ *  stamp can't see. */
+export const VERSION_TTL_MS = 10 * 60_000;
 
 /** `2.1.317 (Claude Code)` → [2, 1, 317]; null when there's no version in it. Pure. */
 export function parseClaudeVersion(text: string): [number, number, number] | null {
@@ -31,10 +37,27 @@ export function atLeast(a: [number, number, number], b: [number, number, number]
 export interface VersionIo {
   /** The file `claude` runs (null: not on PATH). */
   find: () => string | null;
-  /** Its modification time (null: can't be read). */
-  mtime: (file: string) => number | null;
+  /** What identifies the installed binary (`binaryStamp`; null: can't be read — then nothing is remembered). */
+  stamp: (file: string) => string | null;
   /** `claude --version`'s output (null: it failed or timed out). */
   version: (file: string) => Promise<string | null>;
+  /** The clock (for the TTL). */
+  now?: () => number;
+}
+
+/**
+ * The file `claude` really runs (links followed: `~/.local/bin/claude` → `versions/2.1.296`), when it was installed
+ * (`installTime`: npm unpacks every file dated 1985, so its mtime alone never moves on an npm update) and its size:
+ * an update changes at least one. Null when it can't be read.
+ */
+export function binaryStamp(file: string): string | null {
+  try {
+    const real = fs.realpathSync(file);
+    const st = fs.statSync(real);
+    return `${real}|${installTime(st)}|${st.size}`;
+  } catch {
+    return null;
+  }
 }
 
 /** `<file> --version`, with a timeout: what it printed, or null. */
@@ -52,7 +75,9 @@ export function runVersion(file: string): Promise<string | null> {
     };
     const child = spawn(launch.cmd, launch.args, { cwd: os.tmpdir(), windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     const timer = setTimeout(() => {
-      child.kill();
+      // A .cmd shim runs under cmd.exe: the tree goes, not only the shell.
+      if (child.pid) void killTreeAsync(child.pid);
+      else child.kill();
       done(null);
     }, VERSION_TIMEOUT_MS);
     child.stdout?.on('data', (d: Buffer) => (out += d.toString()));
@@ -63,18 +88,12 @@ export function runVersion(file: string): Promise<string | null> {
 
 const realIo: VersionIo = {
   find: () => findOnPath('claude'),
-  mtime: (file) => {
-    try {
-      return fs.statSync(file).mtimeMs;
-    } catch {
-      return null;
-    }
-  },
+  stamp: binaryStamp,
   version: runVersion,
 };
 
-/** Asked once per binary (path + mtime): an update of Claude Code is a new file, asked again. */
-const cache = new Map<string, Promise<{ ok: boolean; why?: string }>>();
+/** Asked once per binary (its stamp), for at most VERSION_TTL_MS: an update of Claude Code is asked again. */
+const cache = new Map<string, { at: number; answer: Promise<{ ok: boolean; why?: string }> }>();
 
 /**
  * Whether the installed Claude Code may run the read-only review: at least READ_ONLY_MIN_VERSION. Unknown — not on
@@ -83,9 +102,11 @@ const cache = new Map<string, Promise<{ ok: boolean; why?: string }>>();
 export function claudeReadOnlyAvailable(io: VersionIo = realIo): Promise<{ ok: boolean; why?: string }> {
   const file = io.find();
   if (!file) return Promise.resolve({ ok: false, why: "Claude Code's version can't be told (claude isn't on PATH)" });
-  const key = `${file}|${io.mtime(file) ?? 'unknown'}`;
-  const known = cache.get(key);
-  if (known) return known;
+  const stamp = io.stamp(file);
+  const now = io.now ?? Date.now;
+  const key = stamp ? `${file}|${stamp}` : null;
+  const known = key ? cache.get(key) : undefined;
+  if (known && now() - known.at < VERSION_TTL_MS) return known.answer;
   const asked = io.version(file).then((text): { ok: boolean; why?: string } => {
     const v = text ? parseClaudeVersion(text) : null;
     if (!v) return { ok: false, why: "Claude Code's version can't be told (claude --version gave none)" };
@@ -97,10 +118,13 @@ export function claudeReadOnlyAvailable(io: VersionIo = realIo): Promise<{ ok: b
           why: `Claude Code ${v.join('.')} is older than ${READ_ONLY_MIN_VERSION}, the version its read-only flags were measured on`,
         };
   });
-  // A failure to ask isn't remembered for good: the next review asks again (the binary may be fine a moment later).
-  cache.set(key, asked);
+  // A binary that can't be identified isn't remembered at all, and a failure to ask not for good: the next review
+  // asks again (the binary may be fine a moment later).
+  if (!key) return asked;
+  const entry = { at: now(), answer: asked };
+  cache.set(key, entry);
   void asked.then((r) => {
-    if (!r.ok && r.why?.includes("can't be told")) cache.delete(key);
+    if (!r.ok && r.why?.includes("can't be told") && cache.get(key) === entry) cache.delete(key);
   });
   return asked;
 }

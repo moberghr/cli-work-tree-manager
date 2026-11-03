@@ -7,7 +7,7 @@ import { liveAgents } from '../../core/agents/index.js';
 import { markAgentStopped, readStatus } from '../../core/status/session-status.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
 import { sendToSession, type SendDeps } from '../../core/sessions/session-control.js';
-import { runsUnsafeFromBefore } from '../../core/sessions/legacy-unsafe-io.js';
+import { legacyUnsafeCheck } from '../../core/sessions/legacy-unsafe-io.js';
 import type { AgentControlWire, LastReplyWire, ScreenWire, SendWire } from '../../core/api-types.js';
 import { agentOf } from '../../core/agents/index.js';
 import { lastReplyOf } from '../../core/conversations/last-reply.js';
@@ -56,7 +56,7 @@ function realDeps(app: Hono): ControlDeps {
     state: (id) => readStatus(id)?.state ?? null,
     archived: (id) => !!findSession(id)?.archivedAt,
     // From before --unsafe was retired (legacy-unsafe.ts; remove next release).
-    stillUnsafe: (id) => runsUnsafeFromBefore(id, findSession(id), ptyPids()),
+    stillUnsafe: legacyUnsafeCheck(ptyPids),
     // `work stop`: recorded like a sleep, so the Terminal tab starts it again when opened.
     stop: async (id) => {
       await disposePty(id);

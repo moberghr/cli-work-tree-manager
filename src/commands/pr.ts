@@ -6,7 +6,7 @@ import { sessionIdFor } from '../core/sessions/session-id.js';
 import { draftReply, listReplies, postDrafts, sessionRepoRefs } from '../core/pr/pr-replies.js';
 import { defaultRunner } from '../core/pr/ship.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
-import { STILL_UNSAFE } from '../core/sessions/legacy-unsafe.js';
+import { stillUnsafeMessage } from '../core/sessions/legacy-unsafe.js';
 import { runsUnsafeFromBefore } from '../core/sessions/legacy-unsafe-io.js';
 
 /** Tell a running work web a draft changed, so the session header shows it. Best effort. */
@@ -33,8 +33,9 @@ function sessionHere() {
 /** An agent still running without permission prompts from before --unsafe was retired drafts and posts nothing
  *  (legacy-unsafe.ts). REMOVE IN THE NEXT RELEASE. */
 function refuseStillUnsafe(s: ReturnType<typeof sessionHere>): void {
-  if (!runsUnsafeFromBefore(sessionIdFor(s), s)) return;
-  console.error(chalk.red(STILL_UNSAFE));
+  const unsafe = runsUnsafeFromBefore(sessionIdFor(s), s);
+  if (!unsafe) return;
+  console.error(chalk.red(stillUnsafeMessage(unsafe)));
   process.exit(1);
 }
 

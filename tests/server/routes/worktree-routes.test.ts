@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
+import { NO_CWD_LOOKUP } from '../../../src/core/platform/shell-env.js';
 
 // The PTY pool pulls in node-pty; the route only needs its dispose hook.
 const { disposePty, ensurePty, peekPty, spawnSpecFor, getWorkBin } = vi.hoisted(() => ({
@@ -300,6 +301,32 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     expect(res.status).toBe(200);
     await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe(wtPath);
   });
+
+  it.runIf(process.platform === 'win32')(
+    "the editor keeps cmd.exe's usual lookup: no NoDefaultCurrentDirectoryInExePath for its own terminals and tasks (N4)",
+    async () => {
+      const bin = path.join(tmpHome, 'bin-env-editor');
+      fs.mkdirSync(bin);
+      const record = path.join(bin, 'env.txt');
+      const script = path.join(bin, 'record.cjs');
+      fs.writeFileSync(
+        script,
+        `require('fs').writeFileSync(${JSON.stringify(record)}, String(process.env[${JSON.stringify(NO_CWD_LOOKUP)}] ?? 'unset'))`,
+      );
+      const editor = path.join(bin, 'code.cmd');
+      fs.writeFileSync(editor, `@"${process.execPath}" "${script}" %*\r\n`);
+      saveConfig({ ...loadConfig()!, editor });
+      const saved = Object.keys(process.env).filter((k) => k.toLowerCase() === NO_CWD_LOOKUP.toLowerCase());
+      const values = saved.map((k) => process.env[k]);
+      for (const k of saved) delete process.env[k];
+      try {
+        expect((await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' })).status).toBe(200);
+        await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe('unset');
+      } finally {
+        saved.forEach((k, i) => (process.env[k] = values[i]));
+      }
+    },
+  );
 
   /** A fake editor named `name` that records its arguments ('|'-joined); a .cmd shim on Windows, like code.cmd. */
   function fakeEditor(name: string): string {

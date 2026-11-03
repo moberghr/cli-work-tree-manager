@@ -1,10 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
+
+// The running agents and the host's pids, for the legacy --unsafe closure (legacy-unsafe-io.ts; remove next release).
+const live = vi.hoisted(() => ({ agents: [] as Array<{ pid: number; cwd: string }>, hostPids: new Set<number>() }));
+vi.mock('../../../src/core/agents/index.js', async (orig) => ({
+  ...(await orig<typeof import('../../../src/core/agents/index.js')>()),
+  liveAgents: () =>
+    live.agents.map((a) => ({ ...a, conversationId: 'c', busy: false, state: 'idle', stateAt: null, waitingFor: null, startedAt: null })),
+}));
+vi.mock('../../../src/core/pty/pty-pool.js', async (orig) => ({
+  ...(await orig<typeof import('../../../src/core/pty/pty-pool.js')>()),
+  ptyPids: () => live.hostPids,
+}));
 import { mountSessionControlRoutes, type ControlDeps } from '../../../src/server/routes/session-control-routes.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { dbPtySessions } from '../../../src/core/pty/pty-sessions-file.js';
-import { STILL_UNSAFE } from '../../../src/core/sessions/legacy-unsafe.js';
+import { stillUnsafeMessage } from '../../../src/core/sessions/legacy-unsafe.js';
 
 /** POST …/send, …/agent/start, …/agent/stop and GET …/screen, with the PTY host and comment route faked. */
 
@@ -52,11 +64,35 @@ describe('POST /api/sessions/:id/send', () => {
     const { a, deps } = app({ hostRuns: () => true });
     const res = await post(a, `/api/sessions/${id}/send`, { text: 'Run the tests' });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: STILL_UNSAFE });
+    expect(await res.json()).toEqual({ error: stillUnsafeMessage('old-host') });
     expect(deps.post).not.toHaveBeenCalled();
     dbPtySessions.write({ [id]: { cwd: '/wt/x', tool, startedAt: 'y' } as never }); // restarted by a current host
     expect((await post(a, `/api/sessions/${id}/send`, { text: 'Run the tests' })).status).toBe(200);
     dbPtySessions.write({});
+  });
+
+  it('refuses while a direct launch from before still runs outside the host, a current host entry beside it or not (remove next release)', async () => {
+    saveHistory([{ ...s, launchedUnsafe: true }]);
+    const tool = { cmd: 'claude', flags: [], resumeFlag: '--continue' };
+    dbPtySessions.write({ [id]: { cwd: '/wt/x', tool, startedAt: 'y' } as never });
+    live.agents = [
+      { pid: 100, cwd: '/wt/x' },
+      { pid: 200, cwd: '/wt/x' },
+    ];
+    live.hostPids = new Set([200]);
+    try {
+      const { a, deps } = app({ hostRuns: () => true });
+      const res = await post(a, `/api/sessions/${id}/send`, { text: 'Run the tests' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: stillUnsafeMessage('outside') });
+      expect(deps.post).not.toHaveBeenCalled();
+      live.agents = [{ pid: 200, cwd: '/wt/x' }]; // the old one was quit
+      expect((await post(a, `/api/sessions/${id}/send`, { text: 'Run the tests' })).status).toBe(200);
+    } finally {
+      live.agents = [];
+      live.hostPids = new Set();
+      dbPtySessions.write({});
+    }
   });
 
   it('refusals keep their reason; an unknown session is 404; a failed queue is 502', async () => {

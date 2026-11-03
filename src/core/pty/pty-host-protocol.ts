@@ -44,8 +44,10 @@ export interface SpawnSpec {
   cols?: number;
   rows?: number;
   // No `unsafe` any more: every agent starts in its own permission mode. An older client may still send
-  // `unsafe: true`, and a restore list written by an older host may hold it (and its tool an `unsafeFlag`):
-  // extra fields, read by nothing, so no PROTOCOL_VERSION bump — a session starts as any other.
+  // `unsafe: true`, and a restore list written by an older host may hold it (and its tool an `unsafeFlag`): extra
+  // fields, so no PROTOCOL_VERSION bump. A current host starts nothing from them and drops both when it restores or
+  // restarts a session (pty-registry.ts); for one release legacy-unsafe.ts reads an entry's `unsafe: true` as "an
+  // older host still runs this agent without permission prompts" and keeps its guards (REMOVE IN THE NEXT RELEASE).
   /** `--fresh`: start a new conversation even if one exists. First spawn
    *  only — a restore always continues. */
   fresh?: boolean;

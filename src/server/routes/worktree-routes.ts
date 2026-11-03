@@ -287,7 +287,13 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     const failed = await new Promise<string | null>((resolve) => {
       try {
         // Not detached on Windows: cmd.exe running code.cmd would then flash a console window (process.ts).
-        const child = crossSpawn(editor, editorArgs(editor, folder, file), { detached: detachHere(), stdio: 'ignore', windowsHide: true });
+        // keepCwdLookup: the editor is no tool run — its own terminals and tasks would inherit shellEnv's switch (spawn.ts).
+        const child = crossSpawn(editor, editorArgs(editor, folder, file), {
+          detached: detachHere(),
+          stdio: 'ignore',
+          windowsHide: true,
+          keepCwdLookup: true,
+        });
         // A missing editor surfaces as 'error' — on Windows only when the
         // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
         // so wait for an error, an exit, or a moment of it running.
@@ -334,6 +340,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
         stdio: 'ignore',
         shell: false,
         windowsHide: false, // a Windows Terminal tab: the window is what was asked for
+        // node's spawn, not work's wrapper: no shellEnv — the shell in the tab is the user's (shell-env.ts).
       });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);

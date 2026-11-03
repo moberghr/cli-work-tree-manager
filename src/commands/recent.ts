@@ -4,7 +4,8 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/platform/config.js';
-import { clearLaunchedUnsafe, loadHistory, getRecentSessions, touchSession } from '../core/sessions/history.js';
+import { clearLaunchedUnsafeWhenIdle } from '../core/sessions/legacy-unsafe-io.js';
+import { loadHistory, getRecentSessions, touchSession } from '../core/sessions/history.js';
 import { retiredUnsafeOption, warnRetiredUnsafe } from './shared/retired-unsafe.js';
 import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
 import { launchAi } from '../core/platform/launch.js';
@@ -80,7 +81,7 @@ export const recentCommand: CommandModule = {
 
       // Only its last access: the list was read before the picker waited on you, and a repo may have been added since.
       touchSession(choice.target, choice.branch);
-      clearLaunchedUnsafe(choice.target, choice.branch); // started normally now (legacy-unsafe.ts; remove next release)
+      clearLaunchedUnsafeWhenIdle(choice.target, choice.branch); // started normally now, unless the old one still runs (legacy-unsafe.ts; remove next release)
 
       const tool = agentFor(config, choice).launch.tool(config);
       console.log(chalk.cyan(`Resuming in: ${launchPath}`));

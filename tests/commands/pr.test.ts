@@ -3,7 +3,7 @@ import yargs from 'yargs';
 
 const session = { target: 'api', branch: 'feat/x', isGroup: false, paths: ['/wt/api'], createdAt: 'x', lastAccessedAt: 'x' };
 const draft = { threadId: 'PRRT_kwDOabc123', status: 'draft', draft: 'Fixed in abc1234', reviewer: 'copilot', prNumber: 7 };
-const h = vi.hoisted(() => ({ postDrafts: vi.fn(), draftReply: vi.fn(), unsafe: false }));
+const h = vi.hoisted(() => ({ postDrafts: vi.fn(), draftReply: vi.fn(), unsafe: null as null | 'old-host' | 'outside' | 'both' }));
 
 vi.mock('../../src/core/comments/pending-delivery.js', () => ({ findSessionForCwd: () => session }));
 vi.mock('../../src/core/platform/web-discovery.js', () => ({ readWebUrl: () => null }));
@@ -22,7 +22,7 @@ const { prCommand } = await import('../../src/commands/pr.js');
 afterEach(() => {
   h.postDrafts.mockReset();
   h.draftReply.mockReset();
-  h.unsafe = false;
+  h.unsafe = null;
   vi.restoreAllMocks();
 });
 
@@ -49,7 +49,7 @@ describe('work pr post', () => {
 
 describe('an agent still running as started --unsafe before the retirement (remove next release)', () => {
   it('work pr reply and work pr post refuse in it, and nothing is drafted or posted', async () => {
-    h.unsafe = true;
+    h.unsafe = 'outside';
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`exit ${code}`);
@@ -62,8 +62,8 @@ describe('an agent still running as started --unsafe before the retirement (remo
     }
     expect(exit).toHaveBeenCalledTimes(2);
     expect(errors.mock.calls.map((c) => String(c[0]))).toEqual([
-      expect.stringContaining('from before --unsafe was retired: restart it (work restart) first'),
-      expect.stringContaining('from before --unsafe was retired: restart it (work restart) first'),
+      expect.stringContaining('from before --unsafe was retired: quit it in its terminal and start it again with `work tree`'),
+      expect.stringContaining('from before --unsafe was retired: quit it in its terminal and start it again with `work tree`'),
     ]);
     expect(h.draftReply).not.toHaveBeenCalled();
     expect(h.postDrafts).not.toHaveBeenCalled();

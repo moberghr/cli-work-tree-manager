@@ -9,7 +9,7 @@ import {
   type SendDeps,
   type TurnStatus,
 } from '../../../src/core/sessions/session-control.js';
-import { STILL_UNSAFE } from '../../../src/core/sessions/legacy-unsafe.js';
+import { stillUnsafeMessage } from '../../../src/core/sessions/legacy-unsafe.js';
 
 /** Driving a session from outside its terminal: the policy (session-control.ts), with its I/O faked. */
 
@@ -43,8 +43,9 @@ describe('sendToSession', () => {
   });
 
   it('an agent still running as started --unsafe before the retirement is refused, nothing posted (remove next release)', async () => {
-    const d = deps({ stillUnsafe: (id) => id === 's', hostRuns: () => true });
-    expect(await sendToSession('s', 'Run the tests', d)).toEqual({ ok: false, status: 409, error: STILL_UNSAFE });
+    const d = deps({ stillUnsafe: (id) => (id === 's' ? 'old-host' : null), hostRuns: () => true });
+    expect(await sendToSession('s', 'Run the tests', d)).toEqual({ ok: false, status: 409, error: stillUnsafeMessage('old-host') });
+    expect(stillUnsafeMessage('old-host')).toContain('run `work pty-host --restart`');
     expect(d.posted).toEqual([]);
     expect(d.start).not.toHaveBeenCalled();
     expect(await sendToSession('t', 'x', d)).toMatchObject({ ok: true });

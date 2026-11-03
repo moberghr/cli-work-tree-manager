@@ -192,8 +192,8 @@ export function touchSession(target: string, branch: string): void {
 }
 
 /**
- * A current `work` launches the session's agent directly, in its own permission mode: a `launchedUnsafe` from before
- * `--unsafe` was retired no longer describes it (legacy-unsafe.ts). REMOVE IN THE NEXT RELEASE.
+ * Drops the row's `launchedUnsafe` from before `--unsafe` was retired. Called through `clearLaunchedUnsafeWhenIdle`
+ * (legacy-unsafe-io.ts), which leaves it while an agent of the session still runs anywhere. REMOVE IN THE NEXT RELEASE.
  */
 export function clearLaunchedUnsafe(target: string, branch: string): void {
   tx((d) => {

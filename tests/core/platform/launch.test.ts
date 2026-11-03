@@ -19,14 +19,32 @@ vi.mock('../../../src/core/platform/spawn.js', () => ({
   ),
 }));
 
-import { editorArgs, launchAi, openUrl } from '../../../src/core/platform/launch.js';
+import { editorArgs, launchAi, openInEditor, openUrl, openVSCode } from '../../../src/core/platform/launch.js';
 import { getAiTool } from '../../../src/core/platform/ai-launcher.js';
 
 describe('openUrl', () => {
   it('starts the browser hidden: no console window flashes up first (cmd /c start on Windows)', () => {
     openUrl('http://127.0.0.1:5000/');
-    expect(spawned.at(-1)?.opts).toEqual({ stdio: 'ignore', detached: process.platform !== 'win32', windowsHide: true });
+    expect(spawned.at(-1)?.opts).toEqual({
+      stdio: 'ignore',
+      detached: process.platform !== 'win32',
+      windowsHide: true,
+      keepCwdLookup: true,
+    });
     expect(spawned.at(-1)?.args.at(-1)).toBe('http://127.0.0.1:5000/');
+  });
+});
+
+describe("keepCwdLookup: what you work in keeps cmd.exe's usual lookup; a tool run doesn't (N4)", () => {
+  it('the editor, VS Code and the browser pass it; launchAi (a tool run) does not', () => {
+    openInEditor('/x/config.json');
+    expect(spawned.at(-1)?.opts).toMatchObject({ keepCwdLookup: true });
+    openVSCode('/wt/api');
+    expect(spawned.at(-1)?.opts).toMatchObject({ keepCwdLookup: true });
+    openUrl('http://127.0.0.1:5000/');
+    expect(spawned.at(-1)?.opts).toMatchObject({ keepCwdLookup: true });
+    launchAi('/wt/api', getAiTool({}));
+    expect(spawned.at(-1)?.opts).not.toHaveProperty('keepCwdLookup');
   });
 });
 

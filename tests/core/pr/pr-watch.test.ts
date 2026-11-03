@@ -835,15 +835,27 @@ describe('PR watch', () => {
     it('an agent still running as started --unsafe before the retirement gets no review text; the strip still counts (remove next release)', async () => {
       let t = LATER;
       let unsafe = true;
-      const runsUnsafe = vi.fn((id: string) => id === 's1' && unsafe);
+      const runsUnsafe = vi.fn((id: string) => (id === 's1' && unsafe ? ('outside' as const) : null));
+      const activity = createActivityLog();
       const h = harness([repo('api', pr({ updatedAt: '2026-10-26T12:53:12Z' }))], ON, false, fb([thread('1', 'alice')]), {
         now: () => t,
         runsUnsafe,
+        activity,
       });
       await h.watch.tick();
       expect(h.deps.tell).not.toHaveBeenCalled();
       expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
       expect(runsUnsafe).toHaveBeenCalledWith('s1');
+      // Said in Activity, at warn, with what lifts it (N5).
+      const held = activity
+        .snapshot()
+        .recent.flatMap((r) => r.notes)
+        .find((n) => n.text.includes('held'));
+      expect(held).toMatchObject({ level: 'warn' });
+      expect(held?.text).toContain('1 new review comment on #');
+      expect(held?.text).toContain(
+        'held: its agent still runs as started --unsafe, so review text waits until it is restarted — quit it in its terminal and start it again with `work tree`',
+      );
       // Restarted by a current host: the guard drops out, and the thread is handed over at its next read.
       unsafe = false;
       t += THREADS_RECHECK_MS + 1;

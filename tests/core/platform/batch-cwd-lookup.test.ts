@@ -29,6 +29,17 @@ describe('onPathOnly: a batch file gets cmd.exe’s working-folder lookup turned
     }
     expect(onPathOnly(['x.cmd', ['a'], { cwd: '/wt' }], 'linux')).toEqual(['x.cmd', ['a'], { cwd: '/wt' }]);
   });
+
+  it('keepCwdLookup (an editor, a URL): no switch, the option taken off; a tool run (the same .cmd without it) gets the switch (N4)', () => {
+    const bat = path.join(os.tmpdir(), 'some-editor.cmd');
+    const editor = onPathOnly([bat, ['.'], { cwd: 'C:/wt', stdio: 'ignore', keepCwdLookup: true }], 'win32');
+    expect(editor[2]).toEqual({ cwd: 'C:/wt', stdio: 'ignore' });
+    const tool = onPathOnly([bat, ['.'], { cwd: 'C:/wt', stdio: 'ignore' }], 'win32');
+    expect((tool[2] as { env?: NodeJS.ProcessEnv }).env?.[NO_CWD_LOOKUP]).toBe('1');
+    // A shell command line opting out keeps its environment as given; off Windows the option is still taken off.
+    expect(onPathOnly(['code', ['.'], { shell: true, keepCwdLookup: true }], 'win32')[2]).toEqual({ shell: true });
+    expect(onPathOnly(['code', ['.'], { keepCwdLookup: true }], 'linux')).toEqual(['code', ['.'], {}]);
+  });
 });
 
 describe.runIf(process.platform === 'win32')('a batch tool calling a bare name, with that name in the worktree (real cmd.exe)', () => {
