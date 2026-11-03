@@ -134,6 +134,8 @@ interface StoredContext {
   day?: string;
   /** The Time tab's Month view on screen (`YYYY-MM`), described afresh the same way. */
   month?: string;
+  /** The Reviews tab's PR on screen: its review described afresh at each prompt (a re-prepare, a submit change it). */
+  review?: { repo: string; number: number };
 }
 
 /**
@@ -162,9 +164,21 @@ export function describeView(view: AssistantView, session: SessionWire | null, n
   return lines.join('\n');
 }
 
-export function writeAssistantContext(text: string, now = Date.now(), day?: string, month?: string): void {
+export function writeAssistantContext(
+  text: string,
+  now = Date.now(),
+  day?: string,
+  month?: string,
+  review?: { repo: string; number: number },
+): void {
   fs.mkdirSync(assistantDir(), { recursive: true });
-  const stored: StoredContext = { at: new Date(now).toISOString(), text, ...(day ? { day } : {}), ...(month ? { month } : {}) };
+  const stored: StoredContext = {
+    at: new Date(now).toISOString(),
+    text,
+    ...(day ? { day } : {}),
+    ...(month ? { month } : {}),
+    ...(review ? { review } : {}),
+  };
   atomicWriteFile(contextFile(), JSON.stringify(stored));
 }
 
@@ -178,6 +192,14 @@ export function assistantContextDay(now = Date.now()): string | null {
 export function assistantContextMonth(now = Date.now()): string | null {
   const s = readStored(now);
   return s && typeof s.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(s.month) ? s.month : null;
+}
+
+/** The PR on screen, if the Reviews tab is: for the hook to describe its review as it is now. */
+export function assistantContextReview(now = Date.now()): { repo: string; number: number } | null {
+  const r = readStored(now)?.review as { repo?: unknown; number?: unknown } | undefined;
+  return r && typeof r.repo === 'string' && r.repo && typeof r.number === 'number' && Number.isInteger(r.number) && r.number > 0
+    ? { repo: r.repo, number: r.number }
+    : null;
 }
 
 function readStored(now: number): Partial<StoredContext> | null {

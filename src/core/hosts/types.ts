@@ -91,6 +91,15 @@ export interface OpenPr {
 
 export type HostResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
+/**
+ * How a review submit went. A failure says what went out before it (`posted`: the first N comments, in the order
+ * given; `summaryPosted`), and what may have (`inDoubt`: a call that timed out, which the host may have carried out):
+ * a retry must send none of those again.
+ */
+export type SubmitReviewResult =
+  | { ok: true; url?: string }
+  | { ok: false; error: string; posted?: number; summaryPosted?: boolean; inDoubt?: { comments: number[]; summary: boolean } };
+
 export interface GitHost {
   /** Stable id, on the wire and in config (`github`, `azure`). */
   readonly id: string;
@@ -116,6 +125,11 @@ export interface GitHost {
   parsePrUrl(text: string): PrLink | null;
   /** The ref a PR's code is at, fetchable from origin without a checkout. */
   prRef(number: number): string;
+  /**
+   * `prRef` is the PR merged into its target (Azure DevOps' `refs/pull/<n>/merge`), not its head: the head is that
+   * commit's second parent. A review is read and commented at the head, never at the merge commit.
+   */
+  readonly prRefIsMerge?: boolean;
 
   /** The PRs for the dashboard (yours, and those asking your review) across these repos. */
   list(repos: HostRepo[], run: CommandRunner): Promise<{ prs: PullRequestInfo[]; incomplete: string[] }>;
@@ -136,8 +150,11 @@ export interface GitHost {
    * null when there's none; undefined when the host couldn't say (branch tidy offers nothing then).
    */
   mergedPr(run: CommandRunner, cwd: string, branch: string, tip: string): Promise<number | null | undefined>;
-  /** Every open PR of the repo at `cwd` (the review queue's candidates). */
-  openPrs(run: CommandRunner, cwd: string): Promise<HostResult<{ prs: OpenPr[] }>>;
+  /**
+   * Every open PR of the repo at `cwd` (the review queue's candidates). `more`: the list stopped at its limit, so a
+   * PR missing from it may still be open (the queue then drops no review of that repo).
+   */
+  openPrs(run: CommandRunner, cwd: string): Promise<HostResult<{ prs: OpenPr[]; more?: boolean }>>;
   /**
    * Submit a review — its line comments, a verdict and a summary — at `commitId`, in one go: only on the user's click.
    */
@@ -151,14 +168,7 @@ export interface GitHost {
       body: string;
       comments: Array<{ path: string; line: number; body: string }>;
     },
-  ): Promise<HostResult<{ url?: string }>>;
-  /** Post a review comment on a line of a PR's new side, at `commitId` — only on the user's click. */
-  postReviewComment(
-    run: CommandRunner,
-    cwd: string,
-    number: number,
-    comment: { path: string; line: number; body: string; commitId: string },
-  ): Promise<HostResult<{ url?: string }>>;
+  ): Promise<SubmitReviewResult>;
   /** A PR's review threads, reviews and comments, and who you are; null when it couldn't say. */
   reviewFeedback(run: CommandRunner, cwd: string, number: number): Promise<ReviewFeedback | null>;
 

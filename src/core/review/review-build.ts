@@ -13,6 +13,7 @@ import { testBreakdown, type DiffFileLines } from './test-breakdown.js';
 import { agentPrompt, FLAG_LABEL, FLAGS, parseAgentPass, planReview, type PromptFile } from './review-plan.js';
 import { KIND_LABEL, KIND_ORDER } from './change-kinds.js';
 import { asData } from '../time/fence.js';
+import { onDiffLine } from './review-submit.js';
 
 /** What the queue knows of the PR (its host's open-PR row). */
 export interface ReviewMeta {
@@ -69,6 +70,20 @@ export function diffText(f: ParsedFile): string {
     .join('\n');
 }
 
+/** The new side's lines a review comment can go on (added and context lines of its hunks), as [first, last] ranges. */
+export function rightLines(f: ParsedFile): Array<[number, number]> {
+  const nums = f.hunks
+    .flatMap((h) => h.lines.filter((l) => (l.kind === 'add' || l.kind === 'context') && typeof l.newNum === 'number').map((l) => l.newNum!))
+    .sort((a, b) => a - b);
+  const out: Array<[number, number]> = [];
+  for (const n of nums) {
+    const last = out.at(-1);
+    if (last && n <= last[1] + 1) last[1] = Math.max(last[1], n);
+    else out.push([n, n]);
+  }
+  return out;
+}
+
 const asLines = (f: ParsedFile): DiffFileLines => ({
   path: f.path,
   ...(f.oldPath && f.oldPath !== f.path ? { oldPath: f.oldPath } : {}),
@@ -111,9 +126,30 @@ export function buildReview(
           breakdown.tests.map((t) => t.name),
         );
   const plan = planReview(kinds, breakdown, pass);
-  const aiStep: PrReviewWire['aiStep'] = answer === undefined ? 'none' : pass ? 'done' : 'failed';
+  // An answer that parses but names no story for the Logic files is no better than none: the stories are by folder.
+  const noStory = !!pass && !pass.stories.length && logic.length > 0;
+  const aiStep: PrReviewWire['aiStep'] = answer === undefined ? 'none' : pass && !noStory ? 'done' : 'failed';
   const byPath = new Map(files.map((f) => [f.path, f]));
   const now = (opts.now ?? new Date()).toISOString();
+  const wireFiles = kinds.map((k): ReviewFileWire => {
+    const f = byPath.get(k.path)!;
+    return {
+      path: k.path,
+      ...(f.oldPath && f.oldPath !== f.path ? { oldPath: f.oldPath } : {}),
+      status: f.status,
+      added: f.added,
+      deleted: f.deleted,
+      kind: k.kind,
+      why: k.why,
+      by: k.by,
+      lines: rightLines(f),
+    };
+  });
+  // A note on a line the diff doesn't show has no row to read or delete it on, and the host refuses the whole review
+  // for it: kept aside with its text, not among the drafts.
+  const fileOf = new Map(wireFiles.map((f) => [f.path, f]));
+  const onDiff = plan.drafts.filter((d) => onDiffLine(fileOf.get(d.path), d.line));
+  const offDiff = plan.drafts.filter((d) => !onDiffLine(fileOf.get(d.path), d.line));
   return {
     ...meta,
     status: 'ready',
@@ -121,23 +157,13 @@ export function buildReview(
       aiStep === 'done'
         ? null
         : aiStep === 'failed'
-          ? 'the AI step gave no usable answer: stories are by folder'
+          ? noStory
+            ? 'the AI step named no story: stories are by folder'
+            : 'the AI step gave no usable answer: stories are by folder'
           : (opts.notAskedWhy ?? (logic.length ? 'no AI step ran: stories are by folder' : null)),
     at: now,
     size: { files: files.length, added: files.reduce((n, f) => n + f.added, 0), deleted: files.reduce((n, f) => n + f.deleted, 0) },
-    files: kinds.map((k): ReviewFileWire => {
-      const f = byPath.get(k.path)!;
-      return {
-        path: k.path,
-        ...(f.oldPath && f.oldPath !== f.path ? { oldPath: f.oldPath } : {}),
-        status: f.status,
-        added: f.added,
-        deleted: f.deleted,
-        kind: k.kind,
-        why: k.why,
-        by: k.by,
-      };
-    }),
+    files: wireFiles,
     tests: {
       list: breakdown.tests,
       counts: breakdown.counts,
@@ -147,7 +173,18 @@ export function buildReview(
     },
     stories: plan.stories,
     unstoried: plan.unstoried,
-    drafts: plan.drafts.map((d) => ({ ...d, state: 'draft' as const })),
+    drafts: onDiff.map((d) => ({ ...d, state: 'draft' as const, by: 'ai' as const })),
+    ...(offDiff.length
+      ? {
+          dropped: offDiff.map((d) => ({
+            path: d.path,
+            line: d.line,
+            body: d.body,
+            by: 'ai' as const,
+            why: `line ${d.line} isn't in the diff, so it can't be a comment there`,
+          })),
+        }
+      : {}),
     asserts: plan.asserts,
     aiStep,
   };

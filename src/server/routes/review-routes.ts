@@ -1,20 +1,34 @@
 import type { Hono } from 'hono';
 import type { ParsedFile } from '../../core/diff/diff-parse.js';
-import type { HostResult } from '../../core/hosts/types.js';
+import type { SubmitReviewResult } from '../../core/hosts/types.js';
 import type { PrReviewWire, ReviewEvent, ReviewSettingsWire, ReviewsWire, ReviewSubmitInput } from '../../core/api-types.js';
-import { addDraft, afterSubmit, submitComments, submitRefusal } from '../../core/review/review-submit.js';
+import {
+  addDraft,
+  afterFailedSubmit,
+  afterSubmit,
+  clearDropped,
+  removeDraft,
+  settleInDoubt,
+  submitComments,
+  submitRefusal,
+  summaryToSend,
+} from '../../core/review/review-submit.js';
 import { summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 
 /**
  * Prepared PR reviews (#64): the list, a review, its diff, preparing one now,
  * its draft comments (the AI step's and yours), and submitting them as one
- * review — only on your click (POST …/submit), as PR replies are. The per-project settings for automatic reviews. Every change
- * broadcasts `reviews-changed`.
+ * review — only on your click (POST …/submit), as PR replies are: one
+ * submit of a review at a time; what a submit that stopped part way sent is
+ * recorded and never sent again; one that may have gone out (a timed-out
+ * call) waits for you to say whether it did (POST …/in-doubt) before
+ * anything is sent again. The per-project settings for automatic reviews.
+ * Every change broadcasts `reviews-changed`.
  */
 
 export interface ReviewRouteDeps {
-  runNow: (repo: string, number: number) => Promise<HostResult<{ review: PrReviewWire }>>;
+  runNow: (repo: string, number: number) => Promise<{ ok: true; review: PrReviewWire } | { ok: false; error: string }>;
   read: (repo: string, number: number) => PrReviewWire | null;
   all: () => PrReviewWire[];
   update: (repo: string, number: number, change: (r: PrReviewWire) => PrReviewWire) => PrReviewWire | null;
@@ -28,7 +42,7 @@ export interface ReviewRouteDeps {
     repoPath: string,
     number: number,
     review: { commitId: string; event: ReviewEvent; body: string; comments: Array<{ path: string; line: number; body: string }> },
-  ) => Promise<HostResult<{ url?: string }>>;
+  ) => Promise<SubmitReviewResult>;
   settings: () => ReviewSettingsWire;
   setMode: (project: string, mode: 'all' | 'asked' | 'off') => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
@@ -38,6 +52,8 @@ const num = (s: string) => (/^\d+$/.test(s) ? Number(s) : null);
 
 export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
   const changed = (repo: string, number: number) => deps.broadcast('reviews-changed', { repo, number });
+  /** The reviews being submitted now: a second submit (another window, a double click) waits for none, it's refused. */
+  const submitting = new Set<string>();
 
   app.get('/api/reviews', (c) => {
     const reviews = deps
@@ -115,12 +131,60 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     const at = deps.repoPath(repo);
     if (!r || n === null || !at) return c.json({ error: 'no review of that PR' }, 404);
     const input: unknown = await c.req.json().catch(() => null);
-    const refusal = submitRefusal(r, input);
-    if (refusal) return c.json({ error: refusal }, 400);
+    // Checked and taken with no await between: two requests at once can't both pass.
+    const k = `${repo}#${n}`;
+    if (submitting.has(k)) return c.json({ error: 'this review is being submitted already' }, 409);
+    const cur = deps.read(repo, n) ?? r; // as it is after the wait for the body (a submit that just ended changed it)
+    const refusal = submitRefusal(cur, input);
+    if (refusal) return c.json({ error: refusal }, cur.inDoubt ? 409 : 400);
     const ok = input as ReviewSubmitInput;
-    const res = await deps.submit(at, n, { commitId: r.headSha, event: ok.event, body: ok.body.trim(), comments: submitComments(r, ok) });
-    if (!res.ok) return c.json({ error: res.error }, 409);
-    const next = deps.update(repo, n, (cur) => afterSubmit(cur, ok, res.url, new Date()));
+    submitting.add(k);
+    try {
+      const res = await deps.submit(at, n, {
+        commitId: cur.headSha,
+        event: ok.event,
+        body: summaryToSend(cur, ok),
+        comments: submitComments(cur, ok),
+      });
+      if (!res.ok) {
+        // What went out before it stopped is recorded (never sent again); what may have, waits for your word.
+        const next = deps.update(repo, n, (was) => afterFailedSubmit(was, ok, res, new Date()));
+        changed(repo, n);
+        return c.json({ error: res.error, ...(next ? { review: next } : {}) }, 409);
+      }
+      const next = deps.update(repo, n, (was) => afterSubmit(was, ok, res.url, new Date()));
+      changed(repo, n);
+      return c.json(next);
+    } finally {
+      submitting.delete(k);
+    }
+  });
+
+  // After a submit that may have gone out: you looked at the PR, and say whether it did.
+  app.post('/api/reviews/:repo/:number/in-doubt', async (c) => {
+    const repo = c.req.param('repo');
+    const n = num(c.req.param('number'));
+    if (n === null || !deps.read(repo, n)) return c.json({ error: 'no review of that PR' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { went?: unknown } | null;
+    if (!body || typeof body.went !== 'boolean') return c.json({ error: 'expected {went: true|false}' }, 400);
+    const went = body.went;
+    let none = false;
+    const next = deps.update(repo, n, (cur) => {
+      const settled = settleInDoubt(cur, went, new Date());
+      if (!settled) none = true;
+      return settled ?? cur;
+    });
+    if (none || !next) return c.json({ error: 'no submit of this review is in doubt' }, 409);
+    changed(repo, n);
+    return c.json(next);
+  });
+
+  // Forget the drafts set aside (off the diff, or dropped by a new push): you copied what you wanted.
+  app.delete('/api/reviews/:repo/:number/dropped', (c) => {
+    const repo = c.req.param('repo');
+    const n = num(c.req.param('number'));
+    const next = n === null ? null : deps.update(repo, n, clearDropped);
+    if (!next || n === null) return c.json({ error: 'no review of that PR' }, 404);
     changed(repo, n);
     return c.json(next);
   });
@@ -128,9 +192,19 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
   app.delete('/api/reviews/:repo/:number/drafts/:id', (c) => {
     const repo = c.req.param('repo');
     const n = num(c.req.param('number'));
-    if (n === null) return c.json({ error: 'not a PR number' }, 400);
+    if (n === null || !deps.read(repo, n)) return c.json({ error: 'no review of that PR' }, 404);
     const id = c.req.param('id');
-    const next = deps.update(repo, n, (cur) => ({ ...cur, drafts: cur.drafts.filter((d) => d.id !== id || d.state === 'posted') }));
+    let refused: { error: string; status: 404 | 409 } | null = null;
+    const next = deps.update(repo, n, (cur) => {
+      const out = removeDraft(cur, id);
+      if ('error' in out) {
+        refused = out;
+        return cur;
+      }
+      return out.review;
+    });
+    const no = refused as { error: string; status: 404 | 409 } | null;
+    if (no) return c.json({ error: no.error }, no.status);
     if (!next) return c.json({ error: 'no review of that PR' }, 404);
     changed(repo, n);
     return c.json(next);

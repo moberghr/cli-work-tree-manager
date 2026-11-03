@@ -4,14 +4,18 @@ import type { ParsedFile } from '../../../../../core/diff/diff-parse.js';
 import { FLAG_LABEL } from '../../../../../core/review/review-plan.js';
 import { hostName } from '../../../../../core/hosts/commands.js';
 import {
+  clearReviewDropped,
   fetchReview,
   fetchReviewDiff,
   fetchReviews,
   fetchReviewSettings,
   prepareReview,
+  ReviewSubmitError,
   saveReviewMode,
+  settleReviewInDoubt,
   submitReview,
 } from '../../../api/panes.js';
+import { isStaleRunning } from '../../../../../core/review/review-submit.js';
 import { reviewDraftsApi } from '../../../api/review-drafts-api.js';
 import { useSse } from '../../../api/events.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -233,6 +237,10 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
     requestAnimationFrame(() => document.getElementById(anchor(path))?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
   const t = r.tests;
+  // A review left preparing by a work web that stopped: its button works again.
+  const preparing = busy || (r.status === 'running' && !isStaleRunning(r, new Date()));
+  const settle = (went: boolean) => settleReviewInDoubt(repo, number, went).then(setR, (e: Error) => setError(e.message));
+  const clearDropped = () => clearReviewDropped(repo, number).then(setR, (e: Error) => setError(e.message));
 
   return (
     <article className="wd-review">
@@ -258,6 +266,7 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
                   ? 'changes requested'
                   : 'a review'}{' '}
               {relativeTime(r.submitted.at)} ago
+              {r.submitted.partial && ' — only part of it went out (the rest are still drafts)'}
               {r.submitted.url && (
                 <>
                   {' '}
@@ -270,8 +279,8 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
           )}
         </p>
         <div className="wd-review-actions">
-          <button type="button" className="wd-btn-secondary" onClick={prepare} disabled={busy || r.status === 'running'}>
-            {busy || r.status === 'running' ? 'Preparing…' : r.status === 'ready' ? 'Prepare again' : 'Prepare it now'}
+          <button type="button" className="wd-btn-secondary" onClick={prepare} disabled={preparing}>
+            {preparing ? 'Preparing…' : r.status === 'ready' ? 'Prepare again' : 'Prepare it now'}
           </button>
           {onAsk && (
             <button type="button" className="wd-btn-secondary" onClick={onAsk}>
@@ -279,6 +288,46 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
             </button>
           )}
         </div>
+        {r.inDoubt && (
+          <div className="wd-review-in-doubt" role="alert">
+            <p className="wd-review-warn">
+              Your submit {relativeTime(r.inDoubt.at)} ago may have gone out ({r.inDoubt.error}):{' '}
+              {r.inDoubt.drafts.length ? `${r.inDoubt.drafts.length} comment${r.inDoubt.drafts.length === 1 ? '' : 's'}` : ''}
+              {r.inDoubt.drafts.length && r.inDoubt.summary ? ' and ' : ''}
+              {r.inDoubt.summary ? 'the summary' : ''}. Look at the PR on{' '}
+              <a href={r.url} target="_blank" rel="noreferrer">
+                {hostName(r.host)}
+              </a>
+              ; nothing is sent again until you say.
+            </p>
+            <button type="button" className="wd-btn-secondary" onClick={() => void settle(true)}>
+              It went out
+            </button>{' '}
+            <button type="button" className="wd-btn-secondary" onClick={() => void settle(false)}>
+              It didn&apos;t: let me send it
+            </button>
+          </div>
+        )}
+        {r.dropped && r.dropped.length > 0 && (
+          <details className="wd-review-dropped">
+            <summary className="wd-review-warn">
+              {r.dropped.length} comment{r.dropped.length === 1 ? '' : 's'} set aside: not on a line of the diff
+            </summary>
+            <ul>
+              {r.dropped.map((d, i) => (
+                <li key={`${d.path}:${d.line}:${i}`}>
+                  <span className="wd-start-note">
+                    {d.path}:{d.line} · {d.by === 'you' ? 'yours' : 'AI'} · {d.why}
+                  </span>
+                  <div>{d.body}</div>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="wd-link-button" onClick={() => void clearDropped()}>
+              Forget them
+            </button>
+          </details>
+        )}
         {r.status === 'ready' && (
           <div className="wd-review-tests-strip">
             <button type="button" className="wd-link-button" onClick={() => setTestsOpen((v) => !v)} aria-expanded={testsOpen}>
@@ -396,9 +445,10 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
               {r.unstoried.length > 0 && <p className="wd-start-note">In no story: {r.unstoried.join(', ')}</p>}
             </div>
           </div>
-          <SubmitBar review={r} onDone={setR} />
         </ReviewProvider>
       )}
+      {/* Outside the provider (remounted when the drafts change): a submit's error stays on screen. */}
+      {r.status === 'ready' && <SubmitBar review={r} onDone={setR} />}
     </article>
   );
 }
@@ -419,7 +469,11 @@ function SubmitBar({ review, onDone }: { review: PrReviewWire; onDone: (r: PrRev
           onDone(r);
           setBody('');
         },
-        (e: Error) => setError(e.message),
+        (e: Error) => {
+          // Part of it may have gone out: the review as it stands now shows which comments did.
+          if (e instanceof ReviewSubmitError && e.review) onDone(e.review);
+          setError(e.message);
+        },
       )
       .finally(() => setBusy(false));
   };
@@ -443,7 +497,7 @@ function SubmitBar({ review, onDone }: { review: PrReviewWire; onDone: (r: PrRev
       <button
         type="button"
         className="wd-btn-primary"
-        disabled={busy || (event !== 'approve' && !drafts.length && !body.trim())}
+        disabled={busy || !!review.inDoubt || (event !== 'approve' && !drafts.length && !body.trim())}
         onClick={submit}
       >
         {busy ? 'Submitting…' : `Submit review on ${hostName(review.host)}`}

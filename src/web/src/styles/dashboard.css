@@ -5629,6 +5629,25 @@ a.wd-pr-chip:hover {
 .wd-reviews-status-ready {
   color: var(--ok, #2f855a);
 }
+.wd-review-in-doubt,
+.wd-review-dropped {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--warn, #b7791f);
+  border-radius: 4px;
+}
+.wd-review-in-doubt p {
+  margin: 0 0 6px;
+}
+.wd-review-dropped ul {
+  margin: 6px 0;
+  padding-left: 18px;
+  max-height: 160px;
+  overflow: auto;
+}
+.wd-review-dropped li div {
+  white-space: pre-wrap;
+}
 .wd-review {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,44 @@
+import type { ActivityLog } from '../platform/activity.js';
+import type { ReviewQueue } from './review-queue.js';
+
+/**
+ * When work web sweeps for PR reviews (#64): the first a few minutes after
+ * start (the dashboard comes up first), then every 10 minutes, each shown
+ * as a schedule in the Activity panel. Only a work web that acts (`jobs`):
+ * the dev server serves the reviews and prepares none — your clicks still
+ * do, through the queue's `runNow`.
+ */
+
+export const REVIEWS_FIRST_MS = 4 * 60_000;
+export const REVIEWS_EVERY_MS = 10 * 60_000;
+
+export interface ReviewSweeps {
+  stop(): void;
+}
+
+export function startReviewSweeps(opts: {
+  queue: Pick<ReviewQueue, 'sweep'>;
+  activity?: ActivityLog;
+  /** This work web acts on things (not the dev server). */
+  jobs: boolean;
+  now?: () => number;
+}): ReviewSweeps {
+  if (!opts.jobs) return { stop: () => undefined };
+  const now = opts.now ?? Date.now;
+  const schedule = opts.activity?.schedule('reviews', 'Preparing PR reviews', REVIEWS_EVERY_MS);
+  const sweep = () => {
+    schedule?.next(now() + REVIEWS_EVERY_MS);
+    void opts.queue.sweep();
+  };
+  const first = setTimeout(sweep, REVIEWS_FIRST_MS);
+  first.unref?.();
+  schedule?.next(now() + REVIEWS_FIRST_MS);
+  const every = setInterval(sweep, REVIEWS_EVERY_MS);
+  every.unref?.();
+  return {
+    stop() {
+      clearTimeout(first);
+      clearInterval(every);
+    },
+  };
+}

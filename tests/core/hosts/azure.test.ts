@@ -380,10 +380,14 @@ describe('the adapter, through the same flows as the fake host', () => {
 
   it('a review comment is a new thread on the line; open PRs for the review queue; the PR ref is the merge ref', async () => {
     az.posted = [];
-    expect(await azure.postReviewComment(run, api.path, 7, { path: 'b.txt', line: 1, body: 'Why two?', commitId: api.head })).toEqual({
-      ok: true,
-      url: 'https://dev.azure.com/acme/Shop/_git/api/pullrequest/7?discussionId=99',
-    });
+    expect(
+      await azure.submitReview(run, api.path, 7, {
+        commitId: api.head,
+        event: 'comment',
+        body: '',
+        comments: [{ path: 'b.txt', line: 1, body: 'Why two?' }],
+      }),
+    ).toEqual({ ok: true, url: 'https://dev.azure.com/acme/Shop/_git/api/pullrequest/7' });
     expect(az.posted[0]).toMatchObject({ resource: 'pullRequestThreads', method: 'POST', body: { threadContext: { filePath: '/b.txt' } } });
     az.prs = [prOf({ isDraft: true }), prOf({ pullRequestId: 8, createdBy: { uniqueName: 'ana@acme.example' } })];
     const open = await azure.openPrs(run, api.path);
@@ -392,5 +396,6 @@ describe('the adapter, through the same flows as the fake host', () => {
       [8, false, 'ana@acme.example'],
     ]);
     expect(azure.prRef(7)).toBe('refs/pull/7/merge');
+    expect(azure.prRefIsMerge).toBe(true); // the review reads the head: the merge's second parent
   });
 });

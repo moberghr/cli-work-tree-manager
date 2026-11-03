@@ -3,8 +3,6 @@ import { describeView, writeAssistantContext } from '../../core/agents/assistant
 import { findSession } from '../../core/sessions/web-state.js';
 import { sessionWire, type SessionWireOptions } from '../../core/sessions/session-wire.js';
 import type { AssistantView } from '../../core/api-types.js';
-import { readReview } from '../../core/review/review-store.js';
-import { describeReview } from '../../core/review/review-build.js';
 
 export interface AssistantRoutesOptions {
   /** The web server's cached stats and overlaps, for the selected session. */
@@ -38,14 +36,14 @@ export function mountAssistantRoutes(app: Hono, opts: AssistantRoutesOptions = {
     let wire = s ? sessionWire(s, opts.wireOptions) : null;
     const o = wire ? opts.overlapsFor?.(wire.id) : undefined;
     if (wire && o) wire = { ...wire, overlaps: o };
-    // The Time tab's day (or month) is kept by date: the hook describes it as it is at each prompt.
-    // The Reviews tab's PR: its prepared review, in words (fenced: the PR is someone else's text).
-    const review = view.tab === 'reviews' && view.review ? readReview(view.review.repo, view.review.number) : null;
+    // The Time tab's day (or month) is kept by date, the Reviews tab's PR by its key: the hook describes each as it
+    // is at each prompt (a Save, a re-prepare or a submit since the tab said which shows at once).
     writeAssistantContext(
-      [describeView(view, wire), review ? describeReview(review) : ''].filter(Boolean).join('\n'),
+      describeView(view, wire),
       Date.now(),
       view.tab === 'time' && !view.month ? view.day : undefined,
       view.tab === 'time' ? view.month : undefined,
+      view.tab === 'reviews' && view.review && view.review.number > 0 ? view.review : undefined,
     );
     return c.json({ ok: true });
   });

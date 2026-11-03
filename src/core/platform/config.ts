@@ -354,7 +354,7 @@ export function loadConfig(): WorkConfig | null {
       reviews:
         parsed.reviews && typeof parsed.reviews === 'object' && !Array.isArray(parsed.reviews)
           ? {
-              ...(parsed.reviews.projects && typeof parsed.reviews.projects === 'object'
+              ...(parsed.reviews.projects && typeof parsed.reviews.projects === 'object' && !Array.isArray(parsed.reviews.projects)
                 ? {
                     projects: Object.fromEntries(
                       Object.entries(parsed.reviews.projects as Record<string, unknown>).filter(

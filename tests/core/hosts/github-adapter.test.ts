@@ -157,37 +157,6 @@ describe("GitHub's review-queue groundwork", () => {
     expect((await github.openPrs(recorder(() => ({ stdout: 'nope' })).run, '/repo')).ok).toBe(false);
   });
 
-  it('postReviewComment: every field its own argv entry (a body with quotes and newlines stays one argument), on the new side', async () => {
-    const body = 'Don\'t "round" here;\n$(rm -rf /)';
-    const { run, calls } = recorder(() => ({ stdout: JSON.stringify({ html_url: 'https://github.com/acme/api/pull/7#discussion_r1' }) }));
-    const r = await github.postReviewComment(run, '/repo', 7, { path: 'src/a.ts', line: 6, body, commitId: 'abc' });
-    expect(r).toEqual({ ok: true, url: 'https://github.com/acme/api/pull/7#discussion_r1' });
-    expect(calls[0]).toMatchObject({ cmd: 'gh', cwd: '/repo' });
-    expect(calls[0].args).toEqual([
-      'api',
-      'repos/{owner}/{repo}/pulls/7/comments',
-      '-f',
-      `body=${body}`,
-      '-f',
-      'commit_id=abc',
-      '-f',
-      'path=src/a.ts',
-      '-F',
-      'line=6',
-      '-f',
-      'side=RIGHT',
-    ]);
-  });
-
-  it("postReviewComment: gh's refusal is said; a post whose answer isn't JSON still posted", async () => {
-    const c = { path: 'a', line: 1, body: 'b', commitId: 'c' };
-    expect(await github.postReviewComment(recorder(() => ({ code: 1, stderr: 'HTTP 422: line not in diff\n' })).run, '/r', 7, c)).toEqual({
-      ok: false,
-      error: 'HTTP 422: line not in diff',
-    });
-    expect(await github.postReviewComment(recorder(() => ({ stdout: 'not json' })).run, '/r', 7, c)).toEqual({ ok: true });
-  });
-
   it("prRef: a PR's head, fetchable from origin without a checkout", () => {
     expect(github.prRef(42)).toBe('refs/pull/42/head');
   });

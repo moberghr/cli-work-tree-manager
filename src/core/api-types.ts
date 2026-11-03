@@ -1451,6 +1451,31 @@ export interface ReviewFileWire {
   kind: import('./review/change-kinds.js').ChangeKind;
   why: string;
   by: 'rule' | 'git';
+  /**
+   * The lines of the new side a review comment can go on (the diff's added and context lines), as [first, last]
+   * ranges. Absent on a review prepared before they were recorded: then nothing is checked.
+   */
+  lines?: Array<[number, number]>;
+}
+
+/** A draft that couldn't stay on the review (its line isn't in the diff any more, or never was), kept so its text isn't lost. */
+export interface ReviewDroppedWire {
+  path: string;
+  line: number;
+  body: string;
+  by: 'ai' | 'you';
+  why: string;
+}
+
+/** A submit whose outcome isn't known (the host's call timed out): what may have gone out. Nothing is sent again until you say. */
+export interface ReviewInDoubtWire {
+  at: string;
+  event: ReviewEvent;
+  /** The drafts that may have gone out, with the text sent. */
+  drafts: Array<{ id: string; body: string }>;
+  /** The summary that may have gone out; null when it wasn't part of it. */
+  summary: string | null;
+  error: string;
 }
 
 /** A draft review comment — the AI step's note (`by: 'ai'`) or yours — on a line of the PR's new side; it goes out only in a review you submit. */
@@ -1485,9 +1510,16 @@ export interface PrReviewWire {
   branch: string;
   base: string;
   headSha: string;
+  /**
+   * The head the host's PR list named when this was written: what a sweep compares (a fetch can land on a newer
+   * push, and an Azure DevOps merge ref is another commit). Absent: `headSha`.
+   */
+  listedHead?: string;
   /** The host it's on (absent: GitHub). */
   host?: string;
   status: ReviewStatus;
+  /** Why it waits: today's cap (picked up when the day allows), or its size (only your click). */
+  held?: 'cap' | 'size';
   /** Why it waits, failed, or was prepared without the AI step. */
   why: string | null;
   /** When the status last changed (ISO). */
@@ -1515,8 +1547,15 @@ export interface PrReviewWire {
   mergeBase?: string;
   /** When it was prepared (counts against the day's cap). */
   preparedAt?: string;
-  /** Your submitted review: when, how, and its link. */
-  submitted?: { at: string; event: ReviewEvent; url?: string };
+  /**
+   * Your submitted review: when, how, and its link. `partial`: it stopped part way (some comments went out, the rest
+   * are still drafts); `summary`: the summary that went out, not sent again.
+   */
+  submitted?: { at: string; event: ReviewEvent; url?: string; partial?: boolean; summary?: string };
+  /** Drafts that couldn't stay (off the diff's lines, or on a file the new push no longer changes): their text, and why. */
+  dropped?: ReviewDroppedWire[];
+  /** A submit that may or may not have gone out: you say which (POST …/in-doubt) before anything is sent again. */
+  inDoubt?: ReviewInDoubtWire;
 }
 
 /** One row of the Reviews list. */

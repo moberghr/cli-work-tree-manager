@@ -12,3 +12,11 @@ export function asData(text: string, max = 300): string {
     .trim()
     .slice(0, max);
 }
+
+/**
+ * Many lines of text written by others (a diff), made safe to put between `<<<` and `>>>`: its lines kept, only a
+ * fence marker changed (`>>>` → `›››`), so nothing in it can close the fence early. Pure.
+ */
+export function asDataBlock(text: string): string {
+  return text.replace(/<{3,}|>{3,}/g, (m) => m.replace(/[<>]/g, (c) => (c === '<' ? '‹' : '›')));
+}

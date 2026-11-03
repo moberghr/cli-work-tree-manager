@@ -5,7 +5,7 @@ import type { ActivityLog } from '../platform/activity.js';
 import type { KindRule } from './change-kinds.js';
 import type { PreparedPr } from './review-source.js';
 import { buildReview, kindsOf, reviewPrompt, type ReviewMeta } from './review-build.js';
-import { reviewKey } from './review-store.js';
+import { carryForward, isStaleRunning, preparedOn } from './review-submit.js';
 
 /**
  * The review queue (#64): which open PRs get a review prepared, and when.
@@ -15,12 +15,20 @@ import { reviewKey } from './review-store.js';
  * - Per project (a repo or a group, config `reviews.projects`): `all` open
  *   PRs (the default), only those `asked` of you by name, or `off`. Never
  *   your own PRs, never drafts: a review is for what others ask you to read.
- * - A review is for one head commit: a new push queues it again; the same
- *   head is never done twice.
+ * - A review is for one head commit — the one the host's list names
+ *   (`listedHead`): a new push queues it again; the same head is never done
+ *   twice. Your drafts, what you posted and submitted carry over to the
+ *   review prepared again (`carryForward`).
  * - Automatic reviews spend the user's agent plan: one at a time, at most
- *   `maxPerDay` a day when config sets one, and a PR over `maxLines` changed lines waits for a
- *   click (`runNow` ignores both: the user asked).
- * - Reviews of PRs no longer open go.
+ *   `maxPerDay` a day when config sets one (one held by the cap is picked up
+ *   when the day allows), and a PR over `maxLines` changed lines waits for a
+ *   click — by the list's size, or, for a host whose list has none, the
+ *   fetched diff's (`runNow` ignores both: the user asked).
+ * - Who you are must be known: without it the project is left for that
+ *   sweep (your own PRs would be reviewed, or every `asked` one skipped).
+ * - Reviews of PRs no longer open go, with their fetched code — only from a
+ *   complete list (one at its limit drops nothing).
+ * - A review left `running` (work web stopped meanwhile) is prepared again.
  * Each decision is noted in the Activity panel with its reason.
  */
 
@@ -32,9 +40,11 @@ export interface ReviewProject {
 
 export interface ReviewStore {
   read(repo: string, number: number): PrReviewWire | null;
-  write(r: PrReviewWire): void;
+  /** Read and write one review in one transaction: `change` gets what is stored (null: none). */
+  upsert(repo: string, number: number, change: (was: PrReviewWire | null) => PrReviewWire): PrReviewWire;
   all(): PrReviewWire[];
-  keepOnly(repos: string[], open: Set<string>): number;
+  /** Drop the reviews of PRs no longer open (repos asked only): the ones dropped. */
+  keepOnly(repos: string[], open: Set<string>): Array<{ repo: string; number: number }>;
 }
 
 export interface ReviewQueueDeps {
@@ -42,6 +52,8 @@ export interface ReviewQueueDeps {
   hostOf: (repoPath: string) => GitHost;
   run: CommandRunner;
   prepare: (repoPath: string, host: GitHost, pr: { number: number; base: string }) => Promise<HostResult<PreparedPr>>;
+  /** A review gone: its fetched code goes too (`refs/work/review/<n>`). */
+  dropRef?: (repoPath: string, number: number) => Promise<void>;
   /** The summarising agent's one-shot run (`runInternal`); absent: no AI step, stories by folder. */
   agent?: (prompt: string) => Promise<string | null>;
   rules?: () => KindRule[];
@@ -61,13 +73,11 @@ export interface ReviewQueue {
   runNow(repo: string, number: number): Promise<HostResult<{ review: PrReviewWire }>>;
 }
 
-/** A local day (YYYY-MM-DD). */
-const dayOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
 /** A review not prepared yet: what is known of the PR, and where it stands. Pure. */
 export function placeholder(meta: ReviewMeta, status: ReviewStatus, why: string | null, now: Date, size?: OpenPr): PrReviewWire {
   return {
     ...meta,
+    listedHead: meta.headSha,
     status,
     why,
     at: now.toISOString(),
@@ -79,6 +89,42 @@ export function placeholder(meta: ReviewMeta, status: ReviewStatus, why: string 
     drafts: [],
     asserts: {},
     aiStep: 'none',
+  };
+}
+
+/**
+ * A review's new status, keeping what it holds (your drafts, what you submitted) until it's prepared again: only
+ * where it stands, for which head, and why it waits change. Pure.
+ */
+export function withStatus(
+  was: PrReviewWire | null,
+  meta: ReviewMeta,
+  status: ReviewStatus,
+  why: string | null,
+  now: Date,
+  opts: { size?: OpenPr; held?: PrReviewWire['held']; diffSize?: PrReviewWire['size'] } = {},
+): PrReviewWire {
+  if (!was) {
+    const fresh = placeholder(meta, status, why, now, opts.size);
+    return { ...fresh, ...(opts.diffSize ? { size: opts.diffSize } : {}), ...(opts.held ? { held: opts.held } : {}) };
+  }
+  const { held: _old, ...rest } = was;
+  return {
+    ...rest,
+    ...meta,
+    // The head a prepared review was read at stays until it's prepared again; the listed one is what a sweep compares.
+    headSha: status === 'ready' ? was.headSha : meta.headSha,
+    listedHead: meta.headSha,
+    status,
+    why,
+    at: now.toISOString(),
+    // The list's size for the new head, when it has one (Azure DevOps' says nothing: the last known stays).
+    ...(opts.diffSize
+      ? { size: opts.diffSize }
+      : opts.size && opts.size.additions + opts.size.deletions > 0
+        ? { size: { files: was.size.files, added: opts.size.additions, deleted: opts.size.deletions } }
+        : {}),
+    ...(opts.held ? { held: opts.held } : {}),
   };
 }
 
@@ -102,6 +148,21 @@ export function candidates(
   return { take, left };
 }
 
+/**
+ * A stored review still stands for this listed PR: nothing to do. The same head (as listed, or as fetched) prepared,
+ * failed, or waiting for your click — not one queued, one held only by a day's cap, or one left running by a run
+ * that stopped. Pure.
+ */
+export function upToDate(was: PrReviewWire | null, pr: OpenPr, now: Date, active: boolean): boolean {
+  if (!was) return false;
+  const same = (was.listedHead ?? was.headSha) === pr.headSha || was.headSha === pr.headSha;
+  if (!same) return false;
+  if (was.status === 'queued') return false;
+  if (was.status === 'waiting' && was.held === 'cap') return false;
+  if (was.status === 'running') return active || !isStaleRunning(was, now);
+  return true;
+}
+
 const metaOf = (repo: string, host: GitHost, pr: OpenPr): ReviewMeta => ({
   repo,
   number: pr.number,
@@ -114,9 +175,15 @@ const metaOf = (repo: string, host: GitHost, pr: OpenPr): ReviewMeta => ({
   ...(host.id === 'github' ? {} : { host: host.id }),
 });
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+type Prepared = HostResult<{ review: PrReviewWire }> | { ok: false; error: string; held: true };
+
 export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
   const now = () => deps.now?.() ?? new Date();
   let sweeping: Promise<void> | null = null;
+  /** The reviews this queue is preparing now (a `running` row not among them was left by a run that stopped). */
+  const active = new Set<string>();
   /** One review at a time, the user's clicks included. */
   let chain: Promise<unknown> = Promise.resolve();
   const oneAtATime = <T>(f: () => Promise<T>): Promise<T> => {
@@ -124,44 +191,65 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     chain = p.catch(() => undefined);
     return p;
   };
+  const key = (repo: string, n: number) => `${repo}#${n}`;
 
-  const preparedToday = () => {
-    const today = dayOf(now());
-    return deps.store.all().filter((r) => r.preparedAt && dayOf(new Date(r.preparedAt)) === today).length;
-  };
+  const setStatus = (meta: ReviewMeta, status: ReviewStatus, why: string | null, opts: Parameters<typeof withStatus>[5] = {}) =>
+    deps.store.upsert(meta.repo, meta.number, (was) => withStatus(was, meta, status, why, now(), opts));
 
-  async function prepareOne(
-    project: ReviewProject,
-    meta: ReviewMeta,
-    size: OpenPr | undefined,
-  ): Promise<HostResult<{ review: PrReviewWire }>> {
-    const host = deps.hostOf(project.path);
-    deps.store.write(placeholder(meta, 'running', null, now(), size));
-    deps.changed();
-    const prepared = await deps
-      .prepare(project.path, host, { number: meta.number, base: meta.base })
-      .catch((err: Error): HostResult<PreparedPr> => ({ ok: false, error: err.message }));
-    if (!prepared.ok) {
-      deps.store.write(placeholder(meta, 'failed', prepared.error, now(), size));
+  /** Prepare one PR. `auto`: the sweep's (the size limit applies to the fetched diff too); your click ignores it. */
+  async function prepareOne(project: ReviewProject, meta: ReviewMeta, size: OpenPr | undefined, auto: boolean): Promise<Prepared> {
+    const k = key(meta.repo, meta.number);
+    active.add(k);
+    try {
+      const host = deps.hostOf(project.path);
+      setStatus(meta, 'running', null, { size });
       deps.changed();
-      return { ok: false, error: prepared.error };
+      const prepared = await deps
+        .prepare(project.path, host, { number: meta.number, base: meta.base })
+        .catch((err: Error): HostResult<PreparedPr> => ({ ok: false, error: err.message }));
+      if (!prepared.ok) {
+        setStatus(meta, 'failed', prepared.error);
+        deps.changed();
+        return { ok: false, error: prepared.error };
+      }
+      const added = prepared.files.reduce((n, f) => n + f.added, 0);
+      const deleted = prepared.files.reduce((n, f) => n + f.deleted, 0);
+      const { maxLines } = deps.limits();
+      if (auto && added + deleted > maxLines) {
+        // A host whose list says nothing of size (Azure DevOps): the limit applies once the diff is fetched.
+        const why = `${added + deleted} changed lines: over the size limit (${maxLines}), so it waits for your click`;
+        setStatus(meta, 'waiting', why, { held: 'size', diffSize: { files: prepared.files.length, added, deleted } });
+        deps.changed();
+        return { ok: false, error: why, held: true };
+      }
+      const rules = deps.rules?.();
+      // The fetched head (a push since the list moved it); the listed one stays what the next sweep compares.
+      const at = { ...meta, headSha: prepared.headSha || meta.headSha };
+      const prompt = deps.agent ? reviewPrompt(at, prepared.files, kindsOf(prepared.files, prepared.extras, rules)) : null;
+      const answer = prompt && deps.agent ? await deps.agent(prompt).catch(() => null) : undefined;
+      const fresh: PrReviewWire = {
+        ...buildReview(at, prepared.files, prepared.extras, answer, {
+          rules,
+          now: now(),
+          notAskedWhy: deps.agent ? undefined : 'no agent for the AI step: stories are by folder',
+        }),
+        listedHead: meta.headSha,
+        mergeBase: prepared.mergeBase,
+        preparedAt: now().toISOString(),
+      };
+      // Read and written in one transaction: a draft you add meanwhile is carried over, never overwritten.
+      const review = deps.store.upsert(meta.repo, meta.number, (was) => carryForward(was, fresh));
+      deps.changed();
+      return { ok: true, review };
+    } catch (err) {
+      // Whatever threw, the row doesn't stay `running` (its button would stay disabled for good).
+      const error = `couldn't prepare it: ${(err as Error).message}`;
+      setStatus(meta, 'failed', error);
+      deps.changed();
+      return { ok: false, error };
+    } finally {
+      active.delete(k);
     }
-    const rules = deps.rules?.();
-    const at = { ...meta, headSha: prepared.headSha || meta.headSha };
-    const prompt = deps.agent ? reviewPrompt(at, prepared.files, kindsOf(prepared.files, prepared.extras, rules)) : null;
-    const answer = prompt && deps.agent ? await deps.agent(prompt).catch(() => null) : undefined;
-    const review: PrReviewWire = {
-      ...buildReview(at, prepared.files, prepared.extras, answer, {
-        rules,
-        now: now(),
-        notAskedWhy: deps.agent ? undefined : 'no agent for the AI step: stories are by folder',
-      }),
-      mergeBase: prepared.mergeBase,
-      preparedAt: now().toISOString(),
-    };
-    deps.store.write(review);
-    deps.changed();
-    return { ok: true, review };
   }
 
   async function sweepNow(): Promise<void> {
@@ -170,70 +258,75 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     const { maxPerDay, maxLines } = deps.limits();
     const asked: string[] = [];
     const open = new Set<string>();
+    const paths = new Map<string, string>();
     const todo: Array<{ project: ReviewProject; meta: ReviewMeta; pr: OpenPr }> = [];
     try {
       for (const project of deps.projects()) {
         if (project.mode === 'off') continue;
+        paths.set(project.alias, project.path);
         const host = deps.hostOf(project.path);
         const list = await host.openPrs(deps.run, project.path).catch((err: Error) => ({ ok: false as const, error: err.message }));
         if (!list.ok) {
           note(`${project.alias}: couldn't list its open PRs (${list.error}); keeping what it had`, 'warn');
           continue;
         }
-        asked.push(project.alias);
-        for (const pr of list.prs) open.add(reviewKey(project.alias, pr.number));
+        // A list at its limit may have left open PRs out: their reviews aren't dropped as if closed.
+        if (list.more) note(`${project.alias}: more open PRs than one listing returns; keeping the reviews of those not listed`, 'warn');
+        else asked.push(project.alias);
+        for (const pr of list.prs) open.add(key(project.alias, pr.number));
         const viewer = await host.viewer(deps.run, project.path).catch(() => null);
-        const { take } = candidates(list.prs, project.mode, viewer);
+        if (!viewer) {
+          // Without who you are, your own PRs would be reviewed — or, asked-only, none: try again next sweep.
+          note(`${project.alias}: couldn't tell who you are on ${host.name}; its PRs wait for the next sweep`, 'warn');
+          continue;
+        }
+        const { take, left } = candidates(list.prs, project.mode, viewer);
+        if (left.length) note(`${project.alias}: left out ${left.map((l) => `#${l.pr.number} (${l.why})`).join(', ')}`);
         for (const pr of take) {
           const was = deps.store.read(project.alias, pr.number);
-          // The same head, prepared (or waiting, or failed): nothing new to read. A queued one is picked up below.
-          if (was && was.headSha === pr.headSha && was.status !== 'queued') continue;
+          if (upToDate(was, pr, now(), active.has(key(project.alias, pr.number)))) continue;
           const meta = metaOf(project.alias, host, pr);
           const lines = pr.additions + pr.deletions;
           if (lines > maxLines) {
-            deps.store.write(
-              placeholder(
-                meta,
-                'waiting',
-                `${lines} changed lines: over the size limit (${maxLines}), so it waits for your click`,
-                now(),
-                pr,
-              ),
-            );
+            setStatus(meta, 'waiting', `${lines} changed lines: over the size limit (${maxLines}), so it waits for your click`, {
+              size: pr,
+              held: 'size',
+            });
             note(`${project.alias} #${pr.number}: ${lines} lines, waits for a click`);
             continue;
           }
-          deps.store.write(placeholder(meta, 'queued', null, now(), pr));
+          if (was?.status === 'running') note(`${project.alias} #${pr.number}: left preparing by a run that stopped; again`, 'warn');
+          setStatus(meta, 'queued', null, { size: pr });
           todo.push({ project, meta, pr });
         }
       }
       const gone = deps.store.keepOnly(asked, open);
-      if (gone) note(`${gone} review${gone === 1 ? '' : 's'} of PRs no longer open dropped`);
+      if (gone.length) note(`${plural(gone.length, 'review')} of PRs no longer open dropped`);
+      for (const g of gone) {
+        const at = paths.get(g.repo);
+        if (at) await deps.dropRef?.(at, g.number).catch(() => undefined);
+      }
       deps.changed();
       for (const t of todo) {
-        if (maxPerDay !== null && preparedToday() >= maxPerDay) {
-          deps.store.write(
-            placeholder(
-              t.meta,
-              'waiting',
-              `today's ${maxPerDay} automatic reviews are done: it waits for tomorrow, or your click`,
-              now(),
-              t.pr,
-            ),
-          );
+        if (maxPerDay !== null && preparedOn(deps.store.all(), now()) >= maxPerDay) {
+          setStatus(t.meta, 'waiting', `today's ${maxPerDay} automatic reviews are done: it waits for tomorrow, or your click`, {
+            size: t.pr,
+            held: 'cap',
+          });
           note(`${t.project.alias} #${t.pr.number}: today's cap of ${maxPerDay} reached; waits`);
           continue;
         }
-        const r = await oneAtATime(() => prepareOne(t.project, t.meta, t.pr));
+        const r = await oneAtATime(() => prepareOne(t.project, t.meta, t.pr, true));
         if (r.ok)
           note(
-            `${t.project.alias} #${t.pr.number}: prepared — ${r.review.stories.length} stor${r.review.stories.length === 1 ? 'y' : 'ies'}, ${r.review.tests.gaps.length} untested change${r.review.tests.gaps.length === 1 ? '' : 's'}${r.review.why ? ` (${r.review.why})` : ''}`,
+            `${t.project.alias} #${t.pr.number}: prepared — ${plural(r.review.stories.length, 'story', 'stories')}, ${plural(r.review.tests.gaps.length, 'untested change')}${r.review.why ? ` (${r.review.why})` : ''}`,
             'action',
           );
+        else if ('held' in r) note(`${t.project.alias} #${t.pr.number}: ${r.error}`);
         else note(`${t.project.alias} #${t.pr.number}: couldn't prepare it (${r.error})`, 'warn');
       }
       deps.changed();
-      run?.done(todo.length ? `${todo.length} PR${todo.length === 1 ? '' : 's'} looked at` : 'nothing new');
+      run?.done(todo.length ? `${plural(todo.length, 'PR')} looked at` : 'nothing new');
     } catch (err) {
       run?.fail((err as Error).message);
     }
@@ -255,7 +348,8 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       if (!list.ok) return { ok: false, error: list.error };
       const pr = list.prs.find((p) => p.number === number);
       if (!pr) return { ok: false, error: `#${number} isn't an open pull request of ${repo}` };
-      return oneAtATime(() => prepareOne(project, metaOf(repo, host, pr), pr));
+      const r = await oneAtATime(() => prepareOne(project, metaOf(repo, host, pr), pr, false));
+      return r.ok ? r : { ok: false, error: r.error };
     },
   };
 }

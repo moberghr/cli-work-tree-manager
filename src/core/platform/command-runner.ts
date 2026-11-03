@@ -13,6 +13,9 @@ export interface RunResult {
 }
 export type CommandRunner = (cmd: string, args: string[], cwd: string) => Promise<RunResult>;
 
+/** The exit code a run that timed out reports (as coreutils' `timeout` does): what it was doing may have happened. */
+export const RUN_TIMED_OUT = 124;
+
 /**
  * Real runner: cross-spawn, not execFile — on Windows execFile only finds
  * .exe files, so a `gh` installed as a .cmd shim (scoop, wrappers) would
@@ -33,7 +36,7 @@ export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
     const child = crossSpawn(cmd, args, { cwd, windowsHide: true });
     const timer = setTimeout(() => {
       child.kill();
-      done({ code: 124, stdout, stderr: stderr || `${cmd} timed out` });
+      done({ code: RUN_TIMED_OUT, stdout, stderr: stderr || `${cmd} timed out` });
     }, 60_000);
     child.stdout?.on('data', (d: Buffer) => {
       stdout += d.toString();

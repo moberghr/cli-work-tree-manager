@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { allReviews, isReview, keepOnly, readReview, updateReview, writeReview } from '../../../src/core/review/review-store.js';
+import {
+  allReviews,
+  isReview,
+  keepOnly,
+  readReview,
+  updateReview,
+  upsertReview,
+  writeReview,
+} from '../../../src/core/review/review-store.js';
 import { withDb } from '../../../src/core/platform/db.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
 
@@ -18,17 +26,44 @@ describe('prepared reviews in state.db', () => {
     expect(readReview('api', 5)).toBeNull();
     expect(allReviews().map((x) => x.number)).toEqual([231]);
     expect(isReview({ ...r, status: 'bogus' })).toBe(false);
+    expect(isReview({ ...r, dropped: 'x' })).toBe(false);
+    expect(isReview({ ...r, inDoubt: { at: 'now' } })).toBe(false);
+    expect(isReview({ ...r, inDoubt: { at: 'now', event: 'comment', drafts: [], summary: null, error: 'e' } })).toBe(true);
   });
 
   it("drops the reviews of PRs no longer open — only for the repos asked (a repo that couldn't be listed keeps its own)", () => {
     writeReview({ ...demoReview(), number: 1 });
     writeReview({ ...demoReview(), number: 2 });
     writeReview({ ...demoReview(), repo: 'web', number: 3 });
-    expect(keepOnly(['api'], new Set(['api#2']))).toBeGreaterThanOrEqual(1);
+    // api#5 (the malformed row above) is dropped by its key too.
+    expect(keepOnly(['api'], new Set(['api#2', 'api#231']))).toEqual([
+      { repo: 'api', number: 5 },
+      { repo: 'api', number: 1 },
+    ]);
     expect(
       allReviews()
         .map((x) => `${x.repo}#${x.number}`)
         .sort(),
-    ).toEqual(['api#2', 'web#3']);
+    ).toEqual(['api#2', 'api#231', 'web#3']);
+  });
+
+  it('upsert reads and writes in one go: none stored gives null, a row of the wrong shape counts as none', () => {
+    const seen: Array<number | null> = [];
+    upsertReview('api', 40, (was) => {
+      seen.push(was ? was.number : null);
+      return { ...demoReview(), number: 40 };
+    });
+    upsertReview('api', 40, (was) => {
+      seen.push(was ? was.number : null);
+      return { ...was!, title: 'again' };
+    });
+    withDb((d) => d.prepare('INSERT OR REPLACE INTO pr_reviews (key, data) VALUES (?, ?)').run('api#41', '{"repo":"api"}'));
+    upsertReview('api', 41, (was) => {
+      seen.push(was ? was.number : null);
+      return { ...demoReview(), number: 41 };
+    });
+    expect(seen).toEqual([null, 40, null]);
+    expect(readReview('api', 40)!.title).toBe('again');
+    expect(readReview('api', 41)!.number).toBe(41);
   });
 });

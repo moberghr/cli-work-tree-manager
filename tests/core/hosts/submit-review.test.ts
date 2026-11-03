@@ -85,6 +85,97 @@ describe('Azure DevOps: each comment a thread, the summary a thread, the verdict
     expect(await azure.submitReview(failing.run, repo, 7, { commitId: 'abc', event: 'approve', body: '', comments })).toEqual({
       ok: false,
       error: 'src/a.cs:6: TF401181: The pull request cannot be edited',
+      posted: 0,
     });
+  });
+});
+
+describe('a submit that stops part way says what went out, and what may have', () => {
+  let repo: string;
+  beforeAll(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'az-partial-'));
+    fs.mkdirSync(path.join(repo, '.git'));
+    fs.writeFileSync(path.join(repo, '.git', 'config'), '[remote "origin"]\n\turl = https://dev.azure.com/acme/Shop/_git/api\n');
+  });
+  afterAll(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const failOn = (n: number, code: number, stderr = 'TF400898: server error') => {
+    let calls = 0;
+    return recorder(() => (++calls === n ? { code, stdout: '', stderr } : { code: 0, stdout: '{}', stderr: '' }));
+  };
+  const review = { commitId: 'abc', event: 'approve' as const, body: 'Looks good.', comments };
+
+  it('Azure DevOps: the second thread fails — the first went out; nothing is in doubt', async () => {
+    expect(await azure.submitReview(failOn(2, 1).run, repo, 7, review)).toEqual({
+      ok: false,
+      error: 'src/b.cs:2: TF400898: server error',
+      posted: 1,
+    });
+  });
+
+  it('Azure DevOps: a thread call that timed out may have gone through: it is in doubt, the ones before it posted', async () => {
+    expect(await azure.submitReview(failOn(2, 124, 'az timed out').run, repo, 7, review)).toEqual({
+      ok: false,
+      error: 'src/b.cs:2: az timed out',
+      posted: 1,
+      inDoubt: { comments: [1], summary: false },
+    });
+  });
+
+  it('Azure DevOps: the summary fails (or times out), then the vote fails — each says what went out', async () => {
+    expect(await azure.submitReview(failOn(3, 1).run, repo, 7, review)).toEqual({
+      ok: false,
+      error: 'the summary: TF400898: server error',
+      posted: 2,
+    });
+    expect(await azure.submitReview(failOn(3, 124, 'slow').run, repo, 7, review)).toMatchObject({
+      posted: 2,
+      inDoubt: { comments: [], summary: true },
+    });
+    expect(await azure.submitReview(failOn(4, 1, 'TF401181: no vote').run, repo, 7, review)).toEqual({
+      ok: false,
+      error: "the comments went out, the vote didn't: TF401181: no vote",
+      posted: 2,
+      summaryPosted: true,
+    });
+  });
+
+  it('GitHub: one call makes all of it or none; one that timed out may have made it — all of it is in doubt', async () => {
+    const { run } = recorder(() => ({ code: 124, stdout: '', stderr: 'gh timed out' }));
+    expect(await github.submitReview(run, '/repo', 7, review)).toEqual({
+      ok: false,
+      error: 'gh timed out',
+      inDoubt: { comments: [0, 1], summary: true },
+    });
+  });
+});
+
+describe('open PRs for the review queue: a list at its limit says there may be more', () => {
+  it('GitHub', async () => {
+    const row = (n: number) => ({ number: n, headRefOid: `s${n}` });
+    const full = recorder(() => ({ code: 0, stdout: JSON.stringify(Array.from({ length: 100 }, (_, i) => row(i + 1))), stderr: '' }));
+    const r = await github.openPrs(full.run, '/repo');
+    expect(r.ok && r.prs.length).toBe(100);
+    expect(r.ok && r.more).toBe(true);
+    expect(full.calls[0].args).toEqual(expect.arrayContaining(['--limit', '100']));
+    const some = await github.openPrs(recorder(() => ({ code: 0, stdout: JSON.stringify([row(1)]), stderr: '' })).run, '/repo');
+    expect(some.ok && some.more).toBeUndefined();
+  });
+
+  it('Azure DevOps — and an answer that isn\'t a list is a failure, never "no PRs" (that would drop every review)', async () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'az-open-'));
+    try {
+      fs.mkdirSync(path.join(repo, '.git'));
+      fs.writeFileSync(path.join(repo, '.git', 'config'), '[remote "origin"]\n\turl = https://dev.azure.com/acme/Shop/_git/api\n');
+      const pr = (n: number) => ({ pullRequestId: n, status: 'active', lastMergeSourceCommit: { commitId: `s${n}` } });
+      const full = recorder(() => ({ code: 0, stdout: JSON.stringify(Array.from({ length: 100 }, (_, i) => pr(i + 1))), stderr: '' }));
+      const r = await azure.openPrs(full.run, repo);
+      expect(r.ok && r.more).toBe(true);
+      expect(await azure.openPrs(recorder(() => ({ code: 0, stdout: '{"value": []}', stderr: '' })).run, repo)).toEqual({
+        ok: false,
+        error: "couldn't read what az said",
+      });
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

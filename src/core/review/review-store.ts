@@ -35,7 +35,9 @@ export function isReview(v: unknown): v is PrReviewWire {
     Array.isArray(r.tests.gaps) &&
     Array.isArray(r.stories) &&
     Array.isArray(r.drafts) &&
-    Array.isArray(r.unstoried)
+    Array.isArray(r.unstoried) &&
+    (r.dropped === undefined || Array.isArray(r.dropped)) &&
+    (r.inDoubt === undefined || (!!r.inDoubt && Array.isArray(r.inDoubt.drafts) && typeof r.inDoubt.at === 'string'))
   );
 }
 
@@ -71,21 +73,35 @@ export function updateReview(repo: string, number: number, change: (r: PrReviewW
   });
 }
 
-/** Drop the reviews of PRs no longer open (`open`: the keys still open, per repo asked); repos not asked keep theirs. */
-export function keepOnly(repos: string[], open: Set<string>): number {
+/** Read and write one review in one transaction (`change` gets what is stored, null when none): what was written. */
+export function upsertReview(repo: string, number: number, change: (was: PrReviewWire | null) => PrReviewWire): PrReviewWire {
+  return tx((d) => {
+    const row = d.prepare('SELECT data FROM pr_reviews WHERE key = ?').get(reviewKey(repo, number)) as { data: string } | undefined;
+    const was = row ? json.parse(row.data) : null;
+    const next = change(isReview(was) ? was : null);
+    d.prepare('INSERT OR REPLACE INTO pr_reviews (key, data) VALUES (?, ?)').run(reviewKey(repo, number), JSON.stringify(next));
+    return next;
+  });
+}
+
+/**
+ * Drop the reviews of PRs no longer open (`open`: the keys still open, per repo asked); repos not asked keep theirs.
+ * The ones dropped, for their fetched code to go too.
+ */
+export function keepOnly(repos: string[], open: Set<string>): Array<{ repo: string; number: number }> {
   const asked = new Set(repos);
   return tx((d) => {
-    let gone = 0;
+    const gone: Array<{ repo: string; number: number }> = [];
     for (const r of d.prepare('SELECT key, data FROM pr_reviews').all() as Array<{ key: string; data: string }>) {
       const v = json.parse(r.data);
-      const repo = isReview(v) ? v.repo : r.key.split('#')[0];
+      const hash = r.key.lastIndexOf('#');
+      const repo = isReview(v) ? v.repo : r.key.slice(0, hash);
+      const number = isReview(v) ? v.number : Number(r.key.slice(hash + 1));
       if (asked.has(repo) && !open.has(r.key)) {
         d.prepare('DELETE FROM pr_reviews WHERE key = ?').run(r.key);
-        gone++;
+        gone.push({ repo, number });
       }
     }
     return gone;
   });
 }
-
-export { summaryOf } from './review-build.js';

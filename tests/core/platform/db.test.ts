@@ -202,6 +202,18 @@ describe('work state --export', () => {
     expect(newer.meta['time:issue-ids']).toEqual({ 'APP-1': 10001 });
   });
 
+  it('prepared PR reviews (your drafts, what you submitted) are counted and exported too', async () => {
+    const { writeReview } = await import('../../../src/core/review/review-store.js');
+    const { demoReview } = await import('../../../src/server/demo/demo-reviews.js');
+    const { exportLegacyState, stateSummary } = await import('../../../src/core/platform/db-export.js');
+    writeReview(demoReview(new Date('2026-11-02T10:00:00Z')));
+    expect(stateSummary().counts.pr_reviews).toBe(1);
+    const out = path.join(home, 'export-reviews');
+    exportLegacyState(out);
+    const newer = JSON.parse(fs.readFileSync(path.join(out, 'newer-state.json'), 'utf-8'));
+    expect(newer.pr_reviews['api#231'].drafts.map((d: { id: string }) => d.id)).toEqual(['d1', 'd2']);
+  });
+
   it('writes the old JSON layout, and importing that gives back the same state', async () => {
     legacyTree();
     await addTask('added after the move');

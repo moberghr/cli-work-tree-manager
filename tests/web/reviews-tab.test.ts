@@ -18,6 +18,8 @@ const api = vi.hoisted(() => ({
   discardReviewDraft: vi.fn(),
   fetchReviewSettings: vi.fn(),
   saveReviewMode: vi.fn(),
+  settleReviewInDoubt: vi.fn(),
+  clearReviewDropped: vi.fn(),
 }));
 vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/panes.js')>()),
@@ -176,5 +178,70 @@ describe('ReviewsTab', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(api.saveReviewMode).toHaveBeenCalledWith('api', 'off');
+  });
+  it('a submit that stopped part way: the error is said and the review shows what went out (partly submitted)', async () => {
+    const { ReviewSubmitError } = await import('../../src/web/src/api/panes.js');
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    const partly: PrReviewWire = {
+      ...review,
+      drafts: review.drafts.map((d, i) => (i === 0 ? { ...d, state: 'posted' } : d)),
+      submitted: { at: '2026-11-02T11:00:00Z', event: 'comment', partial: true },
+    };
+    api.submitReview.mockRejectedValue(new ReviewSubmitError('src/x.cs:7: TF400898', partly));
+    await act(async () => button('Submit review on GitHub').click());
+    await flush();
+    expect(container.querySelector('.wd-review-submit')!.textContent).toContain('src/x.cs:7: TF400898');
+    expect(container.querySelector('.wd-review-submit')!.textContent).toContain('1 comment on the diff');
+    expect(container.textContent).toContain('only part of it went out');
+  });
+
+  it('a submit in doubt: said, Submit held, and you say whether it went', async () => {
+    const doubt: PrReviewWire = {
+      ...review,
+      inDoubt: { at: '2026-11-02T10:00:00Z', event: 'comment', drafts: [{ id: 'd1', body: 'x' }], summary: 'S', error: 'gh timed out' },
+    };
+    api.fetchReview.mockResolvedValue(doubt);
+    api.settleReviewInDoubt.mockResolvedValue({
+      ...review,
+      drafts: review.drafts.map((d, i) => (i === 0 ? { ...d, state: 'posted' } : d)),
+    });
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    const banner = container.querySelector('.wd-review-in-doubt')!;
+    expect(banner.textContent).toContain('may have gone out (gh timed out): 1 comment and the summary');
+    expect(button('Submit review on GitHub').disabled).toBe(true);
+    await act(async () => button('It went out').click());
+    await flush();
+    expect(api.settleReviewInDoubt).toHaveBeenCalledWith('api', 231, true);
+    expect(container.querySelector('.wd-review-in-doubt')).toBeNull();
+  });
+
+  it('drafts set aside (off the diff) are listed with their text, and can be forgotten', async () => {
+    api.clearReviewDropped.mockResolvedValue({ ...review, dropped: undefined });
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    const aside = container.querySelector('.wd-review-dropped')!;
+    expect(aside.textContent).toContain('1 comment set aside: not on a line of the diff');
+    expect(aside.textContent).toContain('src/Shop.Orders/Pricing/Rounding.cs:90 · AI');
+    expect(aside.textContent).toContain('Is MidpointRounding used the same way');
+    await act(async () => button('Forget them').click());
+    await flush();
+    expect(api.clearReviewDropped).toHaveBeenCalledWith('api', 231);
+    expect(container.querySelector('.wd-review-dropped')).toBeNull();
+  });
+
+  it('a review left preparing by a work web that stopped: its button works again', async () => {
+    const left: PrReviewWire = { ...review, status: 'running', at: '2020-01-01T00:00:00Z' };
+    api.fetchReview.mockResolvedValue(left);
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    expect(button('Prepare it now').disabled).toBe(false);
+    api.fetchReview.mockResolvedValue({ ...left, at: new Date().toISOString() });
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    expect(button('Preparing…').disabled).toBe(true);
   });
 });

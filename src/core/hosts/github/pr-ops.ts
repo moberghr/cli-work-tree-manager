@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ChecksState, FailingCheck, MergeMethod, ShipPr } from '../../api-types.js';
-import type { CommandRunner } from '../../platform/command-runner.js';
-import type { HostResult, OpenPr, PrForStart, PrLookup } from '../types.js';
+import { RUN_TIMED_OUT, type CommandRunner } from '../../platform/command-runner.js';
+import type { HostResult, OpenPr, PrForStart, PrLookup, SubmitReviewResult } from '../types.js';
 
 /**
  * GitHub's PR operations through `gh` (argv only): a branch's PR (Ship and
@@ -234,8 +234,11 @@ export async function githubMergedPr(run: CommandRunner, cwd: string, branch: st
   }
 }
 
+/** How many open PRs one listing asks for; a list that long may have stopped short (`more`). */
+export const OPEN_PR_LIMIT = 100;
+
 /** `gh pr list --state open`: every open PR of the repo, for the review queue. */
-export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<HostResult<{ prs: OpenPr[] }>> {
+export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<HostResult<{ prs: OpenPr[]; more?: boolean }>> {
   const r = await run(
     'gh',
     [
@@ -244,7 +247,7 @@ export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<Ho
       '--state',
       'open',
       '--limit',
-      '50',
+      String(OPEN_PR_LIMIT),
       '--json',
       'number,title,url,headRefName,headRefOid,baseRefName,author,isDraft,additions,deletions,reviewRequests',
     ],
@@ -280,41 +283,7 @@ export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<Ho
       },
     ];
   });
-  return { ok: true, prs };
-}
-
-/** A review comment on a line of the PR's new side (`gh api …/pulls/<n>/comments`; gh fills owner and repo from the cwd). */
-export async function githubPostReviewComment(
-  run: CommandRunner,
-  cwd: string,
-  number: number,
-  c: { path: string; line: number; body: string; commitId: string },
-): Promise<HostResult<{ url?: string }>> {
-  const r = await run(
-    'gh',
-    [
-      'api',
-      `repos/{owner}/{repo}/pulls/${number}/comments`,
-      '-f',
-      `body=${c.body}`,
-      '-f',
-      `commit_id=${c.commitId}`,
-      '-f',
-      `path=${c.path}`,
-      '-F',
-      `line=${c.line}`,
-      '-f',
-      'side=RIGHT',
-    ],
-    cwd,
-  );
-  if (r.code !== 0) return { ok: false, error: oneLineErr(r.stderr) || 'gh could not post the comment' };
-  try {
-    const url = (JSON.parse(r.stdout) as { html_url?: unknown }).html_url;
-    return { ok: true, ...(typeof url === 'string' ? { url } : {}) };
-  } catch {
-    return { ok: true };
-  }
+  return { ok: true, prs, ...(list.length >= OPEN_PR_LIMIT ? { more: true } : {}) };
 }
 
 const GITHUB_EVENT = { comment: 'COMMENT', approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES' } as const;
@@ -330,7 +299,7 @@ export async function githubSubmitReview(
     body: string;
     comments: Array<{ path: string; line: number; body: string }>;
   },
-): Promise<HostResult<{ url?: string }>> {
+): Promise<SubmitReviewResult> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-gh-'));
   try {
     const file = path.join(dir, 'review.json');
@@ -344,6 +313,13 @@ export async function githubSubmitReview(
       }),
     );
     const r = await run('gh', ['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '--input', file], cwd);
+    // One call makes the whole review, or none of it — unless it timed out: then GitHub may have made it.
+    if (r.code === RUN_TIMED_OUT)
+      return {
+        ok: false,
+        error: oneLineErr(r.stderr) || 'gh timed out',
+        inDoubt: { comments: review.comments.map((_, i) => i), summary: !!review.body.trim() },
+      };
     if (r.code !== 0) return { ok: false, error: oneLineErr(r.stderr) || 'gh could not submit the review' };
     try {
       const url = (JSON.parse(r.stdout) as { html_url?: unknown }).html_url;

@@ -456,13 +456,38 @@ export function prepareReview(repo: string, n: number): Promise<PrReviewWire> {
 export function addReviewDraft(repo: string, n: number, d: { path: string; line: number; body: string }): Promise<PrReviewWire> {
   return postJson(`${reviewPath(repo, n)}/drafts`, d);
 }
+/** A submit the server refused or that failed part way: its reason, and the review as it now stands (what went out). */
+export class ReviewSubmitError extends Error {
+  constructor(
+    message: string,
+    readonly review: PrReviewWire | null,
+  ) {
+    super(message);
+  }
+}
+
 /** Submit the review — the drafts you kept, a verdict, a summary — in your name, on your click. */
-export function submitReview(
+export async function submitReview(
   repo: string,
   n: number,
   input: import('../../../core/api-types.js').ReviewSubmitInput,
 ): Promise<PrReviewWire> {
-  return postJson(`${reviewPath(repo, n)}/submit`, input);
+  const res = await fetch(`${reviewPath(repo, n)}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => null)) as (PrReviewWire & { error?: string; review?: PrReviewWire }) | null;
+  if (res.ok && body) return body;
+  throw new ReviewSubmitError(body?.error ?? `${res.status} ${res.statusText}`, body?.review ?? null);
+}
+/** After a submit that may have gone out: you looked at the PR — it went, or it didn't. */
+export function settleReviewInDoubt(repo: string, n: number, went: boolean): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/in-doubt`, { went });
+}
+/** Forget the drafts set aside (off the diff, or dropped by a new push). */
+export function clearReviewDropped(repo: string, n: number): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/dropped`, {}, 'DELETE');
 }
 export function discardReviewDraft(repo: string, n: number, id: string): Promise<PrReviewWire> {
   return postJson(`${reviewPath(repo, n)}/drafts/${encodeURIComponent(id)}`, {}, 'DELETE');

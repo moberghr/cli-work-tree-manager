@@ -109,7 +109,6 @@ function fakeHost(id: string, name: string, domain: string, cli: string): { host
     },
     mergedPr: async () => null,
     openPrs: async () => ({ ok: true, prs: [] }),
-    postReviewComment: async () => ({ ok: true }),
     submitReview: async () => ({ ok: true }),
     reviewFeedback: async () => state.feedback,
     threads: {

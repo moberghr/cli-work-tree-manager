@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { preparePr, reviewRef } from '../../../src/core/review/review-source.js';
+import { dropReviewRef, preparePr, reviewRef } from '../../../src/core/review/review-source.js';
 import { defaultRunner } from '../../../src/core/platform/command-runner.js';
 import { kindsOf } from '../../../src/core/review/review-build.js';
 
@@ -16,6 +16,7 @@ import { kindsOf } from '../../../src/core/review/review-build.js';
 
 let tmp: string;
 let clone: string;
+let featTip: string;
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }).trim();
 
 beforeAll(() => {
@@ -48,6 +49,11 @@ beforeAll(() => {
   git(work, 'add', '-A');
   git(work, 'commit', '-q', '-m', 'the PR');
   git(work, 'push', '-q', 'origin', 'feat/x');
+  // Azure DevOps' PR ref: the PR merged into its target (main first, the PR's head second).
+  git(work, 'checkout', '-q', '-b', 'pr-merge', 'main');
+  git(work, 'merge', '-q', '--no-ff', '-m', 'Merged PR 7', 'feat/x');
+  git(work, 'push', '-q', 'origin', 'HEAD:refs/pull/7/merge');
+  featTip = git(work, 'rev-parse', 'feat/x');
   clone = path.join(tmp, 'mine');
   git(tmp, 'clone', '-q', bare, clone);
 }, 60_000);
@@ -76,6 +82,35 @@ describe('preparePr', () => {
       'src/Client.cs': 'generated: marked generated in .gitattributes',
       'src/Logic.cs': 'logic: no rule matched: hand-written code',
     });
+  }, 60_000);
+
+  it("a merge ref (Azure DevOps): the review is read at the PR's head, its second parent — never at the merge commit", async () => {
+    const r = await preparePr(defaultRunner, clone, { prRef: () => 'refs/pull/7/merge', prRefIsMerge: true }, { number: 7, base: 'main' });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.headSha).toBe(featTip);
+    expect(git(clone, 'rev-parse', reviewRef(7))).toBe(featTip); // the diff view and the comments' lines come from it
+    expect(r.files.map((f) => f.path).sort()).toEqual([
+      '.gitattributes',
+      'src/Client.cs',
+      'src/Logic.cs',
+      'src/Renamed.cs',
+      'src/Spaces.cs',
+    ]);
+    // A ref that is no merge has no second parent: refused, not read at the wrong commit.
+    const bad = await preparePr(
+      defaultRunner,
+      clone,
+      { prRef: () => 'refs/heads/feat/x', prRefIsMerge: true },
+      { number: 8, base: 'main' },
+    );
+    expect(bad).toMatchObject({ ok: false, error: expect.stringContaining('no second parent') });
+  }, 60_000);
+
+  it('a review gone: its fetched code goes too', async () => {
+    await preparePr(defaultRunner, clone, { prRef: () => 'refs/heads/feat/x' }, { number: 14, base: 'main' });
+    expect(git(clone, 'for-each-ref', reviewRef(14))).not.toBe('');
+    await dropReviewRef(defaultRunner, clone, 14);
+    expect(git(clone, 'for-each-ref', reviewRef(14))).toBe('');
   }, 60_000);
 
   it('a PR ref origin does not have: refused with git’s reason', async () => {

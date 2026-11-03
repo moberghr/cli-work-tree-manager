@@ -90,8 +90,71 @@ describe('review routes', () => {
     const { req, rows } = setup({ submit: async () => ({ ok: false, error: 'line not in the diff' }) });
     const res = await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd2', body: 'x' }] });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: 'line not in the diff' });
+    expect(await res.json()).toMatchObject({ error: 'line not in the diff' });
     expect(rows.get('api#231')!.drafts.every((d) => d.state === 'draft')).toBe(true);
+  });
+
+  it('one submit of a review at a time: a second while one runs is refused, never sent', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const submit = vi.fn(async () => {
+      await gate;
+      return { ok: true as const, url: 'u' };
+    });
+    const { req } = setup({ submit });
+    const first = req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'x' }] });
+    await new Promise((r) => setTimeout(r, 5));
+    const second = await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd2', body: 'y' }] });
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({ error: 'this review is being submitted already' });
+    release();
+    expect((await first).status).toBe(200);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a submit that stopped part way: what went out is posted, the retry sends only the rest (no summary twice)', async () => {
+    const submit = vi
+      .fn<ReviewRouteDeps['submit']>()
+      .mockResolvedValueOnce({ ok: false, error: 'the summary: 500', posted: 2, summaryPosted: true })
+      .mockResolvedValueOnce({ ok: true, url: 'u' });
+    const { req, rows } = setup({ submit });
+    const input = {
+      event: 'comment',
+      body: 'Two things.',
+      drafts: [
+        { id: 'd1', body: 'a' },
+        { id: 'd2', body: 'b' },
+      ],
+    };
+    const res = await req('POST', '/api/reviews/api/231/submit', input);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; review: PrReviewWire };
+    expect(body.error).toBe('the summary: 500');
+    expect(body.review.drafts.map((d) => d.state)).toEqual(['posted', 'posted']);
+    expect(rows.get('api#231')!.submitted).toMatchObject({ partial: true, summary: 'Two things.' });
+    // The same summary again with nothing else: only the verdict goes, not the summary a second time.
+    expect((await req('POST', '/api/reviews/api/231/submit', { event: 'approve', body: 'Two things.', drafts: [] })).status).toBe(200);
+    expect(submit.mock.calls[1][2]).toMatchObject({ event: 'approve', body: '', comments: [] });
+  });
+
+  it('a submit that may have gone out (timed out): nothing is sent until you say; it went, or it did not', async () => {
+    const submit = vi.fn<ReviewRouteDeps['submit']>().mockResolvedValue({
+      ok: false,
+      error: 'gh timed out',
+      inDoubt: { comments: [0], summary: false },
+    });
+    const { req, rows } = setup({ submit });
+    await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'a' }] });
+    expect(rows.get('api#231')!.inDoubt).toMatchObject({ drafts: [{ id: 'd1', body: 'a' }], error: 'gh timed out' });
+    const again = await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'a' }] });
+    expect(again.status).toBe(409);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect((await req('POST', '/api/reviews/api/231/in-doubt', { went: 'maybe' })).status).toBe(400);
+    const went = await req('POST', '/api/reviews/api/231/in-doubt', { went: true });
+    expect(((await went.json()) as PrReviewWire).drafts.find((d) => d.id === 'd1')!.state).toBe('posted');
+    expect(rows.get('api#231')!.inDoubt).toBeUndefined();
+    expect((await req('POST', '/api/reviews/api/231/in-doubt', { went: true })).status).toBe(409); // none in doubt now
+    expect((await req('POST', '/api/reviews/web/1/in-doubt', { went: true })).status).toBe(404);
   });
 
   it('adds a draft of your own on a line of a file of the PR; anything else is refused', async () => {
@@ -117,10 +180,15 @@ describe('review routes', () => {
     expect((await req('POST', '/api/reviews/web/1/drafts', { path: 'a', line: 1, body: 'x' })).status).toBe(404);
   });
 
-  it('discards a draft (never a posted one), and prepares one now on a click', async () => {
+  it('discards a draft (never a posted one: 409; an unknown one, or review: 404), and prepares one now on a click', async () => {
     const { req, rows } = setup();
     await req('DELETE', '/api/reviews/api/231/drafts/d2');
     expect(rows.get('api#231')!.drafts.map((d) => d.id)).toEqual(['d1']);
+    rows.set('api#231', { ...rows.get('api#231')!, drafts: rows.get('api#231')!.drafts.map((d) => ({ ...d, state: 'posted' as const })) });
+    expect((await req('DELETE', '/api/reviews/api/231/drafts/d1')).status).toBe(409);
+    expect(rows.get('api#231')!.drafts.map((d) => d.id)).toEqual(['d1']);
+    expect((await req('DELETE', '/api/reviews/api/231/drafts/zz')).status).toBe(404);
+    expect((await req('DELETE', '/api/reviews/web/1/drafts/d1')).status).toBe(404);
     expect((await req('POST', '/api/reviews/api/231')).status).toBe(200);
     expect(await (await req('POST', '/api/reviews/api/7')).json()).toEqual({ error: 'not open' });
   });
@@ -138,5 +206,16 @@ describe('review routes', () => {
     expect((await req('GET', '/api/reviews/api/231/diff')).status).toBe(200);
     expect(diff).toHaveBeenCalledWith('/repos/api', 'base', 231);
     expect((await req('GET', '/api/reviews/web/1/diff')).status).toBe(404);
+    const gone = setup({ diff: async () => null }); // the fetched code is gone
+    expect((await gone.req('GET', '/api/reviews/api/231/diff')).status).toBe(409);
+  });
+
+  it('submit to an unknown review is 404; the drafts set aside can be forgotten', async () => {
+    const { req, rows } = setup();
+    expect((await req('POST', '/api/reviews/web/1/submit', { event: 'comment', body: 'x', drafts: [] })).status).toBe(404);
+    expect(rows.get('api#231')!.dropped).toHaveLength(1);
+    expect((await req('DELETE', '/api/reviews/api/231/dropped')).status).toBe(200);
+    expect(rows.get('api#231')!.dropped).toBeUndefined();
+    expect((await req('DELETE', '/api/reviews/web/1/dropped')).status).toBe(404);
   });
 });

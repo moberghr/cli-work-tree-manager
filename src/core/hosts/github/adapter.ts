@@ -8,7 +8,6 @@ import {
   githubMergedPr,
   githubMergePr,
   githubOpenPrs,
-  githubPostReviewComment,
   githubPrByNumber,
   githubPrForBranch,
   githubPrState,
@@ -48,7 +47,6 @@ export const github: GitHost = {
   mergePr: githubMergePr,
   mergedPr: githubMergedPr,
   openPrs: githubOpenPrs,
-  postReviewComment: githubPostReviewComment,
   submitReview: githubSubmitReview,
   reviewFeedback: (run, cwd, n) => githubReviewFeedback(run, cwd, n),
 

@@ -3,7 +3,7 @@ import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { buildReview, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 import type { PrReviewWire, ReviewMode, ReviewSettingsWire, ReviewsWire, ReviewSubmitInput } from '../../core/api-types.js';
-import { addDraft, afterSubmit, submitRefusal } from '../../core/review/review-submit.js';
+import { addDraft, afterSubmit, clearDropped, removeDraft, settleInDoubt, submitRefusal } from '../../core/review/review-submit.js';
 
 /**
  * The demo's PR reviews (#64): a large made-up pull request — a refunds
@@ -147,6 +147,8 @@ const DEMO_ANSWER = JSON.stringify({
       body: 'Two refunds at once both read the old `Refunded` — guard with a row version or a check in the update.',
     },
     { path: 'src/Shop.Orders/Refunds/RefundHandler.cs', line: 7, body: 'Nothing stops refunding more than the order total.' },
+    // A line the diff doesn't show: set aside with its text (the host would refuse the whole review for it).
+    { path: 'src/Shop.Orders/Pricing/Rounding.cs', line: 90, body: 'Is MidpointRounding used the same way in the invoice export?' },
   ],
   asserts: {
     Refunds_part_of_an_order: 'the refunded amount comes back — not that the payment provider was called',
@@ -266,8 +268,29 @@ export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unk
     if (!r) return c.json({ error: 'no review of that PR' }, 404);
     const input: unknown = await c.req.json().catch(() => null);
     const refusal = submitRefusal(r, input);
-    if (refusal) return c.json({ error: refusal }, 400);
+    if (refusal) return c.json({ error: refusal }, r.inDoubt ? 409 : 400);
     const next = afterSubmit(r, input as ReviewSubmitInput, `${r.url}#pullrequestreview-1`, new Date());
+    reviews.set(k, next);
+    broadcast('reviews-changed', { repo: r.repo, number: r.number });
+    return c.json(next);
+  });
+  app.post('/api/reviews/:repo/:number/in-doubt', async (c) => {
+    const k = key(c.req.param('repo'), c.req.param('number'));
+    const r = reviews.get(k);
+    if (!r) return c.json({ error: 'no review of that PR' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { went?: unknown } | null;
+    if (!body || typeof body.went !== 'boolean') return c.json({ error: 'expected {went: true|false}' }, 400);
+    const next = settleInDoubt(r, body.went, new Date());
+    if (!next) return c.json({ error: 'no submit of this review is in doubt' }, 409);
+    reviews.set(k, next);
+    broadcast('reviews-changed', { repo: r.repo, number: r.number });
+    return c.json(next);
+  });
+  app.delete('/api/reviews/:repo/:number/dropped', (c) => {
+    const k = key(c.req.param('repo'), c.req.param('number'));
+    const r = reviews.get(k);
+    if (!r) return c.json({ error: 'no review of that PR' }, 404);
+    const next = clearDropped(r);
     reviews.set(k, next);
     broadcast('reviews-changed', { repo: r.repo, number: r.number });
     return c.json(next);
@@ -276,9 +299,10 @@ export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unk
     const k = key(c.req.param('repo'), c.req.param('number'));
     const r = reviews.get(k);
     if (!r) return c.json({ error: 'no review of that PR' }, 404);
-    const next = { ...r, drafts: r.drafts.filter((d) => d.id !== c.req.param('id') || d.state === 'posted') };
-    reviews.set(k, next);
+    const out = removeDraft(r, c.req.param('id'));
+    if ('error' in out) return c.json({ error: out.error }, out.status);
+    reviews.set(k, out.review);
     broadcast('reviews-changed', { repo: r.repo, number: r.number });
-    return c.json(next);
+    return c.json(out.review);
   });
 }

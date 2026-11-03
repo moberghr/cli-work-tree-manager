@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   matchTestsToCode,
+  tableRows,
   subjectOf,
   testBreakdown,
   testLevel,
@@ -86,7 +87,7 @@ describe('testsInFile: per framework', () => {
     expect(pick(mstest)).toEqual([['Works', 'added', 'mstest', 2]]);
   });
 
-  it('Jest / Vitest: it and test, .each (parameterised, rows not counted), .skip and xit, removed, a changed body', () => {
+  it('Jest / Vitest: it and test, .each (its rows counted when written as a list), .skip and xit, removed, a changed body', () => {
     const f = diffFile(
       'src/orders/refund.test.ts',
       `
@@ -102,7 +103,7 @@ describe('testsInFile: per framework', () => {
     );
     expect(pick(f)).toEqual([
       ['refunds the full amount', 'added', 'jest', null],
-      ['partial refund %i', 'added', 'jest', null],
+      ['partial refund %i', 'added', 'jest', 2],
       ['waits on the mock', 'skipped', 'jest', null],
       ['later', 'skipped', 'jest', null],
       ['the old rule', 'removed', 'jest', null],
@@ -124,10 +125,49 @@ describe('testsInFile: per framework', () => {
     );
     expect(pick(f)).toEqual([
       ['test_full_refund', 'added', 'pytest', null],
-      ['test_partial', 'added', 'pytest', null],
+      ['test_partial', 'added', 'pytest', 2],
       ['test_later', 'skipped', 'pytest', null],
       ['test_old', 'removed', 'pytest', null],
     ]);
+  });
+
+  it('a skip already there (context) is no news: only a skip the PR writes counts; a change inside one is a change', () => {
+    const f = diffFile(
+      'src/a.test.ts',
+      `
+   xit('was skipped before', () => {
+   it.skip('also before', () => {
+-    expect(1).toBe(1);
++    expect(1).toBe(2);
+`,
+    );
+    expect(pick(f)).toEqual([['also before', 'changed', 'jest', null]]);
+  });
+
+  it('a parametrize over several lines has its rows counted; a table that is no list (range, a template) gives no number', () => {
+    const f = diffFile(
+      'tests/test_rates.py',
+      `
++@pytest.mark.parametrize(
++    "a, b",
++    [
++        (1, 2),
++        (3, "x, y"),
++        (5, [6, 7]),
++    ],
++)
++def test_rates(a, b):
++@pytest.mark.parametrize("n", range(3))
++def test_range(n):
+`,
+    );
+    expect(pick(f)).toEqual([
+      ['test_rates', 'added', 'pytest', 3],
+      ['test_range', 'added', 'pytest', null],
+    ]);
+    expect(tableRows('test.each`a | b`')).toBeNull();
+    expect(tableRows('it.each([])(')).toBe(0);
+    expect(tableRows('it.each([[1, 2], [3, 4], [5, 6],])(')).toBe(3);
   });
 
   it('a renamed declaration (removed and added under one name) reads as one change; untouched tests are left out', () => {

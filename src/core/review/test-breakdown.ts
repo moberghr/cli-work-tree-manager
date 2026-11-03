@@ -71,9 +71,9 @@ export function testsInFile(f: DiffFileLines): FoundTest[] {
     if ((a === 'removed' && b === 'added') || (a === 'added' && b === 'removed')) return 'changed';
     return a === 'changed' ? b : a;
   };
-  // `table`: a parameterised test whose rows the diff doesn't count (it.each, parametrize): no number given.
-  const put = (t: Omit<FoundTest, 'file' | 'level'> & { table?: boolean }) => {
-    const { table: _table, ...rest } = t;
+  // A parameterised test's rows are counted when its table can be read (`tableRows`); otherwise no number is given.
+  const put = (t: Omit<FoundTest, 'file' | 'level'>) => {
+    const rest = t;
     const was = out.get(t.name);
     const cases = rest.cases ?? was?.cases;
     out.set(t.name, {
@@ -90,7 +90,9 @@ export function testsInFile(f: DiffFileLines): FoundTest[] {
     let pending: Pending | null = null;
     // The test the following changed lines are inside (a context declaration): they change it.
     let inside: { name: string; framework: TestFramework } | null = null;
-    let pyPending: { param: boolean; skip: boolean; changed: 'add' | 'delete' | null } = { param: false, skip: false, changed: null };
+    let pyPending: { rows: number | null; skip: boolean; changed: 'add' | 'delete' | null } = { rows: null, skip: false, changed: null };
+    /** A `parametrize(` over several lines, read until its parentheses close (at most `MAX_TABLE_LINES`). */
+    let pyTable: { text: string; lines: number } | null = null;
     for (const line of hunk.lines) {
       if (line.kind === 'no-newline') continue;
       const changed = line.kind === 'add' || line.kind === 'delete' ? line.kind : null;
@@ -128,17 +130,28 @@ export function testsInFile(f: DiffFileLines): FoundTest[] {
       const js = JS_TEST.exec(c);
       if (js) {
         const fn = js[1];
+        // A skip counts only when the PR writes it: an `xit(` already there, shown as context, is no news.
         const skipped = fn.startsWith('x') || fn.endsWith('.skip');
-        const change: TestChange =
-          changed === 'add' ? (skipped ? 'skipped' : 'added') : changed === 'delete' ? 'removed' : skipped ? 'skipped' : 'changed';
-        if (changed || skipped) put({ name: js[3], change, framework: 'jest', table: JS_TEST_EACH_TABLE.test(c) });
+        const change: TestChange = changed === 'add' ? (skipped ? 'skipped' : 'added') : changed === 'delete' ? 'removed' : 'changed';
+        const rows = JS_TEST_EACH_TABLE.test(c) ? tableRows(c) : null;
+        if (changed) put({ name: js[3], change, framework: 'jest', ...(rows && rows > 1 ? { cases: rows } : {}) });
         inside = changed ? null : { name: js[3], framework: 'jest' };
         continue;
       }
 
-      if (PY_PARAM.test(c)) {
-        pyPending.param = true;
+      if (pyTable) {
+        if (line.kind !== 'delete') pyTable.text += `\n${c}`;
         if (changed) pyPending.changed ??= changed;
+        if (parensClosed(pyTable.text) || ++pyTable.lines > MAX_TABLE_LINES) {
+          pyPending.rows = tableRows(pyTable.text);
+          pyTable = null;
+        }
+        continue;
+      }
+      if (PY_PARAM.test(c)) {
+        if (changed) pyPending.changed ??= changed;
+        if (parensClosed(c)) pyPending.rows = tableRows(c);
+        else pyTable = { text: c, lines: 1 };
         continue;
       }
       if (PY_SKIP.test(c)) {
@@ -155,10 +168,10 @@ export function testsInFile(f: DiffFileLines): FoundTest[] {
             name: py[1],
             change: pyPending.skip && change !== 'removed' ? 'skipped' : change,
             framework: 'pytest',
-            table: pyPending.param,
+            ...(pyPending.rows && pyPending.rows > 1 ? { cases: pyPending.rows } : {}),
           });
         inside = touched ? null : { name: py[1], framework: 'pytest' };
-        pyPending = { param: false, skip: false, changed: null };
+        pyPending = { rows: null, skip: false, changed: null };
         continue;
       }
 
@@ -170,6 +183,69 @@ export function testsInFile(f: DiffFileLines): FoundTest[] {
     }
   }
   return [...out.values()];
+}
+
+const MAX_TABLE_LINES = 60;
+
+/** Each bracket's depth change, outside string literals; `visit` sees every character at its depth. */
+function walk(text: string, visit: (ch: string, depth: number) => boolean | void): void {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    if (visit(ch, depth) === true) return;
+    if (ch === ')' || ch === ']' || ch === '}') depth--;
+  }
+}
+
+/** The first `(` has its `)`: a decorator's call is read whole. */
+function parensClosed(text: string): boolean {
+  let open = 0;
+  let seen = false;
+  let closed = false;
+  walk(text, (ch) => {
+    if (ch === '(') {
+      open++;
+      seen = true;
+    } else if (ch === ')' && --open === 0 && seen) return (closed = true);
+  });
+  return closed;
+}
+
+/**
+ * The rows of a parameterised test's table written as a list (`it.each([[1], [2]])`, `parametrize("n", [1, 2])`):
+ * the outer list's elements. Null when there's no list to count (a template table, `range(3)`, one left open).
+ */
+export function tableRows(text: string): number | null {
+  const start = text.indexOf('[');
+  if (start < 0) return null;
+  let listDepth = -1;
+  let items = 0;
+  let pending = false;
+  let done = false;
+  walk(text.slice(start), (ch, depth) => {
+    if (listDepth < 0) {
+      listDepth = depth;
+      return;
+    }
+    if (depth === listDepth && ch === ']') return (done = true);
+    if (depth === listDepth && ch === ',') {
+      if (pending) items++;
+      pending = false;
+    } else if (!/\s/.test(ch)) pending = true;
+  });
+  if (!done) return null;
+  return items + (pending ? 1 : 0);
 }
 
 /** The name a test file is about: `OrderServiceTests.cs` → `orderservice`, `order-service.test.ts` → `orderservice`. */

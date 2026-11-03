@@ -11,6 +11,7 @@ import {
   prepareAssistantDir,
   assistantContextDay,
   assistantContextMonth,
+  assistantContextReview,
   readAssistantContext,
   writeAssistantContext,
 } from '../../../src/core/agents/assistant.js';
@@ -276,5 +277,33 @@ describe('POST /api/assistant/context', () => {
     expect(assistantContextMonth()).toBeNull();
     await post({ tab: 'sessions', month: '2026-10' }); // another tab: no month
     expect(assistantContextMonth()).toBeNull();
+  });
+  it('on the Reviews tab: only which PR is kept; its review is described as it is at each prompt (a re-prepare or submit shows at once)', async () => {
+    const app = new Hono();
+    mountAssistantRoutes(app);
+    const post = (body: unknown) =>
+      app.request('/api/assistant/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const { writeReview, updateReview } = await import('../../../src/core/review/review-store.js');
+    const { demoReview } = await import('../../../src/server/demo/demo-reviews.js');
+    const { describeReviewNow } = await import('../../../src/core/review/review-now.js');
+    await post({ tab: 'reviews', review: { repo: 'api', number: 231 } });
+    expect(assistantContextReview()).toEqual({ repo: 'api', number: 231 });
+    expect(readAssistantContext()).not.toContain('Refunds'); // nothing of the review is stored
+    expect(describeReviewNow('api', 231)).toBe('The Reviews tab shows api PR #231: no review of it is prepared (any more).');
+    writeReview(demoReview(new Date('2026-11-02T10:00:00Z')));
+    const said = readAssistantContext(Date.now(), describeReviewNow('api', 231))!;
+    expect(said).toContain('the prepared review of api PR #231');
+    expect(said).toContain('<<< Refunds: partial refunds on paid orders >>>'); // the PR's text fenced as data
+    expect(said).toContain('2 draft comment(s) wait');
+    updateReview('api', 231, (r) => ({ ...r, drafts: r.drafts.map((d) => ({ ...d, state: 'posted' as const })) }));
+    expect(readAssistantContext(Date.now(), describeReviewNow('api', 231))).toContain('0 draft comment(s) wait');
+    await post({ tab: 'reviews', review: { repo: 'api', number: 'x' } });
+    expect(assistantContextReview()).toBeNull();
+    await post({ tab: 'sessions', review: { repo: 'api', number: 231 } }); // another tab: no review
+    expect(assistantContextReview()).toBeNull();
   });
 });

@@ -13,7 +13,8 @@ import { dbPath, withDb } from './db.js';
  *
  * plus newer-state.json: what has no file of its own in that layout (it came
  * after the move to SQLite) — PR reply drafts, the Jira watch, snoozes, the
- * rail's order, pins and sections, notes, blocks, worklogs — so an export
+ * rail's order, pins and sections, notes, blocks, worklogs, prepared PR
+ * reviews — so an export
  * still holds everything, for reading or by hand. A downgrade to the JSON
  * files has none of those features to read it with.
  */
@@ -44,6 +45,7 @@ const TABLES = [
   'diff_seen',
   'time_days',
   'pr_watch_state',
+  'pr_reviews',
 ];
 
 /** Per-session tables of the newer features (session_id + data). */
@@ -131,6 +133,8 @@ export function exportLegacyState(dir: string): string[] {
     }));
     // The Time tab's days: your rows, days off, and the Tempo worklogs work made (without them a re-post can't tell them from yours).
     newer.time_days = Object.fromEntries(all('SELECT day, data FROM time_days').map((r) => [r.day, parse(String(r.data))]));
+    // Prepared PR reviews: your draft comments, and the reviews you submitted (#64).
+    newer.pr_reviews = Object.fromEntries(all('SELECT key, data FROM pr_reviews').map((r) => [r.key, parse(String(r.data))]));
     newer.meta = Object.fromEntries(
       NEWER_META.flatMap((k) => {
         const row = d.prepare('SELECT value FROM meta WHERE key = ?').get(k) as { value: string } | undefined;

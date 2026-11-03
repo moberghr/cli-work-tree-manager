@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { CommandRunner } from '../../platform/command-runner.js';
+import { RUN_TIMED_OUT, type CommandRunner } from '../../platform/command-runner.js';
 import { originUrl, readGitConfig } from '../../worktree/repo-scan.js';
-import type { GitHost, HostResult } from '../types.js';
+import type { GitHost, SubmitReviewResult } from '../types.js';
 import type { PullRequestInfo } from '../../pr/pr-types.js';
 import { azureCommands } from './commands.js';
 import { AZURE_THREAD_ID, azureRepoId, onAzure, parseAzureOrigin, parseAzurePrUrl, parseAzureThreadId, type AzureRepo } from './origin.js';
@@ -33,10 +33,14 @@ import {
 const API = '7.1';
 const oneLine = (s: string) => s.trim().split('\n')[0] ?? '';
 
+/** What az said: its value, or why not (`timedOut`: it didn't answer in time, so what it was asked may have happened). */
+type AzResult<T> = { ok: true; value: T } | { ok: false; error: string; timedOut?: boolean };
+
 /** `az … --output json`, parsed; an error with its first line when az fails or says something that isn't JSON. */
-async function az<T>(run: CommandRunner, cwd: string, args: string[]): Promise<HostResult<{ value: T }>> {
+async function az<T>(run: CommandRunner, cwd: string, args: string[]): Promise<AzResult<T>> {
   const r = await run('az', [...args, '--output', 'json'], cwd);
   if (r.code === 127) return { ok: false, error: 'Azure CLI (az) not found — install it and the azure-devops extension' };
+  if (r.code === RUN_TIMED_OUT) return { ok: false, error: oneLine(r.stderr) || 'az timed out', timedOut: true };
   if (r.code !== 0) return { ok: false, error: oneLine(r.stderr) || `az ${args.slice(0, 3).join(' ')} failed` };
   try {
     return { ok: true, value: JSON.parse(r.stdout || 'null') as T };
@@ -63,7 +67,7 @@ async function invoke<T>(
   route: Record<string, string | number>,
   method: 'GET' | 'POST' | 'PATCH' = 'GET',
   body?: unknown,
-): Promise<HostResult<{ value: T }>> {
+): Promise<AzResult<T>> {
   const params = Object.entries({ project: r.project, repositoryId: r.repo, ...route }).map(([k, v]) => `${k}=${v}`);
   let dir: string | null = null;
   const args = [
@@ -106,6 +110,24 @@ async function policies(run: CommandRunner, cwd: string, r: AzureRepo, id: numbe
   return p.ok && Array.isArray(p.value) ? p.value : [];
 }
 
+/** How many open PRs one listing asks for; a list that long may have stopped short (`more`). */
+const OPEN_PR_LIMIT = 100;
+
+/** A review comment: a new thread on a line of the PR's new side. */
+async function postThread(
+  run: CommandRunner,
+  cwd: string,
+  r: AzureRepo,
+  number: number,
+  c: { path: string; line: number; body: string },
+): Promise<AzResult<AzThread>> {
+  return invoke<AzThread>(run, cwd, r, 'pullRequestThreads', { pullRequestId: number }, 'POST', {
+    comments: [{ parentCommentId: 0, content: c.body, commentType: 1 }],
+    status: 'active',
+    threadContext: { filePath: `/${c.path}`, rightFileStart: { line: c.line, offset: 1 }, rightFileEnd: { line: c.line, offset: 1 } },
+  });
+}
+
 const MERGE_STRATEGY = { squash: 'squash', merge: 'noFastForward', rebase: 'rebase' } as const;
 
 export const azure: GitHost = {
@@ -125,8 +147,9 @@ export const azure: GitHost = {
     const l = parseAzurePrUrl(t);
     return l ? { repoId: l.repoId, number: l.number, url: l.url, label: l.label } : null;
   },
-  // The PR merged into its target (its first parent): the diff from their merge-base is the PR's change.
+  // The PR merged into its target (its first parent); its second parent is the PR's head, where a review reads and comments.
   prRef: (n) => `refs/pull/${n}/merge`,
+  prRefIsMerge: true,
 
   async list(repos, run) {
     const prs: PullRequestInfo[] = [];
@@ -244,45 +267,60 @@ export const azure: GitHost = {
   async openPrs(run, cwd) {
     const r = repoAt(cwd);
     if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };
-    const list = await az<AzPr[]>(run, cwd, ['repos', 'pr', 'list', ...where(r), '--status', 'active', '--top', '50']);
+    const list = await az<AzPr[]>(run, cwd, ['repos', 'pr', 'list', ...where(r), '--status', 'active', '--top', String(OPEN_PR_LIMIT)]);
     if (!list.ok) return { ok: false, error: list.error };
-    return { ok: true, prs: (Array.isArray(list.value) ? list.value : []).flatMap((p) => openPrOf(r, p) ?? []) };
+    // Not a list is not "no PRs": the review queue would drop every review of the repo.
+    if (!Array.isArray(list.value)) return { ok: false, error: "couldn't read what az said" };
+    return {
+      ok: true,
+      prs: list.value.flatMap((p) => openPrOf(r, p) ?? []),
+      ...(list.value.length >= OPEN_PR_LIMIT ? { more: true } : {}),
+    };
   },
 
-  async submitReview(run, cwd, number, review) {
+  // Each comment its own thread, then the summary, then the vote: what went out before a failure is said, so a retry
+  // sends none of it again; a call that timed out may have gone through (`inDoubt`).
+  async submitReview(run, cwd, number, review): Promise<SubmitReviewResult> {
     const r = repoAt(cwd);
     if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };
-    for (const c of review.comments) {
-      const made = await azure.postReviewComment(run, cwd, number, { ...c, commitId: review.commitId });
-      if (!made.ok) return { ok: false, error: `${c.path}:${c.line}: ${made.error}` };
+    for (const [i, c] of review.comments.entries()) {
+      const made = await postThread(run, cwd, r, number, c);
+      if (!made.ok)
+        return {
+          ok: false,
+          error: `${c.path}:${c.line}: ${made.error}`,
+          posted: i,
+          ...(made.timedOut ? { inDoubt: { comments: [i], summary: false } } : {}),
+        };
     }
-    if (review.body.trim()) {
+    const summary = !!review.body.trim();
+    if (summary) {
       const general = await invoke(run, cwd, r, 'pullRequestThreads', { pullRequestId: number }, 'POST', {
         comments: [{ parentCommentId: 0, content: review.body, commentType: 1 }],
         status: 'active',
       });
-      if (!general.ok) return { ok: false, error: general.error };
+      if (!general.ok)
+        return {
+          ok: false,
+          error: `the summary: ${general.error}`,
+          posted: review.comments.length,
+          ...(general.timedOut ? { inDoubt: { comments: [], summary: true } } : {}),
+        };
     }
     // The verdict as Azure DevOps votes: approve 10, wait for author −5; a plain comment leaves the vote as it is.
+    // A vote set twice is the same vote: a retry may send it again.
     if (review.event !== 'comment') {
       const vote = review.event === 'approve' ? 'approve' : 'wait-for-author';
       const v = await az(run, cwd, ['repos', 'pr', 'set-vote', '--id', String(number), '--vote', vote, '--org', r.orgUrl]);
-      if (!v.ok) return { ok: false, error: v.error };
+      if (!v.ok)
+        return {
+          ok: false,
+          error: `the comments went out, the vote didn't: ${v.error}`,
+          posted: review.comments.length,
+          summaryPosted: summary,
+        };
     }
     return { ok: true, url: prWebUrl(r, number) };
-  },
-
-  async postReviewComment(run, cwd, number, c) {
-    const r = repoAt(cwd);
-    if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };
-    const made = await invoke<AzThread>(run, cwd, r, 'pullRequestThreads', { pullRequestId: number }, 'POST', {
-      comments: [{ parentCommentId: 0, content: c.body, commentType: 1 }],
-      status: 'active',
-      threadContext: { filePath: `/${c.path}`, rightFileStart: { line: c.line, offset: 1 }, rightFileEnd: { line: c.line, offset: 1 } },
-    });
-    if (!made.ok) return { ok: false, error: made.error };
-    const id = made.value?.id;
-    return { ok: true, ...(typeof id === 'number' ? { url: `${prWebUrl(r, number)}?discussionId=${id}` } : {}) };
   },
 
   async reviewFeedback(run, cwd, number) {

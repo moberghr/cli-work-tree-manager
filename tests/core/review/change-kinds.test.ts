@@ -5,6 +5,7 @@ import {
   groupByKind,
   importsOnly,
   rulesWith,
+  whitespaceMatters,
   type ChangedFile,
   type ChangeKind,
 } from '../../../src/core/review/change-kinds.js';
@@ -53,6 +54,15 @@ describe('classifyFile: each kind, and why', () => {
     ['src/Orders/RefundPolicy.cs', {}, 'logic', 'no rule matched: hand-written code'],
   ])('%s → %s', (path, over, kind, why) => {
     expect(classifyFile(file(path, over))).toMatchObject({ path, kind, why });
+  });
+
+  it('a whitespace-only change where indentation is meaning (Python, YAML, Makefiles…) is never folded as mechanical', () => {
+    for (const p of ['app/rates.py', '.github/workflows/ci.yml', 'deploy/values.yaml', 'Makefile', 'build/rules.mk', 'src/Calc.fs'])
+      expect(whitespaceMatters(p), p).toBe(true);
+    for (const p of ['src/Orders/Refund.cs', 'src/app.ts', 'docs/readme.md', 'makefile.txt']) expect(whitespaceMatters(p), p).toBe(false);
+    expect(classifyFile(file('app/rates.py', { whitespaceOnly: true })).kind).toBe('logic');
+    expect(classifyFile(file('.github/workflows/ci.yml', { whitespaceOnly: true })).kind).not.toBe('mechanical');
+    expect(classifyFile(file('src/Orders/Refund.cs', { whitespaceOnly: true })).kind).toBe('mechanical');
   });
 
   it('mechanical: a pure rename, a whitespace-only change, only using / import lines — what git or the lines say', () => {
