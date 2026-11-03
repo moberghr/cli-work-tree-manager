@@ -37,6 +37,18 @@ describe('classifyFile: each kind, and why', () => {
     ['tests/Orders.Tests/RefundTests.cs', {}, 'tests', 'test code'],
     ['src/orders/refund.test.ts', {}, 'tests', 'test code'],
     ['tests/test_refunds.py', {}, 'tests', 'test code'],
+    // Test support: shared test projects, data builders, fixtures — test code, not logic.
+    ['src/Shop.Tests.Shared/CreateSubmission.cs', {}, 'tests', 'test support (shared test code, data builders, fixtures)'],
+    ['src/Shop.TestUtilities/Builders/OrderBuilder.cs', {}, 'tests', 'test support (shared test code, data builders, fixtures)'],
+    ['src/Shop/TestData/Orders.cs', {}, 'tests', 'test support (shared test code, data builders, fixtures)'],
+    ['web/fixtures/order.json', {}, 'tests', 'test support (shared test code, data builders, fixtures)'],
+    // Resources and translations.
+    ['src/Shop.Resources/Translations.resx', {}, 'mechanical', 'resources or translations'],
+    ['src/Shop.Resources/Translations.is-IS.resx', {}, 'mechanical', 'resources or translations'],
+    ['src/App/Strings.resw', {}, 'mechanical', 'resources or translations'],
+    ['locale/hr/LC_MESSAGES/app.po', {}, 'mechanical', 'resources or translations'],
+    ['web/src/locales/is/common.json', {}, 'mechanical', 'resources or translations'],
+    ['web/src/i18n/en.json', {}, 'mechanical', 'resources or translations'],
     // Dependencies, build, CI.
     ['src/Orders/Orders.csproj', {}, 'dependencies', 'package or project file'],
     ['package.json', {}, 'dependencies', 'package or project file'],

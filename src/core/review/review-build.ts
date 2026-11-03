@@ -10,7 +10,7 @@ import type { ParsedFile } from '../diff/diff-parse.js';
 import type { PrReviewWire, ReviewFileWire, ReviewSummaryWire } from '../api-types.js';
 import { classifyFile, type FileKind, type KindRule } from './change-kinds.js';
 import { testBreakdown, type DiffFileLines } from './test-breakdown.js';
-import { agentPrompt, FLAG_LABEL, FLAGS, parseAgentPass, planReview, type PromptFile } from './review-plan.js';
+import { agentPrompt, FLAG_LABEL, FLAGS, parseAgentPass, planReview, PROMPT_KINDS, type PromptFile } from './review-plan.js';
 import { KIND_LABEL, KIND_ORDER } from './change-kinds.js';
 import { asData } from '../time/fence.js';
 import { onDiffLine } from './review-submit.js';
@@ -93,16 +93,30 @@ const asLines = (f: ParsedFile): DiffFileLines => ({
   hunks: f.hunks,
 });
 
+/** The files the agent pass is asked about, and may name in a story or a note: the schema, API, logic and wiring ones. */
+export const promptPaths = (kinds: FileKind[]): string[] => kinds.filter((k) => PROMPT_KINDS.has(k.kind)).map((k) => k.path);
+
 /**
- * The agent pass's prompt for this PR: its Logic files, and the tests it touches (null: nothing to ask about).
+ * The agent pass's prompt for this PR: every changed schema, API, logic and wiring file with its changed lines, as
+ * many of their diffs as fit, and the tests it touches (null: no Logic file, nothing to ask about).
  * `checkout`: the agent reads it in a checkout of the PR (review-tree.ts), and is told so.
  */
 export function reviewPrompt(meta: ReviewMeta, files: ParsedFile[], kinds: FileKind[], opts: { checkout?: string[] } = {}): string | null {
-  const logic = new Set(kinds.filter((k) => k.kind === 'logic').map((k) => k.path));
-  if (!logic.size) return null;
+  if (!kinds.some((k) => k.kind === 'logic')) return null;
   const kindMap = Object.fromEntries(kinds.map((k) => [k.path, k.kind]));
   const tests = testBreakdown(files.map(asLines), kindMap).tests.filter((t) => t.change !== 'removed');
-  const shown: PromptFile[] = files.filter((f) => logic.has(f.path)).map((f) => ({ path: f.path, diff: diffText(f) }));
+  const asked = new Set(promptPaths(kinds));
+  const shown: PromptFile[] = files
+    .filter((f) => asked.has(f.path))
+    .map((f) => ({
+      path: f.path,
+      diff: diffText(f),
+      kind: kindMap[f.path],
+      status: f.status,
+      added: f.added,
+      deleted: f.deleted,
+      lines: rightLines(f),
+    }));
   return agentPrompt({ title: meta.title, number: meta.number }, shown, tests, undefined, opts);
 }
 
@@ -127,7 +141,7 @@ export function buildReview(
       ? null
       : parseAgentPass(
           answer,
-          logic,
+          promptPaths(kinds),
           breakdown.tests.map((t) => t.name),
         );
   const plan = planReview(kinds, breakdown, pass);
@@ -236,7 +250,7 @@ export function describeReview(r: PrReviewWire): string {
       (r.tests.unitOnlyForSchema ? ' The schema changes with unit tests only.' : ''),
     ...r.stories.map(
       (s, i) =>
-        `Story ${i + 1} (risk ${s.riskLevel}/5${s.flags.length ? `; ${s.flags.map((f) => FLAG_LABEL[f]).join(', ')}` : ''}): <<< ${asData(s.title, 120)} — ${asData(s.why, 200)} — ${asData(s.risk, 200)} >>>`,
+        `Story ${i + 1} (risk ${s.riskLevel}/5${s.flags.length ? `; ${s.flags.map((f) => FLAG_LABEL[f]).join(', ')}` : ''}): <<< ${asData(s.title, 160)} — ${asData(s.why, 400)} — ${asData(s.risk, 400)} >>>`,
     ),
     r.drafts.length
       ? `${r.drafts.filter((d) => d.state === 'draft').length} draft comment(s) wait for the user's Post; you never post them.`

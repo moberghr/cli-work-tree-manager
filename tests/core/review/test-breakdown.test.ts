@@ -194,6 +194,27 @@ describe('the level a test runs at', () => {
     );
     expect(testLevel('src/orders/refund.test.ts', 'expect(1)')).toBe('unit');
   });
+
+  it('a database test is integration: by its folder, its file name, its base class or its fixture', () => {
+    // Folders and file names.
+    expect(testLevel('src/Shop.Tests/PostgreTests/Handlers/SubmissionQueriesPostgreTests.cs', '')).toBe('integration');
+    expect(testLevel('src/Shop.Tests/Handlers/SubmissionQueriesPostgreTests.cs', '')).toBe('integration');
+    expect(testLevel('src/Shop.Tests/DbTests/Orders.cs', '')).toBe('integration');
+    expect(testLevel('src/Shop.Tests/SqlTests/Orders.cs', '')).toBe('integration');
+    expect(testLevel('src/Shop.IntegrationTests/OrderTests.cs', '')).toBe('integration');
+    // What the test uses, anywhere in the file.
+    expect(testLevel('src/Shop.Tests/Handlers/AuditTests.cs', 'public class AuditTests : BasePostgreTest')).toBe('integration');
+    expect(
+      testLevel('src/Shop.Tests/Handlers/AuditTests.cs', 'public AuditTests(DatabaseFixture databaseFixture) : base(databaseFixture)'),
+    ).toBe('integration');
+    expect(testLevel('src/Shop.Tests/Handlers/AuditTests.cs', 'public class AuditTests : IClassFixture<PostgresDatabaseFixture>')).toBe(
+      'integration',
+    );
+    expect(testLevel('src/Shop.Tests/Handlers/AuditTests.cs', 'var pg = new PostgreSqlContainer();')).toBe('integration');
+    // Not one: a unit test that only mentions the database by name, a feedback test.
+    expect(testLevel('src/Shop.Tests/UnitTests/FeedbackTests.cs', 'var db = new FakeDb(); // the database is mocked')).toBe('unit');
+    expect(testLevel('src/Shop.Tests/UnitTests/Handlers/UpdateTests.cs', '')).toBe('unit');
+  });
 });
 
 describe('which code each test covers, and the gaps', () => {
@@ -214,6 +235,58 @@ describe('which code each test covers, and the gaps', () => {
     expect(cov.covers['tests/Orders.Tests/OrderServiceTests.cs']).toEqual(['src/Orders/OrderService.cs', 'src/Orders/RefundPolicy.cs']);
     expect(cov.covers['src/web/checkout.test.ts']).toEqual(['src/web/cart.ts']);
     expect(cov.coveredBy['src/web/other.ts']).toBeUndefined();
+  });
+
+  it('by a type the code file declares that the test names anywhere, or (C#) by importing its namespace', () => {
+    const code = [
+      diffFile(
+        'src/Shop.Core/Types/Onboarding/SubmissionFields.cs',
+        ' namespace Shop.Core.Types.Onboarding;\n+public class SignatoryFields\n+{',
+      ),
+      // No namespace line in its diff: its folders spell it.
+      diffFile(
+        'src/Shop.Core/Types/Onboarding/SubmissionValidator.cs',
+        ' public static class SubmissionValidator\n+    if (f.Ssn is null) throw;',
+      ),
+      diffFile('src/Shop.Core/Data/Entities/Agreement.cs', '+public class Agreement\n+{'),
+      diffFile('src/Shop.Core/Billing/Invoice.cs', '+public class Invoice\n+{'),
+      diffFile('src/web/rates.ts', '+export function shippingRate(kg: number) {'),
+    ];
+    const tests = [
+      // Names the declared type in a plain statement (not `new X(`), and imports the validator's namespace.
+      diffFile(
+        'src/Shop.Tests/UnitTests/SubmitCommandTests.cs',
+        ' using Shop.Core.Types.Onboarding;\n+        var s = SignatoryFields.Empty;\n+        typeof(Agreement).FullName.ShouldNotBeNull();',
+      ),
+      diffFile('web/src/checkout.test.ts', '+  expect(shippingRate(2)).toBe(5);'),
+    ];
+    const cov = matchTestsToCode(
+      tests,
+      code.map((f) => f.path),
+      code,
+    );
+    expect(cov.covers['src/Shop.Tests/UnitTests/SubmitCommandTests.cs']).toEqual([
+      'src/Shop.Core/Types/Onboarding/SubmissionFields.cs',
+      'src/Shop.Core/Types/Onboarding/SubmissionValidator.cs',
+      'src/Shop.Core/Data/Entities/Agreement.cs',
+    ]);
+    expect(cov.covers['web/src/checkout.test.ts']).toEqual(['src/web/rates.ts']);
+    expect(cov.coveredBy['src/Shop.Core/Billing/Invoice.cs']).toBeUndefined();
+    // Without the code's diffs: names and imports only, as before.
+    expect(matchTestsToCode(tests, ['src/Shop.Core/Billing/Invoice.cs', 'src/Shop.Core/Data/Entities/Agreement.cs']).coveredBy).toEqual({});
+  });
+
+  it('test support (a data builder) is test code but covers nothing itself', () => {
+    const files = [
+      diffFile('src/Shop.Core/Data/Entities/Submission.cs', '+public class Submission\n+{'),
+      diffFile('src/Shop.Tests.Shared/CreateSubmission.cs', '+    public static Submission New() => new Submission();'),
+    ];
+    const b = testBreakdown(files, {
+      'src/Shop.Core/Data/Entities/Submission.cs': 'logic',
+      'src/Shop.Tests.Shared/CreateSubmission.cs': 'tests',
+    });
+    expect(b.gaps).toEqual(['src/Shop.Core/Data/Entities/Submission.cs']);
+    expect(b.coverage.covers).toEqual({});
   });
 
   it('the breakdown: counts, the gaps, what goes away quietly, and unit tests alone for a schema change', () => {

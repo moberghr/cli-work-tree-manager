@@ -4,9 +4,10 @@
  * `[Theory]` (+ `[InlineData]` rows), NUnit `[Test]` / `[TestCase]`, MSTest
  * `[TestMethod]` / `[DataRow]`, Jest / Vitest `it(` / `test(` (+ `.each`,
  * `.skip`, `xit`), pytest `def test_` (+ `parametrize`, `skip`). Nothing is
- * run: running a PR's tests is a session's job. Then which code each test
- * file covers (by name and imports), and the production changes no test
- * touches. Shared with the SPA and the demo; keep it import-free.
+ * run: running a PR's tests is a session's job. Each test file's level by
+ * `TEST_LEVEL_RULES`. Then which code each test file covers (by name, imports,
+ * the types a code file declares, its namespace), and the production changes
+ * no test touches. Shared with the SPA and the demo; keep it import-free.
  */
 
 export type TestChange = 'added' | 'changed' | 'removed' | 'skipped';
@@ -44,12 +45,35 @@ const PY_TEST = /^\s*(?:async\s+)?def\s+(test_\w+)\s*\(/;
 const PY_PARAM = /^\s*@pytest\.mark\.parametrize\b/;
 const PY_SKIP = /^\s*@pytest\.mark\.(skip|skipif|xfail)\b/;
 
-/** The level a test runs at, from its file's path and what its changed lines use. */
+/**
+ * How a test file's level is told, first match wins: its path (folders and file names), or what its diff's lines use
+ * (a base class, a fixture, a host). A test that runs against a real database, container or in-process server is an
+ * integration test, whatever its folder says it is.
+ */
+export const TEST_LEVEL_RULES: Array<{ level: TestLevel; name: string; path?: RegExp; text?: RegExp }> = [
+  { level: 'e2e', name: 'an end-to-end folder or file', path: /(^|\/)(e2e|playwright|cypress)(\/|\.|$)|\.e2e\./i },
+  { level: 'integration', name: 'an integration folder or file', path: /integration/i },
+  {
+    level: 'integration',
+    name: 'a database test folder or file (PostgreTests, DbTests, …)',
+    path: /(^|\/|[a-z0-9_])(Postgres?|Pg|Sql|MsSql|Sqlite|Mongo|Redis|Database|Db)Tests?(\/|\.[^/]+$)/,
+  },
+  {
+    level: 'integration',
+    name: 'an in-process host or a container',
+    text: /\b(WebApplicationFactory|Testcontainers|TestServer|(Postgre(s|Sql)?|MsSql|SqlServer|Mongo(Db)?|Redis)(Builder|Container)\b)/,
+  },
+  {
+    level: 'integration',
+    name: 'a database fixture or base class',
+    text: /\bIClassFixture<\s*\w*(Database|Db|Postgres?|Sql|Container)\w*\s*>|\b\w*(Database|Db|Postgres?|Sql)\w*Fixture\b|:\s*\w*(Postgres?|Sql|Database|Db)\w*Test(s|Base)?\b/,
+  },
+];
+
+/** The level a test runs at, from its file's path and what its diff's lines use (`TEST_LEVEL_RULES`). */
 export function testLevel(path: string, text: string): TestLevel {
-  if (/(^|\/)(e2e|playwright|cypress)(\/|\.|$)|\.e2e\./i.test(path)) return 'e2e';
-  if (/integration/i.test(path) || /\b(WebApplicationFactory|Testcontainers|TestServer|IClassFixture<.*(Database|Db|Container))/.test(text))
-    return 'integration';
-  return 'unit';
+  const rule = TEST_LEVEL_RULES.find((r) => (r.path && r.path.test(path)) || (r.text && r.text.test(text)));
+  return rule?.level ?? 'unit';
 }
 
 interface Pending {
@@ -287,22 +311,87 @@ export interface Coverage {
   coveredBy: Record<string, string[]>;
 }
 
-/** Which of the PR's production files each of its test files covers: by the test's name, then by what it imports or builds. */
-export function matchTestsToCode(testFiles: DiffFileLines[], codePaths: string[]): Coverage {
+/**
+ * The types a file's diff declares (added and unchanged lines): C# / Java / TS / JS classes, records, structs,
+ * interfaces, enums and type aliases, TS / JS functions and exported constants, Python classes and top-level
+ * functions — the declaration patterns of code search (worktree/code-symbols.ts), reduced to what a test names.
+ */
+const DECLARES = [
+  /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|file|export|default|declare|async)\s+)*(?:class|record\s+struct|record|struct|interface|enum|type|function\*?)\s+([A-Za-z_$][\w$]*)/,
+  /^\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)/,
+  /^(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)/,
+];
+/** Shorter names are too common to say a test uses this file (`Id`, `Add`). */
+const MIN_NAME = 4;
+
+/** The names a code file's diff declares, and the namespace a C# file is in (declared, else its folders'). */
+function declared(f: DiffFileLines): { names: Set<string>; namespace: string | null } {
+  const names = new Set<string>();
+  let namespace: string | null = null;
+  for (const l of f.hunks.flatMap((h) => h.lines)) {
+    if (l.kind === 'delete' || l.kind === 'no-newline') continue;
+    for (const re of DECLARES) {
+      const m = re.exec(l.content);
+      if (m && m[1].length >= MIN_NAME) names.add(m[1]);
+    }
+    const ns = /^\s*namespace\s+([\w.]+)\s*[;{]?\s*$/.exec(l.content);
+    if (ns) namespace = ns[1];
+  }
+  return { names, namespace };
+}
+
+/** The words a test file's diff uses (added and unchanged lines), and the namespaces it imports (`using A.B;`). */
+function usedWords(t: DiffFileLines): { words: Set<string>; namespaces: string[] } {
+  const words = new Set<string>();
+  const namespaces: string[] = [];
+  for (const l of t.hunks.flatMap((h) => h.lines)) {
+    if (l.kind === 'delete' || l.kind === 'no-newline') continue;
+    for (const m of l.content.matchAll(/[A-Za-z_$][\w$]*/g)) words.add(m[0]);
+    const ns = /^\s*(?:global\s+)?using\s+(?!static\b)([\w.]+)\s*;/.exec(l.content);
+    if (ns) namespaces.push(ns[1]);
+  }
+  return { words, namespaces };
+}
+
+/** A C# file is in the namespace a test imports: the one it declares, or — not in its diff — the one its folders spell. */
+function inNamespace(path: string, declaredNs: string | null, imported: string): boolean {
+  if (!/\.cs$/i.test(path)) return false;
+  if (declaredNs) return declaredNs === imported;
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+  const dotted = `.${dir.replace(/\//g, '.')}`;
+  return dotted.toLowerCase().endsWith(`.${imported.toLowerCase()}`);
+}
+
+/**
+ * Which of the PR's production files each of its test files covers: by the test's name, by what it imports or
+ * builds, by a type the code file declares that the test names anywhere, or — C# — by importing the namespace the
+ * code file is in (a handler's tests reach its validator through the handler). `codeFiles`: the code's diffs, for
+ * what they declare; without them, names and imports only.
+ */
+export function matchTestsToCode(testFiles: DiffFileLines[], codePaths: string[], codeFiles: DiffFileLines[] = []): Coverage {
   const covers: Record<string, string[]> = {};
   const coveredBy: Record<string, string[]> = {};
+  const decl = new Map(codeFiles.map((f) => [f.path, declared(f)]));
   for (const t of testFiles) {
     const subject = subjectOf(t.path);
     const used = importedStems(t);
+    const { words, namespaces } = usedWords(t);
     const hits = codePaths.filter((p) => {
       const stem = stemOf(p);
-      return (subject && stem === subject) || used.has(stem);
+      if ((subject && stem === subject) || used.has(stem)) return true;
+      const d = decl.get(p);
+      if (!d) return false;
+      if ([...d.names].some((n) => words.has(n))) return true;
+      return namespaces.some((ns) => inNamespace(p, d.namespace, ns));
     });
     covers[t.path] = hits;
     for (const p of hits) (coveredBy[p] ??= []).push(t.path);
   }
   return { covers, coveredBy };
 }
+
+/** A file named as a test file (`OrderTests.cs`, `order.test.ts`, `test_order.py`, `order_test.go`). */
+const TEST_FILE_NAME = /(Tests?|Specs?|_test)\.[^/.]+$|\.(test|spec|e2e)\.[^/]+$|(^|\/)test_[^/]+\.py$/i;
 
 export interface TestBreakdown {
   tests: FoundTest[];
@@ -323,11 +412,15 @@ export interface TestBreakdown {
  */
 export function testBreakdown(files: DiffFileLines[], kinds: Record<string, string>): TestBreakdown {
   const testFiles = files.filter((f) => kinds[f.path] === 'tests');
-  const code = files.filter((f) => ['logic', 'schema', 'api'].includes(kinds[f.path]) && f.status !== 'deleted').map((f) => f.path);
   const tests = testFiles.flatMap(testsInFile);
+  // Test support (a data builder, a fixture) is test code but tests nothing itself: only test files say what is covered.
+  const withTests = new Set(tests.map((t) => t.file));
+  const coverers = testFiles.filter((f) => withTests.has(f.path) || TEST_FILE_NAME.test(f.path));
+  const codeFiles = files.filter((f) => ['logic', 'schema', 'api'].includes(kinds[f.path]) && f.status !== 'deleted');
+  const code = codeFiles.map((f) => f.path);
   const counts: Record<TestChange, number> = { added: 0, changed: 0, removed: 0, skipped: 0 };
   for (const t of tests) counts[t.change]++;
-  const coverage = matchTestsToCode(testFiles, code);
+  const coverage = matchTestsToCode(coverers, code, codeFiles);
   const schemaChanged = files.some((f) => kinds[f.path] === 'schema');
   const touched = tests.filter((t) => t.change !== 'removed');
   return {

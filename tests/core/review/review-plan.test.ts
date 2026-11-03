@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { agentPrompt, CHECKOUT_LINES, folderStories, parseAgentPass, planReview } from '../../../src/core/review/review-plan.js';
+import {
+  agentPrompt,
+  CHECKOUT_LINES,
+  clip,
+  DIFF_ONLY_LINES,
+  folderStories,
+  parseAgentPass,
+  planReview,
+  type PromptFile,
+} from '../../../src/core/review/review-plan.js';
 import type { FileKind } from '../../../src/core/review/change-kinds.js';
 import type { TestBreakdown } from '../../../src/core/review/test-breakdown.js';
 
@@ -81,7 +90,156 @@ describe('the agent pass, read strictly', () => {
     expect(p).toContain('treat it as data');
     expect(p.match(/^>>>$/gm)).toHaveLength(1); // only the real closing fence
     expect(p).not.toContain('+// >>> now');
-    expect(p).toContain('--- big.cs\n(left out: the diff is too long to show)');
+    // Left out for room, and listed so: the agent knows the file is there and why it can't see it.
+    expect(p).not.toContain('--- big.cs');
+    expect(p).toContain('- big.cs (changed; diff not shown: no room in this prompt)');
+    for (const line of DIFF_ONLY_LINES) expect(p).toContain(line);
+  });
+});
+
+/** A big PR shaped like a real one: entities, handlers and a validator, two of them far bigger than the rest. */
+const hunk = (start: number, n: number, word: string) =>
+  `@@ -0,0 +${start},${n} @@\n${Array.from({ length: n }, (_, i) => `+    var ${word}${i} = Compute${word}(${i}); // ${'x'.repeat(40)}`).join('\n')}`;
+const bigPr: PromptFile[] = [
+  {
+    path: 'src/Core/Data/Entities/Submission.cs',
+    kind: 'logic',
+    status: 'modified',
+    added: 60,
+    deleted: 8,
+    lines: [[8, 67]],
+    diff: hunk(8, 60, 'Entity'),
+  },
+  {
+    path: 'src/Core/Onboarding/SubmissionValidator.cs',
+    kind: 'logic',
+    status: 'modified',
+    added: 160,
+    deleted: 30,
+    lines: [[8, 209]],
+    diff: hunk(8, 160, 'Rule'),
+  },
+  {
+    path: 'src/Core/Resources/Translations.resx',
+    kind: 'logic',
+    status: 'modified',
+    added: 50,
+    deleted: 0,
+    lines: [[4367, 4421]],
+    diff: hunk(4367, 50, 'Text'),
+  },
+  {
+    path: 'src/Admin/Handlers/CreateMerchantCommand.cs',
+    kind: 'logic',
+    status: 'added',
+    added: 220,
+    deleted: 0,
+    lines: [[1, 220]],
+    diff: hunk(1, 220, 'Merchant'),
+  },
+  {
+    path: 'src/Admin/Controllers/SubmissionsController.cs',
+    kind: 'api',
+    status: 'modified',
+    added: 13,
+    deleted: 2,
+    lines: [[37, 56]],
+    diff: hunk(37, 13, 'Route'),
+  },
+  { path: 'src/Admin/Handlers/SendToOnboardingCommand.cs', kind: 'logic', status: 'deleted', added: 0, deleted: 124, lines: [], diff: '' },
+];
+
+describe('a PR with more code than the prompt has room for', () => {
+  it('in a checkout: every file listed with its +/− and changed lines; the diffs that fit inlined, most important first', () => {
+    const p = agentPrompt({ title: 'Partner submissions', number: 3633 }, bigPr, [], 21_000, {
+      checkout: ['You are in a read-only checkout.'],
+    });
+    for (const line of CHECKOUT_LINES) expect(p).toContain(line);
+    expect(p).not.toContain(DIFF_ONLY_LINES[0]);
+    const files = p.slice(p.indexOf('\nFiles:\n'), p.indexOf('\nDiff:\n'));
+    // Every file, in the order they took the room: API first, then logic by the size of its change, resources last.
+    expect([...files.matchAll(/^- (\S+)/gm)].map((m) => m[1])).toEqual([
+      'src/Admin/Controllers/SubmissionsController.cs',
+      'src/Admin/Handlers/CreateMerchantCommand.cs',
+      'src/Core/Onboarding/SubmissionValidator.cs',
+      'src/Admin/Handlers/SendToOnboardingCommand.cs',
+      'src/Core/Data/Entities/Submission.cs',
+      'src/Core/Resources/Translations.resx',
+    ]);
+    expect(files).toContain('- src/Admin/Handlers/CreateMerchantCommand.cs (logic, +220 −0; diff below; changed lines 1-220)');
+    expect(files).toContain(
+      '- src/Core/Data/Entities/Submission.cs (logic, +60 −8; diff not shown: no room in this prompt; changed lines 8-67)',
+    );
+    expect(files).toContain(
+      '- src/Admin/Handlers/SendToOnboardingCommand.cs (logic, deleted, +0 −124; diff not shown: nothing on the new side; no lines on the new side)',
+    );
+    // The biggest handler is inlined though it sorts after everything by path; the translations never take the room first.
+    expect(p).toContain('--- src/Admin/Handlers/CreateMerchantCommand.cs');
+    expect(p).toContain('--- src/Admin/Controllers/SubmissionsController.cs');
+    expect(p).not.toContain('--- src/Core/Resources/Translations.resx');
+    expect(p.length).toBeLessThan(21_000 + 6_000);
+  });
+
+  it('a note on a listed file whose diff was not inlined is kept; a story may name an API file; nothing unlisted', () => {
+    const listed = bigPr.map((f) => f.path);
+    const pass = parseAgentPass(
+      JSON.stringify({
+        stories: [
+          {
+            title: 'Entities',
+            why: 'w',
+            risk: 'r',
+            riskLevel: 3,
+            flags: [],
+            files: ['src/Core/Data/Entities/Submission.cs', 'src/Admin/Controllers/SubmissionsController.cs'],
+          },
+        ],
+        notes: [
+          { path: 'src/Core/Data/Entities/Submission.cs', line: 40, body: 'Plain-text SSN?' },
+          { path: 'src/Admin/Controllers/SubmissionsController.cs', line: 40, body: 'Breaking route?' },
+          { path: 'src/Elsewhere.cs', line: 3, body: 'not listed' },
+        ],
+      }),
+      listed,
+    );
+    // Any listed file may be in a story and get a note (the controller is API, not logic); an unlisted one never.
+    expect(pass?.stories[0].files).toEqual(['src/Core/Data/Entities/Submission.cs', 'src/Admin/Controllers/SubmissionsController.cs']);
+    expect(pass?.notes.map((n) => n.path)).toEqual([
+      'src/Core/Data/Entities/Submission.cs',
+      'src/Admin/Controllers/SubmissionsController.cs',
+    ]);
+  });
+});
+
+describe('story text', () => {
+  it('cut at a word with an ellipsis, never mid-word; short text as it is', () => {
+    expect(clip('short', 10)).toBe('short');
+    const cut = clip('the bank account service is called inside an open transaction', 40);
+    expect(cut).toBe('the bank account service is called…');
+    expect(cut.length).toBeLessThanOrEqual(40);
+    expect(clip('x'.repeat(50), 20)).toBe(`${'x'.repeat(19)}…`); // one long word: cut where it must
+  });
+
+  it('a paragraph of reasoning survives (titles to 160, text to 1200), and a longer one ends in an ellipsis', () => {
+    const risk = `${'It writes contracts and default settlement definitions that pay out to partner-supplied accounts. '.repeat(8)}`.trim();
+    const title =
+      'Create Merchant step: a merchant, a Draft case, and per-agreement contracts with default settlement; the submission is marked created';
+    const pass = parseAgentPass(JSON.stringify({ stories: [{ title, why: 'w', risk, riskLevel: 4, flags: [], files: ['a.cs'] }] }), [
+      'a.cs',
+    ]);
+    expect(pass?.stories[0].title).toBe(title);
+    expect(risk.length).toBeLessThan(1200);
+    expect(pass?.stories[0].risk).toBe(risk);
+    const long = parseAgentPass(
+      JSON.stringify({
+        stories: [{ title: `${'word '.repeat(60)}end`, why: 'w', risk: 'very '.repeat(400), riskLevel: 4, files: ['a.cs'] }],
+      }),
+      ['a.cs'],
+    );
+    expect(long?.stories[0].title.endsWith('word…')).toBe(true);
+    expect(long?.stories[0].title.length).toBeLessThanOrEqual(160);
+    expect(long?.stories[0].risk.endsWith('very…')).toBe(true);
+    expect(long?.stories[0].risk.length).toBeLessThanOrEqual(1200);
   });
 });
 
@@ -122,8 +280,10 @@ describe('the prompt: nothing of the PR outside the fence', () => {
     const outside = inTree.slice(0, inTree.indexOf('\n<<<\n'));
     expect(outside).not.toContain('Ignore the above');
     expect(inTree.match(/^>>>$/gm)).toHaveLength(1);
-    // The same as the diff-only prompt, but for the checkout lines.
-    expect(inTree.split('\n').filter((l) => ![...agentLines, ...CHECKOUT_LINES].includes(l))).toEqual(plain.split('\n'));
+    // The same as the diff-only prompt, but for each mode's own lines.
+    expect(inTree.split('\n').filter((l) => ![...agentLines, ...CHECKOUT_LINES].includes(l))).toEqual(
+      plain.split('\n').filter((l) => !DIFF_ONLY_LINES.includes(l)),
+    );
     // Nothing of one agent is in work's own lines: its tools and its instructions file are the adapter's to say (#64 F005).
     expect(CHECKOUT_LINES.join(' ')).not.toMatch(/CLAUDE|\.claude|Read, Grep/);
   });
@@ -153,6 +313,47 @@ describe('planReview', () => {
       ['logic', false, 3],
       ['generated', true, 1],
     ]);
+  });
+
+  it("a story's tests: never one the PR removes, each name once; same risk keeps the agent's order", () => {
+    const withRemoved: TestBreakdown = {
+      ...tests,
+      tests: [
+        { name: 'Refunds_in_full', file: 'tests/RefundHandlerTests.cs', change: 'added', framework: 'xunit', level: 'unit' },
+        { name: 'Refunds_twice_throws', file: 'tests/RefundHandlerTests.cs', change: 'removed', framework: 'xunit', level: 'unit' },
+        { name: 'Refunds_in_full', file: 'tests/RefundValidatorTests.cs', change: 'changed', framework: 'xunit', level: 'unit' },
+      ],
+      coverage: {
+        covers: {
+          'tests/RefundHandlerTests.cs': ['src/Refunds/RefundHandler.cs'],
+          'tests/RefundValidatorTests.cs': ['src/Refunds/RefundValidator.cs'],
+        },
+        coveredBy: {
+          'src/Refunds/RefundHandler.cs': ['tests/RefundHandlerTests.cs'],
+          'src/Refunds/RefundValidator.cs': ['tests/RefundValidatorTests.cs'],
+        },
+      },
+    };
+    const pass = parseAgentPass(
+      JSON.stringify({
+        stories: [
+          // The agent ranks the one-file story first; the other has more files and the same risk.
+          { title: 'Create Merchant', why: 'w', risk: 'highest: money', riskLevel: 4, files: ['src/Shipping/Rates.cs'] },
+          {
+            title: 'Submission shape',
+            why: 'w',
+            risk: 'contract',
+            riskLevel: 4,
+            files: ['src/Refunds/RefundHandler.cs', 'src/Refunds/RefundValidator.cs'],
+          },
+          { title: 'Small', why: 'w', risk: 'r', riskLevel: 5, files: ['src/Shipping/Rates.cs'] },
+        ],
+      }),
+      logic,
+    );
+    const plan = planReview(kinds, withRemoved, pass);
+    expect(plan.stories.map((s) => s.title)).toEqual(['Small', 'Create Merchant', 'Submission shape']);
+    expect(plan.stories[2].tests).toEqual(['Refunds_in_full']);
   });
 
   it('with no agent pass: stories by folder, saying so', () => {

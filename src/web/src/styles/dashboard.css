@@ -5704,6 +5704,7 @@ a.wd-pr-chip:hover {
   cursor: pointer;
   padding: 2px 0;
   width: 100%;
+  overflow-wrap: anywhere;
 }
 .wd-review-tree-meta {
   font-size: 11px;
@@ -5739,6 +5740,10 @@ a.wd-pr-chip:hover {
   padding: 8px 0 6px;
   border-bottom: 1px solid var(--border, #8884);
   margin-bottom: 6px;
+  /* A story's reasoning can run to a paragraph: it scrolls in the head rather than covering the diff. */
+  max-height: 40vh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 .wd-review-file {
   margin-bottom: 10px;

@@ -90,6 +90,36 @@ export const DEFAULT_RULES: KindRule[] = [
       '**/e2e/**',
     ],
   },
+  {
+    kind: 'tests',
+    name: 'test support (shared test code, data builders, fixtures)',
+    paths: [
+      '**/*.Tests.*/**',
+      '**/*.TestUtilities/**',
+      '**/*.TestHelpers/**',
+      '**/*.Testing/**',
+      '**/TestData/**',
+      '**/TestHelpers/**',
+      '**/TestUtilities/**',
+      '**/Fixtures/**',
+    ],
+  },
+  // Resources and translations: text for people, not code.
+  {
+    kind: 'mechanical',
+    name: 'resources or translations',
+    paths: [
+      '*.resx',
+      '*.resw',
+      '*.po',
+      '*.pot',
+      '*.xlf',
+      '*.xliff',
+      '*.strings',
+      '*.arb',
+      '**/{locales,locale,i18n,l10n,translations,lang}/**/*.json',
+    ],
+  },
   // Dependencies, build and CI.
   {
     kind: 'dependencies',
