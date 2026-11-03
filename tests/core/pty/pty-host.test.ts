@@ -42,7 +42,7 @@ const spawned: EchoPty[] = [];
 let dir: string;
 let host: PtyHostHandle;
 let client: PtyHostClient;
-const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '--continue' };
+const tool = { cmd: 'claude', baseArgs: [], resumeFlag: '--continue' };
 
 beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-host-'));

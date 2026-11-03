@@ -20,7 +20,7 @@ import type { AgentAdapter, AllowRule, WorkHook } from './types.js';
  * one blocked?" need no explaining. An agent without a workspace gets the
  * instructions only (it asks before every command, and sees no view).
  *
- * It runs in the agent's normal permission mode, never --unsafe: anything
+ * It runs in the agent's normal permission mode, as every session does: anything
  * not pre-allowed — `work cleanup --apply`, `work remove`, git — asks first,
  * in the panel (and the Inbox).
  */

@@ -5,7 +5,8 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/platform/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
 import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
-import { findSession, loadHistory, recordLaunch } from '../core/sessions/history.js';
+import { findSession, loadHistory } from '../core/sessions/history.js';
+import { retiredUnsafeOption, warnRetiredUnsafe } from './shared/retired-unsafe.js';
 import { keepingWarnings } from '../core/platform/report.js';
 import { SETUP_WARNINGS } from '../core/worktree/setup-child.js';
 import { leftoversOf, openInLeftovers } from '../core/archive/restore-leftovers.js';
@@ -40,11 +41,7 @@ export const treeCommand: CommandModule = {
         type: 'boolean',
         default: false,
       })
-      .option('unsafe', {
-        describe: 'Launch the AI tool with its skip-permissions flag (default: --dangerously-skip-permissions)',
-        type: 'boolean',
-        default: false,
-      })
+      .option('unsafe', retiredUnsafeOption)
       .option('pull', {
         describe: 'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
         type: 'boolean',
@@ -108,7 +105,7 @@ export const treeCommand: CommandModule = {
     let branchName = argv.branch as string | undefined;
     const here = argv.here as boolean;
     const open = argv.open as boolean;
-    const unsafe = argv.unsafe as boolean;
+    warnRetiredUnsafe(argv);
     const pull = argv.pull as boolean;
     const fresh = argv.fresh as boolean;
     const setupOnly = argv['setup-only'] as boolean;
@@ -150,14 +147,12 @@ export const treeCommand: CommandModule = {
      * is gated on an existing transcript.
      */
     const launchTool = async (dir: string, port: number | undefined, sessionKey: { target: string; branch: string }): Promise<void> => {
-      recordLaunch(sessionKey.target, sessionKey.branch, { unsafe: !!unsafe });
       if (viaHost) {
         const session = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
         if (session) {
           // The host decides --continue itself (the agent's own canResume
           // gate); `fresh` and the prompt ride along on the first spawn.
           process.exitCode = await attachSession(session, {
-            unsafe,
             fresh,
             initialPrompt,
             forwardEnv: true,
@@ -176,7 +171,7 @@ export const treeCommand: CommandModule = {
         console.log(chalk.gray(`Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`));
       }
       console.log(`Starting ${tool.cmd}...`);
-      launchAi(dir, tool, { unsafe, initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
+      launchAi(dir, tool, { initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
     };
 
     // --pr: the PR's repo and branch, and a first prompt saying whose branch it is.

@@ -21,7 +21,6 @@ const deps = (over: Partial<SendDeps> = {}, delivered: 'typed' | 'next-turn' | n
     runningOutside: () => false,
     start: vi.fn(async () => true),
     state: () => 'idle',
-    unsafe: () => false,
     archived: () => false,
     ...over,
   };
@@ -59,7 +58,7 @@ describe('sendToSession', () => {
     });
   });
 
-  it('refused: empty, too long, archived — and a session with permission checks off, unless forced', async () => {
+  it('refused: empty, too long, archived', async () => {
     expect(await sendToSession('s', '   ', deps())).toMatchObject({ ok: false, status: 400 });
     expect(await sendToSession('s', 'x'.repeat(MAX_SEND_CHARS + 1), deps())).toMatchObject({ ok: false, status: 400 });
     expect(await sendToSession('s', 'x', deps({ archived: () => true }))).toMatchObject({
@@ -67,10 +66,6 @@ describe('sendToSession', () => {
       status: 409,
       error: expect.stringContaining('archived'),
     });
-    const unsafe = deps({ unsafe: () => true });
-    expect(await sendToSession('s', 'x', unsafe)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('--unsafe') });
-    expect(unsafe.posted).toEqual([]); // nothing queued
-    expect(await sendToSession('s', 'x', unsafe, { force: true })).toMatchObject({ ok: true });
   });
 
   it('says how in a line', () => {

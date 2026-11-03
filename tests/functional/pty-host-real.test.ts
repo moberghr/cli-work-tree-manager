@@ -20,7 +20,6 @@ const ECHO_AI = path.resolve(__dirname, 'fixtures/echo-ai.cjs');
 const tool = {
   cmd: 'node',
   baseArgs: [ECHO_AI],
-  unsafeFlag: '',
   resumeFlag: '--continue',
   promptFileFlag: '',
   promptFlag: '',

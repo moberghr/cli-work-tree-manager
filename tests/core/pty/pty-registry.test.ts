@@ -3,11 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HALT_RESUME_MS, PtyRegistry, type PtyLike, type PtySpawner } from '../../../src/core/pty/pty-registry.js';
-import type { AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
+import { buildAiLaunchArgs, getAiTool, type AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 import { isPersistedPty, keepEnv } from '../../../src/core/pty/pty-host-protocol.js';
 import { withReporter } from '../../../src/core/platform/report.js';
 
-const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '--continue' } as unknown as AiToolSpec;
+const tool = { cmd: 'claude', baseArgs: [], resumeFlag: '--continue' } as unknown as AiToolSpec;
 
 class FakePty implements PtyLike {
   static nextPid = 100;
@@ -241,18 +241,40 @@ describe('PtyRegistry launch options', () => {
     expect(spawned[0].spec.resume).toBe(false);
   });
 
-  it('passes unsafe, the prompt and the forwarded env to the first spawn', () => {
+  it('passes the prompt and the forwarded env to the first spawn', () => {
     const reg = makeRegistry();
-    reg.spawn('a', { cwd: '/x', tool, unsafe: true, initialPrompt: 'do it', env: { A: '1' } });
-    expect(spawned[0].spec).toMatchObject({ unsafe: true, initialPrompt: 'do it', env: { A: '1' } });
+    reg.spawn('a', { cwd: '/x', tool, initialPrompt: 'do it', env: { A: '1' } });
+    expect(spawned[0].spec).toMatchObject({ initialPrompt: 'do it', env: { A: '1' } });
   });
 
-  it('never persists env, prompt or fresh; a restore keeps unsafe and continues', async () => {
+  it('an older client asking for unsafe: nothing of it is kept, and the agent starts in its own permission mode', async () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool, ...{ unsafe: true } }); // an older `work` still sends it
+    await reg.flush();
+    expect(readSaved().a).not.toHaveProperty('unsafe');
+    expect(buildAiLaunchArgs(getAiTool({}), spawned[0].spec).args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it("a restore list from an older host (unsafe: true, its tool's unsafeFlag) starts the agent without the flag", async () => {
+    const oldTool = { ...getAiTool({}), unsafeFlag: '--dangerously-skip-permissions' };
+    fs.writeFileSync(
+      sessionsPath,
+      JSON.stringify({ a: { cwd: '/x', tool: oldTool, unsafe: true, startedAt: '2026-10-01T09:00:00.000Z' } }),
+    );
+    const reg = makeRegistry(() => true);
+    await reg.restore();
+    expect(spawned).toHaveLength(1);
+    const { args } = buildAiLaunchArgs(spawned[0].spec.tool, spawned[0].spec);
+    expect(args).toEqual(['--continue']);
+    expect(readSaved().a).not.toHaveProperty('unsafe');
+  });
+
+  it('never persists env, prompt or fresh; a restore continues', async () => {
     const first = makeRegistry();
-    first.spawn('a', { cwd: '/x', tool, unsafe: true, fresh: true, initialPrompt: 'p', env: { SECRET: 's' } });
+    first.spawn('a', { cwd: '/x', tool, fresh: true, initialPrompt: 'p', env: { SECRET: 's' } });
     await first.flush();
     const saved = readSaved().a;
-    expect(saved).toMatchObject({ cwd: '/x', unsafe: true });
+    expect(saved).toMatchObject({ cwd: '/x' });
     expect(saved).not.toHaveProperty('env');
     expect(saved).not.toHaveProperty('initialPrompt');
     expect(saved).not.toHaveProperty('fresh');
@@ -261,7 +283,7 @@ describe('PtyRegistry launch options', () => {
     first.disposeAllKeepingState();
     const second = makeRegistry(() => true);
     await second.restore();
-    expect(spawned[1].spec).toMatchObject({ unsafe: true, resume: true });
+    expect(spawned[1].spec).toMatchObject({ resume: true });
     expect(spawned[1].spec.initialPrompt).toBeUndefined();
     expect(spawned[1].spec.env).toBeUndefined();
   });

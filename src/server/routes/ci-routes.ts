@@ -8,7 +8,6 @@ import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { findSession } from '../../core/sessions/web-state.js';
 import { defaultRunner, shipPreflight } from '../../core/pr/ship.js';
 import { prWatchHostDeps, watchAskGh } from '../../core/pr/pr-watch-hosts.js';
-import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
 import { readStatus, turnInProgress } from '../../core/status/session-status.js';
 import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
 import { lastConversationWriteMs } from '../../core/sessions/session-activity.js';
@@ -91,7 +90,6 @@ export function mountCiRoutes(
     },
     // Who you are, review feedback and API-limit words: each repo asked of its own host.
     ...prWatchHostDeps(defaultRunner),
-    runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
     ...(opts.activity ? { activity: opts.activity } : {}),
     busy: midTurn,
     // A repo's own checkout isn't archived when its PR merges: you go on working there.

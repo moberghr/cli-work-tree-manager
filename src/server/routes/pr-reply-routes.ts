@@ -77,7 +77,6 @@ export function mountPrReplyRoutes(
     if (typeof b.body !== 'string') return c.json({ error: 'body: string' }, 400);
     // What work knows, else the thread as GitHub has it now (draftReply): never stuck on a stale check.
     const r = await draftReply(id, c.req.param('thread'), b.body, {
-      unsafe: session.launchedUnsafe === true,
       repos: () => sessionRepoRefs(session),
       run,
     });

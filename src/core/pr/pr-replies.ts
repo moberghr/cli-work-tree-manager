@@ -140,15 +140,8 @@ function openThreadOf(d: Db, sessionId: string, threadId: string, now: Date): { 
 /**
  * Claude's (or your edited) answer to a thread it was handed, or one the PR watch lists as open for the session.
  * A thread answered before and listed open again since (the reviewer answered) starts over, as `rememberSent` does.
- * A session launched `--unsafe` (`opts.unsafe`) drafts only what the watch handed it: review text never reaches it.
  */
-export function saveDraft(
-  sessionId: string,
-  threadId: string,
-  body: string,
-  now = new Date(),
-  opts: { unsafe?: boolean; live?: PrReply } = {},
-): DraftResult {
+export function saveDraft(sessionId: string, threadId: string, body: string, now = new Date(), opts: { live?: PrReply } = {}): DraftResult {
   if (!isThreadId(threadId)) return { ok: false, error: `not a review thread id: ${threadId}` };
   const text = body.trim();
   if (!text) return { ok: false, error: 'the reply is empty' };
@@ -157,7 +150,7 @@ export function saveDraft(
     const row = d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as
       { data: string } | undefined;
     const handed = row ? parseRow(row.data) : null;
-    const listed = opts.unsafe ? null : openThreadOf(d, sessionId, threadId, now);
+    const listed = openThreadOf(d, sessionId, threadId, now);
     const raisedAgain =
       handed?.status === 'posted' && listed && Date.parse(listed.checkedAt) > Date.parse(handed.postedAt ?? '') ? listed.reply : null;
     // `live`: read from GitHub just now (draftReply), when work's last check hadn't it.
@@ -417,18 +410,17 @@ const ASK_GITHUB = /isn't an open review thread of this session|already posted/;
 /**
  * Draft a reply — what `work pr reply` and the dashboard's PUT do: from
  * what work knows (`saveDraft`), else from the thread as GitHub has it now
- * (`liveOpenThread`), never for a session launched `--unsafe` (it drafts
- * only what the watch handed it).
+ * (`liveOpenThread`).
  */
 export async function draftReply(
   sessionId: string,
   threadId: string,
   body: string,
-  io: { unsafe: boolean; repos: () => SessionRepoRef[]; run: CommandRunner },
+  io: { repos: () => SessionRepoRef[]; run: CommandRunner },
   now = new Date(),
 ): Promise<DraftResult> {
-  const known = saveDraft(sessionId, threadId, body, now, { unsafe: io.unsafe });
-  if (known.ok || io.unsafe || !ASK_GITHUB.test(known.error)) return known;
+  const known = saveDraft(sessionId, threadId, body, now);
+  if (known.ok || !ASK_GITHUB.test(known.error)) return known;
   const live = await liveOpenThread(threadId, io.repos(), io.run, now);
   if ('error' in live) return { ok: false, error: `${live.error} (work's last check didn't list it either)` };
   return saveDraft(sessionId, threadId, body, now, { live: live.reply });

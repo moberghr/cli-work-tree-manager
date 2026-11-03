@@ -16,7 +16,6 @@ const DETACH = '\x1d';
 
 /** One-shot launch options `work tree --host` forwards on first spawn. */
 export interface AttachSpawnOptions {
-  unsafe?: boolean;
   fresh?: boolean;
   initialPrompt?: string;
   /** Forward this process's environment (PATH, AWS_PROFILE, WT_SESSION…)
@@ -57,7 +56,6 @@ export async function attachSession(session: WorktreeSession, launch: AttachSpaw
     ...spec,
     cols,
     rows,
-    unsafe: launch.unsafe,
     fresh: launch.fresh,
     initialPrompt: launch.initialPrompt,
     env,

@@ -31,7 +31,6 @@ function echoAgent(): AgentAdapter {
       tool: () => ({
         cmd: 'echo-agent',
         baseArgs: [],
-        unsafeFlag: '--yolo',
         resumeFlag: '--again',
         promptFileFlag: '',
         promptFlag: '--say',

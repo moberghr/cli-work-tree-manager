@@ -68,7 +68,6 @@ const { SerializeAddon } = xtermSerialize;
 export interface PtyAiOptions {
   /** Resolved AI tool spec (from `getAiTool(config)`). */
   tool: AiToolSpec;
-  unsafe?: boolean;
   resume?: boolean;
   promptFile?: string;
   /** Initial prompt: on the command line as an argument of its own; for a batch-file agent on Windows that cmd.exe
@@ -233,7 +232,7 @@ export class PtySession {
       rawArgs = command.args;
     } else if (aiOptions) {
       // Launch configured AI tool (default: claude)
-      const launchOpts = { unsafe: aiOptions.unsafe, resume: aiOptions.resume, promptFile: aiOptions.promptFile };
+      const launchOpts = { resume: aiOptions.resume, promptFile: aiOptions.promptFile };
       ({ cmd: rawCmd, args: rawArgs } = buildAiLaunchArgs(aiOptions.tool, { ...launchOpts, initialPrompt: aiOptions.initialPrompt }));
       // A batch-file agent (not a Node or Python shim) on Windows: cmd.exe would parse the prompt — its `&` runs,
       // a line break cuts it. Never on its command line: typed in once it's up, as any note to a session is.

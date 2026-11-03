@@ -49,15 +49,15 @@ describe('the child run, as argv (pure)', () => {
       '--account=work',
     ]);
     expect(childArgs({ target: 'api', branch: 'feat/a' })).not.toContain('--account=undefined');
-    expect(invalidRequest({ target: 'api', branch: 'b', account: '--unsafe' })).toMatch(/not a Claude account/);
+    expect(invalidRequest({ target: 'api', branch: 'b', account: '--fresh' })).toMatch(/not a Claude account/);
     expect(invalidRequest({ target: 'api', branch: 'b', account: 'work' })).toBeNull();
   });
 
   it("what the child's command line would misread as a flag is refused before anything runs", () => {
-    expect(invalidRequest({ target: 'api', branch: '--unsafe' })).toMatch(/not a valid branch name/);
+    expect(invalidRequest({ target: 'api', branch: '--fresh' })).toMatch(/not a valid branch name/);
     expect(invalidRequest({ target: '-x' })).toMatch(/not a project/);
     expect(invalidRequest({ target: 'api', branch: 'b', base: { default: '--x', perRepo: {} } })).toMatch(/not a valid base/);
-    expect(invalidRequest({ target: 'api', branch: 'feat/a', name: '--unsafe' })).toBeNull(); // a name is a value (--name=…)
+    expect(invalidRequest({ target: 'api', branch: 'feat/a', name: '--fresh' })).toBeNull(); // a name is a value (--name=…)
     expect(invalidRequest({ target: 'api', branch: 'b', repos: ['api', '--x'] })).toMatch(/not a repo/);
     expect(invalidRequest({ target: 'api', branch: 'b', repos: ['a,b'] })).toMatch(/not a repo/);
     expect(invalidRequest({ target: 'api', branch: 'b', repos: ['api', 'web'] })).toBeNull();
@@ -125,11 +125,11 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     let ticks = 0;
     const tick = setInterval(() => ticks++, 20);
     // A name that looks like a flag is still the name (passed as --name=…).
-    const r = await create({ target: 'api', branch: 'feat/a', name: '--unsafe' }, config);
+    const r = await create({ target: 'api', branch: 'feat/a', name: '--fresh' }, config);
     clearInterval(tick);
     expect(r).toMatchObject({ ok: true, branch: 'feat/a', paths: [path.join(config.worktreesRoot, 'api', 'feat-a')] });
     expect(fs.existsSync(path.join(config.worktreesRoot, 'api', 'feat-a', 'a.txt'))).toBe(true);
-    expect(findSession(loadHistory(), 'api', 'feat/a')?.title).toBe('--unsafe');
+    expect(findSession(loadHistory(), 'api', 'feat/a')?.title).toBe('--fresh');
     // What the child warned about comes back with it (this repo has no upstream to pull its main from).
     expect(r.ok && r.warnings?.join(' ')).toMatch(/Could not pull 'main'/);
     expect(ticks).toBeGreaterThan(5); // nothing here waited on git
@@ -183,7 +183,7 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     expect(!bad.ok && bad.error).toMatch(/nope/);
     expect(await createInProcess({ target: 'nope', branch: 'feat/b' }, config)).toMatchObject({ ok: false });
     // A branch that would be read as a flag: refused, no run, no base checkout opened instead.
-    expect(await create({ target: 'api', branch: '--unsafe' }, config)).toEqual({
+    expect(await create({ target: 'api', branch: '--fresh' }, config)).toEqual({
       ok: false,
       error: expect.stringContaining('not a valid branch name'),
     });

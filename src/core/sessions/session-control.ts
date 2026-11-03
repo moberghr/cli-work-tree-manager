@@ -27,33 +27,16 @@ export interface SendDeps {
   /** Start its Claude in the host, resuming its conversation, its first message saying a note is attached (NOTE_NUDGE). */
   start: (id: string) => Promise<boolean>;
   state: (id: string) => AgentState | null;
-  /** It runs with permission checks off. */
-  unsafe: (id: string) => boolean;
   archived: (id: string) => boolean;
 }
 
 export type SendResult = { ok: true; how: SendHow; sentAt: string } | { ok: false; status: 400 | 409 | 502; error: string };
 
-export async function sendToSession(
-  id: string,
-  text: string,
-  deps: SendDeps,
-  opts: { force?: boolean; now?: () => Date } = {},
-): Promise<SendResult> {
+export async function sendToSession(id: string, text: string, deps: SendDeps, opts: { now?: () => Date } = {}): Promise<SendResult> {
   const body = text.trim();
   if (!body) return { ok: false, status: 400, error: 'the message is empty' };
   if (body.length > MAX_SEND_CHARS) return { ok: false, status: 400, error: `the message is over ${MAX_SEND_CHARS} characters` };
   if (deps.archived(id)) return { ok: false, status: 409, error: 'it is archived: restore it first' };
-  // A message to a Claude with permission checks off runs whatever it says,
-  // unreviewed — and it may have come from another agent. Your say-so first.
-  if (deps.unsafe(id) && !opts.force) {
-    return {
-      ok: false,
-      status: 409,
-      error:
-        'its Claude runs with permission checks off (--unsafe), so it would act on this without asking you; send with --force if you mean it',
-    };
-  }
   const sentAt = (opts.now?.() ?? new Date()).toISOString();
   // What the comment route did, as it decided it — not a second look at the state.
   const delivered = await deps.post(id, body);

@@ -55,7 +55,7 @@ export type CreateWorktree = (req: CreateRequest, config: WorkConfig) => Promise
 
 /**
  * A request the child's command line could misread: a project or branch
- * starting with `-` would be taken for a flag (`--unsafe` as a branch opened
+ * starting with `-` would be taken for a flag (`--fresh` as a branch opened
  * the base checkout instead). Git refuses such branch names anyway. Pure.
  */
 export function invalidRequest(req: CreateRequest): string | null {
@@ -80,7 +80,7 @@ export function baseArgs(spec: BaseSpec | undefined): string[] {
 
 /**
  * The argv of the child `work tree` run (after node and the bin). Values go
- * as `--flag=value`: a name like `--unsafe` given as `--name --unsafe` would
+ * as `--flag=value`: a name like `--fresh` given as `--name --fresh` would
  * be read as a flag of its own (and the name lost). Pure.
  */
 export function childArgs(req: CreateRequest): string[] {

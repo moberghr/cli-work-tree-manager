@@ -43,9 +43,9 @@ export interface SpawnSpec {
   port?: number;
   cols?: number;
   rows?: number;
-  /** `--unsafe`: the tool's skip-permissions flag. Persisted, so a restore
-   *  comes back with the same permission mode. */
-  unsafe?: boolean;
+  // No `unsafe` any more: every agent starts in its own permission mode. An older client may still send
+  // `unsafe: true`, and a restore list written by an older host may hold it (and its tool an `unsafeFlag`):
+  // extra fields, read by nothing, so no PROTOCOL_VERSION bump — a session starts as any other.
   /** `--fresh`: start a new conversation even if one exists. First spawn
    *  only — a restore always continues. */
   fresh?: boolean;

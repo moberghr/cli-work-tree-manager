@@ -22,7 +22,6 @@ function app(over: Partial<ControlDeps> = {}) {
     screen: vi.fn(async () => '❯ Done.'),
     lastReply: () => ({ text: REPLY }),
     state: () => 'idle',
-    unsafe: () => false,
     archived: () => false,
     ...over,
   };
@@ -48,10 +47,8 @@ describe('POST /api/sessions/:id/send', () => {
     saveHistory([s]);
     expect((await post(app().a, '/api/sessions/nope/send', { text: 'x' })).status).toBe(404);
     expect((await post(app().a, `/api/sessions/${id}/send`, {})).status).toBe(400);
-    const unsafe = await post(app({ unsafe: () => true }).a, `/api/sessions/${id}/send`, { text: 'x' });
-    expect(unsafe.status).toBe(409);
-    expect(await unsafe.json()).toMatchObject({ error: expect.stringContaining('--force') });
-    expect((await post(app({ unsafe: () => true }).a, `/api/sessions/${id}/send`, { text: 'x', force: true })).status).toBe(200);
+    // A `force` from an older `work send` is taken and changes nothing.
+    expect((await post(app().a, `/api/sessions/${id}/send`, { text: 'x', force: true })).status).toBe(200);
     const broken = await post(
       app({
         post: async () => {

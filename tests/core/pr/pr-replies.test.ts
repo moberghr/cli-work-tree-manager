@@ -165,14 +165,6 @@ describe('reply drafts', () => {
       posted('2026-10-27T10:30:00.000Z'); // the last check is older than the reply: it may not have seen it
       expect(saveDraft('s1', T1, 'again')).toMatchObject({ ok: false, error: 'a reply to this thread was already posted' });
     });
-
-    it('a session launched --unsafe drafts only what the watch handed it', () => {
-      createCiStore().save('s1', ci([thread(T1)]));
-      expect(saveDraft('s1', T1, 'x', new Date(), { unsafe: true })).toMatchObject({ ok: false });
-      expect(listReplies('s1')).toEqual([]);
-      rememberSent('s1', [thread(T1)]);
-      expect(saveDraft('s1', T1, 'x', new Date(), { unsafe: true })).toMatchObject({ ok: true });
-    });
   });
 
   it('a thread handed over again (a reviewer answered) starts over', () => {
@@ -457,11 +449,11 @@ describe('never stuck on a stale check: the thread read from GitHub now (liveOpe
     expect(await err(JSON.stringify({ data: { viewer: { login: 'me' }, node: null } }))).toMatch(/isn't a review thread/);
   });
 
-  it("draftReply: work's own record first (no GitHub call); else GitHub's, saved; never for an --unsafe session", async () => {
+  it("draftReply: work's own record first (no GitHub call); else GitHub's, saved", async () => {
     const id = 'sess1';
     rememberSent(id, [thread(T1)]);
     const run = gh(answer());
-    const io = { unsafe: false, repos: () => repos, run };
+    const io = { repos: () => repos, run };
     expect(await draftReply(id, T1, 'Known one', io)).toMatchObject({ ok: true });
     expect(run).not.toHaveBeenCalled();
     // Not in work's last check (reported: two new bot threads, and `work pr reply` refused them).
@@ -471,9 +463,6 @@ describe('never stuck on a stale check: the thread read from GitHub now (liveOpe
       reply: { threadId: T, status: 'draft', prNumber: 2000, draft: 'We keep http:// for local development.' },
     });
     expect(listReplies(id).map((r) => r.threadId)).toContain(T);
-    const unsafe = await draftReply('sess2', T, 'x', { ...io, unsafe: true, run: gh(answer()) });
-    expect(unsafe).toMatchObject({ ok: false });
-    expect(listReplies('sess2')).toEqual([]);
   });
 
   it('draftReply: answered before, and the reviewer answered since (work has yet to see it): GitHub says so, it starts over', async () => {
@@ -490,15 +479,15 @@ describe('never stuck on a stale check: the thread read from GitHub now (liveOpe
         }),
       ),
     );
-    const r = await draftReply('sess4', T, 'New answer', { unsafe: false, repos: () => repos, run: gh(answer()) });
+    const r = await draftReply('sess4', T, 'New answer', { repos: () => repos, run: gh(answer()) });
     expect(r).toMatchObject({ ok: true, reply: { status: 'draft', draft: 'New answer' } });
     // …but not when the last word is still yours: the earlier reply stands.
-    const mine = await draftReply('sess4', T, 'Again', { unsafe: false, repos: () => repos, run: gh(answer({ lastBy: 'domagojmedo' })) });
+    const mine = await draftReply('sess4', T, 'Again', { repos: () => repos, run: gh(answer({ lastBy: 'domagojmedo' })) });
     expect(mine).toMatchObject({ ok: true }); // the draft above is a draft now, not posted
   });
 
   it("draftReply: GitHub's refusal is said, with that work's check didn't list it either", async () => {
-    const r = await draftReply('sess3', T, 'x', { unsafe: false, repos: () => repos, run: gh(answer({ resolved: true })) });
+    const r = await draftReply('sess3', T, 'x', { repos: () => repos, run: gh(answer({ resolved: true })) });
     expect(r).toEqual({
       ok: false,
       error: "the thread is resolved on GitHub: nothing to answer (work's last check didn't list it either)",

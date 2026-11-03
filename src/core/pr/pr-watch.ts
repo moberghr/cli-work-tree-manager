@@ -89,8 +89,6 @@ export interface PrWatchDeps {
    *  keep the PR state current for its dashboard, but tell no Claude, archive nothing, wake nobody.
    *  What you click (Fix CI) still happens. */
   lookOnly?: boolean;
-  /** The session's Claude runs in the PTY host with permission checks off. */
-  runsUnsafe?: (sessionId: string) => boolean;
   /** Who you're signed in as on a host (`host`: its id; absent: GitHub): a PR by someone else (you work on it or
    *  review it) is theirs — its review threads are addressed to its author, and its CI isn't yours to fix unasked.
    *  `repoPath`: the repo it's asked for (its origin's server: a GitHub Enterprise login isn't github.com's). */
@@ -486,10 +484,6 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const feedbackSeen = staged(id);
     const threads = new Map<string, number>();
     const threadList = new Map<string, OpenReviewThread[]>();
-    // Review text is other people's writing; a session running with
-    // permission checks off would act on it unreviewed. Count threads for the
-    // strip, but don't hand it over.
-    const deliverReviews = !session.launchedUnsafe && !deps.runsUnsafe?.(id);
     if (deps.reviewFeedback && opts.reviewComments) {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN' || theirs.has(r.name)) continue;
@@ -513,7 +507,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           if (was?.pr?.number === r.pr.number && was.openThreads !== undefined) threads.set(r.name, was.openThreads);
           if (was?.pr?.number === r.pr.number && was.threads) threadList.set(r.name, was.threads);
           // Who you are is unknown too (GitHub's read answers nothing without a viewer): its threads stay held.
-          if (act && deliverReviews && unsure.has(r.name))
+          if (act && unsure.has(r.name))
             note(
               `couldn't read the review threads on #${r.pr.number}, and who you are on ${unknownOn([r.name])} is unknown: nothing of it is handed to its Claude until it can tell the PR is yours`,
               'warn',
@@ -541,14 +535,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           r.name,
           openThreadsOf(fb, opts.trustedBots ?? DEFAULT_TRUSTED_BOTS).map((t) => ({ ...t, repo: r.name, prNumber })),
         );
-        if (act && deliverReviews && held) {
+        if (act && held) {
           const open = fb.threads.filter((t) => !t.isResolved).length; // unresolved, whoever spoke last: unknown
           if (open)
             note(
               `${open} open review thread${open === 1 ? '' : 's'} on #${r.pr.number}, but who you are on ${unknownOn([r.name])} is unknown: not handing ${open === 1 ? 'it' : 'them'} to its Claude until it can tell the PR is yours`,
               'warn',
             );
-        } else if (act && deliverReviews) {
+        } else if (act) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {
             trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
           });

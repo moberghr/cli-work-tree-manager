@@ -45,7 +45,6 @@ const tree = () =>
     branch: 'feat/x',
     host: false,
     pull: false,
-    unsafe: false,
     fresh: false,
   });
 
@@ -91,7 +90,6 @@ describe('work tree --account', () => {
       branch: 'feat/x',
       host: false,
       pull: false,
-      unsafe: false,
       fresh: false,
       ...(account ? { account } : {}),
     });

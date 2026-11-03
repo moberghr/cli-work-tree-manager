@@ -96,8 +96,6 @@ export interface WorkConfig {
    * Set any value to an empty string to disable that flag for the configured tool.
    */
   aiCommandFlags?: {
-    /** Flag for skipping permission checks. */
-    unsafe?: string;
     /** Flag for resuming the most recent session. */
     resume?: string;
     /** Flag for passing an initial prompt as a file path. */

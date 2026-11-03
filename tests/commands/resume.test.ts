@@ -17,6 +17,9 @@ import { resumeCommand } from '../../src/commands/resume.js';
 import { recentCommand } from '../../src/commands/recent.js';
 import { select } from '@inquirer/prompts';
 import { launchAi } from '../../src/core/platform/launch.js';
+import yargs, { type Argv } from 'yargs';
+import { treeCommand } from '../../src/commands/tree.js';
+import { UNSAFE_GONE, warnRetiredUnsafe } from '../../src/commands/shared/retired-unsafe.js';
 
 let tmpDir: string;
 let worktreePath: string;
@@ -84,25 +87,15 @@ describe('the session’s own agent', () => {
     seedHistory([claudes]);
     seedTranscript(worktreePath);
     vi.mocked(select).mockResolvedValueOnce(claudes);
-    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
-    expect(launchAi).toHaveBeenLastCalledWith(
-      worktreePath,
-      expect.objectContaining({ cmd: 'claude' }),
-      { unsafe: false, resume: true },
-      undefined,
-    );
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { resume: true }, undefined);
     // One from before (nothing recorded) follows the default: opencode, and no --continue (a Claude transcript says nothing about it).
     const old = makeSession();
     seedHistory([old]);
     vi.mocked(select).mockResolvedValueOnce(old);
-    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, unsafe: false, _: [] });
+    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, _: [] });
     expect(launchAi).toHaveBeenCalledTimes(2);
-    expect(launchAi).toHaveBeenLastCalledWith(
-      worktreePath,
-      expect.objectContaining({ cmd: 'opencode' }),
-      { unsafe: false, resume: false },
-      undefined,
-    );
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'opencode' }), { resume: false }, undefined);
   });
 });
 
@@ -116,8 +109,8 @@ describe("the session's Claude account", () => {
     // A conversation only in the default account's folder: not this session's.
     seedTranscript(worktreePath);
     vi.mocked(select).mockResolvedValueOnce(onWork);
-    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
-    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.anything(), { unsafe: false, resume: false }, undefined, {
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.anything(), { resume: false }, undefined, {
       CLAUDE_CONFIG_DIR: dir,
     });
     // One in the account's own folder is continued.
@@ -125,8 +118,8 @@ describe("the session's Claude account", () => {
     fs.mkdirSync(path.join(dir, 'projects', slug), { recursive: true });
     fs.writeFileSync(path.join(dir, 'projects', slug, 's.jsonl'), '{}\n');
     vi.mocked(select).mockResolvedValueOnce(onWork);
-    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, unsafe: false, _: [] });
-    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.anything(), { unsafe: false, resume: true }, undefined, {
+    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.anything(), { resume: true }, undefined, {
       CLAUDE_CONFIG_DIR: dir,
     });
   });
@@ -141,7 +134,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ _: [] });
 
     const history = loadHistory();
     expect(history).toHaveLength(1);
@@ -150,7 +143,7 @@ describe('resume updates lastAccessedAt', () => {
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),
-      { unsafe: false, resume: true },
+      { resume: true },
       undefined, // no port on this session
     );
   });
@@ -163,9 +156,9 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ _: [] });
 
-    expect(launchAi).toHaveBeenCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { unsafe: false, resume: true }, 3042);
+    expect(launchAi).toHaveBeenCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { resume: true }, 3042);
   });
 
   it('starts a fresh session (resume: false) when no transcript exists', async () => {
@@ -176,14 +169,9 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ _: [] });
 
-    expect(launchAi).toHaveBeenCalledWith(
-      worktreePath,
-      expect.objectContaining({ cmd: 'claude' }),
-      { unsafe: false, resume: false },
-      undefined,
-    );
+    expect(launchAi).toHaveBeenCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { resume: false }, undefined);
   });
 
   it('preserves createdAt when resuming', async () => {
@@ -193,7 +181,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ _: [] });
 
     const history = loadHistory();
     expect(history[0].createdAt).toBe(OLD_TIMESTAMP);
@@ -212,7 +200,6 @@ describe('recent --resume updates lastAccessedAt', () => {
     await (recentCommand.handler as (argv: unknown) => unknown)({
       count: 10,
       resume: true,
-      unsafe: false,
       _: [],
     });
 
@@ -223,8 +210,36 @@ describe('recent --resume updates lastAccessedAt', () => {
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),
-      { unsafe: false, resume: true },
+      { resume: true },
       undefined, // no port on this session
     );
+  });
+});
+
+describe('--unsafe, retired', () => {
+  it('work resume / recent still take it, say it is gone, and launch with no skip-permissions flag; an old row with launchedUnsafe is never rewritten', async () => {
+    vi.mocked(launchAi).mockClear();
+    seedConfig();
+    const old = Object.assign(makeSession(), { launchedUnsafe: true }); // a row from before
+    seedHistory([old]);
+    seedTranscript(worktreePath);
+    vi.mocked(select).mockResolvedValue(old);
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: true, _: [] });
+    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, unsafe: true, _: [] });
+    const warned = vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+    expect(warned.filter((w) => w.includes(UNSAFE_GONE))).toHaveLength(2);
+    for (const call of vi.mocked(launchAi).mock.calls) expect(call[2]).toEqual({ resume: true });
+    vi.mocked(select).mockReset();
+  });
+
+  it('is hidden from help, and without it nothing is said', async () => {
+    for (const cmd of [treeCommand, resumeCommand, recentCommand]) {
+      const help = await (cmd.builder as (y: Argv) => Argv)(yargs([]).scriptName('work')).getHelp();
+      expect(help).not.toContain('unsafe');
+    }
+    expect(warnRetiredUnsafe({ unsafe: false })).toBe(false);
+    expect(warnRetiredUnsafe({})).toBe(false);
+    expect(console.error).not.toHaveBeenCalled();
+    expect(warnRetiredUnsafe({ unsafe: true })).toBe(true);
   });
 });

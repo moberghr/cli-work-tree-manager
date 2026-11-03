@@ -13,8 +13,10 @@ comments), which may try to steer it.
 ## Decision
 
 - Review text reaches an agent only from reviewers with write access, or the
-  review bots listed in `prWatch.trustedBots`; never for sessions launched
-  `--unsafe`.
+  review bots listed in `prWatch.trustedBots`. (It once also said "never for
+  sessions launched `--unsafe`"; `--unsafe` is retired, and every agent runs
+  in its own permission mode, so its own prompt stands between review text
+  and anything it does.)
 - The agent drafts replies (`work pr reply`); they show in the dashboard,
   editable. They are posted only by the user's Post click, or by the agent's
   `work pr post` after the user said yes in the conversation.

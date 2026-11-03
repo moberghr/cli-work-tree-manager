@@ -83,7 +83,6 @@ function showHelp() {
   console.log('  work tree|t <project|group> <branch>               - Create/switch to worktree');
   console.log('  work tree <project|group> <branch> --base <branch> - Create from a specific base branch');
   console.log('  work tree <project|group> <branch> --open          - Also open VS Code');
-  console.log('  work tree <project|group> <branch> --unsafe        - Skip AI tool permission checks');
   console.log('  work remove <project|group> <branch>               - Remove worktree');
   console.log('  work remove <project|group> <branch> --force       - Force remove worktree');
   console.log('  work status [project|group] [branch]               - Show worktree status');
@@ -131,7 +130,6 @@ function showHelp() {
   console.log('  work list ai');
   console.log('  work tree ai feature/login');
   console.log('  work tree frontend feature/login --open');
-  console.log('  work tree ai feature/hotfix --unsafe');
   console.log('  work remove ai feature/login');
   console.log('');
   console.log(chalk.gray('  # Groups (multi-repo worktrees):'));

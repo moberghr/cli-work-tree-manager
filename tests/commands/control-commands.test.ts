@@ -98,10 +98,10 @@ describe('work read', () => {
 });
 
 describe('work send', () => {
-  it('posts to work web and says how it went; --unsafe sessions need --force (passed through)', async () => {
+  it('posts to work web and says how it went; a retired --force is accepted and sends nothing more', async () => {
     answer = () => ({ ok: true, body: { how: 'typed', sentAt: '2026-10-02T09:00:00Z' } });
-    await run(sendCommand, { message: 'Run the tests', force: false, timeout: '15m' });
-    expect(calls).toEqual([{ method: 'POST', route: `/api/sessions/${id}/send`, body: { text: 'Run the tests', force: false } }]);
+    await run(sendCommand, { message: 'Run the tests', force: true, timeout: '15m' });
+    expect(calls).toEqual([{ method: 'POST', route: `/api/sessions/${id}/send`, body: { text: 'Run the tests' } }]);
     expect(errors.join('\n')).toContain('typed into its terminal');
   });
 

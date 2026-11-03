@@ -823,18 +823,13 @@ describe('PR watch', () => {
       expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(2);
     });
 
-    it('never hands review text to a session running with permission checks off', async () => {
+    it('a row from before --unsafe was retired (launchedUnsafe: true) is handed its review text like any other', async () => {
       const h = harness([repo('api', pr())], ON, false, fb([thread('1', 'alice')]));
-      h.deps.sessions = () => [{ id: 's1', session: { ...session(), launchedUnsafe: true } }];
+      const old = Object.assign(session(), { launchedUnsafe: true }); // nothing reads it any more
+      h.deps.sessions = () => [{ id: 's1', session: old }];
       await h.watch.tick();
-      expect(h.deps.tell).not.toHaveBeenCalled();
-      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1); // still counted for the strip
-
-      const host = harness([repo('api', pr())], ON, false, fb([thread('1', 'alice')]));
-      (host.deps as PrWatchDeps).runsUnsafe = () => true; // a PTY-host session spawned --unsafe
-      const w = createPrWatch(host.deps);
-      await w.tick();
-      expect(host.deps.tell).not.toHaveBeenCalled();
+      expect(h.deps.tell).toHaveBeenCalledTimes(1);
+      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
     });
 
     it('only looks at open PRs, and not at all when turned off', async () => {

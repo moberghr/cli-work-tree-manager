@@ -52,7 +52,7 @@ Other actions go through the user's normal commands (`work remove`, `work tree`)
 ## Talking to another session (acts — the user's say-so first)
 
 Each takes `<alias> <branch>` (or the session for the current folder):
-- `work send <alias> <branch> -m "…" [--wait] [--timeout 15m]` — a message to its agent, now: typed into its terminal if it's idle, started for it (resuming its conversation) if it isn't running, on its next turn otherwise. `--wait` waits for that turn and prints the reply. A session started `--unsafe` is refused (it would act without asking); `--force` only when the user said so. Send only what the user asked to send.
+- `work send <alias> <branch> -m "…" [--wait] [--timeout 15m]` — a message to its agent, now: typed into its terminal if it's idle, started for it (resuming its conversation) if it isn't running, on its next turn otherwise. `--wait` waits for that turn and prints the reply. Send only what the user asked to send.
 - `work start` / `work stop <alias> <branch>` — start its agent in the background (resuming), or stop it (the conversation is kept).
 - `work answer <alias> <branch> --allow | --deny` — answer its permission prompt, the inbox's Allow / Deny. Run `work answer` without a flag first and show the user the exact request (`Bash: npm test`); approve only what they approved. It is never pre-allowed, so the user is asked before it runs; don't look for a way around that.
 

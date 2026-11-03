@@ -65,7 +65,6 @@ export const defaultSpawner: PtySpawner = (spec) =>
     tool: spec.tool,
     resume: spec.resume,
     port: spec.port,
-    unsafe: spec.unsafe,
     initialPrompt: spec.initialPrompt,
     env: spec.env,
   });
@@ -203,7 +202,6 @@ export class PtyRegistry {
         cwd: spec.cwd,
         tool: spec.tool,
         port: spec.port,
-        unsafe: spec.unsafe,
         ...(kept ? { keptEnv: kept } : {}),
         ...(agentEnv ? { agentEnv } : {}),
       },

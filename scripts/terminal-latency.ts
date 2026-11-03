@@ -135,8 +135,7 @@ async function main() {
     path.join(home, '.work', 'config.json'),
     JSON.stringify({ worktreesRoot: home, repos: { lat: cwd }, groups: {}, copyFiles: [], aiCommand: `node ${rawEcho}` }),
   );
-  const tool = (file: string) =>
-    ({ cmd: 'node', baseArgs: [file], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' }) as never;
+  const tool = (file: string) => ({ cmd: 'node', baseArgs: [file], resumeFlag: '', promptFileFlag: '', promptFlag: '' }) as never;
 
   // --- conpty: in-process, no host ---------------------------------------
   const p = pty.spawn(process.execPath, [rawEcho], { cols: 120, rows: 32, cwd, env: process.env as Record<string, string> });

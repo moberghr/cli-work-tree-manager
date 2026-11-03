@@ -58,7 +58,6 @@ export const prCommand: CommandModule = {
           const id = sessionIdFor(s);
           // What work knows, else the thread as GitHub has it now: never stuck on a stale check.
           const r = await draftReply(id, String(argv.thread), text, {
-            unsafe: s.launchedUnsafe === true,
             repos: () => sessionRepoRefs(s),
             run: defaultRunner,
           });

@@ -4,7 +4,8 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/platform/config.js';
-import { loadHistory, getRecentSessions, recordLaunch, touchSession } from '../core/sessions/history.js';
+import { loadHistory, getRecentSessions, touchSession } from '../core/sessions/history.js';
+import { retiredUnsafeOption, warnRetiredUnsafe } from './shared/retired-unsafe.js';
 import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
 import { launchAi } from '../core/platform/launch.js';
 import { envArgs } from '../core/platform/env-delta.js';
@@ -13,14 +14,9 @@ import { timeAgo } from '../core/platform/format.js';
 export const resumeCommand: CommandModule = {
   command: 'resume',
   describe: 'Resume a recent worktree session',
-  builder: (yargs) =>
-    yargs.option('unsafe', {
-      describe: 'Launch the AI tool with its skip-permissions flag',
-      type: 'boolean',
-      default: false,
-    }),
+  builder: (yargs) => yargs.option('unsafe', retiredUnsafeOption),
   handler: async (argv) => {
-    const unsafe = argv.unsafe as boolean;
+    warnRetiredUnsafe(argv);
 
     const config = ensureConfig();
 
@@ -72,7 +68,6 @@ export const resumeCommand: CommandModule = {
       console.log(chalk.yellow(`No prior ${tool.cmd} conversation found for this worktree — starting a fresh session.`));
     }
     console.log(`Starting ${tool.cmd}...`);
-    recordLaunch(choice.target, choice.branch, { unsafe: !!unsafe });
-    launchAi(launchPath, tool, { unsafe, resume: hasConversation }, choice.port, ...envArgs(agentFor(config, choice).launch.env?.(choice)));
+    launchAi(launchPath, tool, { resume: hasConversation }, choice.port, ...envArgs(agentFor(config, choice).launch.env?.(choice)));
   },
 };
