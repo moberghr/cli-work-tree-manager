@@ -31,6 +31,14 @@ export interface AzPr {
   createdBy?: { uniqueName?: string; displayName?: string } | null;
   reviewers?: Array<{ uniqueName?: string; displayName?: string; vote?: number; isRequired?: boolean } | null> | null;
   forkSource?: { repository?: { name?: string; project?: { name?: string } } } | null;
+  /** The repo it's in (PR numbers are the organisation's, not the repo's). */
+  repository?: { name?: string; project?: { name?: string } } | null;
+}
+
+/** A PR's iteration: one push of its source branch. */
+export interface AzIteration {
+  id?: number;
+  sourceRefCommit?: { commitId?: string } | null;
 }
 
 export interface AzPolicy {
@@ -89,7 +97,8 @@ export function checksOf(policies: AzPolicy[]): { checks: ChecksState; failing: 
   return { checks: 'pass', failing: [] };
 }
 
-/** GitHub's mergeStateStatus from what Azure DevOps says: conflicts, draft, a blocking policy not met, or clean. */
+/** GitHub's mergeStateStatus from what Azure DevOps says: conflicts, draft, a blocking policy not met, a failed or
+ *  refused merge, not worked out yet, or clean. */
 export function mergeState(pr: AzPr, policies: AzPolicy[]): string {
   if (pr.mergeStatus === 'conflicts') return 'DIRTY';
   if (pr.isDraft) return 'DRAFT';
@@ -98,6 +107,9 @@ export function mergeState(pr: AzPr, policies: AzPolicy[]): string {
   );
   if (blocking.some((p) => p.status === 'rejected' || p.status === 'broken')) return 'BLOCKED';
   if (blocking.some((p) => p.status !== 'approved')) return 'BLOCKED';
+  // Its merge failed, or a policy refused it: not mergeable. Not worked out yet (queued, notSet): unknown, as GitHub says.
+  if (pr.mergeStatus === 'failure' || pr.mergeStatus === 'rejectedByPolicy') return 'BLOCKED';
+  if (pr.mergeStatus === 'queued' || pr.mergeStatus === 'notSet') return 'UNKNOWN';
   return 'CLEAN';
 }
 
@@ -119,7 +131,9 @@ export function shipPrOf(repo: AzureRepo, pr: AzPr, policies: AzPolicy[]): ShipP
     checks,
     headSha: head,
     ...(state === 'MERGED' && pr.closedDate ? { mergedAt: pr.closedDate } : {}),
-    ...(pr.closedDate || pr.creationDate ? { updatedAt: pr.closedDate ?? pr.creationDate } : {}),
+    // Only a closed PR's date says it hasn't changed since: an open one's creationDate never moves, and the PR
+    // watch would believe its review threads unchanged for good. Without it they're read every check.
+    ...(state !== 'OPEN' && pr.closedDate ? { updatedAt: pr.closedDate } : {}),
     reviewDecision: reviewDecision(pr),
     ...(pr.createdBy?.uniqueName ? { author: pr.createdBy.uniqueName } : {}),
     ...(pr.targetRefName ? { baseBranch: branch(pr.targetRefName) } : {}),

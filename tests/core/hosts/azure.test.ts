@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { azure } from '../../../src/core/hosts/azure/adapter.js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { azReason, azure, routeValueOk } from '../../../src/core/hosts/azure/adapter.js';
 import { azureRepoId, azureThreadId, parseAzureOrigin, parseAzurePrUrl, parseAzureThreadId } from '../../../src/core/hosts/azure/origin.js';
 import { checksOf, feedbackOf, mergeState, reviewDecision, type AzPr } from '../../../src/core/hosts/azure/map.js';
 import { hostForOrigin, hostOfPrUrl, hostOfThread } from '../../../src/core/hosts/index.js';
@@ -13,9 +13,9 @@ import { defaultRunner, type CommandRunner, type RunResult } from '../../../src/
 import { mergeSelected, shipPreflight } from '../../../src/core/pr/ship.js';
 import { fetchAllPullRequests } from '../../../src/core/pr/pr.js';
 import { createPrWatch } from '../../../src/core/pr/pr-watch.js';
-import { prWatchHostDeps } from '../../../src/core/pr/pr-watch-hosts.js';
+import { prWatchHostDeps, watchAskGh } from '../../../src/core/pr/pr-watch-hosts.js';
 import { prStageOf } from '../../../src/core/pr/pr-stage.js';
-import { postReply, rememberSent, threadRefusal } from '../../../src/core/pr/pr-replies.js';
+import { liveOpenThread, postReply, rememberSent, threadRefusal } from '../../../src/core/pr/pr-replies.js';
 import { blockedPrState, blockRefFrom } from '../../../src/core/rail/session-blocks.js';
 import { resolvePrToStart } from '../../../src/core/pr/pr-start.js';
 import type { SessionCi } from '../../../src/core/api-types.js';
@@ -155,20 +155,42 @@ interface AzState {
   prs: AzPr[];
   policies: unknown[];
   threads: unknown[];
+  /** The PR's pushes (null: one, at the branch's head). */
+  iterations: unknown[] | null;
   patched: unknown[];
   posted: unknown[];
   limited: boolean;
+  /** What the completing PATCH answers as the PR's status. */
+  completeAs: string;
+  /** These az commands fail (their first words, e.g. 'account show'), with this stderr. */
+  failing: Record<string, string>;
   calls: string[][];
 }
-const az: AzState = { prs: [], policies: [], threads: [], patched: [], posted: [], limited: false, calls: [] };
+const fresh = (): AzState => ({
+  prs: [],
+  policies: [],
+  threads: [],
+  iterations: null,
+  patched: [],
+  posted: [],
+  limited: false,
+  completeAs: 'completed',
+  failing: {},
+  calls: [],
+});
+const az: AzState = fresh();
+// Every test starts from the same fixtures: none leaks into the next.
+beforeEach(() => Object.assign(az, fresh()));
 
 /** git through, az from the fixtures (bodies read from the --in-file before it's deleted). */
 const run: CommandRunner = async (cmd, args, cwd): Promise<RunResult> => {
   if (cmd !== 'az') return defaultRunner(cmd, args, cwd);
   az.calls.push(args);
   const ok = (v: unknown) => ({ code: 0, stdout: JSON.stringify(v), stderr: '' });
-  if (az.limited) return { code: 1, stdout: '', stderr: 'TF400733: The request was blocked' };
+  if (az.limited) return { code: 1, stdout: '', stderr: 'WARNING: a newer az is out\nTF400733: The request was blocked' };
   const a = args.join(' ');
+  const failed = Object.keys(az.failing).find((k) => a.startsWith(k));
+  if (failed) return { code: 1, stdout: '', stderr: az.failing[failed] };
   const inFile = args.includes('--in-file') ? JSON.parse(fs.readFileSync(args[args.indexOf('--in-file') + 1], 'utf8')) : undefined;
   if (a.startsWith('account show')) return ok({ user: { name: ME } });
   if (a.startsWith('repos pr policy list')) return ok(az.policies);
@@ -183,7 +205,13 @@ const run: CommandRunner = async (cmd, args, cwd): Promise<RunResult> => {
     const method = args[args.indexOf('--http-method') + 1];
     if (resource === 'pullRequests' && method === 'PATCH') {
       az.patched.push(inFile);
-      return ok({ pullRequestId: 7, status: 'completed' });
+      return ok({ pullRequestId: 7, status: az.completeAs, mergeStatus: 'queued' });
+    }
+    if (resource === 'pullRequestIterations') return ok({ value: az.iterations ?? [{ id: 1, sourceRefCommit: { commitId: api.head } }] });
+    if (resource === 'repositories') return ok({ id: 'guid', name: 'api', defaultBranch: 'refs/heads/main' });
+    if (resource === 'pullRequests' && method === 'POST') {
+      az.posted.push({ resource, method, body: inFile });
+      return ok({ pullRequestId: 12, status: 'active' });
     }
     if (resource === 'pullRequestThreads' && method === 'GET') {
       const tid = args.find((x) => x.startsWith('threadId='));
@@ -235,6 +263,7 @@ const prOf = (over: Partial<AzPr> = {}): AzPr => ({
   creationDate: '2026-11-01T10:00:00Z',
   createdBy: { uniqueName: ME },
   reviewers: [{ uniqueName: 'rev@acme.example', vote: 10 }],
+  repository: { name: 'api', project: { name: 'Shop' } },
   ...over,
 });
 const session = (): WorktreeSession => ({
@@ -398,4 +427,284 @@ describe('the adapter, through the same flows as the fake host', () => {
     expect(azure.prRef(7)).toBe('refs/pull/7/merge');
     expect(azure.prRefIsMerge).toBe(true); // the review reads the head: the merge's second parent
   });
+});
+
+describe('#65 review: names, thread ids and az output checked before anything runs', () => {
+  it.each([
+    ['https://dev.azure.com/acme/Shop/_git/api.git', 'api'],
+    ['https://dev.azure.com/acme/Shop/_git/api/', 'api'],
+    ['ssh://git@ssh.dev.azure.com/v3/acme/Shop/api', 'api'],
+    ['https://dev.azure.com/acme/My%20Shop/_git/api', 'api'],
+  ])('reads %s', (origin, repo) => {
+    expect(parseAzureOrigin(origin)?.repo).toBe(repo);
+  });
+
+  it.each([
+    'https://dev.azure.com.evil.example/acme/Shop/_git/api',
+    'https://evil.example/dev.azure.com/acme/Shop/_git/api',
+    'https://dev.azure.com/ac%22me/Shop/_git/api',
+    'https://dev.azure.com/acme/Sh%22op%26echo/_git/api',
+    'https://dev.azure.com/acme/Shop/_git/a%25PATH%25',
+    'https://dev.azure.com/acme/Shop/_git/a%0Ab',
+    'https://-acme.visualstudio.com/Shop/_git/api',
+  ])('refuses %s', (origin) => {
+    expect(parseAzureOrigin(origin)).toBeNull();
+  });
+
+  it("a thread id is only one whose org URL is Azure DevOps' own and whose names it would have", () => {
+    const forged = (orgUrl: string, project = 'Shop', repo = 'api') =>
+      `AZT_${Buffer.from(JSON.stringify([orgUrl, project, repo])).toString('base64url')}_7_3`;
+    for (const id of [
+      forged('https://evil.example'),
+      forged('http://dev.azure.com/acme'),
+      forged('https://dev.azure.com/acme/../x'),
+      forged('https://dev.azure.com/acme@evil.example'),
+      forged('https://acme.visualstudio.com.evil.example'),
+      forged(ORG, 'Shop"&calc&"'),
+      forged(ORG, 'Shop', 'a\nb'),
+    ]) {
+      expect(parseAzureThreadId(id)).toBeNull();
+      expect(azure.threads.repoOf?.(id)).toBeNull();
+    }
+    const good = forged('https://acme.visualstudio.com', 'My Shop', 'api');
+    expect(parseAzureThreadId(good)?.repo).toEqual({ orgUrl: 'https://acme.visualstudio.com', project: 'My Shop', repo: 'api' });
+    expect(azure.threads.repoOf?.(good)).toBe('acme/my shop/api');
+  });
+
+  it('a thread on a repo the session lacks is refused before az is asked anything', async () => {
+    const elsewhere = azureThreadId({ orgUrl: ORG, project: 'Shop', repo: 'other' }, 7, 3);
+    const repos = [{ name: 'api', path: api.path, github: 'acme/shop/api', host: 'azure', branch: 'feat/refunds' }];
+    expect(await liveOpenThread(elsewhere, repos, run)).toEqual({
+      error: expect.stringMatching(/is on acme\/shop\/other, not a repo of this session/),
+    });
+    const forged = `AZT_${Buffer.from(JSON.stringify(['https://evil.example', 'Shop', 'api'])).toString('base64url')}_7_3`;
+    expect(await liveOpenThread(forged, repos, run)).toEqual({ error: expect.stringMatching(/not a valid thread id/) });
+    expect(az.calls).toEqual([]);
+
+    // On the session's repo: read from Azure DevOps (the thread, the PR), accepted as the watch would list it.
+    az.prs = [prOf()];
+    az.threads = [
+      {
+        id: 3,
+        status: 'active',
+        threadContext: { filePath: '/b.txt', rightFileEnd: { line: 1 } },
+        comments: [{ id: 1, author: { uniqueName: 'rev@acme.example' }, content: 'Rename this', commentType: 'text' }],
+      },
+    ];
+    const ours = azureThreadId({ orgUrl: ORG, project: 'Shop', repo: 'api' }, 7, 3);
+    expect(await liveOpenThread(ours, repos, run)).toMatchObject({
+      reply: { threadId: ours, repo: 'api', prNumber: 7, where: 'b.txt:1', reviewer: 'rev@acme.example', body: 'Rename this' },
+    });
+    expect(await azure.threads.isResolved(run, api.path, ours)).toBe(false);
+    az.threads = [{ id: 3, status: 'fixed', comments: [] }];
+    expect(await azure.threads.isResolved(run, api.path, ours)).toBe(true);
+    az.failing = { 'devops invoke': 'ERROR: TF401180: not found' };
+    expect(await azure.threads.isResolved(run, api.path, ours)).toBeNull(); // can't say: never "resolved"
+  });
+
+  it("az's reason: the throttling line wherever it is, else the first line that isn't a WARNING", () => {
+    expect(azReason('WARNING: upgrade\nERROR: TF401019: no such repo\nmore')).toBe('ERROR: TF401019: no such repo');
+    expect(azReason('WARNING: upgrade\nERROR: failed\nTF400733: The request was blocked')).toBe('TF400733: The request was blocked');
+    expect(azReason('WARNING: only this')).toBe('WARNING: only this');
+    expect(azReason('')).toBe('');
+  });
+
+  it('route values: names Azure DevOps has and numbers, never a path, query or encoding', () => {
+    for (const ok of ['Shop', 'My Shop', 'api', 7]) expect(routeValueOk(ok)).toBe(true);
+    for (const bad of ['a/b', 'a?b', 'a#b', 'a%2Fb', 'a=b', 'a&b', 'a\nb', ' a', '', -1, 1.5]) expect(routeValueOk(bad)).toBe(false);
+  });
+});
+
+describe('#65 review: what az answers, and what it fails to', () => {
+  it.each([
+    ['conflicts', 'DIRTY'],
+    ['failure', 'BLOCKED'],
+    ['rejectedByPolicy', 'BLOCKED'],
+    ['queued', 'UNKNOWN'],
+    ['notSet', 'UNKNOWN'],
+    ['succeeded', 'CLEAN'],
+    [undefined, 'CLEAN'],
+  ])('mergeStatus %s is %s', (mergeStatus, state) => {
+    expect(mergeState({ mergeStatus }, [])).toBe(state);
+  });
+
+  it.each([
+    [[{ status: 'broken', configuration: { type: { displayName: 'Build' } } }], 'fail'],
+    [[{ status: 'queued', configuration: { type: { displayName: 'Build' } } }], 'pending'],
+    [[{ status: 'notApplicable', configuration: { type: { displayName: 'Build' } } }], 'none'],
+    [[{ status: 'rejected', configuration: { isEnabled: false, type: { displayName: 'Build' } } }], 'none'],
+    [[{ status: 'rejected', configuration: { type: { displayName: 'Comment requirements' } } }], 'none'],
+  ])('policies %j are checks %s', (policies, checks) => {
+    expect(checksOf(policies).checks).toBe(checks);
+  });
+
+  it("a failed policy lookup is an error, never a clean PR with no checks (and throttling there is the watch's to see)", async () => {
+    az.prs = [prOf()];
+    az.failing = { 'repos pr policy list': 'WARNING: x\nTF400733: The request was blocked' };
+    const found = await azure.prForBranch(run, api.path, 'feat/refunds');
+    expect(found).toEqual({ kind: 'error', error: 'TF400733: The request was blocked' });
+    expect(azure.rateLimited(found.kind === 'error' ? found.error : '')).toBe(true);
+    // A closed PR has no policies to ask.
+    az.prs = [prOf({ status: 'completed', closedDate: '2026-11-02T09:00:00Z' })];
+    expect(await azure.prForBranch(run, api.path, 'feat/refunds')).toMatchObject({
+      kind: 'pr',
+      pr: { state: 'MERGED', updatedAt: '2026-11-02T09:00:00Z' },
+    });
+  });
+
+  it('an open PR has no updatedAt (its creationDate never moves): the watch reads its threads every check', async () => {
+    az.prs = [prOf()];
+    const found = await azure.prForBranch(run, api.path, 'feat/refunds');
+    expect(found.kind === 'pr' && 'updatedAt' in found.pr).toBe(false);
+  });
+
+  it('who you are unknown: the repo is incomplete, its PRs never dropped as "not yours"', async () => {
+    az.prs = [prOf()];
+    az.failing = { 'account show': "ERROR: Please run 'az login' to setup account." };
+    expect(await azure.list([{ alias: 'api', path: api.path, origin: ORIGIN }], run)).toEqual({ prs: [], incomplete: ['api'] });
+  });
+
+  it("az missing, or an answer that isn't JSON, is an error", async () => {
+    const missing: CommandRunner = async (cmd, args, cwd) => (cmd === 'az' ? { code: 127, stdout: '', stderr: '' } : run(cmd, args, cwd));
+    expect(await azure.prForBranch(missing, api.path, 'feat/refunds')).toEqual({
+      kind: 'error',
+      error: expect.stringMatching(/Azure CLI \(az\) not found/),
+    });
+    const garbled: CommandRunner = async (cmd, args, cwd) =>
+      cmd === 'az' ? { code: 0, stdout: '<html>', stderr: '' } : run(cmd, args, cwd);
+    expect(await azure.prForBranch(garbled, api.path, 'feat/refunds')).toEqual({ kind: 'error', error: "couldn't read what az said" });
+    expect(await azure.mergedPr(garbled, api.path, 'feat/refunds', api.head)).toBeUndefined();
+  });
+
+  it('Start from #N: the PR must be in this repo — Azure DevOps numbers PRs per organisation', async () => {
+    az.prs = [prOf()];
+    expect(await azure.prByNumber(run, api.path, 'acme/shop/api', 7)).toMatchObject({
+      ok: true,
+      pr: { number: 7, branch: 'feat/refunds' },
+    });
+    az.prs = [prOf({ repository: { name: 'web', project: { name: 'Shop' } } })];
+    expect(await azure.prByNumber(run, api.path, 'acme/shop/api', 7)).toEqual({ ok: false, error: 'PR #7 is in Shop/web, not Shop/api' });
+    expect(await azure.prByNumber(run, api.path, 'acme/shop/web', 7)).toEqual({ ok: false, error: "PR #7: its repo isn't this folder's" });
+  });
+
+  it('createPr goes through the REST API: title and description in a file, into the default branch, draft as asked', async () => {
+    const made = await azure.createPr(run, api.path, 'feat/refunds', { draft: true });
+    expect(made).toEqual({ ok: true, url: 'https://dev.azure.com/acme/Shop/_git/api/pullrequest/12' });
+    expect(az.posted).toEqual([
+      {
+        resource: 'pullRequests',
+        method: 'POST',
+        body: {
+          sourceRefName: 'refs/heads/feat/refunds',
+          targetRefName: 'refs/heads/main',
+          title: 'Add refunds',
+          description: '',
+          isDraft: true,
+        },
+      },
+    ]);
+    // Nothing of the commit's text is on argv.
+    expect(az.calls.flat().some((a) => a.includes('Add refunds'))).toBe(false);
+  });
+
+  it('mergedPr: the completed PR whose head is the tip; none; undefined when az fails', async () => {
+    az.prs = [prOf({ status: 'completed' })];
+    expect(await azure.mergedPr(run, api.path, 'feat/refunds', api.head)).toBe(7);
+    expect(await azure.mergedPr(run, api.path, 'feat/refunds', 'other')).toBeNull();
+    az.failing = { 'repos pr list': 'ERROR: boom' };
+    expect(await azure.mergedPr(run, api.path, 'feat/refunds', api.head)).toBeUndefined();
+  });
+
+  it("a merge is a merge only when Azure DevOps says completed; each method is Azure's strategy", async () => {
+    az.completeAs = 'active';
+    expect(await azure.mergePr(run, api.path, 7, 'merge', api.head)).toEqual({
+      ok: false,
+      error: "Azure DevOps didn't complete PR #7, it is active (merge: queued): its completion may be queued until its policies pass",
+    });
+    az.completeAs = 'completed';
+    expect(await azure.mergePr(run, api.path, 7, 'rebase', api.head)).toEqual({ ok: true });
+    expect(az.patched.map((p) => (p as { completionOptions: { mergeStrategy: string } }).completionOptions.mergeStrategy)).toEqual([
+      'noFastForward',
+      'rebase',
+    ]);
+    az.failing = { 'devops invoke': 'ERROR: TF401192: the PR was updated' };
+    expect(await azure.mergePr(run, api.path, 7, 'squash', 'stale')).toEqual({ ok: false, error: 'ERROR: TF401192: the PR was updated' });
+  });
+
+  it('the PR watch, twice: no threads at first, then one — the second check sees it (an open PR is never "unchanged")', async () => {
+    az.prs = [prOf()];
+    const seen = new Set<string>();
+    const told: string[] = [];
+    const watch = createPrWatch({
+      sessions: () => [{ id: 's2', session: session() }],
+      preflight: (s) => shipPreflight(s, run),
+      archive: async () => undefined,
+      tell: async (_id, body) => void told.push(body),
+      broadcast: () => undefined,
+      options: () => ({ autoArchive: false, fixCi: false, reviewComments: true }),
+      ...prWatchHostDeps(run),
+      told: () => ({ has: (k) => seen.has(k), add: (k) => void seen.add(k) }),
+    });
+    expect((await watch.refresh('s2'))?.repos[0].openThreads).toBe(0);
+    az.threads = [
+      {
+        id: 4,
+        status: 'active',
+        comments: [
+          {
+            id: 1,
+            author: { uniqueName: 'rev@acme.example' },
+            content: 'Why?',
+            publishedDate: '2026-11-03T08:00:00Z',
+            commentType: 'text',
+          },
+        ],
+      },
+    ];
+    expect((await watch.refresh('s2'))?.repos[0].openThreads).toBe(1);
+    expect(told.some((t) => t.includes('Why?'))).toBe(true);
+  }, 60_000);
+
+  it("watchAskGh: a resting host's repos never; else a pushed branch, or one whose PR the watch knows", () => {
+    const ask = watchAskGh(
+      (h) => h === 'azure',
+      (name) => name === 'known',
+    );
+    const r = (over: Partial<Parameters<typeof ask>[0]>) => ({ name: 'x', hasUpstream: true, commitsVsBase: 1, ...over });
+    expect(ask(r({ host: 'azure' }))).toBe(false);
+    expect(ask(r({}))).toBe(true);
+    expect(ask(r({ hasUpstream: false }))).toBe(false);
+    expect(ask(r({ hasUpstream: false, name: 'known' }))).toBe(true);
+    expect(watchAskGh(undefined, () => false)(r({ host: 'azure' }))).toBe(true);
+  });
+
+  it('a throttled Azure DevOps: the watch keeps what it knew and asks it nothing until it rests', async () => {
+    az.prs = [prOf()];
+    let t = Date.parse('2026-11-03T10:00:00Z');
+    const watch = createPrWatch({
+      sessions: () => [{ id: 's3', session: session() }],
+      // work web's own wiring (ci-routes.ts): a resting host's repos aren't asked.
+      preflight: (s, o) => shipPreflight(s, run, { askGh: watchAskGh(o?.resting, () => false) }),
+      archive: async () => undefined,
+      tell: async () => undefined,
+      broadcast: () => undefined,
+      options: () => ({ autoArchive: false, fixCi: false, reviewComments: true }),
+      ...prWatchHostDeps(run),
+      told: () => ({ has: () => false, add: () => undefined }),
+      now: () => t,
+    });
+    await watch.tick();
+    expect(watch.state('s3')?.repos[0].pr?.number).toBe(7);
+    az.limited = true;
+    await watch.tick();
+    expect(watch.state('s3')?.repos[0].pr?.number).toBe(7); // not "no PR"
+    const calls = az.calls.length;
+    t += 60_000;
+    await watch.tick();
+    expect(az.calls.length).toBe(calls); // resting: az not asked
+    az.limited = false;
+    t += 10 * 60_000;
+    await watch.tick();
+    expect(az.calls.length).toBeGreaterThan(calls);
+  }, 60_000);
 });

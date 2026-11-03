@@ -23,6 +23,26 @@ function recorder(answer: (args: string[]) => { code: number; stdout: string; st
   return { run, calls };
 }
 
+/** The PR's pushes as Azure DevOps lists them: the review's commit `abc` is iteration 3. */
+const ITERATIONS = {
+  value: [
+    { id: 1, sourceRefCommit: { commitId: 'old' } },
+    { id: 3, sourceRefCommit: { commitId: 'abc' } },
+  ],
+};
+const isIterations = (args: string[]) => args[args.indexOf('--resource') + 1] === 'pullRequestIterations';
+/** An Azure recorder: the iterations lookup answered (and not counted), every other call by `answer`. */
+function azRecorder(answer: (args: string[]) => { code: number; stdout: string; stderr: string }) {
+  const r = recorder((args) => (isIterations(args) ? { code: 0, stdout: JSON.stringify(ITERATIONS), stderr: '' } : answer(args)));
+  return {
+    run: r.run,
+    get calls() {
+      return r.calls.filter((c) => !isIterations(c.args));
+    },
+    all: r.calls,
+  };
+}
+
 describe('GitHub: one review with its line comments', () => {
   it('posts the verdict, summary and comments at the head commit, and answers its link; the temp file goes', async () => {
     const { run, calls } = recorder(() => ({
@@ -61,10 +81,11 @@ describe('Azure DevOps: each comment a thread, the summary a thread, the verdict
   });
   afterAll(() => fs.rmSync(repo, { recursive: true, force: true }));
 
-  it('approve: two line threads, a summary thread, then the vote', async () => {
-    const { run, calls } = recorder(() => ({ code: 0, stdout: JSON.stringify({ id: 5 }), stderr: '' }));
-    const r = await azure.submitReview(run, repo, 7, { commitId: 'abc', event: 'approve', body: 'Looks good.', comments });
+  it('approve: two line threads at the push the review read, a summary thread, then the vote', async () => {
+    const rec = azRecorder(() => ({ code: 0, stdout: JSON.stringify({ id: 5 }), stderr: '' }));
+    const r = await azure.submitReview(rec.run, repo, 7, { commitId: 'abc', event: 'approve', body: 'Looks good.', comments });
     expect(r).toEqual({ ok: true, url: 'https://dev.azure.com/acme/Shop/_git/api/pullrequest/7' });
+    const calls = rec.calls;
     expect(
       calls.map((c) =>
         c.args[0] === 'devops'
@@ -72,16 +93,64 @@ describe('Azure DevOps: each comment a thread, the summary a thread, the verdict
           : c.args.slice(0, 7).join(' '),
       ),
     ).toEqual(['thread /src/a.cs', 'thread /src/b.cs', 'thread summary', 'repos pr set-vote --id 7 --vote approve']);
+    // Each thread whole: the comment, its line, and the iteration whose source commit the review read (3, not the latest).
+    expect(calls[0].file).toEqual({
+      comments: [{ parentCommentId: 0, content: 'Guard with a row version.', commentType: 1 }],
+      status: 'active',
+      threadContext: { filePath: '/src/a.cs', rightFileStart: { line: 6, offset: 1 }, rightFileEnd: { line: 6, offset: 1 } },
+      pullRequestThreadContext: { iterationContext: { firstComparingIteration: 3, secondComparingIteration: 3 } },
+    });
+    expect(calls[2].file).toEqual({ comments: [{ parentCommentId: 0, content: 'Looks good.', commentType: 1 }], status: 'active' });
+    expect(calls[3].args).toEqual([
+      'repos',
+      'pr',
+      'set-vote',
+      '--id',
+      '7',
+      '--vote',
+      'approve',
+      '--org',
+      'https://dev.azure.com/acme',
+      '--output',
+      'json',
+    ]);
+  });
+
+  it('a review whose commit is no push of the PR any more posts nothing', async () => {
+    const rec = recorder((args) =>
+      isIterations(args)
+        ? { code: 0, stdout: JSON.stringify({ value: [{ id: 4, sourceRefCommit: { commitId: 'newer' } }] }), stderr: '' }
+        : { code: 0, stdout: '{}', stderr: '' },
+    );
+    expect(await azure.submitReview(rec.run, repo, 7, { commitId: 'abc', event: 'approve', body: 'x', comments })).toEqual({
+      ok: false,
+      error: 'the PR has no push at abc (it moved since the review was prepared)',
+      posted: 0,
+    });
+    expect(rec.calls).toHaveLength(1);
   });
 
   it('a plain comment leaves the vote alone; request changes is "wait for author"; a failed thread stops it', async () => {
-    const plain = recorder(() => ({ code: 0, stdout: '{}', stderr: '' }));
+    const plain = azRecorder(() => ({ code: 0, stdout: '{}', stderr: '' }));
     await azure.submitReview(plain.run, repo, 7, { commitId: 'abc', event: 'comment', body: '', comments: comments.slice(0, 1) });
     expect(plain.calls.some((c) => c.args.includes('set-vote'))).toBe(false);
-    const changes = recorder(() => ({ code: 0, stdout: '{}', stderr: '' }));
+    const changes = azRecorder(() => ({ code: 0, stdout: '{}', stderr: '' }));
     await azure.submitReview(changes.run, repo, 7, { commitId: 'abc', event: 'request-changes', body: '', comments: [] });
     expect(changes.calls.at(-1)!.args).toEqual(expect.arrayContaining(['set-vote', '--vote', 'wait-for-author']));
-    const failing = recorder(() => ({ code: 1, stdout: '', stderr: 'TF401181: The pull request cannot be edited' }));
+    const withComments = azRecorder(() => ({ code: 0, stdout: '{}', stderr: '' }));
+    expect(
+      await azure.submitReview(withComments.run, repo, 7, { commitId: 'abc', event: 'request-changes', body: 'Two things.', comments }),
+    ).toMatchObject({ ok: true });
+    expect(withComments.calls.map((c) => (c.args[0] === 'devops' ? 'thread' : c.args[2]))).toEqual([
+      'thread',
+      'thread',
+      'thread',
+      'set-vote',
+    ]);
+    expect(withComments.calls.at(-1)!.args).toEqual(
+      expect.arrayContaining(['--vote', 'wait-for-author', '--org', 'https://dev.azure.com/acme']),
+    );
+    const failing = azRecorder(() => ({ code: 1, stdout: '', stderr: 'TF401181: The pull request cannot be edited' }));
     expect(await azure.submitReview(failing.run, repo, 7, { commitId: 'abc', event: 'approve', body: '', comments })).toEqual({
       ok: false,
       error: 'src/a.cs:6: TF401181: The pull request cannot be edited',
@@ -100,7 +169,7 @@ describe('a submit that stops part way says what went out, and what may have', (
   afterAll(() => fs.rmSync(repo, { recursive: true, force: true }));
   const failOn = (n: number, code: number, stderr = 'TF400898: server error') => {
     let calls = 0;
-    return recorder(() => (++calls === n ? { code, stdout: '', stderr } : { code: 0, stdout: '{}', stderr: '' }));
+    return azRecorder(() => (++calls === n ? { code, stdout: '', stderr } : { code: 0, stdout: '{}', stderr: '' }));
   };
   const review = { commitId: 'abc', event: 'approve' as const, body: 'Looks good.', comments };
 
@@ -140,7 +209,7 @@ describe('a submit that stops part way says what went out, and what may have', (
   });
 
   it('GitHub: one call makes all of it or none; one that timed out may have made it — all of it is in doubt', async () => {
-    const { run } = recorder(() => ({ code: 124, stdout: '', stderr: 'gh timed out' }));
+    const { run } = azRecorder(() => ({ code: 124, stdout: '', stderr: 'gh timed out' }));
     expect(await github.submitReview(run, '/repo', 7, review)).toEqual({
       ok: false,
       error: 'gh timed out',

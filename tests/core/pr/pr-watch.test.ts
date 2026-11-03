@@ -180,6 +180,49 @@ describe('PR watch', () => {
     expect(h.deps.preflight.mock.calls.length).toBe(calls + 1);
   });
 
+  it("one host's API limit rests only that host: a session on another is checked as ever", async () => {
+    let t = LATER;
+    const az = { ...repo('payments', pr({ number: 3 })), host: 'azure' } as RepoShipState;
+    let azLimited = false;
+    const asked: Array<{ id: string; restingAzure: boolean; restingGithub: boolean }> = [];
+    const deps: PrWatchDeps = {
+      sessions: () => [
+        { id: 'az', session: { ...session(), target: 'payments' } },
+        { id: 'gh', session: session() },
+      ],
+      preflight: vi.fn(async (s: WorktreeSession, o?: { resting?: (host: string | undefined) => boolean }) => {
+        const id = s.target === 'payments' ? 'az' : 'gh';
+        asked.push({ id, restingAzure: !!o?.resting?.('azure'), restingGithub: !!o?.resting?.(undefined) });
+        if (id === 'gh') return { repos: [repo('api', pr())] };
+        return { repos: [azLimited ? ({ ...az, pr: null, ghError: 'TF400733: The request was blocked' } as RepoShipState) : az] };
+      }),
+      archive: vi.fn(async () => {}),
+      tell: vi.fn(async () => {}),
+      broadcast: vi.fn(),
+      options: () => ON,
+      told: () => ({ has: () => false, add: () => undefined }),
+      rateLimited: (host, text) => (host === 'azure' ? /TF400733/.test(text) : /rate limit/i.test(text)),
+      now: () => t,
+    };
+    const watch = createPrWatch(deps);
+    await watch.tick();
+    azLimited = true;
+    await watch.tick();
+    expect(watch.state('az')?.repos[0].pr?.number).toBe(3); // kept, not "no PR"
+    asked.length = 0;
+    t += 60_000;
+    await watch.tick();
+    // Azure DevOps rests: its session isn't checked; GitHub's is, told only Azure DevOps rests.
+    expect(asked).toEqual([{ id: 'gh', restingAzure: true, restingGithub: false }]);
+    expect(watch.state('gh')?.repos[0].pr?.number).toBe(7);
+    asked.length = 0;
+    azLimited = false;
+    t += 10 * 60_000;
+    await watch.tick();
+    expect(asked.map((a) => a.id).sort()).toEqual(['az', 'gh']);
+    expect(asked.every((a) => !a.restingAzure)).toBe(true);
+  });
+
   it('a review lookup that fails keeps the last count for the same PR', async () => {
     const feedback = vi.fn<() => Promise<ReviewFeedback | null>>(
       async () =>

@@ -1,3 +1,4 @@
+import { launchFor } from './batch-launch.js';
 import crossSpawn from './spawn.js';
 
 /**
@@ -21,9 +22,17 @@ export const RUN_TIMED_OUT = 124;
  * .exe files, so a `gh` installed as a .cmd shim (scoop, wrappers) would
  * look "not installed"; cross-spawn resolves shims like `work tree` does,
  * with cmd-escaped args. Exit code 127 = the binary itself is missing.
+ * A batch file on Windows is never handed cmd.exe's special characters
+ * (`launchFor`, batch-launch.ts): a Python CLI's shim (`az.cmd`) is skipped
+ * for its Python, any other refuses such an argument (exit 1, said why).
  */
 export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
   new Promise((resolve) => {
+    const launch = launchFor(cmd, args);
+    if ('refused' in launch) {
+      resolve({ code: 1, stdout: '', stderr: launch.refused });
+      return;
+    }
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -33,7 +42,7 @@ export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
       clearTimeout(timer);
       resolve(r);
     };
-    const child = crossSpawn(cmd, args, { cwd, windowsHide: true });
+    const child = crossSpawn(launch.cmd, launch.args, { cwd, windowsHide: true });
     const timer = setTimeout(() => {
       child.kill();
       done({ code: RUN_TIMED_OUT, stdout, stderr: stderr || `${cmd} timed out` });

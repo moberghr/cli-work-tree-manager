@@ -110,6 +110,34 @@ describe('checkTools', () => {
     expect(tools[1].detail).toMatch(/Install Claude Code/);
     expect(tools[2].detail).toMatch(/gh auth login/);
   });
+
+  it('az is listed (after gh) only when an enrolled repo is on Azure DevOps', async () => {
+    const run: CommandRunner = async (cmd) => {
+      return cmd === 'az' ? { code: 1, stdout: '', stderr: 'Please run az login' } : { code: 0, stdout: `${cmd} 1\n`, stderr: '' };
+    };
+    const repo = (name: string, origin: string) => {
+      const p = path.join(home, 'repos', name);
+      fs.mkdirSync(path.join(p, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(p, '.git', 'config'), `[remote "origin"]\n\turl = ${origin}\n`);
+      return p;
+    };
+    const write = (repos: Record<string, string>) => {
+      fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
+      fs.writeFileSync(getConfigPath(), JSON.stringify({ worktreesRoot: path.join(home, 'wt'), repos, groups: {} }));
+    };
+    write({ web: repo('web', 'https://github.com/acme/web.git') });
+    expect((await checkTools(run)).map((t) => t.id)).toEqual(['git', 'claude', 'gh', 'acli']);
+    write({ web: repo('web', 'https://github.com/acme/web.git'), api: repo('api', 'https://dev.azure.com/acme/Shop/_git/api') });
+    const tools = await checkTools(run);
+    expect(tools.map((t) => [t.id, t.ok, t.needed])).toEqual([
+      ['git', true, true],
+      ['claude', true, true],
+      ['gh', true, false],
+      ['az', false, false],
+      ['acli', true, false],
+    ]);
+    expect(tools[3].detail).toMatch(/az login/);
+  });
 });
 
 describe('setupState', () => {

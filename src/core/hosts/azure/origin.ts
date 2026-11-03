@@ -29,17 +29,38 @@ const dec = (s: string) => {
 };
 const strip = (s: string) => s.replace(/\.git$/, '').replace(/\/+$/, '');
 
-/** An origin on Azure DevOps, read; null for anything else. */
+/**
+ * What an org, a project and a repo may be called: Azure DevOps' own rules (an org: letters, digits and
+ * hyphens; a project or repo: none of `\ / : * ? " ' < > ; # $ { } , + = [ ] |`, nor a control character),
+ * plus none of `% & ^ !`. These names reach `az`'s argv and its REST routes, so anything else isn't a repo here.
+ */
+const ORG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,49}$/;
+const PART_NAME = /^[^\\/:*?"'<>;#$*{},+=[\]|%&^!\x00-\x1f\x7f]{1,128}$/;
+export const azureNameOk = (org: string, project: string, repo: string): boolean =>
+  ORG_NAME.test(org) && PART_NAME.test(project) && PART_NAME.test(repo) && project.trim() === project && repo.trim() === repo;
+
+/** The org of an org URL `az --org` takes, only in the forms Azure DevOps has: `https://dev.azure.com/<org>`, `https://<org>.visualstudio.com`. */
+export function azureOrgOf(orgUrl: string): string | null {
+  const m = /^https:\/\/dev\.azure\.com\/([^/]+)$/.exec(orgUrl) ?? /^https:\/\/([^./]+)\.visualstudio\.com$/.exec(orgUrl);
+  return m && ORG_NAME.test(m[1]) ? m[1] : null;
+}
+
+function repoOf(org: string, project: string, repo: string, orgUrl: string): AzureRepo | null {
+  const r = { org: dec(org), project: dec(project), repo: dec(strip(repo)), orgUrl };
+  return azureNameOk(r.org, r.project, r.repo) && azureOrgOf(orgUrl) === r.org ? r : null;
+}
+
+/** An origin on Azure DevOps, read; null for anything else (and for names Azure DevOps wouldn't have). */
 export function parseAzureOrigin(origin: string): AzureRepo | null {
   const o = origin.trim();
   let m = /^https?:\/\/(?:[^@/]+@)?dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/?#]+)/i.exec(o);
-  if (m) return { org: dec(m[1]), project: dec(m[2]), repo: dec(strip(m[3])), orgUrl: `https://dev.azure.com/${m[1]}` };
+  if (m) return repoOf(m[1], m[2], m[3], `https://dev.azure.com/${m[1]}`);
   m = /^https?:\/\/(?:[^@/]+@)?([^./]+)\.visualstudio\.com\/(?:DefaultCollection\/)?([^/]+)\/_git\/([^/?#]+)/i.exec(o);
-  if (m) return { org: dec(m[1]), project: dec(m[2]), repo: dec(strip(m[3])), orgUrl: `https://${m[1]}.visualstudio.com` };
+  if (m) return repoOf(m[1], m[2], m[3], `https://${m[1]}.visualstudio.com`);
   m = /^(?:ssh:\/\/)?[^@]+@ssh\.dev\.azure\.com[:/]v3\/([^/]+)\/([^/]+)\/([^/]+)$/i.exec(o);
-  if (m) return { org: dec(m[1]), project: dec(m[2]), repo: dec(strip(m[3])), orgUrl: `https://dev.azure.com/${m[1]}` };
+  if (m) return repoOf(m[1], m[2], m[3], `https://dev.azure.com/${m[1]}`);
   m = /^(?:ssh:\/\/)?[^@]+@vs-ssh\.visualstudio\.com[:/]v3\/([^/]+)\/([^/]+)\/([^/]+)$/i.exec(o);
-  if (m) return { org: dec(m[1]), project: dec(m[2]), repo: dec(strip(m[3])), orgUrl: `https://${m[1]}.visualstudio.com` };
+  if (m) return repoOf(m[1], m[2], m[3], `https://${m[1]}.visualstudio.com`);
   return null;
 }
 
@@ -92,6 +113,13 @@ const unb64url = (s: string) => {
   return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
 };
 
+/** The `org/project/repo` id (lower case) of the repo a thread id is on; null when it isn't a valid one. */
+export function azureThreadRepoId(id: string): string | null {
+  const t = parseAzureThreadId(id);
+  const org = t ? azureOrgOf(t.repo.orgUrl) : null;
+  return t && org ? `${org}/${t.repo.project}/${t.repo.repo}`.toLowerCase() : null;
+}
+
 export function azureThreadId(r: Pick<AzureRepo, 'orgUrl' | 'project' | 'repo'>, pr: number, thread: number): string {
   return `AZT_${b64url(JSON.stringify([r.orgUrl, r.project, r.repo]))}_${pr}_${thread}`;
 }
@@ -106,7 +134,12 @@ export function parseAzureThreadId(
   try {
     const v: unknown = JSON.parse(unb64url(m[1]));
     if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'string')) return null;
-    return { repo: { orgUrl: v[0] as string, project: v[1] as string, repo: v[2] as string }, pr: Number(m[2]), thread: Number(m[3]) };
+    const [orgUrl, project, repo] = v as [string, string, string];
+    // Only an org URL Azure DevOps has, and names it would have: the id is text anyone can hand `work pr reply`,
+    // and its org URL is where `az` would connect, signed in as you. It must read back as the same repo.
+    const back = parseAzureOrigin(azureWebUrl({ orgUrl, project, repo }));
+    if (!back || back.orgUrl !== orgUrl || back.project !== project || back.repo !== repo) return null;
+    return { repo: { orgUrl, project, repo }, pr: Number(m[2]), thread: Number(m[3]) };
   } catch {
     return null;
   }

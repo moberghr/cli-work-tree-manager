@@ -42,7 +42,11 @@ export type WakeResult = 'started' | 'running' | 'off' | 'failed';
 export interface PrWatchDeps {
   /** Sessions worth checking (recent, not archived). */
   sessions: () => Array<{ id: string; session: WorktreeSession }>;
-  preflight: (session: WorktreeSession) => Promise<ShipPreflight>;
+  /**
+   * The session's repos and their PRs. `resting(host)`: that host refused for its API limit a while ago — don't
+   * ask it (the repo reads as no PR; the watch keeps what it knew of it).
+   */
+  preflight: (session: WorktreeSession, opts?: { resting?: (host: string | undefined) => boolean }) => Promise<ShipPreflight>;
   /** Archive merged work (archiveSession `merged`); resolves to what it kept that was waiting in it ("2 reply drafts"), if anything. */
   archive: (id: string) => Promise<string | void>;
   /** Leave the session's Claude a (published) review note. */
@@ -335,9 +339,26 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const feedbackCache = new Map<string, { number: number; updatedAt: string; at: number; fb: ReviewFeedback }>();
   /** A session's check in flight: a refresh joins it instead of starting another. */
   const inflight = new Map<string, Promise<SessionCi | null>>();
-  /** Sweeps skip until then: a host's API limit was spent (see check); which host's, for the note. */
-  let pausedUntil = 0;
-  let pausedBy = hostName(undefined);
+  /**
+   * Per host (its id; '' for the default, GitHub): asked nothing until then, its API limit spent (see check).
+   * Only that host rests: sessions on the others are checked as ever.
+   */
+  const restingUntil = new Map<string, number>();
+  const hostKey = (host: string | undefined) => host ?? '';
+  const resting = (host: string | undefined) => (restingUntil.get(hostKey(host)) ?? 0) > now();
+  /** Hosts the session's repos were on at its last preflight (else its saved check; empty: never checked). */
+  const hostsSeen = new Map<string, Array<string | undefined>>();
+  const knownHosts = (id: string) => hostsSeen.get(id) ?? (states.get(id)?.repos ?? []).map((r) => r.host);
+  /** Every host the session was last seen on rests: checking it would only ask a host that refused. */
+  const allResting = (id: string) => {
+    const hosts = knownHosts(id);
+    return hosts.length > 0 && hosts.every(resting);
+  };
+  const restingNames = () =>
+    [...restingUntil]
+      .filter(([, until]) => until > now())
+      .map(([h]) => hostName(h || undefined))
+      .join(', ');
   const sessionOf = (id: string) => deps.sessions().find((s) => s.id === id);
 
   /**
@@ -402,7 +423,11 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const note = (text: string, level: 'info' | 'action' | 'warn' = 'info') => run?.note(`${name}: ${text}`, { level, sessionId: id });
     let pre: ShipPreflight;
     try {
-      pre = await deps.preflight(session);
+      pre = await deps.preflight(session, { resting });
+      hostsSeen.set(
+        id,
+        pre.repos.map((r) => r.host),
+      );
     } catch (err) {
       note(`couldn't check (${(err as Error).message}); keeping what it knew`, 'warn');
       return states.get(id) ?? null;
@@ -413,10 +438,16 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const limited = pre.repos.find((r) => r.ghError && limitedBy(r.host, r.ghError));
     if (limited) {
       const name = hostName(limited.host);
-      pausedUntil = now() + RATE_LIMIT_PAUSE_MS;
-      pausedBy = name;
-      schedule?.pause(pausedUntil, `${name}'s API limit is spent`);
+      const until = now() + RATE_LIMIT_PAUSE_MS;
+      restingUntil.set(hostKey(limited.host), until);
+      schedule?.pause(until, `${name}'s API limit is spent`);
       note(`${name} says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
+      return states.get(id) ?? null;
+    }
+    // A repo on a host that rests wasn't asked (it reads as no PR): keep what was known of the session, act on nothing.
+    const unasked = pre.repos.find((r) => resting(r.host));
+    if (unasked) {
+      note(`${hostName(unasked.host)}'s API limit is spent: keeping what it knew`);
       return states.get(id) ?? null;
     }
     const opts = deps.options();
@@ -633,14 +664,16 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   let running: Promise<void> | null = null;
   const watch: PrWatch = {
     tick() {
-      if (now() < pausedUntil) {
-        deps.activity?.skip('pr-watch', 'Checking pull requests', `${pausedBy}'s API limit is spent; resting`);
+      // Only sessions on a host that isn't resting are checked; when that's none of them, the sweep rests.
+      const due = deps.sessions().filter((q) => !allResting(q.id));
+      if (!running && !due.length && restingNames()) {
+        deps.activity?.skip('pr-watch', 'Checking pull requests', `${restingNames()}'s API limit is spent; resting`);
         return Promise.resolve();
       }
       // One sweep at a time: a slow gh must not stack sweeps up.
       running ??= (async () => {
-        schedule?.resume();
-        const queue = deps.sessions();
+        if (!restingNames()) schedule?.resume();
+        const queue = due;
         const ids = queue.map((q) => q.id);
         const run = deps.activity?.start('pr-watch', 'Checking pull requests');
         let done = 0;

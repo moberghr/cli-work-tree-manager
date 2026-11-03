@@ -7,7 +7,7 @@ import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { findSession } from '../../core/sessions/web-state.js';
 import { defaultRunner, shipPreflight } from '../../core/pr/ship.js';
-import { prWatchHostDeps } from '../../core/pr/pr-watch-hosts.js';
+import { prWatchHostDeps, watchAskGh } from '../../core/pr/pr-watch-hosts.js';
 import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
 import { readStatus, turnInProgress } from '../../core/status/session-status.js';
 import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
@@ -82,10 +82,11 @@ export function mountCiRoutes(
     },
     // Never-pushed branches can't have a PR: don't ask GitHub about them,
     // unless the watch already knows one (a merged PR whose branch is gone).
-    preflight: (s) => {
+    // A host resting after its API limit isn't asked at all (the watch keeps what it knew).
+    preflight: (s, o) => {
       const id = sessionIdFor(s);
       return shipPreflight(s, defaultRunner, {
-        askGh: (r) => r.hasUpstream || !!watch.state(id)?.repos.find((x) => x.name === r.name)?.pr,
+        askGh: watchAskGh(o?.resting, (name) => !!watch.state(id)?.repos.find((x) => x.name === name)?.pr),
       });
     },
     // Who you are, review feedback and API-limit words: each repo asked of its own host.

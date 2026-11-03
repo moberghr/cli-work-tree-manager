@@ -127,7 +127,7 @@ function oneLineErr(s: string): string {
 
 /** Whether to ask GitHub about a repo's PR at all (the PR watch skips
  *  branches that were never pushed and have no PR it knows of). */
-export type AskGh = (repo: { name: string; hasUpstream: boolean; commitsVsBase: number | null }) => boolean;
+export type AskGh = (repo: { name: string; hasUpstream: boolean; commitsVsBase: number | null; host?: string }) => boolean;
 
 async function inspectRepo(repo: { name: string; path: string }, run: CommandRunner, askGh?: AskGh): Promise<RepoShipState> {
   const git = (...args: string[]) => run('git', args, repo.path);
@@ -169,9 +169,11 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
 
   let pr: ShipPr | null = null;
   let ghError: string | undefined;
-  const skipGh = askGh ? !askGh({ name: repo.name, hasUpstream, commitsVsBase }) : false;
   // The repo's host (its origin's; GitHub when none claims it): a group's repos may be on different ones.
   const { host } = hostForRepo(repo.path);
+  const skipGh = askGh
+    ? !askGh({ name: repo.name, hasUpstream, commitsVsBase, ...(host.id === DEFAULT_HOST ? {} : { host: host.id }) })
+    : false;
   const found = skipGh ? ({ kind: 'none' } as const) : await host.prForBranch(run, repo.path, branch);
   if (found.kind === 'pr') pr = found.pr;
   else if (found.kind === 'error') ghError = found.error;

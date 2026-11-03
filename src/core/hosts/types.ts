@@ -175,6 +175,11 @@ export interface GitHost {
   readonly threads: {
     /** This is one of this host's review-thread ids (checked before an id reaches the CLI or the database). */
     isId(id: string): boolean;
+    /**
+     * The repo (its `repoId`) a thread id names, when the id carries it (Azure DevOps'): a thread not on one of the
+     * session's repos is refused before the host is asked anything. Null: not a valid id. Absent: ids are opaque.
+     */
+    repoOf?(id: string): string | null;
     now(run: CommandRunner, cwd: string, id: string): Promise<HostResult<{ thread: ThreadNow }>>;
     live(run: CommandRunner, cwd: string, id: string): Promise<HostResult<{ thread: LiveThread }>>;
     /** Resolved on the host; null when it couldn't say (absence never retires a draft). */

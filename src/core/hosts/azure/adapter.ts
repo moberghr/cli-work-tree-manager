@@ -6,7 +6,16 @@ import { originUrl, readGitConfig } from '../../worktree/repo-scan.js';
 import type { GitHost, SubmitReviewResult } from '../types.js';
 import type { PullRequestInfo } from '../../pr/pr-types.js';
 import { azureCommands } from './commands.js';
-import { AZURE_THREAD_ID, azureRepoId, onAzure, parseAzureOrigin, parseAzurePrUrl, parseAzureThreadId, type AzureRepo } from './origin.js';
+import {
+  AZURE_THREAD_ID,
+  azureRepoId,
+  azureThreadRepoId,
+  onAzure,
+  parseAzureOrigin,
+  parseAzurePrUrl,
+  parseAzureThreadId,
+  type AzureRepo,
+} from './origin.js';
 import {
   feedbackOf,
   openPrOf,
@@ -19,8 +28,11 @@ import {
   shipPrOf,
   type AzPolicy,
   type AzPr,
+  type AzIteration,
   type AzThread,
 } from './map.js';
+
+const lower = (s: string | undefined | null) => (s ?? '').toLowerCase();
 
 /**
  * Azure DevOps, through the `az` CLI with the azure-devops extension and the
@@ -31,7 +43,21 @@ import {
  */
 
 const API = '7.1';
-const oneLine = (s: string) => s.trim().split('\n')[0] ?? '';
+
+/** Azure DevOps' words for "slow down": TF400733 ("request was blocked"), or HTTP 429. */
+const THROTTLED = /TF400733|\b429\b|Too Many Requests|rate limit/i;
+
+/**
+ * The line of az's error output that says why: the throttling one wherever it is (the PR watch rests on it), else
+ * the first that isn't one of az's WARNING lines (an extension or upgrade notice comes first), else the first.
+ */
+export function azReason(stderr: string): string {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return lines.find((l) => THROTTLED.test(l)) ?? lines.find((l) => !/^WARNING:/i.test(l)) ?? lines[0] ?? '';
+}
 
 /** What az said: its value, or why not (`timedOut`: it didn't answer in time, so what it was asked may have happened). */
 type AzResult<T> = { ok: true; value: T } | { ok: false; error: string; timedOut?: boolean };
@@ -40,8 +66,8 @@ type AzResult<T> = { ok: true; value: T } | { ok: false; error: string; timedOut
 async function az<T>(run: CommandRunner, cwd: string, args: string[]): Promise<AzResult<T>> {
   const r = await run('az', [...args, '--output', 'json'], cwd);
   if (r.code === 127) return { ok: false, error: 'Azure CLI (az) not found — install it and the azure-devops extension' };
-  if (r.code === RUN_TIMED_OUT) return { ok: false, error: oneLine(r.stderr) || 'az timed out', timedOut: true };
-  if (r.code !== 0) return { ok: false, error: oneLine(r.stderr) || `az ${args.slice(0, 3).join(' ')} failed` };
+  if (r.code === RUN_TIMED_OUT) return { ok: false, error: azReason(r.stderr) || 'az timed out', timedOut: true };
+  if (r.code !== 0) return { ok: false, error: azReason(r.stderr) || `az ${args.slice(0, 3).join(' ')} failed` };
   try {
     return { ok: true, value: JSON.parse(r.stdout || 'null') as T };
   } catch {
@@ -58,7 +84,15 @@ function repoAt(cwd: string): AzureRepo | null {
 
 const where = (r: AzureRepo) => ['--org', r.orgUrl, '--project', r.project, '--repository', r.repo];
 
-/** A REST call through `az devops invoke` (a body goes through a temp file: argv only). */
+/**
+ * A route parameter's value as `az devops invoke` takes it (`name=value`, put into the URL's path): only names
+ * Azure DevOps allows and numbers, never `/ ? # % = &` or a control character — refused rather than relying on
+ * how az encodes it.
+ */
+export const routeValueOk = (v: string | number): boolean =>
+  typeof v === 'number' ? Number.isSafeInteger(v) && v >= 0 : /^[^/\\?#%=&\x00-\x1f\x7f]{1,128}$/.test(v) && v.trim() === v;
+
+/** A REST call through `az devops invoke` (a body goes through a temp file: argv only, free text never on it). */
 async function invoke<T>(
   run: CommandRunner,
   cwd: string,
@@ -68,7 +102,10 @@ async function invoke<T>(
   method: 'GET' | 'POST' | 'PATCH' = 'GET',
   body?: unknown,
 ): Promise<AzResult<T>> {
-  const params = Object.entries({ project: r.project, repositoryId: r.repo, ...route }).map(([k, v]) => `${k}=${v}`);
+  const values = Object.entries({ project: r.project, repositoryId: r.repo, ...route });
+  const bad = values.find(([, v]) => !routeValueOk(v));
+  if (bad) return { ok: false, error: `refused: ${bad[0]} isn't a name Azure DevOps has` };
+  const params = values.map(([k, v]) => `${k}=${v}`);
   let dir: string | null = null;
   const args = [
     'devops',
@@ -95,7 +132,13 @@ async function invoke<T>(
     }
     return await az<T>(run, cwd, args);
   } finally {
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    // Tidying the temp folder never turns a call that went through into a failure (a retry would send it again).
+    if (dir)
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* a leftover temp file; the OS clears its temp folder */
+      }
   }
 }
 
@@ -105,9 +148,22 @@ async function viewer(run: CommandRunner, cwd: string): Promise<string | null> {
   return r.ok && r.value?.user?.name ? r.value.user.name : null;
 }
 
-async function policies(run: CommandRunner, cwd: string, r: AzureRepo, id: number): Promise<AzPolicy[]> {
+/** A PR's policy evaluations; an error when az can't say — never "no policies", which would read as clean. */
+async function policies(run: CommandRunner, cwd: string, r: AzureRepo, id: number): Promise<AzResult<AzPolicy[]>> {
   const p = await az<AzPolicy[]>(run, cwd, ['repos', 'pr', 'policy', 'list', '--id', String(id), '--org', r.orgUrl]);
-  return p.ok && Array.isArray(p.value) ? p.value : [];
+  if (!p.ok) return p;
+  return Array.isArray(p.value) ? { ok: true, value: p.value } : { ok: false, error: "couldn't read what az said about the PR's policies" };
+}
+
+/** The PR's iteration (push) whose source commit is `commitId`: where a review comment is anchored. */
+async function iterationAt(run: CommandRunner, cwd: string, r: AzureRepo, number: number, commitId: string): Promise<AzResult<number>> {
+  const got = await invoke<{ value?: AzIteration[] }>(run, cwd, r, 'pullRequestIterations', { pullRequestId: number });
+  if (!got.ok) return got;
+  const its = (got.value?.value ?? []).filter((i) => typeof i?.id === 'number' && i.sourceRefCommit?.commitId === commitId);
+  const id = its.at(-1)?.id;
+  return typeof id === 'number'
+    ? { ok: true, value: id }
+    : { ok: false, error: `the PR has no push at ${commitId.slice(0, 8)} (it moved since the review was prepared)` };
 }
 
 /** How many open PRs one listing asks for; a list that long may have stopped short (`more`). */
@@ -120,11 +176,14 @@ async function postThread(
   r: AzureRepo,
   number: number,
   c: { path: string; line: number; body: string },
+  iteration: number,
 ): Promise<AzResult<AzThread>> {
   return invoke<AzThread>(run, cwd, r, 'pullRequestThreads', { pullRequestId: number }, 'POST', {
     comments: [{ parentCommentId: 0, content: c.body, commentType: 1 }],
     status: 'active',
     threadContext: { filePath: `/${c.path}`, rightFileStart: { line: c.line, offset: 1 }, rightFileEnd: { line: c.line, offset: 1 } },
+    // At the push the review read (its lines are that commit's), not whatever the PR is at now.
+    pullRequestThreadContext: { iterationContext: { firstComparingIteration: iteration, secondComparingIteration: iteration } },
   });
 }
 
@@ -162,13 +221,19 @@ export const azure: GitHost = {
         continue;
       }
       me ??= await viewer(run, repo.path);
+      // Who you are unknown: yours and those asking you can't be told apart, so the repo's list is incomplete, never empty.
+      if (!me) {
+        me = undefined;
+        incomplete.push(repo.alias);
+        continue;
+      }
       const list = await az<AzPr[]>(run, repo.path, ['repos', 'pr', 'list', ...where(r), '--status', 'active', '--top', '100']);
       if (!list.ok || !Array.isArray(list.value)) {
         incomplete.push(repo.alias);
         continue;
       }
       for (const pr of list.value) {
-        const row = prInfoOf(r, repo.alias, pr, me ?? '');
+        const row = prInfoOf(r, repo.alias, pr, me);
         // The dashboard lists yours and those asking you (as on GitHub).
         if (row && (row.isMine || row.reviewRequested)) prs.push(row);
       }
@@ -196,8 +261,9 @@ export const azure: GitHost = {
     if (!list.ok) return { kind: 'error', error: list.error };
     const pr = pickPr(Array.isArray(list.value) ? list.value : []);
     if (!pr) return { kind: 'none' };
-    const pol = pr.status === 'active' ? await policies(run, cwd, r, pr.pullRequestId!) : [];
-    const ship = shipPrOf(r, pr, pol);
+    const pol: AzResult<AzPolicy[]> = pr.status === 'active' ? await policies(run, cwd, r, pr.pullRequestId!) : { ok: true, value: [] };
+    if (!pol.ok) return { kind: 'error', error: pol.error };
+    const ship = shipPrOf(r, pr, pol.value);
     return ship ? { kind: 'pr', pr: ship } : { kind: 'error', error: "couldn't read what az said about the PR" };
   },
 
@@ -207,6 +273,10 @@ export const azure: GitHost = {
       return { ok: false, error: `PR #${number}: its repo isn't this folder's` };
     const shown = await az<AzPr>(run, cwd, ['repos', 'pr', 'show', '--id', String(number), '--org', r.orgUrl]);
     if (!shown.ok) return { ok: false, error: `PR #${number} in ${r.repo}: ${shown.error}` };
+    // PR numbers are the organisation's, not the repo's: #N may be another repo's PR.
+    const on = shown.value?.repository;
+    if (lower(on?.name) !== lower(r.repo) || lower(on?.project?.name) !== lower(r.project))
+      return { ok: false, error: `PR #${number} is in ${on?.project?.name ?? '?'}/${on?.name ?? '?'}, not ${r.project}/${r.repo}` };
     const pr = prForStartOf(r, shown.value ?? {});
     return pr ? { ok: true, pr } : { ok: false, error: "couldn't read what az said about the PR" };
   },
@@ -224,10 +294,19 @@ export const azure: GitHost = {
     // `--fill` as gh does it: the last commit's subject and body.
     const subject = (await run('git', ['log', '-1', '--format=%s'], cwd)).stdout.trim() || branch;
     const body = (await run('git', ['log', '-1', '--format=%b'], cwd)).stdout.trim();
-    const args = ['repos', 'pr', 'create', ...where(r), '--source-branch', branch, '--title', subject];
-    if (body) args.push('--description', body);
-    if (opts.draft) args.push('--draft', 'true');
-    const made = await az<AzPr>(run, cwd, args);
+    // Into the repo's default branch, as `az repos pr create` would; through the REST API, so the title and
+    // description travel in a file, never on argv (a line break there ended the command on Windows).
+    const repo = await invoke<{ defaultBranch?: string }>(run, cwd, r, 'repositories', {});
+    if (!repo.ok) return { ok: false, error: repo.error };
+    const target = repo.value?.defaultBranch;
+    if (!target) return { ok: false, error: `couldn't tell ${r.repo}'s default branch` };
+    const made = await invoke<AzPr>(run, cwd, r, 'pullRequests', {}, 'POST', {
+      sourceRefName: `refs/heads/${branch}`,
+      targetRefName: target,
+      title: subject,
+      description: body,
+      isDraft: opts.draft,
+    });
     if (!made.ok) return { ok: false, error: made.error };
     const n = made.value?.pullRequestId;
     return { ok: true, ...(typeof n === 'number' ? { url: prWebUrl(r, n) } : {}) };
@@ -242,7 +321,13 @@ export const azure: GitHost = {
       lastMergeSourceCommit: { commitId: headSha },
       completionOptions: { mergeStrategy: MERGE_STRATEGY[method], deleteSourceBranch: false },
     });
-    return done.ok ? { ok: true } : { ok: false, error: done.error };
+    if (!done.ok) return { ok: false, error: done.error };
+    // Merged only when Azure DevOps says completed: a completion it only queued (policies still running) isn't.
+    const status = done.value?.status;
+    if (status === 'completed') return { ok: true };
+    const why = done.value?.mergeStatus && done.value.mergeStatus !== 'succeeded' ? ` (merge: ${done.value.mergeStatus})` : '';
+    const queued = status === 'active' ? ': its completion may be queued until its policies pass' : '';
+    return { ok: false, error: `Azure DevOps didn't complete PR #${number}, it is ${status ?? 'in an unknown state'}${why}${queued}` };
   },
 
   async mergedPr(run, cwd, branch, tip) {
@@ -283,8 +368,11 @@ export const azure: GitHost = {
   async submitReview(run, cwd, number, review): Promise<SubmitReviewResult> {
     const r = repoAt(cwd);
     if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };
+    // The push the review read: its comments are anchored there (nothing is posted when it can't be found).
+    const iteration = review.comments.length ? await iterationAt(run, cwd, r, number, review.commitId) : null;
+    if (iteration && !iteration.ok) return { ok: false, error: iteration.error, posted: 0 };
     for (const [i, c] of review.comments.entries()) {
-      const made = await postThread(run, cwd, r, number, c);
+      const made = await postThread(run, cwd, r, number, c, iteration?.ok ? iteration.value : 0);
       if (!made.ok)
         return {
           ok: false,
@@ -336,6 +424,7 @@ export const azure: GitHost = {
 
   threads: {
     isId: (id) => AZURE_THREAD_ID.test(id),
+    repoOf: azureThreadRepoId,
     async now(run, cwd, id) {
       const t = parseAzureThreadId(id);
       if (!t) return { ok: false, error: 'not an Azure DevOps thread id' };
@@ -413,8 +502,7 @@ export const azure: GitHost = {
     },
   },
 
-  // Azure DevOps throttling: TF400733 ("request was blocked"), or HTTP 429.
-  rateLimited: (text) => /TF400733|\b429\b|Too Many Requests|rate limit/i.test(text),
+  rateLimited: (text) => THROTTLED.test(text),
   // A completed PR's merge commit is the user's own (Azure DevOps commits as the person completing it).
   hostCommit: () => false,
   commands: azureCommands,

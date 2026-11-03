@@ -3,6 +3,7 @@ import { defaultHost, hostById, hostForRepo } from '../hosts/index.js';
 import type { GitHost } from '../hosts/types.js';
 import type { ReviewFeedback } from './review-types.js';
 import type { PrWatchDeps } from './pr-watch.js';
+import type { AskGh } from './ship.js';
 
 /**
  * What the PR watch asks a git host, each repo of its own (pr-watch.ts is pure
@@ -52,4 +53,13 @@ export function prWatchHostDeps(run: CommandRunner): Required<Pick<PrWatchDeps, 
     reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, run),
     rateLimited: hostRateLimited,
   };
+}
+
+/**
+ * Which of a session's repos the PR watch's preflight asks their host about: none on a host resting after its API
+ * limit (`resting`), and of the rest only a pushed branch, or one whose PR the watch already knows (a merged PR
+ * whose branch is gone) — a never-pushed branch can't have a PR.
+ */
+export function watchAskGh(resting: ((host: string | undefined) => boolean) | undefined, knowsPr: (repoName: string) => boolean): AskGh {
+  return (r) => !resting?.(r.host) && (r.hasUpstream || knowsPr(r.name));
 }

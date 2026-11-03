@@ -329,8 +329,14 @@ export async function liveOpenThread(
 ): Promise<{ reply: PrReply } | { error: string }> {
   if (!isThreadId(threadId)) return { error: `not a review thread id: ${threadId}` };
   const host = threadHost(threadId);
+  // An id that names its repo (Azure DevOps'): one of the session's, or the host isn't asked at all — the id is
+  // text anyone can hand `work pr reply`, and asking would connect where it says.
+  const named = host.threads.repoOf?.(threadId);
+  const own = named === undefined ? null : repos.find((x) => (x.host ?? 'github') === host.id && !!x.github && x.github === named);
+  if (named !== undefined && !own)
+    return { error: `${threadId} is ${named ? `on ${named}` : 'not a valid thread id'}, not a repo of this session` };
   // A repo of the session on that host to ask from (any folder does for GitHub's global ids).
-  const cwd = (repos.find((x) => (x.host ?? 'github') === host.id) ?? repos[0])?.path;
+  const cwd = (own ?? repos.find((x) => (x.host ?? 'github') === host.id) ?? repos[0])?.path;
   if (!cwd) return { error: `the session has no repo to ask ${host.name} from` };
   const r = await host.threads.live(run, cwd, threadId);
   if (!r.ok) return { error: r.error };
