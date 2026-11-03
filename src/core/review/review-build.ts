@@ -97,7 +97,7 @@ const asLines = (f: ParsedFile): DiffFileLines => ({
  * The agent pass's prompt for this PR: its Logic files, and the tests it touches (null: nothing to ask about).
  * `checkout`: the agent reads it in a checkout of the PR (review-tree.ts), and is told so.
  */
-export function reviewPrompt(meta: ReviewMeta, files: ParsedFile[], kinds: FileKind[], opts: { checkout?: boolean } = {}): string | null {
+export function reviewPrompt(meta: ReviewMeta, files: ParsedFile[], kinds: FileKind[], opts: { checkout?: string[] } = {}): string | null {
   const logic = new Set(kinds.filter((k) => k.kind === 'logic').map((k) => k.path));
   if (!logic.size) return null;
   const kindMap = Object.fromEntries(kinds.map((k) => [k.path, k.kind]));

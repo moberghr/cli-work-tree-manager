@@ -1,7 +1,8 @@
 import { loadConfig } from '../platform/config.js';
 import { defaultRunner, type CommandRunner } from '../platform/command-runner.js';
 import { hostForRepo } from '../hosts/index.js';
-import { internalCanRead, runInternal, runInternalReadOnly } from '../diff/checkpoint-summary.js';
+import { internalReadOnly, runInternal, runInternalReadOnly } from '../diff/checkpoint-summary.js';
+import type { AgentReadOnly } from '../agents/types.js';
 import { sweepReviewTrees, withReviewTree, type ReviewTreeAt } from './review-tree.js';
 import { bootTime, isPidAlive } from '../platform/process.js';
 import { setReviewMode } from '../worktree/repo-admin.js';
@@ -49,13 +50,18 @@ export async function agentInCheckout(
   prompt: string,
   io: {
     run: CommandRunner;
-    canRead: () => boolean;
+    /** The summarising agent's read-only run (its rule for settings files); null: it has none. */
+    readOnly: () => Pick<AgentReadOnly, 'isSettingsFile'> | null;
     agent: (prompt: string, cwd: string) => Promise<string | null>;
     root?: string;
   },
 ): Promise<{ answer: string | null; why?: string } | null> {
-  if (!io.canRead()) return null;
-  const r = await withReviewTree(io.run, at, (dir) => io.agent(prompt, dir), io.root);
+  const mode = io.readOnly();
+  if (!mode) return null;
+  const r = await withReviewTree(io.run, at, (dir) => io.agent(prompt, dir), {
+    strip: (rel) => mode.isSettingsFile(rel),
+    ...(io.root ? { root: io.root } : {}),
+  });
   if (!r.ok) return { answer: null, why: r.error };
   const left = r.left ? ` (its checkout ${r.left} wouldn't go: the next start sweeps it)` : '';
   return r.value
@@ -75,10 +81,11 @@ export function realReviewQueueDeps(opts: { activity?: ActivityLog; changed: () 
     prepare: (repoPath, host, pr) => preparePr(defaultRunner, repoPath, host, pr),
     dropRef: (repoPath, number) => dropReviewRef(defaultRunner, repoPath, number),
     agent: (prompt) => runInternal(prompt, AGENT_TIMEOUT_MS),
+    checkoutLines: () => internalReadOnly()?.promptLines ?? null,
     agentInCheckout: (at, prompt) =>
       agentInCheckout(at, prompt, {
         run: defaultRunner,
-        canRead: internalCanRead,
+        readOnly: internalReadOnly,
         agent: (p, cwd) => runInternalReadOnly(p, cwd, CHECKOUT_AGENT_TIMEOUT_MS),
       }),
     sweepTrees: () => sweepReviewTrees(defaultRunner, { olderThanMs: TREE_SWEEP_MIN_AGE_MS }),

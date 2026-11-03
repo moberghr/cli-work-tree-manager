@@ -49,7 +49,12 @@ export const READ_ONLY_TOOLS = 'Read,Grep,Glob';
  *   by itself in this mode: the prompt asks the agent to read the ones next to the files it looks at.
  * - `--strict-mcp-config` with no `--mcp-config`: no MCP server, the user's or the folder's `.mcp.json`.
  * - `--permission-mode dontAsk`: anything that would ask is refused (no one is there to answer).
- * The checkout's settings files are deleted before the run as well (review-tree.ts): two locks, not one.
+ * The checkout's settings files are deleted before the run as well (review-tree.ts, `claudeSettingsFile`): two
+ * locks, not one.
+ * - A CLAUDE.md `@import` of a file outside the folder — `@../outside.md`, or an absolute path — isn't loaded in this
+ *   mode (measured on 2.1.317, 2026-11: a file beside the checkout and one elsewhere on disk, each with a word to
+ *   repeat, neither seen; an import inside the folder was). Claude Code loads an import from outside the project only
+ *   once someone approved it in a dialog, which a `-p` run never shows.
  */
 export function internalClaudeReadOnlySpawn(opts: { cwd: string; model?: string }): {
   args: string[];
@@ -76,3 +81,20 @@ export function internalClaudeReadOnlySpawn(opts: { cwd: string; model?: string 
     env: { ...base.env, CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' },
   };
 }
+
+/**
+ * A file Claude Code reads as its settings, anywhere in a folder (relative path, `/` or `\`): `.claude/settings.json`,
+ * `.claude/settings.local.json`, `.mcp.json`. Case-blind: Windows and macOS open `.Claude/settings.json` as the same
+ * file. CLAUDE.md, `.claude/rules` and `.claude/commands` aren't settings (the repo's conventions stay).
+ */
+export function claudeSettingsFile(relPath: string): boolean {
+  const p = relPath.replace(/\\/g, '/').toLowerCase();
+  const base = p.slice(p.lastIndexOf('/') + 1);
+  return base === '.mcp.json' || /(^|\/)\.claude\/settings(\.local)?\.json$/.test(p);
+}
+
+/** What a read-only review run is told of its folder, in Claude Code's terms: its tools, and its CLAUDE.md files. */
+export const CLAUDE_READ_ONLY_LINES = [
+  'You are in a read-only checkout of this pull request at its head commit, with the Read, Grep and Glob tools. Read any file you need to understand the change: its callers, the interfaces and types it uses, the existing tests of the code it touches.',
+  "The repository's CLAUDE.md and .claude/rules (already given to you) describe its conventions; a CLAUDE.md in a subfolder applies to the files under it — read the ones next to the files you look at. Judge the change by those conventions.",
+];

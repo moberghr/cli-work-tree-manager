@@ -4,8 +4,8 @@ import { buildReview, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 import type { PrReviewWire, ReviewFixResultWire, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
 import type { SubmitReviewResult } from '../../core/hosts/types.js';
-import { addDraft, clearDropped, removeDraft, settleInDoubt } from '../../core/review/review-submit.js';
-import { submitPrReview } from '../../core/review/review-submit-flow.js';
+import { addDraft, clearDropped, removeDraft } from '../../core/review/review-submit.js';
+import { settlePrReview, shownReview, submitPrReview } from '../../core/review/review-submit-flow.js';
 import { fixItMyself } from '../../core/review/review-fix.js';
 
 /**
@@ -252,6 +252,20 @@ export function mountDemoReviews(
     maxLines: 3000,
   });
   const key = (repo: string, n: string) => `${repo}#${n}`;
+  // The submit flow's store and claim owner, as work web's (one process that never stops: no claim is left over).
+  const store = {
+    read: (rp: string, num: number) => reviews.get(key(rp, String(num))) ?? null,
+    update: (rp: string, num: number, change: (r: PrReviewWire) => PrReviewWire) => {
+      const was = reviews.get(key(rp, String(num)));
+      if (!was) return null;
+      const next = change(was);
+      reviews.set(key(rp, String(num)), next);
+      return next;
+    },
+    pid: 0,
+    bootedAt: () => 0,
+    alive: () => true,
+  };
 
   app.get('/api/reviews', (c) =>
     c.json({
@@ -271,7 +285,7 @@ export function mountDemoReviews(
   });
   app.get('/api/reviews/:repo/:number', (c) => {
     const r = reviews.get(key(c.req.param('repo'), c.req.param('number')));
-    return r ? c.json(r) : c.json({ error: 'no review of that PR' }, 404);
+    return r ? c.json(shownReview(store, r)) : c.json({ error: 'no review of that PR' }, 404);
   });
   app.get('/api/reviews/:repo/:number/diff', (c) => {
     const r = reviews.get(key(c.req.param('repo'), c.req.param('number')));
@@ -304,19 +318,9 @@ export function mountDemoReviews(
     const input: unknown = await c.req.json().catch(() => null);
     const out = await submitPrReview(
       {
-        read: (rp, num) => reviews.get(key(rp, String(num))) ?? null,
-        update: (rp, num, change) => {
-          const was = reviews.get(key(rp, String(num)));
-          if (!was) return null;
-          const next = change(was);
-          reviews.set(key(rp, String(num)), next);
-          return next;
-        },
+        ...store,
         repoPath: (alias) => (alias === 'api' ? '/demo/api' : null),
         submit: async (_at, num, review) => demoHostSubmit(reviews.get(key(repo, String(num)))?.url ?? '', review),
-        pid: 0,
-        bootedAt: () => 0,
-        alive: () => true,
       },
       repo,
       n,
@@ -334,14 +338,8 @@ export function mountDemoReviews(
     const input: unknown = await c.req.json().catch(() => null);
     const out = await fixItMyself(
       {
-        read: (rp, num) => reviews.get(key(rp, String(num))) ?? null,
-        update: (rp, num, change) => {
-          const was = reviews.get(key(rp, String(num)));
-          if (!was) return null;
-          const next = change(was);
-          reviews.set(key(rp, String(num)), next);
-          return next;
-        },
+        read: store.read,
+        update: store.update,
         lookUp: async (r) =>
           r.fork
             ? { ok: false, error: "it comes from a fork: its branch isn't on origin" }
@@ -374,11 +372,10 @@ export function mountDemoReviews(
     if (!r) return c.json({ error: 'no review of that PR' }, 404);
     const body = (await c.req.json().catch(() => null)) as { went?: unknown } | null;
     if (!body || typeof body.went !== 'boolean') return c.json({ error: 'expected {went: true|false}' }, 400);
-    const next = settleInDoubt(r, body.went, new Date());
-    if (!next) return c.json({ error: 'no submit of this review is in doubt' }, 409);
-    reviews.set(k, next);
+    const out = settlePrReview(store, r.repo, r.number, body.went);
+    if (!out.ok) return c.json({ error: out.error }, out.status);
     broadcast('reviews-changed', { repo: r.repo, number: r.number });
-    return c.json(next);
+    return c.json(out.review);
   });
   app.delete('/api/reviews/:repo/:number/dropped', (c) => {
     const k = key(c.req.param('repo'), c.req.param('number'));

@@ -3,6 +3,7 @@ import type { RunHandle } from '../platform/activity.js';
 import { workOnPrPrompt } from '../pr/pr-ref.js';
 import { asData, asDataBlock } from '../time/fence.js';
 import { heldIds, lastDraftNumber } from './review-submit.js';
+import { fixRefusal, withFixClaim, withoutFixClaim } from './review-fix-rules.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { sessionRepos } from '../sessions/session-repos.js';
@@ -20,29 +21,7 @@ import { sessionIdFor } from '../sessions/session-id.js';
  * The pure rules and the flow, with its I/O passed in: work web's route and the demo run the same.
  */
 
-/** Why Fix it myself can't take these drafts (null: it can), with the status it answers. */
-export function fixRefusal(r: PrReviewWire, ids: string[]): { status: 400 | 409; error: string } | null {
-  if (r.fork) return { status: 409, error: "it comes from a fork: its branch isn't on origin, so a session couldn't push to it" };
-  if (r.inDoubt)
-    return {
-      status: 409,
-      error: 'the last submit may have gone out: say whether it went first (it changes which drafts are still drafts)',
-    };
-  if (r.submitting) return { status: 409, error: 'this review is being submitted: its drafts are spoken for until it ends' };
-  if (r.status === 'queued' || r.status === 'running')
-    return { status: 409, error: 'it is being prepared again (a new push): once it is ready' };
-  if (!ids.length) return { status: 400, error: 'pick at least one comment to fix yourself' };
-  const byId = new Map(r.drafts.map((d) => [d.id, d]));
-  const seen = new Set<string>();
-  for (const id of ids) {
-    const d = byId.get(id);
-    if (!d) return { status: 400, error: 'a draft that isn’t this review’s' };
-    if (seen.has(id)) return { status: 400, error: `the comment on ${d.path}:${d.line} is in it twice` };
-    seen.add(id);
-    if (d.state === 'posted') return { status: 409, error: `the comment on ${d.path}:${d.line} was already posted` };
-  }
-  return null;
-}
+export { fixRefusal } from './review-fix-rules.js';
 
 /** The request's draft ids; a reason when it isn't `{drafts: string[]}`. */
 export function fixInput(input: unknown): string[] | { error: string } {
@@ -158,9 +137,11 @@ export type FixMyselfResult =
   ({ ok: true } & ReviewFixResultWire) | { ok: false; status: 400 | 404 | 409; error: string; sessionId?: string };
 
 /**
- * Fix it myself, the whole of it: checked, the session made (or the live one on the branch told), then the drafts
- * taken off in one transaction — never before the session has the instruction, so a creation that fails leaves the
- * review as it was. A draft a submit took meanwhile stays on the review, and the answer says so.
+ * Fix it myself, the whole of it: checked and its drafts claimed in one transaction (`fixing`: a submit, or a second
+ * Fix it myself, waits meanwhile), the session made (or the live one on the branch told), then the drafts taken off and
+ * the claim ended in one transaction — never before the session has the instruction, so a creation that fails leaves
+ * the review as it was (the claim released). A draft a submit took meanwhile (one from a claim left over) stays on the
+ * review, and the answer says so. Its warnings are in the answer and in Activity.
  */
 export async function fixItMyself(deps: FixMyselfDeps, repo: string, number: number, input: unknown): Promise<FixMyselfResult> {
   const now = () => deps.now?.() ?? new Date();
@@ -168,78 +149,102 @@ export async function fixItMyself(deps: FixMyselfDeps, repo: string, number: num
   if (!r) return { ok: false, status: 404, error: 'no review of that PR' };
   const ids = fixInput(input);
   if (!Array.isArray(ids)) return { ok: false, status: 400, error: ids.error };
-  const refused = fixRefusal(r, ids);
+  const refused = fixRefusal(r, ids, now());
   if (refused) return { ok: false, ...refused };
+
+  // Checked again and claimed in one transaction: two clicks, or two windows, can't both pass.
+  let claimRefused: { status: 400 | 409; error: string } | null = null;
+  let claimAt = '';
+  const claimed = deps.update(repo, number, (cur) => {
+    claimRefused = fixRefusal(cur, ids, now());
+    if (claimRefused) return cur;
+    const next = withFixClaim(cur, ids, now());
+    claimAt = next.fixing!.at;
+    return next;
+  });
+  if (!claimed) return { ok: false, status: 404, error: 'no review of that PR' };
+  const no = claimRefused as { status: 400 | 409; error: string } | null;
+  if (no) return { ok: false, ...no };
+  // Ends our own claim only (one left over and taken over since is another's).
+  const release = () => deps.update(repo, number, (cur) => (cur.fixing?.at === claimAt ? withoutFixClaim(cur) : cur));
 
   const run = deps.activity?.start('reviews', `Fix it myself: ${repo} #${number}`);
   const fail = (status: 400 | 404 | 409, error: string, sessionId?: string): FixMyselfResult => {
+    release();
     run?.fail(error);
     return { ok: false, status, error, ...(sessionId ? { sessionId } : {}) };
   };
-  const found = await deps.lookUp(r).catch((err: Error) => ({ ok: false as const, error: err.message }));
-  if (!found.ok) return fail(409, found.error);
-  const pr = found.pr;
-  // Checked again after the lookup: a submit may have claimed the drafts meanwhile.
-  const now1 = deps.read(repo, number);
-  if (!now1) return fail(404, 'no review of that PR');
-  const again = fixRefusal(now1, ids);
-  if (again) return fail(again.status, again.error);
-  const picked = ids.map((id) => now1.drafts.find((d) => d.id === id)!);
-  const prompt = fixMyselfPrompt({ ...pr, author: pr.author || r.author }, picked);
+  try {
+    const found = await deps.lookUp(claimed).catch((err: Error) => ({ ok: false as const, error: err.message }));
+    if (!found.ok) return fail(409, found.error);
+    const pr = found.pr;
+    const picked = ids.map((id) => claimed.drafts.find((d) => d.id === id)!);
+    const prompt = fixMyselfPrompt({ ...pr, author: pr.author || r.author }, picked);
 
-  const warnings: string[] = [];
-  let sessionId: string;
-  let label: string;
-  let created: boolean;
-  const live = deps.liveSessionOn(pr.alias, pr.branch);
-  if (live) {
-    try {
-      await deps.note(live.id, prompt);
-    } catch (err) {
-      return fail(409, `couldn't tell ${live.label}: ${(err as Error).message}`);
-    }
-    ({ id: sessionId, label } = live);
-    created = false;
-  } else {
-    const made = await deps
-      .create(pr.alias, pr.branch, `Fix my review of #${pr.number}`)
-      .catch((err: Error) => ({ ok: false as const, error: err.message }));
-    if (!made.ok) return fail(409, made.error);
-    ({ sessionId, label } = made);
-    created = true;
-    warnings.push(...(made.warnings ?? []));
-    try {
-      await deps.start(sessionId, prompt);
-    } catch (err) {
-      // The session is there: its instruction waits for its next turn as a note, so nothing is lost.
+    const warnings: string[] = [];
+    let sessionId: string;
+    let label: string;
+    let created: boolean;
+    const live = deps.liveSessionOn(pr.alias, pr.branch);
+    if (live) {
       try {
-        await deps.note(sessionId, prompt);
-        warnings.push(`its agent didn't start (${(err as Error).message}): the instruction waits as a note — open its terminal`);
-      } catch (noted) {
-        return fail(
-          409,
-          `${label} was made, but its agent didn't start (${(err as Error).message}) nor take a note (${(noted as Error).message}): the comments stay on the review`,
-          sessionId,
-        );
+        await deps.note(live.id, prompt);
+      } catch (err) {
+        return fail(409, `couldn't tell ${live.label}: ${(err as Error).message}`);
+      }
+      ({ id: sessionId, label } = live);
+      created = false;
+    } else {
+      const made = await deps
+        .create(pr.alias, pr.branch, `Fix my review of #${pr.number}`)
+        .catch((err: Error) => ({ ok: false as const, error: err.message }));
+      if (!made.ok) return fail(409, made.error);
+      ({ sessionId, label } = made);
+      created = true;
+      warnings.push(...(made.warnings ?? []));
+      try {
+        await deps.start(sessionId, prompt);
+      } catch (err) {
+        // The session is there: its instruction waits for its next turn as a note, so nothing is lost.
+        try {
+          await deps.note(sessionId, prompt);
+          warnings.push(`its agent didn't start (${(err as Error).message}): the instruction waits as a note — open its terminal`);
+        } catch (noted) {
+          return fail(
+            409,
+            `${label} was made, but its agent didn't start (${(err as Error).message}) nor take a note (${(noted as Error).message}): the comments stay on the review`,
+            sessionId,
+          );
+        }
       }
     }
-  }
 
-  let left: string[] = [];
-  let moved = 0;
-  const next = deps.update(repo, number, (cur) => {
-    const out = takeOffToFix(cur, ids, { at: now().toISOString(), sessionId, branch: pr.branch });
-    left = out.left;
-    moved = out.moved.length;
-    return out.review;
-  });
-  if (!next) warnings.push('the review went away meanwhile: nothing to take the comments off');
-  else if (left.length)
-    warnings.push(
-      `${plural(left.length, 'comment')} stayed on the review (posted, or a submit took ${left.length === 1 ? 'it' : 'them'} meanwhile): the session has ${left.length === 1 ? 'it' : 'them'} too`,
-    );
-  const said = `${plural(moved, 'comment')} on #${number} being fixed in ${label}${created ? ' (new session)' : ''}`;
-  run?.note(said, { level: 'action', sessionId });
-  run?.done(said);
-  return { ok: true, sessionId, created, review: next ?? now1, ...(warnings.length ? { warnings } : {}) };
+    let left: string[] = [];
+    let moved = 0;
+    const next = deps.update(repo, number, (cur) => {
+      const out = takeOffToFix(cur.fixing?.at === claimAt ? withoutFixClaim(cur) : cur, ids, {
+        at: now().toISOString(),
+        sessionId,
+        branch: pr.branch,
+      });
+      left = out.left;
+      moved = out.moved.length;
+      return out.review;
+    });
+    if (!next) warnings.push('the review went away meanwhile: nothing to take the comments off');
+    else if (left.length)
+      warnings.push(
+        `${plural(left.length, 'comment')} stayed on the review (posted, or a submit took ${left.length === 1 ? 'it' : 'them'} meanwhile): the session has ${left.length === 1 ? 'it' : 'them'} too`,
+      );
+    const said = `${plural(moved, 'comment')} on #${number} being fixed in ${label}${created ? ' (new session)' : ''}`;
+    run?.note(said, { level: 'action', sessionId });
+    for (const w of warnings) run?.note(`${label}: ${w}`, { level: 'warn', sessionId });
+    run?.done(said);
+    return { ok: true, sessionId, created, review: next ?? claimed, ...(warnings.length ? { warnings } : {}) };
+  } catch (err) {
+    // Nothing above throws by design; should something, the drafts aren't left spoken for.
+    release();
+    run?.fail((err as Error).message);
+    throw err;
+  }
 }

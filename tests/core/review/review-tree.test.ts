@@ -7,15 +7,19 @@ import { defaultRunner } from '../../../src/core/platform/command-runner.js';
 import { reviewRef } from '../../../src/core/review/review-source.js';
 import {
   createReviewTree,
-  isSettingsFile,
+  NO_LFS,
+  NO_LFS_ENV,
   reviewTreeName,
   sweepReviewTrees,
   withReviewTree,
   type ReviewTreeAt,
 } from '../../../src/core/review/review-tree.js';
+import { claudeSettingsFile as isSettingsFile } from '../../../src/core/agents/claude/internal.js';
+import type { CommandRunner } from '../../../src/core/platform/command-runner.js';
+import { killTree } from '../../functional/fixtures/processes.js';
 import { agentInCheckout, CHECKOUT_AGENT_TIMEOUT_MS } from '../../../src/core/review/review-deps.js';
 import { registerAgent } from '../../../src/core/agents/index.js';
-import { internalCanRead, runInternalReadOnly } from '../../../src/core/diff/checkpoint-summary.js';
+import { internalCanRead, internalReadOnly, runInternalReadOnly } from '../../../src/core/diff/checkpoint-summary.js';
 import type { AgentAdapter } from '../../../src/core/agents/types.js';
 
 /**
@@ -87,7 +91,14 @@ beforeEach(() => {
 
 const worktrees = () => git(repo, 'worktree', 'list', '--porcelain');
 
-describe('the settings files Claude Code reads, and the folder name', () => {
+describe("the settings files Claude Code reads (its adapter's rule), and the folder name", () => {
+  it('in any case: a case-blind file system opens .Claude/settings.json and .MCP.json as the settings files (#64 F004)', () => {
+    expect(['.Claude/settings.json', '.MCP.json', 'a/.CLAUDE/Settings.Local.JSON', 'B\\.Claude\\SETTINGS.json'].every(isSettingsFile)).toBe(
+      true,
+    );
+    expect(['Claude.md', '.Claude/Rules/x.md', 'x/.claude/settings.JSONC'].some(isSettingsFile)).toBe(false);
+  });
+
   it('settings.json / settings.local.json under any .claude, and .mcp.json; never CLAUDE.md or rules', () => {
     expect(
       ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json', 'a/b/.claude/settings.json', 'a\\.mcp.json'].every(
@@ -104,7 +115,7 @@ describe('the settings files Claude Code reads, and the folder name', () => {
 
 describe('a temporary checkout of the PR', () => {
   it('is a detached worktree at the reviewed commit, its settings files gone, its CLAUDE.md and rules kept, no hook run, no symlink', async () => {
-    const t = await createReviewTree(defaultRunner, at, root);
+    const t = await createReviewTree(defaultRunner, at, { root, strip: isSettingsFile });
     if (!t.ok) throw new Error(t.error);
     expect(path.basename(t.dir)).toBe(reviewTreeName('api', 5, prSha));
     expect(git(t.dir, 'rev-parse', 'HEAD')).toBe(prSha);
@@ -133,7 +144,7 @@ describe('a temporary checkout of the PR', () => {
         expect(fs.existsSync(path.join(dir, 'src', 'Logic.cs'))).toBe(true);
         return 'answer';
       },
-      root,
+      { root, strip: isSettingsFile },
     );
     expect(r).toEqual({ ok: true, value: 'answer' });
     expect(fs.existsSync(seen)).toBe(false);
@@ -151,7 +162,7 @@ describe('a temporary checkout of the PR', () => {
           fs.writeFileSync(path.join(dir, 'scratch.txt'), 'untracked'); // --force: removed even with changes
           throw new Error('agent crashed');
         },
-        root,
+        { root, strip: isSettingsFile },
       ),
     ).rejects.toThrow('agent crashed');
     expect(fs.existsSync(seen)).toBe(false);
@@ -159,14 +170,14 @@ describe('a temporary checkout of the PR', () => {
   });
 
   it('a commit that is not the review ref’s (the PR moved): refused, and nothing is left', async () => {
-    const r = await createReviewTree(defaultRunner, { ...at, headSha: '0'.repeat(40) }, root);
+    const r = await createReviewTree(defaultRunner, { ...at, headSha: '0'.repeat(40) }, { root, strip: isSettingsFile });
     expect(r).toMatchObject({ ok: false, error: expect.stringContaining('reviewed commit') });
     expect(fs.readdirSync(root).filter((d) => !d.startsWith('.'))).toEqual([]);
     expect(worktrees().split('worktree ').length).toBe(2); // the repo alone
   });
 
   it('a review ref that is not there: refused with git’s reason, nothing left', async () => {
-    const r = await createReviewTree(defaultRunner, { ...at, number: 99 }, root);
+    const r = await createReviewTree(defaultRunner, { ...at, number: 99 }, { root, strip: isSettingsFile });
     expect(r).toMatchObject({ ok: false, error: expect.stringContaining("couldn't check the PR out") });
     expect(fs.readdirSync(root).filter((d) => !d.startsWith('.'))).toEqual([]);
   });
@@ -174,7 +185,7 @@ describe('a temporary checkout of the PR', () => {
 
 describe('sweeping what a stopped run left', () => {
   it('removes a leftover checkout through its repo (git forgets it) and a stray folder; leaves a young one', async () => {
-    const t = await createReviewTree(defaultRunner, at, root);
+    const t = await createReviewTree(defaultRunner, at, { root, strip: isSettingsFile });
     if (!t.ok) throw new Error(t.error);
     fs.mkdirSync(path.join(root, 'stray-1-abc'));
     const young = await sweepReviewTrees(defaultRunner, { root, olderThanMs: 60_000 });
@@ -191,7 +202,7 @@ describe('sweeping what a stopped run left', () => {
 describe('the AI step in a checkout (review-deps `agentInCheckout`)', () => {
   it('an agent with no read-only mode: null — no checkout made, the queue reads the diff alone', async () => {
     let ran = false;
-    const r = await agentInCheckout(at, 'p', { run: defaultRunner, canRead: () => false, agent: async () => ((ran = true), 'x'), root });
+    const r = await agentInCheckout(at, 'p', { run: defaultRunner, readOnly: () => null, agent: async () => ((ran = true), 'x'), root });
     expect(r).toBeNull();
     expect(ran).toBe(false);
     expect(fs.existsSync(root)).toBe(false);
@@ -201,7 +212,7 @@ describe('the AI step in a checkout (review-deps `agentInCheckout`)', () => {
     const seen: Array<{ prompt: string; cwd: string; claude: string }> = [];
     const io = {
       run: defaultRunner,
-      canRead: () => true,
+      readOnly: () => ({ isSettingsFile }),
       root,
       agent: async (prompt: string, cwd: string) => {
         seen.push({ prompt, cwd, claude: fs.readFileSync(path.join(cwd, 'CLAUDE.md'), 'utf8') });
@@ -240,12 +251,20 @@ describe('the AI step in a checkout (review-deps `agentInCheckout`)', () => {
       instructionsFile: 'AGENTS.md',
       oneShot: {
         command: () => ({ cmd: process.execPath, args: ['-e', ''], cwd: os.tmpdir(), env: process.env }),
-        readOnly: ({ cwd }: { cwd: string }) => ({
-          cmd: process.execPath,
-          args: ['-e', `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`],
-          cwd,
-          env: process.env,
-        }),
+        readOnly: {
+          // Its pid written whole (a temp file renamed): read only once it's there, never half-written.
+          command: ({ cwd }: { cwd: string }) => ({
+            cmd: process.execPath,
+            args: [
+              '-e',
+              `const fs = require('fs'); fs.writeFileSync(${JSON.stringify(pidFile + '.tmp')}, String(process.pid)); fs.renameSync(${JSON.stringify(pidFile + '.tmp')}, ${JSON.stringify(pidFile)}); setInterval(() => {}, 1000)`,
+            ],
+            cwd,
+            env: process.env,
+          }),
+          isSettingsFile: isSettingsFile,
+          promptLines: [],
+        },
       },
     } as unknown as AgentAdapter;
     const unregister = registerAgent(slow);
@@ -254,24 +273,61 @@ describe('the AI step in a checkout (review-deps `agentInCheckout`)', () => {
       path.join(os.homedir(), '.work', 'config.json'),
       JSON.stringify({ worktreesRoot: base, repos: {}, groups: {}, copyFiles: [], internalAgent: 'slow-reader' }),
     );
+    let pid = 0;
     try {
       expect(internalCanRead()).toBe(true);
       let dir = '';
       const r = await agentInCheckout(at, 'p', {
         run: defaultRunner,
-        canRead: internalCanRead,
+        readOnly: internalReadOnly,
         root,
-        agent: (p, cwd) => ((dir = cwd), runInternalReadOnly(p, cwd, 1500)),
+        // Long enough for node to start and write its pid, under load too.
+        agent: (p, cwd) => ((dir = cwd), runInternalReadOnly(p, cwd, 6000)),
       });
       expect(r).toMatchObject({ answer: null });
       expect(r?.why).not.toContain("wouldn't go");
       expect(fs.existsSync(dir)).toBe(false);
-      const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+      expect(fs.existsSync(pidFile)).toBe(true); // it ran, and wrote it whole before the timeout
+      pid = Number(fs.readFileSync(pidFile, 'utf8'));
       expect(() => process.kill(pid, 0)).toThrow(); // killed
       expect(worktrees()).not.toContain(path.basename(dir));
     } finally {
+      // §4.6: whatever failed above, the forever child doesn't outlive the test.
+      if (!pid && fs.existsSync(pidFile)) pid = Number(fs.readFileSync(pidFile, 'utf8'));
+      if (pid) killTree(pid);
       unregister();
       fs.rmSync(path.join(os.homedir(), '.work', 'config.json'), { force: true });
+      fs.rmSync(pidFile, { force: true });
     }
-  }, 30_000);
+  }, 40_000);
+});
+
+describe('Git LFS stays off in the checkout (#64 F013)', () => {
+  it("git worktree add runs with LFS's filter off and its smudge skipped: a PR's .lfsconfig reaches no server", async () => {
+    const calls: Array<{ args: string[]; env?: Record<string, string> }> = [];
+    const recording: CommandRunner = (cmd, args, cwd, env) => {
+      calls.push({ args, ...(env ? { env } : {}) });
+      return defaultRunner(cmd, args, cwd, env);
+    };
+    const t = await createReviewTree(recording, at, { root, strip: isSettingsFile });
+    if (!t.ok) throw new Error(t.error);
+    const add = calls.find((c) => c.args.includes('worktree') && c.args.includes('add'))!;
+    expect(add.args.slice(0, add.args.indexOf('worktree'))).toEqual(expect.arrayContaining(NO_LFS));
+    expect(NO_LFS).toEqual(['-c', 'filter.lfs.smudge=', '-c', 'filter.lfs.process=', '-c', 'filter.lfs.required=false']);
+    expect(add.env).toEqual(NO_LFS_ENV);
+    expect(NO_LFS_ENV).toEqual({ GIT_LFS_SKIP_SMUDGE: '1' });
+    expect(git(t.dir, 'rev-parse', 'HEAD')).toBe(prSha); // the checkout still made
+  });
+
+  it("the default runner sets a run's env over its own", async () => {
+    const r = await defaultRunner(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.env.GIT_LFS_SKIP_SMUDGE ?? "unset")'],
+      base,
+      NO_LFS_ENV,
+    );
+    expect(r.stdout).toBe('1');
+    const none = await defaultRunner(process.execPath, ['-e', 'process.stdout.write(process.env.GIT_LFS_SKIP_SMUDGE ?? "unset")'], base);
+    expect(none.stdout).toBe(process.env.GIT_LFS_SKIP_SMUDGE ?? 'unset');
+  });
 });

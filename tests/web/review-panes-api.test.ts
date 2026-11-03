@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { clearReviewDropped, ReviewSubmitError, settleReviewInDoubt, submitReview } from '../../src/web/src/api/panes.js';
+import { clearReviewDropped, fixReviewMyself, ReviewSubmitError, settleReviewInDoubt, submitReview } from '../../src/web/src/api/panes.js';
+import { ACTION_WARNINGS } from '../../src/web/src/api/client.js';
 import { mountReviewRoutes, type ReviewRouteDeps } from '../../src/server/routes/review-routes.js';
 import { demoReview } from '../../src/server/demo/demo-reviews.js';
 import type { PrReviewWire } from '../../src/core/api-types.js';
@@ -13,7 +14,7 @@ import type { PrReviewWire } from '../../src/core/api-types.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
-function serve(submit: ReviewRouteDeps['submit']) {
+function serve(submit: ReviewRouteDeps['submit'], fixMyself?: ReviewRouteDeps['fixMyself']) {
   const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
   const app = new Hono();
   mountReviewRoutes(app, {
@@ -38,6 +39,7 @@ function serve(submit: ReviewRouteDeps['submit']) {
     settings: () => ({ projects: [], maxPerDay: null, maxLines: 3000 }),
     setMode: async () => undefined,
     broadcast: () => undefined,
+    ...(fixMyself ? { fixMyself } : {}),
   });
   vi.stubGlobal('fetch', (url: string, init?: RequestInit) => app.request(url, init));
   return rows;
@@ -68,5 +70,34 @@ describe("the SPA's review calls", () => {
     expect(rows.get('api#231')!.dropped).toHaveLength(1);
     expect((await clearReviewDropped('api', 231)).dropped).toBeUndefined();
     await expect(clearReviewDropped('web', 1)).rejects.toThrow('no review of that PR');
+  });
+
+  it('Fix it myself through the real route: the drafts go, its warnings are told to the dashboard; a refusal is the error (#64 F008, F002)', async () => {
+    const rows = serve(async () => ({ ok: true }), {
+      lookUp: async (r) => ({
+        ok: true,
+        pr: { alias: r.repo, number: r.number, title: r.title, url: r.url, branch: r.branch, base: r.base, author: r.author },
+      }),
+      liveSessionOn: () => null,
+      create: async (alias, branch) => ({
+        ok: true,
+        sessionId: 'sess1',
+        label: `${alias} · ${branch}`,
+        warnings: ['copyFiles: .env missing'],
+      }),
+      start: async () => 'started',
+      note: async () => undefined,
+    });
+    const seen: unknown[] = [];
+    const win = new EventTarget();
+    win.addEventListener(ACTION_WARNINGS, (e) => seen.push((e as CustomEvent).detail));
+    vi.stubGlobal('window', win);
+    const out = await fixReviewMyself('api', 231, ['d1']);
+    expect(out).toMatchObject({ sessionId: 'sess1', created: true, warnings: ['copyFiles: .env missing'] });
+    expect(out.review.drafts.map((d) => d.id)).toEqual(['d2']);
+    expect(rows.get('api#231')!.fixingMyself?.[0].sessionId).toBe('sess1');
+    expect(seen).toEqual([{ what: 'Fix it myself', warnings: ['copyFiles: .env missing'] }]);
+    await expect(fixReviewMyself('api', 231, ['d1'])).rejects.toThrow('a draft that isn’t this review’s');
+    await expect(fixReviewMyself('web', 1, ['d1'])).rejects.toThrow('no review of that PR');
   });
 });

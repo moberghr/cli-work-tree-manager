@@ -13,9 +13,11 @@ import { reviewRef } from './review-source.js';
  *
  * Nothing from the PR runs: no install, no build. `git worktree add` runs with an empty hooks folder (a repo whose
  * `core.hooksPath` is a folder of its own — husky's `.husky` — would otherwise run the PR's post-checkout hook) and
- * without symlinks (checked out as small text files: a link can't point the agent's reads elsewhere on disk). The
- * files Claude Code reads as settings — hooks, env, permissions, MCP servers — are deleted from the copy before the
- * agent starts (`SETTINGS_FILES`); the agent's flags keep them unread as well.
+ * without symlinks (checked out as small text files: a link can't point the agent's reads elsewhere on disk), and
+ * without Git LFS (`NO_LFS`: the PR's `.lfsconfig` could point the download at a server of its choosing — telling it
+ * the PR is being reviewed, perhaps asking your credential helper for a login — and a big download outlasts git's
+ * timeout). The files the agent reads as settings — hooks, env, permissions, tool servers — are deleted from the copy
+ * before it starts (`strip`: the agent's own rule, `oneShot.readOnly.isSettingsFile`); its flags keep them unread too.
  *
  * The tree is always removed afterwards (`withReviewTree`'s finally: `git worktree remove --force`, the folder
  * deleted if that left it, `git worktree prune`); one left by a stopped work web is swept (`sweepReviewTrees`).
@@ -27,11 +29,15 @@ export const reviewTreesDir = (): string => path.join(getConfigDir(), 'review-tr
 /** An empty folder git is pointed at as its hooks folder while it checks the PR out (never one of the repo's). */
 const NO_HOOKS = '.no-hooks';
 
-/** A file Claude Code reads as settings (anywhere in the tree): deleted from the copy before the agent starts. */
-export function isSettingsFile(relPath: string): boolean {
-  const p = relPath.replace(/\\/g, '/');
-  const base = p.slice(p.lastIndexOf('/') + 1);
-  return base === '.mcp.json' || /(^|\/)\.claude\/settings(\.local)?\.json$/.test(p);
+/** git's LFS filter off for the checkout: pointer files stay pointers, nothing is downloaded (`NO_LFS_ENV` too). */
+export const NO_LFS = ['-c', 'filter.lfs.smudge=', '-c', 'filter.lfs.process=', '-c', 'filter.lfs.required=false'];
+export const NO_LFS_ENV = { GIT_LFS_SKIP_SMUDGE: '1' };
+
+/** How a checkout is made: where (default `reviewTreesDir()`), and which of its files go before the agent reads it. */
+export interface ReviewTreeOpts {
+  root?: string;
+  /** A file the agent would read as its settings (the agent's own rule): deleted from the copy. */
+  strip: (relPath: string) => boolean;
 }
 
 /** `<alias>-<n>-<short sha>`, only characters a folder name takes everywhere. Pure. */
@@ -64,8 +70,9 @@ export interface ReviewTreeAt {
 export async function createReviewTree(
   run: CommandRunner,
   at: ReviewTreeAt,
-  root = reviewTreesDir(),
+  opts: ReviewTreeOpts,
 ): Promise<HostResult<{ dir: string; removed: string[] }>> {
+  const root = opts.root ?? reviewTreesDir();
   const dir = path.join(root, reviewTreeName(at.alias, at.number, at.headSha));
   const noHooks = path.join(root, NO_HOOKS);
   fs.mkdirSync(noHooks, { recursive: true });
@@ -73,8 +80,21 @@ export async function createReviewTree(
   if (fs.existsSync(dir)) await removeReviewTree(run, at.repoPath, dir);
   const added = await run(
     'git',
-    ['-c', `core.hooksPath=${noHooks}`, '-c', 'core.symlinks=false', 'worktree', 'add', '--detach', '--quiet', dir, reviewRef(at.number)],
+    [
+      '-c',
+      `core.hooksPath=${noHooks}`,
+      '-c',
+      'core.symlinks=false',
+      ...NO_LFS,
+      'worktree',
+      'add',
+      '--detach',
+      '--quiet',
+      dir,
+      reviewRef(at.number),
+    ],
     at.repoPath,
+    NO_LFS_ENV,
   );
   if (added.code !== 0) {
     await removeReviewTree(run, at.repoPath, dir);
@@ -92,7 +112,7 @@ export async function createReviewTree(
     return { ok: false, error: "couldn't list the checkout's files to remove its settings" };
   }
   const removed: string[] = [];
-  for (const rel of listed.stdout.split('\0').filter(isSettingsFile)) {
+  for (const rel of listed.stdout.split('\0').filter((rel) => opts.strip(rel))) {
     const file = path.join(dir, rel);
     fs.rmSync(file, { recursive: true, force: true });
     if (fs.existsSync(file)) {
@@ -121,9 +141,9 @@ export async function withReviewTree<T>(
   run: CommandRunner,
   at: ReviewTreeAt,
   use: (dir: string, removed: string[]) => Promise<T>,
-  root = reviewTreesDir(),
+  opts: ReviewTreeOpts,
 ): Promise<HostResult<{ value: T; left?: string }>> {
-  const tree = await createReviewTree(run, at, root);
+  const tree = await createReviewTree(run, at, opts);
   if (!tree.ok) return tree;
   let value: T;
   let gone: boolean;

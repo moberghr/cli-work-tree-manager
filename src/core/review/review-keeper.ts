@@ -21,6 +21,11 @@ export function startReviewSweeps(opts: {
   activity?: ActivityLog;
   /** This work web acts on things (not the dev server). */
   jobs: boolean;
+  /**
+   * Before each sweep: what a stopped work web left settled (its submit claims taken as in doubt). Its notes go to the
+   * Activity panel; a failure there doesn't stop the sweep.
+   */
+  tidy?: () => void;
   now?: () => number;
 }): ReviewSweeps {
   if (!opts.jobs) return { stop: () => undefined };
@@ -28,6 +33,11 @@ export function startReviewSweeps(opts: {
   const schedule = opts.activity?.schedule('reviews', 'Preparing PR reviews', REVIEWS_EVERY_MS);
   const sweep = () => {
     schedule?.next(now() + REVIEWS_EVERY_MS);
+    try {
+      opts.tidy?.();
+    } catch {
+      /* the sweep runs anyway; the next one tries again */
+    }
     void opts.queue.sweep();
   };
   let every: ReturnType<typeof setInterval> | null = null;

@@ -1,5 +1,6 @@
 import type { PrReviewWire, ReviewDraftWire, ReviewDroppedWire, ReviewEvent, ReviewFileWire, ReviewSubmitInput } from '../api-types.js';
 import { dayKey } from '../conversations/work-time-view.js';
+import { fixClaimActive } from './review-fix-rules.js';
 
 /**
  * PURE — submitting a prepared review (#64): the drafts you kept (the AI
@@ -65,10 +66,12 @@ export const heldIds = (r: PrReviewWire): Set<string> =>
   new Set([...(r.inDoubt?.drafts ?? []), ...(r.submitting?.drafts ?? [])].map((d) => d.id));
 
 /** A submit request as sent, checked; a reason when it can't go. */
-export function submitRefusal(r: PrReviewWire, input: unknown): string | null {
+export function submitRefusal(r: PrReviewWire, input: unknown, now: Date = new Date()): string | null {
   if (r.inDoubt)
     return 'the last submit may have gone out (it failed without a clear answer): look at the PR, then say whether it went before sending anything again';
   if (r.submitting) return 'this review is being submitted already';
+  // Fix it myself is making its session: the drafts it took may not go out as comments too.
+  if (fixClaimActive(r, now)) return 'Fix it myself is taking drafts of it to a session: submit once that is done';
   // Its files, lines and drafts are the prepared diff's, and the head they're sent at is that one: not while a new
   // push is being prepared (that would put them on another commit).
   if (r.status === 'queued' || r.status === 'running') return 'it is being prepared again (a new push): submit once it is ready';
@@ -105,8 +108,8 @@ export function nothingToSubmit(r: Pick<PrReviewWire, 'submitted'>, event: Revie
 }
 
 /** The status a refusal answers with: 409 when the review's state stands in the way (try again later), else 400. */
-export const refusalStatus = (r: PrReviewWire): 400 | 409 =>
-  r.inDoubt || r.submitting || r.status === 'queued' || r.status === 'running' ? 409 : 400;
+export const refusalStatus = (r: PrReviewWire, now: Date = new Date()): 400 | 409 =>
+  r.inDoubt || r.submitting || fixClaimActive(r, now) || r.status === 'queued' || r.status === 'running' ? 409 : 400;
 
 /** The line comments to send, as the host takes them. */
 export function submitComments(r: PrReviewWire, input: ReviewSubmitInput): Array<{ path: string; line: number; body: string }> {
@@ -172,6 +175,35 @@ export function claimToDoubt(r: PrReviewWire, error: string): PrReviewWire {
   };
 }
 
+/** What a stale claim shows as, for the Reviews tab (it's in doubt the moment it's settled or submitted over). Pure. */
+export const shownDoubt = (r: PrReviewWire): PrReviewWire['inDoubt'] =>
+  r.inDoubt ?? (r.submitting?.stale ? claimToDoubt(r, LEFT_OVER_SUBMIT).inDoubt : undefined);
+
+/** What a claim left over says once it's taken as in doubt. */
+export const LEFT_OVER_SUBMIT = 'work stopped while submitting it: it may have gone out';
+
+/** Whose claims are left over: this process, when this machine booted, and whether a process still runs. */
+export interface ClaimOwner {
+  pid: number;
+  bootedAt: number;
+  alive: (pid: number) => boolean;
+}
+
+/**
+ * The review as shown: a submit claim left over is marked `stale` (never stored), so the Reviews tab offers to settle
+ * it ("it went" / "it didn't") instead of "Submitting…" for good. Pure.
+ */
+export function markStaleClaim(r: PrReviewWire, now: Date, self: ClaimOwner): PrReviewWire {
+  if (!r.submitting || r.submitting.stale || !claimStale(r.submitting, now, self)) return r;
+  return { ...r, submitting: { ...r.submitting, stale: true } };
+}
+
+/** A claim left over, taken as in doubt (`claimToDoubt`); null when there is no claim, or it still stands. Pure. */
+export function leftOverToDoubt(r: PrReviewWire, now: Date, self: ClaimOwner): PrReviewWire | null {
+  if (!r.submitting || !claimStale(r.submitting, now, self)) return null;
+  return claimToDoubt(r, LEFT_OVER_SUBMIT);
+}
+
 const unclaimed = (r: PrReviewWire): PrReviewWire => {
   const { submitting: _done, ...rest } = r;
   return rest;
@@ -204,7 +236,7 @@ export interface SubmitFailure {
 
 /**
  * The review after a submit that failed: the comments that went out are posted (never sent again), a summary that
- * went out is recorded (not sent again), and what may have gone out waits for you (`inDoubt`). A clean refusal
+ * went out is recorded (not sent again), and what may have gone out — a bare verdict too — waits for you (`inDoubt`). A clean refusal
  * (nothing went out) leaves it as it was. The submit's claim ends either way.
  */
 export function afterFailedSubmit(r0: PrReviewWire, input: ReviewSubmitInput, failure: SubmitFailure, now: Date): PrReviewWire {
@@ -228,7 +260,9 @@ export function afterFailedSubmit(r0: PrReviewWire, input: ReviewSubmitInput, fa
           },
         }
       : {}),
-    ...(doubtful.length || maybe?.summary
+    // Whenever the failure says it may have gone out — a bare verdict too (an Approve with no comment or summary): a
+    // retry would cast it twice.
+    ...(maybe
       ? {
           inDoubt: {
             at: now.toISOString(),
@@ -292,6 +326,8 @@ export function removeDraft(r: PrReviewWire, id: string): { review: PrReviewWire
   if (!d) return { error: 'no such draft', status: 404 };
   if (d.state === 'posted') return { error: 'it was posted: it stays as a record', status: 409 };
   if (heldIds(r).has(id)) return { error: 'a submit may have sent it: say whether it went out first', status: 409 };
+  if (fixClaimActive(r, new Date()) && r.fixing?.drafts.includes(id))
+    return { error: 'Fix it myself is taking it to a session: once that is done', status: 409 };
   // The id is kept as used: a later draft never takes it.
   return { review: { ...r, drafts: r.drafts.filter((x) => x.id !== id), lastDraft: lastDraftNumber(r) } };
 }
@@ -337,6 +373,7 @@ export function carryForward(was: PrReviewWire | null, fresh: PrReviewWire): PrR
     ...(was.inDoubt ? { inDoubt: was.inDoubt } : {}),
     ...(was.submitting ? { submitting: was.submitting } : {}),
     ...(was.fixingMyself?.length ? { fixingMyself: was.fixingMyself } : {}),
+    ...(was.fixing ? { fixing: was.fixing } : {}),
   };
 }
 

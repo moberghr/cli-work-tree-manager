@@ -45,7 +45,12 @@ export function isReview(v: unknown): v is PrReviewWire {
         Array.isArray(r.submitting.drafts))) &&
     (r.lastDraft === undefined || typeof r.lastDraft === 'number') &&
     (r.fork === undefined || r.fork === true) &&
-    (r.fixingMyself === undefined || (Array.isArray(r.fixingMyself) && r.fixingMyself.every(isFix)))
+    (r.fixingMyself === undefined || (Array.isArray(r.fixingMyself) && r.fixingMyself.every(isFix))) &&
+    (r.fixing === undefined ||
+      (!!r.fixing &&
+        typeof r.fixing.at === 'string' &&
+        Array.isArray(r.fixing.drafts) &&
+        r.fixing.drafts.every((d) => typeof d === 'string')))
   );
 }
 

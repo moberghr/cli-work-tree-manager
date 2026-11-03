@@ -1,6 +1,7 @@
 import type { PrReviewWire, ReviewSummaryWire } from '../../../core/api-types.js';
 import type { Story } from '../../../core/review/review-plan.js';
 import { FOLDED_KINDS, KIND_LABEL, KIND_ORDER, type ChangeKind } from '../../../core/review/change-kinds.js';
+import { fixStateRefusal } from '../../../core/review/review-fix-rules.js';
 
 /**
  * PURE — how the Reviews tab lays a review out (#64): the tree on the left
@@ -85,14 +86,13 @@ export function groupReviews(
 export const pendingDrafts = (r: PrReviewWire) => r.drafts.filter((d) => d.state === 'draft');
 
 /**
- * Why Fix it myself can't be offered now (null: it can) — the button disabled with this as its reason. The server
- * checks the same (`fixRefusal`): a fork's branch isn't on origin; a submit in doubt or under way speaks for the
- * drafts; nothing to take off.
+ * Why Fix it myself can't be offered now (null: it can) — the button disabled with this as its reason: the server's own
+ * rule (`fixStateRefusal`, shared: a fork's branch isn't on origin; a submit in doubt or under way, or a Fix it myself
+ * making its session, speaks for the drafts; a new push being prepared), or nothing to take off.
  */
-export function fixMyselfBlocked(r: PrReviewWire): string | null {
-  if (r.fork) return "It comes from a fork: its branch isn't on origin, so a session couldn't push to it";
-  if (r.inDoubt) return 'The last submit may have gone out: say whether it went first';
-  if (r.submitting) return 'This review is being submitted';
+export function fixMyselfBlocked(r: PrReviewWire, now: Date = new Date()): string | null {
+  const why = fixStateRefusal(r, now)?.error;
+  if (why) return why.charAt(0).toUpperCase() + why.slice(1);
   if (!pendingDrafts(r).length) return 'No draft comments to fix';
   return null;
 }

@@ -12,7 +12,8 @@ export interface RunResult {
   stdout: string;
   stderr: string;
 }
-export type CommandRunner = (cmd: string, args: string[], cwd: string) => Promise<RunResult>;
+/** `env`: variables set for this run, over the process's own (a runner that can't set them ignores them). */
+export type CommandRunner = (cmd: string, args: string[], cwd: string, env?: Record<string, string>) => Promise<RunResult>;
 
 /** The exit code a run that timed out reports (as coreutils' `timeout` does): what it was doing may have happened. */
 export const RUN_TIMED_OUT = 124;
@@ -29,7 +30,7 @@ export const RUN_TIMED_OUT = 124;
  * or Node shim (`az.cmd`, npm's) is skipped for its interpreter, any other
  * refuses such an argument (exit 1, said why).
  */
-export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
+export const defaultRunner: CommandRunner = (cmd, args, cwd, env) =>
   new Promise((resolve) => {
     const launch = launchFor(cmd, args);
     if ('refused' in launch) {
@@ -45,7 +46,7 @@ export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
       clearTimeout(timer);
       resolve(r);
     };
-    const child = crossSpawn(launch.cmd, launch.args, { cwd, windowsHide: true });
+    const child = crossSpawn(launch.cmd, launch.args, { cwd, windowsHide: true, ...(env ? { env: { ...process.env, ...env } } : {}) });
     const timer = setTimeout(() => {
       child.kill();
       done({ code: RUN_TIMED_OUT, stdout, stderr: stderr || `${cmd} timed out` });

@@ -7,7 +7,9 @@ import {
   takeOffToFix,
   type FixMyselfDeps,
 } from '../../../src/core/review/review-fix.js';
-import { carryForward } from '../../../src/core/review/review-submit.js';
+import { carryForward, removeDraft, submitRefusal } from '../../../src/core/review/review-submit.js';
+import { FIX_CLAIM_STALE_MS, fixStateRefusal } from '../../../src/core/review/review-fix-rules.js';
+import { fixMyselfBlocked } from '../../../src/web/src/state/review-view.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
 import type { PrReviewWire, PrToStart } from '../../../src/core/api-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -66,16 +68,42 @@ function setup(over: Partial<FixMyselfDeps> = {}, start: PrReviewWire = review()
 describe('Fix it myself: what it refuses', () => {
   it('a fork, a submit in doubt or under way, a review being prepared, no pick, an unknown, twice-named or posted draft', () => {
     const r = review();
-    expect(fixRefusal(r, ['d1'])).toBeNull();
-    expect(fixRefusal({ ...r, fork: true }, ['d1'])).toMatchObject({ status: 409, error: expect.stringContaining('fork') });
-    expect(fixRefusal({ ...r, inDoubt: { at: 'x', event: 'comment', drafts: [], summary: null, error: 'e' } }, ['d1'])?.status).toBe(409);
-    expect(fixRefusal({ ...r, submitting: { at: 'x', pid: 1, event: 'comment', drafts: [], summary: null } }, ['d1'])?.status).toBe(409);
-    expect(fixRefusal({ ...r, status: 'running' }, ['d1'])?.status).toBe(409);
-    expect(fixRefusal(r, [])?.status).toBe(400);
-    expect(fixRefusal(r, ['zz'])).toMatchObject({ status: 400, error: 'a draft that isn’t this review’s' });
-    expect(fixRefusal(r, ['d1', 'd1'])?.status).toBe(400);
+    expect(fixRefusal(r, ['d1'], at)).toBeNull();
+    expect(fixRefusal({ ...r, fork: true }, ['d1'], at)).toMatchObject({ status: 409, error: expect.stringContaining('fork') });
+    expect(fixRefusal({ ...r, inDoubt: { at: 'x', event: 'comment', drafts: [], summary: null, error: 'e' } }, ['d1'], at)?.status).toBe(
+      409,
+    );
+    expect(fixRefusal({ ...r, submitting: { at: 'x', pid: 1, event: 'comment', drafts: [], summary: null } }, ['d1'], at)?.status).toBe(
+      409,
+    );
+    expect(fixRefusal({ ...r, status: 'running' }, ['d1'], at)?.status).toBe(409);
+    expect(fixRefusal(r, [], at)?.status).toBe(400);
+    expect(fixRefusal(r, ['zz'], at)).toMatchObject({ status: 400, error: 'a draft that isn’t this review’s' });
+    expect(fixRefusal(r, ['d1', 'd1'], at)?.status).toBe(400);
     const posted = { ...r, drafts: r.drafts.map((d) => (d.id === 'd1' ? { ...d, state: 'posted' as const } : d)) };
-    expect(fixRefusal(posted, ['d1'])).toMatchObject({ status: 409, error: expect.stringContaining('already posted') });
+    expect(fixRefusal(posted, ['d1'], at)).toMatchObject({ status: 409, error: expect.stringContaining('already posted') });
+    // A submit claim left over (shown stale) is a submit in doubt; another Fix it myself making its session holds the drafts.
+    const stale = { at: 'x', pid: 1, event: 'comment' as const, drafts: [], summary: null, stale: true as const };
+    expect(fixRefusal({ ...r, submitting: stale }, ['d1'], at)?.error).toContain('may have gone out');
+    const fixing = { ...r, fixing: { at: at.toISOString(), drafts: ['d2'] } };
+    expect(fixRefusal(fixing, ['d1'], at)).toMatchObject({ status: 409, error: expect.stringContaining('making its session') });
+    // One left by a stopped work web stands only so long.
+    expect(fixRefusal(fixing, ['d1'], new Date(at.getTime() + FIX_CLAIM_STALE_MS + 1))).toBeNull();
+  });
+
+  it("the SPA's button reads the same rule (#64 F011)", () => {
+    const r = review();
+    expect(fixMyselfBlocked(r, at)).toBeNull();
+    for (const over of [
+      { fork: true as const },
+      { status: 'running' as const },
+      { fixing: { at: at.toISOString(), drafts: ['d1'] } },
+      { inDoubt: { at: 'x', event: 'comment' as const, drafts: [], summary: null, error: 'e' } },
+    ]) {
+      const server = fixStateRefusal({ ...r, ...over }, at)!.error;
+      expect(fixMyselfBlocked({ ...r, ...over }, at)).toBe(server.charAt(0).toUpperCase() + server.slice(1));
+    }
+    expect(fixMyselfBlocked({ ...r, drafts: [] }, at)).toBe('No draft comments to fix');
   });
 });
 
@@ -243,13 +271,62 @@ describe('Fix it myself: the flow', () => {
     expect(h.rows.get('api#231')!.drafts.map((d) => d.id)).toEqual(['d2']);
   });
 
-  it('a submit that started during the lookup: refused, nothing made', async () => {
+  it('its drafts are claimed while the session is made: a submit and a second Fix it myself are refused; the claim ends with it (#64 F012)', async () => {
     const h = setup();
-    h.deps.lookUp = async () => {
-      h.rows.set('api#231', { ...h.rows.get('api#231')!, submitting: { at: 'x', pid: 2, event: 'comment', drafts: [], summary: null } });
-      return { ok: true, pr: PR };
+    let during: { submit: string | null; second: unknown; claim: unknown } | null = null;
+    h.deps.create = async (alias, branch) => {
+      const row = h.rows.get('api#231')!;
+      during = {
+        claim: row.fixing,
+        submit: submitRefusal(row, { event: 'comment', body: '', drafts: [{ id: 'd2', body: 'x' }] }, at),
+        second: await fixItMyself(h.deps, 'api', 231, { drafts: ['d2'] }),
+      };
+      return { ok: true, sessionId: 'new1', label: `${alias} · ${branch}` };
     };
-    expect(await fixItMyself(h.deps, 'api', 231, { drafts: ['d1'] })).toMatchObject({ ok: false, status: 409 });
-    expect(h.calls).toEqual([]);
+    expect(await fixItMyself(h.deps, 'api', 231, { drafts: ['d1'] })).toMatchObject({ ok: true });
+    expect(during).toEqual({
+      claim: { at: at.toISOString(), drafts: ['d1'] },
+      submit: expect.stringContaining('Fix it myself is taking drafts'),
+      second: { ok: false, status: 409, error: expect.stringContaining('making its session') },
+    });
+    expect(h.rows.get('api#231')!.fixing).toBeUndefined();
+    expect(h.rows.get('api#231')!.drafts.map((d) => d.id)).toEqual(['d2']);
+    // A draft it claimed can't be removed meanwhile either.
+    const claimed = { ...review(), fixing: { at: new Date().toISOString(), drafts: ['d1'] } };
+    expect(removeDraft(claimed, 'd1')).toMatchObject({ status: 409 });
+  });
+
+  it('a failure releases the claim: the lookup, the creation, the note to a live session', async () => {
+    for (const over of [
+      { lookUp: async () => ({ ok: false as const, error: 'closed' }) },
+      { create: async () => ({ ok: false as const, error: 'git worktree add failed' }) },
+      { liveSessionOn: () => ({ id: 'live1', label: 'Refunds' }), note: async () => Promise.reject(new Error('gone')) },
+    ]) {
+      const { deps, rows } = setup(over);
+      expect(await fixItMyself(deps, 'api', 231, { drafts: ['d1'] })).toMatchObject({ ok: false, status: 409 });
+      expect(rows.get('api#231')!.fixing).toBeUndefined();
+    }
+  });
+
+  it('a live session on the branch whose note fails: 409 naming it, no session made, the drafts stay (#64 F009)', async () => {
+    const { deps, rows, calls, fail } = setup({
+      liveSessionOn: () => ({ id: 'live1', label: 'Refunds' }),
+      note: async () => Promise.reject(new Error('its comments are full')),
+    });
+    const out = await fixItMyself(deps, 'api', 231, { drafts: ['d1', 'd2'] });
+    expect(out).toEqual({ ok: false, status: 409, error: "couldn't tell Refunds: its comments are full" });
+    expect(calls).toEqual(['lookUp']);
+    expect(rows.get('api#231')!.drafts.map((d) => d.id)).toEqual(['d1', 'd2']);
+    expect(rows.get('api#231')!.fixingMyself).toBeUndefined();
+    expect(fail).toHaveBeenCalledWith("couldn't tell Refunds: its comments are full");
+  });
+
+  it('its warnings are noted in Activity at warn, with the session (#64 F002)', async () => {
+    const { deps, notes } = setup({ start: async () => Promise.reject(new Error('host down')) });
+    await fixItMyself(deps, 'api', 231, { drafts: ['d1'] });
+    expect(notes).toHaveBeenCalledWith(expect.stringContaining("its agent didn't start (host down)"), {
+      level: 'warn',
+      sessionId: 'new1',
+    });
   });
 });

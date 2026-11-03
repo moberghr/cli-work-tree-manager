@@ -134,7 +134,20 @@ export interface AgentOneShot {
    * instructions file (the repo's conventions); the env tagged internal like `command`. Absent: the agent has no
    * such mode, and callers use the text-only `command` with the diff alone.
    */
-  readOnly?(opts: { small?: boolean; cwd: string }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  readOnly?: AgentReadOnly;
+}
+
+/** The agent's read-only one-shot in a folder (`AgentOneShot.readOnly`), and what only the agent knows about it. */
+export interface AgentReadOnly {
+  command(opts: { small?: boolean; cwd: string }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  /**
+   * A file of the folder (its path relative to it, `/` or `\`) the agent would read as its own settings — hooks, env,
+   * permissions, tool servers: deleted from the copy before the run (the folder is someone else's). Whatever case it's
+   * written in: a case-blind file system opens `.Claude/settings.json` as the settings file.
+   */
+  isSettingsFile(relPath: string): boolean;
+  /** What the run's prompt says of the folder in the agent's own words: its tools, and which of its files it was given. */
+  promptLines: string[];
 }
 
 /** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */

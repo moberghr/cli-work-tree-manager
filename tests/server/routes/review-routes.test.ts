@@ -151,6 +151,55 @@ describe('review routes', () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
+  it('a claim left over is shown stale on read (nothing written), and settled by saying whether it went — never "Submitting…" for good (#64 F001)', async () => {
+    const { req, rows } = setup({ alive: () => false });
+    const claim = {
+      at: new Date().toISOString(),
+      pid: 99,
+      event: 'approve' as const,
+      drafts: [{ id: 'd1', body: 'sent?' }],
+      summary: null,
+    };
+    rows.set('api#231', { ...rows.get('api#231')!, submitting: claim });
+    const shown = (await (await req('GET', '/api/reviews/api/231')).json()) as PrReviewWire;
+    expect(shown.submitting).toEqual({ ...claim, stale: true });
+    expect(rows.get('api#231')!.submitting).toEqual(claim); // a GET changes nothing
+    // It went: taken as in doubt and settled in one go — d1 posted, the verdict recorded.
+    const went = await req('POST', '/api/reviews/api/231/in-doubt', { went: true });
+    expect(went.status).toBe(200);
+    const r = (await went.json()) as PrReviewWire;
+    expect(r.submitting).toBeUndefined();
+    expect(r.inDoubt).toBeUndefined();
+    expect(r.drafts.find((d) => d.id === 'd1')).toMatchObject({ state: 'posted', body: 'sent?' });
+    expect(r.submitted).toMatchObject({ event: 'approve', partial: true });
+    // A claim whose process still runs is neither stale nor settled.
+    const live = setup({ alive: () => true });
+    live.rows.set('api#231', { ...live.rows.get('api#231')!, submitting: claim });
+    expect(((await (await live.req('GET', '/api/reviews/api/231')).json()) as PrReviewWire).submitting?.stale).toBeUndefined();
+    expect((await live.req('POST', '/api/reviews/api/231/in-doubt', { went: false })).status).toBe(409);
+  });
+
+  it('a bare Approve that fails without a clear refusal is held in doubt too: a retry would approve twice (#64 F003)', async () => {
+    const submit = vi.fn<ReviewRouteDeps['submit']>().mockResolvedValue({
+      ok: false,
+      error: 'gh timed out',
+      inDoubt: { comments: [], summary: false },
+    });
+    const { req, rows } = setup({ submit });
+    expect((await req('POST', '/api/reviews/api/231/submit', { event: 'approve', body: '', drafts: [] })).status).toBe(409);
+    expect(rows.get('api#231')!.inDoubt).toMatchObject({ event: 'approve', drafts: [], summary: null, error: 'gh timed out' });
+    expect((await req('POST', '/api/reviews/api/231/submit', { event: 'approve', body: '', drafts: [] })).status).toBe(409);
+    expect(submit).toHaveBeenCalledTimes(1);
+    // And one whose call threw.
+    const threw = setup({
+      submit: async () => {
+        throw new Error('socket hang up');
+      },
+    });
+    await threw.req('POST', '/api/reviews/api/231/submit', { event: 'approve', body: '', drafts: [] });
+    expect(threw.rows.get('api#231')!.inDoubt).toMatchObject({ event: 'approve', partial: true });
+  });
+
   it('a host call that throws (after it may have posted) is recorded in doubt, not a 500 that leaves Submit enabled', async () => {
     const { req, rows } = setup({
       submit: async () => {

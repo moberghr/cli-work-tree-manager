@@ -15,7 +15,7 @@ import {
   settleReviewInDoubt,
   submitReview,
 } from '../../../api/panes.js';
-import { isStaleRunning, nothingToSubmit } from '../../../../../core/review/review-submit.js';
+import { isStaleRunning, nothingToSubmit, shownDoubt } from '../../../../../core/review/review-submit.js';
 import { reviewDraftsApi } from '../../../api/review-drafts-api.js';
 import { useSse } from '../../../api/events.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -272,6 +272,8 @@ function ReviewView({
   // A review left preparing by a work web that stopped: its button works again.
   const preparing = busy || (r.status === 'running' && !isStaleRunning(r, new Date()));
   const settle = (went: boolean) => settleReviewInDoubt(repo, number, went).then(setR, (e: Error) => setError(e.message));
+  // In doubt: a submit that failed without a clear answer, or one a stopped work web left mid-way (`submitting.stale`).
+  const doubt = shownDoubt(r);
   const clearDropped = () => clearReviewDropped(repo, number).then(setR, (e: Error) => setError(e.message));
 
   return (
@@ -320,14 +322,14 @@ function ReviewView({
             </button>
           )}
         </div>
-        {r.inDoubt && (
+        {doubt && (
           <div className="wd-review-in-doubt" role="alert">
             <p className="wd-review-warn">
-              Your submit {relativeTime(r.inDoubt.at)} ago may have gone out ({r.inDoubt.error}):{' '}
-              {r.inDoubt.drafts.length ? `${r.inDoubt.drafts.length} comment${r.inDoubt.drafts.length === 1 ? '' : 's'}` : ''}
-              {r.inDoubt.drafts.length && r.inDoubt.summary ? ' and ' : ''}
-              {r.inDoubt.summary ? 'the summary' : ''}
-              {r.inDoubt.partial ? ' (what came after it wasn’t sent: if it went, only part of the review did)' : ''}. Look at the PR on{' '}
+              Your submit {relativeTime(doubt.at)} ago may have gone out ({doubt.error}):{' '}
+              {doubt.drafts.length ? `${doubt.drafts.length} comment${doubt.drafts.length === 1 ? '' : 's'}` : ''}
+              {doubt.drafts.length && doubt.summary ? ' and ' : ''}
+              {doubt.summary ? 'the summary' : ''}
+              {doubt.partial ? ' (what came after it wasn’t sent: if it went, only part of the review did)' : ''}. Look at the PR on{' '}
               <a href={r.url} target="_blank" rel="noreferrer">
                 {hostName(r.host)}
               </a>
@@ -557,7 +559,7 @@ function SubmitBar({
         disabled={busy || !!review.inDoubt || !!review.submitting || nothingToSubmit(review, event, drafts.length, body)}
         onClick={submit}
       >
-        {busy || review.submitting ? 'Submitting…' : `Submit review on ${hostName(review.host)}`}
+        {busy || (review.submitting && !review.submitting.stale) ? 'Submitting…' : `Submit review on ${hostName(review.host)}`}
       </button>
       <button
         type="button"

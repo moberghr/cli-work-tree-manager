@@ -72,11 +72,15 @@ const prepared = (headSha: string): { ok: true } & PreparedPr => ({
   headSha,
 });
 
+/** The agent's own words on its read-only run (`oneShot.readOnly.promptLines`), as a made-up agent says them. */
+const AGENT_LINES = ['You are an agent reading a checkout with its own file tools.'];
+
 function harness(
   opts: {
     prs?: OpenPr[];
     agent?: (p: string) => Promise<string | null>;
     agentInCheckout?: ReviewQueueDeps['agentInCheckout'];
+    checkoutLines?: ReviewQueueDeps['checkoutLines'];
     sweepTrees?: ReviewQueueDeps['sweepTrees'];
     maxPerDay?: number | null;
     maxLines?: number;
@@ -126,7 +130,7 @@ function harness(
     prepare,
     dropRef,
     ...(opts.agent ? { agent: opts.agent } : {}),
-    ...(opts.agentInCheckout ? { agentInCheckout: opts.agentInCheckout } : {}),
+    ...(opts.agentInCheckout ? { agentInCheckout: opts.agentInCheckout, checkoutLines: opts.checkoutLines ?? (() => AGENT_LINES) } : {}),
     ...(opts.sweepTrees ? { sweepTrees: opts.sweepTrees } : {}),
     store,
     limits: () => ({ maxPerDay: opts.maxPerDay === undefined ? 10 : opts.maxPerDay, maxLines: opts.maxLines ?? 3000 }),
@@ -433,7 +437,7 @@ describe('the AI step in a temporary checkout of the PR', () => {
     expect(agentInCheckout).toHaveBeenCalledTimes(1);
     const [at, prompt] = agentInCheckout.mock.calls[0] as unknown as [unknown, string];
     expect(at).toEqual({ repoPath: '/repos/api', alias: 'api', number: 7, headSha: 'sha7' });
-    for (const line of CHECKOUT_LINES) expect(prompt).toContain(line);
+    for (const line of [...AGENT_LINES, ...CHECKOUT_LINES]) expect(prompt).toContain(line);
     expect(prompt).toContain('src/Refunds.cs');
     expect(agent).not.toHaveBeenCalled();
     expect(h.rows.get('api#7')).toMatchObject({ aiStep: 'done', stories: [expect.objectContaining({ title: 'Adds refunds', by: 'ai' })] });
@@ -463,6 +467,16 @@ describe('the AI step in a temporary checkout of the PR', () => {
     });
     await threw.queue.sweep();
     expect(threw.notes().some((n) => n.endsWith('(the checkout run gave no answer: disk full)'))).toBe(true);
+  });
+
+  it("an agent with no read-only words (no read-only run): the checkout isn't made, the diff alone (#64 F005)", async () => {
+    const agent = vi.fn(async (_p: string) => answer);
+    const agentInCheckout = vi.fn(async () => ({ answer }));
+    const h = harness({ agent, agentInCheckout, checkoutLines: () => null });
+    await h.queue.sweep();
+    expect(agentInCheckout).not.toHaveBeenCalled();
+    expect(agent).toHaveBeenCalledTimes(1);
+    expect(h.notes().some((n) => n.endsWith('read from the diff alone (the agent has no read-only mode)'))).toBe(true);
   });
 
   it('no agent at all: neither run is asked (stories by folder)', async () => {

@@ -581,3 +581,27 @@ describe('demo server', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("Fix it myself's sessions in the demo (#64 F010)", () => {
+  it('a new session is made with no first prompt (never its name as one); the instruction arrives as a note it answers', async () => {
+    const { demoReviewSessions } = await import('../../../src/server/demo/demo-server.js');
+    const demo = new DemoScenario();
+    const events: unknown[] = [];
+    const sessions = demoReviewSessions(demo, (e) => events.push(e));
+    expect(sessions.liveOn('api', 'feat/nowhere-yet')).toBeNull();
+    const made = sessions.create('api', 'feat/fix-review-231', 'Fix my review of #231');
+    const row = demo.list().find((s) => s.id === made.id)!;
+    expect(made.label).toBe('api · feat/fix-review-231');
+    expect(JSON.stringify(row)).not.toContain('Fix my review of #231'); // neither its summary nor its screen
+    expect(sessions.liveOn('api', 'feat/fix-review-231')).toEqual({ id: made.id, label: made.label });
+    sessions.note(made.id, 'Make these changes');
+    expect(
+      demo
+        .comments(made.id)!
+        .list()
+        .map((c) => c.body),
+    ).toContain('Make these changes');
+    expect(events).toContainEqual({ event: 'comments-changed', data: expect.objectContaining({ sessionId: made.id }) });
+    expect(() => sessions.note('nope', 'x')).toThrow('unknown session');
+  });
+});

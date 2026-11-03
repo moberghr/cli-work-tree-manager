@@ -17,6 +17,7 @@ import { internalAgent, agentSettings } from '../agents/index.js';
 import { killTree } from '../platform/process.js';
 import { createSerialQueue } from '../platform/throttle.js';
 import type { ParsedFile } from './diff-parse.js';
+import type { AgentReadOnly } from '../agents/types.js';
 
 export interface SummaryRepo {
   /** Manifest key — the full repo path (see scope-routes `scopeRepos`). */
@@ -110,7 +111,16 @@ export function runInternal(prompt: string, timeoutMs = 25_000, opts: { small?: 
 
 /** The summarising agent has a read-only run in a folder (`oneShot.readOnly`): the Reviews AI step can read a checkout. */
 export function internalCanRead(): boolean {
-  return !!internalAgent(agentSettings()).oneShot?.readOnly;
+  return !!internalReadOnly();
+}
+
+/**
+ * What only the summarising agent knows of its read-only run: which files of a folder it reads as settings (deleted
+ * from a checkout before it starts), and how its prompt names its tools and instructions. Null: it has no such run.
+ */
+export function internalReadOnly(): Pick<AgentReadOnly, 'isSettingsFile' | 'promptLines'> | null {
+  const mode = internalAgent(agentSettings()).oneShot?.readOnly;
+  return mode ? { isSettingsFile: (p) => mode.isSettingsFile(p), promptLines: mode.promptLines } : null;
 }
 
 /**
@@ -126,7 +136,7 @@ export function runInternalReadOnly(
 ): Promise<string | null> {
   const oneShot = internalAgent(agentSettings()).oneShot;
   if (!oneShot?.readOnly) return Promise.resolve(null);
-  const command = oneShot.readOnly({ ...opts, cwd });
+  const command = oneShot.readOnly.command({ ...opts, cwd });
   return internalQueue(() => runNow(prompt, timeoutMs, command));
 }
 

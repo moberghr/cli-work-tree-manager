@@ -150,7 +150,7 @@ describe('work’s own summaries (agents/: `oneShot`, config internalAgent)', ()
   it('Claude’s read-only one-shot in a folder (a PR’s checkout): read-only file tools confined to it, none of its settings or MCP servers, its CLAUDE.md loaded, tagged internal', async () => {
     const { claudeAgent, CLAUDE_SMALL_MODEL } = await import('../../../src/core/agents/claude/adapter.js');
     const dir = path.join(tmp, 'review-trees', 'api-5-abc');
-    const run = claudeAgent.oneShot!.readOnly!({ cwd: dir });
+    const run = claudeAgent.oneShot!.readOnly!.command({ cwd: dir });
     expect(run).toEqual({
       cmd: 'claude',
       args: [
@@ -171,7 +171,13 @@ describe('work’s own summaries (agents/: `oneShot`, config internalAgent)', ()
     });
     // Nothing that runs or writes is named anywhere.
     expect(run.args.join(' ')).not.toMatch(/Bash|Edit|Write|WebFetch|WebSearch|bypassPermissions|--mcp-config/);
-    expect(claudeAgent.oneShot!.readOnly!({ cwd: dir, small: true }).args.slice(-2)).toEqual(['--model', CLAUDE_SMALL_MODEL]);
+    expect(claudeAgent.oneShot!.readOnly!.command({ cwd: dir, small: true }).args.slice(-2)).toEqual(['--model', CLAUDE_SMALL_MODEL]);
+    // What only Claude knows of the run (#64 F005): its settings files, in any case, and its prompt's words on its tools and CLAUDE.md.
+    const ro = claudeAgent.oneShot!.readOnly!;
+    expect(['.claude/settings.json', '.Claude/Settings.Local.json', 'x/.MCP.json'].every((f) => ro.isSettingsFile(f))).toBe(true);
+    expect(ro.isSettingsFile('CLAUDE.md')).toBe(false);
+    expect(ro.promptLines.join(' ')).toMatch(/Read, Grep and Glob/);
+    expect(ro.promptLines.join(' ')).toMatch(/CLAUDE\.md/);
   });
 
   it('an agent without a read-only mode: none, and runInternalReadOnly starts nothing', async () => {

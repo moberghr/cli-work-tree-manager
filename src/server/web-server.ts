@@ -84,6 +84,7 @@ import { mountTimeRoutes } from './routes/time-routes.js';
 import { mountReviewRoutes } from './routes/review-routes.js';
 import { realFixIo, realReviewQueue, realReviewRouteIo } from '../core/review/review-deps.js';
 import { startReviewSweeps } from '../core/review/review-keeper.js';
+import { tidyLeftOverSubmits } from '../core/review/review-submit-flow.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
 import { bestEffort } from '../core/platform/best-effort.js';
@@ -697,9 +698,16 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // PR reviews prepared in the background (#64, core/review/; when: review-keeper.ts). The dev server serves them
   // but prepares none (it acts on nothing; your clicks still do).
   const reviewQueue = realReviewQueue({ activity, changed: () => broadcast('reviews-changed', {}) });
-  const reviewSweeps = startReviewSweeps({ queue: reviewQueue, activity, jobs });
+  const reviewIo = realReviewRouteIo();
+  const reviewSweeps = startReviewSweeps({
+    queue: reviewQueue,
+    activity,
+    jobs,
+    // A submit a stopped work web left mid-way: in doubt, for you to say whether it went (never "Submitting…" for good).
+    tidy: () => tidyLeftOverSubmits(reviewIo, activity, (r) => broadcast('reviews-changed', r)),
+  });
   mountReviewRoutes(app, {
-    ...realReviewRouteIo(),
+    ...reviewIo,
     runNow: (repo, n) => reviewQueue.runNow(repo, n),
     broadcast,
     // Fix it myself: a session on the PR's branch, made as New worktree makes one, or the live one told by a note.

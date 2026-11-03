@@ -260,6 +260,17 @@ function announceRestoreWarnings(sessionId: string, warnings: string[]): void {
   window.dispatchEvent(new CustomEvent(RESTORE_WARNINGS, { detail: { sessionId, warnings } }));
 }
 
+/**
+ * The event an action's warnings go out as when the view that asked goes away with the answer (Fix it myself opens
+ * its session): detail `{what, warnings}`; DashboardApp toasts them, as a Restore's.
+ */
+export const ACTION_WARNINGS = 'work:action-warnings';
+
+export function announceWarnings(what: string, warnings: string[]): void {
+  if (typeof window === 'undefined' || !warnings.length) return;
+  window.dispatchEvent(new CustomEvent(ACTION_WARNINGS, { detail: { what, warnings } }));
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } });
   if (!res.ok) {

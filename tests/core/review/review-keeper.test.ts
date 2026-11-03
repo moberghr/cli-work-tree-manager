@@ -30,6 +30,22 @@ describe('when work web sweeps', () => {
     expect(sweep).toHaveBeenCalledTimes(2);
   });
 
+  it('what a stopped work web left is tidied before each sweep (its submit claims); a tidy that throws stops no sweep (#64 F001)', () => {
+    vi.useFakeTimers();
+    const order: string[] = [];
+    const sweep = vi.fn(async () => void order.push('sweep'));
+    let n = 0;
+    const tidy = vi.fn(() => {
+      order.push('tidy');
+      if (++n === 1) throw new Error('state.db busy');
+    });
+    const sweeps = startReviewSweeps({ queue: { sweep }, jobs: true, tidy });
+    vi.advanceTimersByTime(REVIEWS_FIRST_MS);
+    vi.advanceTimersByTime(REVIEWS_EVERY_MS);
+    expect(order).toEqual(['tidy', 'sweep', 'tidy', 'sweep']);
+    sweeps.stop();
+  });
+
   it('stopped before the first sweep: none ever runs', () => {
     vi.useFakeTimers();
     const sweep = vi.fn(async () => undefined);

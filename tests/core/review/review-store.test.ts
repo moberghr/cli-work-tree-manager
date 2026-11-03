@@ -38,6 +38,32 @@ describe('prepared reviews in state.db', () => {
     expect(isReview({ ...r, fixingMyself: [{ ...fix, comments: [{ path: 'a.cs', line: '3', body: 'b' }] }] })).toBe(false);
   });
 
+  it('a submit claim, the last draft number and a Fix it myself claim: shape-checked, and they round-trip the real row (#64 F007)', () => {
+    const r = demoReview(new Date('2026-11-02T10:00:00Z'));
+    const claim = { at: '2026-11-02T10:00:00Z', pid: 4242, event: 'approve' as const, drafts: [{ id: 'd1', body: 'x' }], summary: null };
+    const fixing = { at: '2026-11-02T10:00:00Z', drafts: ['d2'] };
+    expect(isReview({ ...r, submitting: claim, lastDraft: 7, fixing })).toBe(true);
+    expect(isReview({ ...r, submitting: { ...claim, pid: '4242' } })).toBe(false);
+    expect(isReview({ ...r, submitting: { ...claim, at: 1 } })).toBe(false);
+    expect(isReview({ ...r, submitting: { ...claim, drafts: 'd1' } })).toBe(false);
+    expect(isReview({ ...r, submitting: null })).toBe(false);
+    expect(isReview({ ...r, lastDraft: '7' })).toBe(false);
+    expect(isReview({ ...r, fixing: { at: 'x', drafts: [1] } })).toBe(false);
+    expect(isReview({ ...r, fixing: { drafts: [] } })).toBe(false);
+    // Through state.db as the submit flow writes it: claimed in one transaction, read back whole.
+    writeReview({ ...r, number: 77 });
+    updateReview('api', 77, (cur) => ({ ...cur, submitting: claim, lastDraft: 7, fixing }));
+    expect(readReview('api', 77)).toMatchObject({ submitting: claim, lastDraft: 7, fixing });
+    // A row whose claim was damaged is dropped, never trusted as no claim at all.
+    withDb((d) =>
+      d
+        .prepare('UPDATE pr_reviews SET data = ? WHERE key = ?')
+        .run(JSON.stringify({ ...r, number: 77, submitting: { ...claim, pid: 'x' } }), 'api#77'),
+    );
+    expect(readReview('api', 77)).toBeNull();
+    withDb((d) => d.prepare('DELETE FROM pr_reviews WHERE key = ?').run('api#77'));
+  });
+
   it("drops the reviews of PRs no longer open — only for the repos asked (a repo that couldn't be listed keeps its own)", () => {
     writeReview({ ...demoReview(), number: 1 });
     writeReview({ ...demoReview(), number: 2 });

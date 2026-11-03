@@ -69,6 +69,7 @@ const SPA_SHARED = new Set([
   'src/core/review/change-kinds.js',
   'src/core/review/review-plan.js',
   'src/core/review/review-submit.js', // pure: submit rules (a review left preparing, drafts on the diff)
+  'src/core/review/review-fix-rules.js', // pure, import-free: when Fix it myself may take drafts (the button's rule is the server's)
   'src/core/conversations/timeline.js',
   'src/core/pty/host-health.js',
   'src/core/pty/restart-view.js', // pure: how a restart of agents is said

@@ -1,8 +1,8 @@
 import type { Hono } from 'hono';
 import type { ParsedFile } from '../../core/diff/diff-parse.js';
 import type { PrReviewWire, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
-import { addDraft, clearDropped, removeDraft, settleInDoubt } from '../../core/review/review-submit.js';
-import { submitPrReview, type SubmitFlowDeps } from '../../core/review/review-submit-flow.js';
+import { addDraft, clearDropped, removeDraft } from '../../core/review/review-submit.js';
+import { settlePrReview, shownReview, submitPrReview, type SubmitFlowDeps } from '../../core/review/review-submit-flow.js';
 import { fixItMyself, type FixMyselfDeps } from '../../core/review/review-fix.js';
 import type { ReviewFixResultWire } from '../../core/api-types.js';
 import { summaryOf } from '../../core/review/review-build.js';
@@ -65,7 +65,8 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
   app.get('/api/reviews/:repo/:number', (c) => {
     const n = num(c.req.param('number'));
     const r = n === null ? null : deps.read(c.req.param('repo'), n);
-    return r ? c.json(r) : c.json({ error: 'no review of that PR' }, 404);
+    // A submit claim a stopped work web left is shown stale (settle it), never "Submitting…" for good.
+    return r ? c.json(shownReview(deps, r)) : c.json({ error: 'no review of that PR' }, 404);
   });
 
   app.get('/api/reviews/:repo/:number/diff', async (c) => {
@@ -142,16 +143,10 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     if (n === null || !deps.read(repo, n)) return c.json({ error: 'no review of that PR' }, 404);
     const body = (await c.req.json().catch(() => null)) as { went?: unknown } | null;
     if (!body || typeof body.went !== 'boolean') return c.json({ error: 'expected {went: true|false}' }, 400);
-    const went = body.went;
-    let none = false;
-    const next = deps.update(repo, n, (cur) => {
-      const settled = settleInDoubt(cur, went, new Date());
-      if (!settled) none = true;
-      return settled ?? cur;
-    });
-    if (none || !next) return c.json({ error: 'no submit of this review is in doubt' }, 409);
+    const out = settlePrReview(deps, repo, n, body.went);
+    if (!out.ok) return c.json({ error: out.error }, out.status);
     changed(repo, n);
-    return c.json(next);
+    return c.json(out.review);
   });
 
   // Forget the drafts set aside (off the diff, or dropped by a new push): you copied what you wanted.

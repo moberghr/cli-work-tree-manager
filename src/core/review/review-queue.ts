@@ -63,6 +63,8 @@ export interface ReviewQueueDeps {
    * either way `agent` then reads the diff alone.
    */
   agentInCheckout?: (at: ReviewTreeAt, prompt: string) => Promise<{ answer: string | null; why?: string } | null>;
+  /** What the checkout run's prompt says of its folder in its agent's words (`oneShot.readOnly.promptLines`); null: none. */
+  checkoutLines?: () => string[] | null;
   /** Remove the temporary checkouts a stopped run left: once, before the first sweep's reviews (review-tree.ts). */
   sweepTrees?: () => Promise<{ swept: string[]; failed: string[] }>;
   rules?: () => KindRule[];
@@ -226,11 +228,12 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     const prompt = reviewPrompt(at, prepared.files, kinds);
     if (!prompt) return { answer: undefined };
     let fellBack = 'the agent has no read-only mode';
-    if (deps.agentInCheckout) {
+    const lines = deps.checkoutLines?.() ?? null;
+    if (deps.agentInCheckout && lines) {
       const inTree = await deps
         .agentInCheckout(
           { repoPath: project.path, alias: project.alias, number: at.number, headSha: at.headSha },
-          reviewPrompt(at, prepared.files, kinds, { checkout: true }) ?? prompt,
+          reviewPrompt(at, prepared.files, kinds, { checkout: lines }) ?? prompt,
         )
         .catch((err: Error) => ({ answer: null, why: err.message }));
       if (inTree?.answer) return { answer: inTree.answer, how: 'read in a temporary checkout of the PR' };

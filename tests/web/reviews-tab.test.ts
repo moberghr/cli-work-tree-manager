@@ -218,6 +218,25 @@ describe('ReviewsTab', () => {
     expect(container.querySelector('.wd-review-in-doubt')).toBeNull();
   });
 
+  it('a submit a stopped work web left (shown stale): in doubt, never "Submitting…" for good — you say whether it went (#64 F001)', async () => {
+    const left: PrReviewWire = {
+      ...review,
+      submitting: { at: '2026-11-02T10:00:00Z', pid: 9, event: 'approve', drafts: [{ id: 'd1', body: 'x' }], summary: null, stale: true },
+    };
+    api.fetchReview.mockResolvedValue(left);
+    api.settleReviewInDoubt.mockResolvedValue(review);
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    const banner = container.querySelector('.wd-review-in-doubt')!;
+    expect(banner.textContent).toContain('work stopped while submitting it');
+    expect(container.textContent).not.toContain('Submitting…');
+    expect(button('Submit review on GitHub').disabled).toBe(true);
+    await act(async () => button("It didn't").click());
+    await flush();
+    expect(api.settleReviewInDoubt).toHaveBeenCalledWith('api', 231, false);
+    expect(container.querySelector('.wd-review-in-doubt')).toBeNull();
+  });
+
   it('drafts set aside (off the diff) are listed with their text, and can be forgotten', async () => {
     api.clearReviewDropped.mockResolvedValue({ ...review, dropped: undefined });
     act(() => root.render(createElement(ReviewsTab, {})));

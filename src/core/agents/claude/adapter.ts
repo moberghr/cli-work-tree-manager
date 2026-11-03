@@ -18,7 +18,7 @@ import { claudeEvents } from './hooks.js';
 import { claudeSessionsDirs, readLiveClaudes } from './live.js';
 import { ANSWER_KEYS, checkDialog } from './permission.js';
 import { typeThenEnter } from '../typing.js';
-import { internalClaudeReadOnlySpawn, internalClaudeSpawn } from './internal.js';
+import { CLAUDE_READ_ONLY_LINES, claudeSettingsFile, internalClaudeReadOnlySpawn, internalClaudeSpawn } from './internal.js';
 import { claudeWorkspace } from './workspace.js';
 import { claudeSkills } from './skills.js';
 import { claudeUsage } from './usage.js';
@@ -95,10 +95,14 @@ export const claudeAgent: AgentAdapter = {
   // Read-only in a folder (a PR's checkout): `claude -p --restricted --tools Read,Grep,Glob --setting-sources user --add-dir <it> …`.
   oneShot: {
     command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
-    readOnly: ({ small, cwd }) => ({
-      cmd: 'claude',
-      ...internalClaudeReadOnlySpawn({ cwd, ...(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
-    }),
+    readOnly: {
+      command: ({ small, cwd }) => ({
+        cmd: 'claude',
+        ...internalClaudeReadOnlySpawn({ cwd, ...(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
+      }),
+      isSettingsFile: claudeSettingsFile,
+      promptLines: CLAUDE_READ_ONLY_LINES,
+    },
   },
   instructionsFile: 'CLAUDE.md',
   // CLAUDE.md's own import syntax (Claude Code reads the file it names, relative to this one).

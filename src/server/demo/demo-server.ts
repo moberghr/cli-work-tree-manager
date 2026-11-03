@@ -53,7 +53,7 @@ import { createDemoTime } from './demo-time.js';
 import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
 import { monthRange } from '../../core/time/time-month.js';
 import { mountDemoReplies } from './demo-replies.js';
-import { mountDemoReviews } from './demo-reviews.js';
+import { mountDemoReviews, type DemoReviewSessions } from './demo-reviews.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
 import { DemoRepoError } from './demo-repos.js';
@@ -78,6 +78,31 @@ export interface DemoServerOptions {
   scenario?: DemoScenario;
 }
 
+/**
+ * Fix it myself's sessions in the demo: the live one on the PR's branch, or a new one — made with no first prompt (the
+ * instruction comes as its start's note; the demo has no session names, so the name is left out) — told by a note it
+ * answers.
+ */
+export function demoReviewSessions(scenario: DemoScenario, broadcast: (e: DemoEvent) => void): DemoReviewSessions {
+  return {
+    liveOn: (alias, branch) => {
+      const s = scenario.list().find((x) => x.target === alias && x.branch === branch && !x.archive);
+      return s ? { id: s.id, label: `${s.target} · ${s.branch}` } : null;
+    },
+    create: (alias, branch) => {
+      const s = scenario.create(alias, branch);
+      return { id: s.id, label: `${s.target} · ${s.branch}` };
+    },
+    note: (id, body) => {
+      const store = scenario.comments(id);
+      if (!store) throw new Error('unknown session');
+      const comment = store.post({ side: 'general', status: 'published', author: 'user', body });
+      scenario.replyLater(id, comment.id);
+      broadcast({ event: 'comments-changed', data: { sessionId: id, id: comment.id } } as DemoEvent);
+    },
+  };
+}
+
 export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServerHandle & { scenario: DemoScenario }> {
   const scenario = opts.scenario ?? new DemoScenario();
   const app = new Hono();
@@ -89,24 +114,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // The demo is not the singleton and has nothing to clean up; refuse.
   app.post('/api/shutdown', (c) => c.json({ error: 'the demo is stopped with Ctrl+C' }, 501));
   // PR reviews prepared in the background (demo-reviews.ts).
-  mountDemoReviews(app, (event, data) => broadcast({ event, data } as DemoEvent), {
-    // Fix it myself: the demo's live session on the PR's branch, or a new one, told by a note it answers.
-    liveOn: (alias, branch) => {
-      const s = scenario.list().find((x) => x.target === alias && x.branch === branch && !x.archive);
-      return s ? { id: s.id, label: `${s.target} · ${s.branch}` } : null;
-    },
-    create: (alias, branch, name) => {
-      const s = scenario.create(alias, branch, name);
-      return { id: s.id, label: `${s.target} · ${s.branch}` };
-    },
-    note: (id, body) => {
-      const store = scenario.comments(id);
-      if (!store) throw new Error('unknown session');
-      const comment = store.post({ side: 'general', status: 'published', author: 'user', body });
-      scenario.replyLater(id, comment.id);
-      broadcast({ event: 'comments-changed', data: { sessionId: id, id: comment.id } });
-    },
-  });
+  mountDemoReviews(
+    app,
+    (event, data) => broadcast({ event, data } as DemoEvent),
+    demoReviewSessions(scenario, (e) => broadcast(e)),
+  );
   // Reply drafts on review threads (demo-replies.ts).
   const draftsFor = mountDemoReplies(app, scenario, (sessionId) => {
     broadcast({ event: 'replies-changed', data: { sessionId } });

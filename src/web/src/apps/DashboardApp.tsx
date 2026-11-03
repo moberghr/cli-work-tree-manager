@@ -16,7 +16,7 @@ import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActi
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
 import type { SnoozeFor } from '../../../core/rail/snooze.js';
-import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession, RESTORE_WARNINGS } from '../api/client.js';
+import { ACTION_WARNINGS, changeRailSections, fetchHostHealth, fetchRailLayout, placeSession, RESTORE_WARNINGS } from '../api/client.js';
 import type { HostHealth } from '../../../core/pty/host-health.js';
 import { HostHealthBanner } from '../components/Dashboard/HostHealthBanner.js';
 import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail/rail-layout.js';
@@ -234,8 +234,17 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       const warnings = (e as CustomEvent<{ warnings?: string[] }>).detail?.warnings ?? [];
       if (warnings.length) showToast(withWarnings('Restored', warnings));
     };
+    // Another action's, told after its view went away (Fix it myself opens its session).
+    const onAction = (e: Event) => {
+      const d = (e as CustomEvent<{ what?: string; warnings?: string[] }>).detail;
+      if (d?.warnings?.length) showToast(withWarnings(d.what ?? 'Done', d.warnings));
+    };
     window.addEventListener(RESTORE_WARNINGS, onWarnings);
-    return () => window.removeEventListener(RESTORE_WARNINGS, onWarnings);
+    window.addEventListener(ACTION_WARNINGS, onAction);
+    return () => {
+      window.removeEventListener(RESTORE_WARNINGS, onWarnings);
+      window.removeEventListener(ACTION_WARNINGS, onAction);
+    };
   }, [showToast]);
   // `?`: every shortcut. And the menu a key opened (z: snooze), where the header is.
   const [helpOpen, setHelpOpen] = useState(false);

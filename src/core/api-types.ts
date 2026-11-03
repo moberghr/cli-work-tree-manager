@@ -1501,6 +1501,18 @@ export interface ReviewSubmittingWire {
   drafts: Array<{ id: string; body: string }>;
   /** The summary it sends; null when none. */
   summary: string | null;
+  /**
+   * Left over by a work web that stopped while submitting (said on read, never stored): it may have gone out — shown
+   * as in doubt, and saying whether it went settles it (`POST …/in-doubt`).
+   */
+  stale?: true;
+}
+
+/** Fix it myself under way (the durable claim in the `pr_reviews` row): its drafts are spoken for until it ends. */
+export interface ReviewFixingWire {
+  at: string;
+  /** The drafts it takes off. */
+  drafts: string[];
 }
 
 /** A draft review comment — the AI step's note (`by: 'ai'`) or yours — on a line of the PR's new side; it goes out only in a review you submit. */
@@ -1592,6 +1604,8 @@ export interface PrReviewWire {
   fork?: true;
   /** Drafts you took off the review to fix yourself (Fix it myself), each batch with the session it went to. */
   fixingMyself?: ReviewFixWire[];
+  /** Fix it myself making its session: a submit, and a second Fix it myself, wait (stale after `FIX_CLAIM_STALE_MS`). */
+  fixing?: ReviewFixingWire;
 }
 
 /** Draft comments you took off a review to fix yourself, in a session on the PR's branch. */

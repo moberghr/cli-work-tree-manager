@@ -194,6 +194,7 @@ export function fetchJira(): Promise<{
 
 export type { JiraDecision, JiraWatchState } from '../../../core/api-types.js';
 import type { AgentsWire, JiraWatchState, RestartWire } from '../../../core/api-types.js';
+import { announceWarnings } from './client.js';
 
 /** The server's error text, from a JSON `{error}` body when there is one. */
 function reason(err: unknown): Error {
@@ -497,7 +498,11 @@ export async function fixReviewMyself(
   });
   const body = (await res.json().catch(() => null)) as
     (import('../../../core/api-types.js').ReviewFixResultWire & { error?: string }) | null;
-  if (res.ok && body) return body;
+  if (res.ok && body) {
+    // Its warnings outlive the tab that asked (it unmounts as the session opens): the dashboard's toast shows them.
+    if (body.warnings?.length) announceWarnings('Fix it myself', body.warnings);
+    return body;
+  }
   throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
 }
 /** After a submit that may have gone out: you looked at the PR — it went, or it didn't. */
