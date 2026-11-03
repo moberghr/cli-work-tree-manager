@@ -61,8 +61,10 @@ export interface WorkConfig {
    */
   reviews?: { projects?: Record<string, 'all' | 'asked' | 'off'>; maxPerDay?: number; maxLines?: number; rules?: unknown[] };
   /**
-   * The git host of an origin whose URL can't tell (core/hosts/index.ts): its hostname (lower case) → a host id
-   * (`{"git.corp.example": "github"}` for GitHub Enterprise). The registry reads it from the raw config.
+   * The git host of an origin whose URL no adapter claims (core/hosts/index.ts): its hostname (lower case) → a host
+   * id. Only a host that can work with such a server needs it (one registered at run time); GitHub Enterprise needs
+   * no entry — an unclaimed origin is asked as GitHub already, and gh finds its server from the repo's folder. The
+   * registry reads it from the raw config.
    */
   gitHosts?: Record<string, string>;
   /** Environment variable names to keep for a session restored after a reboot (the launching shell's values; secret-looking names are never kept). */

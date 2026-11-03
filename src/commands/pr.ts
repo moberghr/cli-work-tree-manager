@@ -74,7 +74,7 @@ export const prCommand: CommandModule = {
       )
       .command(
         'post [threads..]',
-        'Post drafted replies from your GitHub account — for Claude, only once the user has said yes to them',
+        'Post drafted replies from your account on the PR host — for Claude, only once the user has said yes to them',
         (b) =>
           b
             .positional('threads', { type: 'string', array: true, describe: 'Thread ids (PRRT_…) whose drafts to post' })

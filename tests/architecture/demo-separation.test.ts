@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { importsOf, loadedBy } from './source-scan.js';
 
 /**
  * The demo proves the dashboard depends only on its API contract — but only
@@ -87,6 +88,32 @@ describe('demo mode is separated from the real machinery', () => {
         }
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it('…and nothing those modules load in turn does I/O either, at any depth (#63 review F004)', () => {
+    // A module allowed above as pure can start importing the real machinery (pr-watch.ts once reached the
+    // host registry, and through it git config reads and state.db): follow every runtime import down.
+    // The server plumbing is real on purpose (a localhost server, the SPA's files, one stat): not descended.
+    const plumbing = new Set([
+      'src/server/local-server.ts',
+      'src/server/local-origin.ts',
+      'src/server/spa-handler.ts',
+      'src/core/platform/build-stamp.ts',
+    ]);
+    // Computation only: hashing ids, joining paths, validating input.
+    const harmless = new Set(['hono', 'hono/streaming', 'ws', 'zod', 'node:path', 'node:crypto']);
+    const entries = demoFiles.map((f) => `src/server/demo/${f}`);
+    const offenders: string[] = [];
+    const { files } = loadedBy(entries, { stopAt: (f) => plumbing.has(f) });
+    expect(files.has('src/core/pr/pr-watch.ts')).toBe(true); // the walk reaches what the demo imports
+    expect(files.has('src/core/hosts/commands.ts')).toBe(true); // …and what those import in turn
+    for (const f of files) {
+      if (plumbing.has(f)) continue;
+      for (const spec of importsOf(read(f)).runtime) if (!spec.startsWith('.') && !harmless.has(spec)) offenders.push(`${f} → ${spec}`);
+    }
+    for (const real of ['src/core/hosts/index.ts', 'src/core/platform/db.ts', 'src/core/platform/config.ts'])
+      if (files.has(real)) offenders.push(`reaches ${real}`);
     expect(offenders).toEqual([]);
   });
 

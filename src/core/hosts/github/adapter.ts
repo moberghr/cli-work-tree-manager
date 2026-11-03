@@ -2,7 +2,7 @@ import os from 'node:os';
 import type { GitHost } from '../types.js';
 import { githubCommands } from './commands.js';
 import { githubRepoId, onGithub, parseGithubPrUrl } from './origin.js';
-import { githubPrList } from './pr-list.js';
+import { defaultPrListDeps, githubPrList } from './pr-list.js';
 import {
   githubCreatePr,
   githubMergedPr,
@@ -38,8 +38,8 @@ export const github: GitHost = {
   parsePrUrl: parseGithubPrUrl,
   prRef: (n) => `refs/pull/${n}/head`,
 
-  // Its own runner (execFile with timeouts): one search for every repo, then gh pr list per repo elsewhere.
-  list: async (repos) => githubPrList(Object.fromEntries(repos.map((r) => [r.alias, r.path]))),
+  // One search for every repo, then gh pr list per repo elsewhere; the real runner is its own execFile with timeouts.
+  list: async (repos, run) => githubPrList(Object.fromEntries(repos.map((r) => [r.alias, r.path])), defaultPrListDeps(run)),
   viewer: githubViewer,
   prForBranch: githubPrForBranch,
   prByNumber: githubPrByNumber,

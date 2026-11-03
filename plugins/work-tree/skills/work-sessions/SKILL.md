@@ -58,5 +58,5 @@ Each takes `<alias> <branch>` (or the session for the current folder):
 
 ## Don'ts
 
-- Don't post on GitHub, and don't message or answer other sessions' agents, on your own.
+- Don't post on a git host (comments, reviews, replies), and don't message or answer other sessions' agents, on your own.
 - Don't guess session state from the filesystem when a command above answers it.

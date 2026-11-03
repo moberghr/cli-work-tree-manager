@@ -151,7 +151,7 @@ describe('work block', () => {
     await run('block', 'blockCommand', {});
     expect(out.join(' ')).toContain('api#12');
     await run('block', 'blockCommand', { pr: 'nope' });
-    expect(errors.join(' ')).toContain('Not a GitHub pull request URL');
+    expect(errors.join(' ')).toContain('Not a pull request link');
     process.exitCode = 0;
     await run('block', 'blockCommand', { off: true });
     expect(readBlock(id)).toBeNull();

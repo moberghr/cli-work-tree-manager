@@ -14,10 +14,14 @@ export { DEFAULT_HOST } from './commands.js';
  * (tests' fake host), looked up by id or by a repo's origin.
  *
  * A repo is on the host whose adapter claims its origin. Config `gitHosts`
- * names the host for an origin's hostname the URL can't tell
- * (`{"git.corp.example": "github"}`: GitHub Enterprise, Azure DevOps
- * Server). A repo nobody claims — no origin, another server — is asked as
- * GitHub, as before hosts existed: `gh` itself says whether it knows it.
+ * names the host for an origin's hostname no adapter claims by its URL — for
+ * a host that can work with such a server (one registered at run time; the
+ * built-in Azure DevOps adapter reads only dev.azure.com and
+ * visualstudio.com). A repo nobody claims — no origin, another server — is
+ * asked as GitHub, as before hosts existed: `gh` itself says whether it
+ * knows it, finding a GitHub Enterprise server from the repo's folder, so
+ * GitHub Enterprise needs no entry (its PRs are listed per repo, the one
+ * search being github.com's).
  */
 
 const builtIn: GitHost[] = [github, azure];

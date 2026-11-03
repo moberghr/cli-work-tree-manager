@@ -10,7 +10,6 @@ import { loadConfig } from '../platform/config.js';
 import { readGitConfig, originUrl } from '../worktree/repo-scan.js';
 import { defaultHost, hostForOrigin, hostOfThread, knownHosts } from '../hosts/index.js';
 import type { GitHost } from '../hosts/types.js';
-import { GITHUB_THREAD_ID } from '../hosts/github/threads.js';
 import { checkedOutBranch } from '../git/git-head.js';
 
 /**
@@ -33,8 +32,6 @@ import { checkedOutBranch } from '../git/git-head.js';
 export function isThreadId(id: string): boolean {
   return knownHosts().some((h) => h.threads.isId(id));
 }
-/** GitHub's thread ids (`PRRT_…`). Kept for callers from before hosts: `isThreadId` takes every host's. */
-export const THREAD_ID = GITHUB_THREAD_ID;
 /** The host a thread id belongs to (GitHub's when none reads it: such an id was refused before reaching here). */
 const threadHost = (id: string): GitHost => hostOfThread(id) ?? defaultHost();
 export const MAX_REPLY_CHARS = 20_000;

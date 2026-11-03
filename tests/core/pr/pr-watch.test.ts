@@ -898,7 +898,7 @@ describe('PR watch: replies whose thread was resolved on GitHub go', () => {
     await h.watch.tick();
     expect(retireReplies).toHaveBeenCalledWith('s1', expect.objectContaining({ repos: [expect.objectContaining({ name: 'api' })] }));
     const notes = activity.snapshot().recent.flatMap((r) => r.notes.map((n) => n.text));
-    expect(notes.some((t) => t.includes('1 reply dropped: its thread was resolved on GitHub'))).toBe(true);
+    expect(notes.some((t) => t.includes('1 reply dropped: its thread was resolved on their host'))).toBe(true);
   });
 
   it("its failure is the check's business only: nothing else stops", async () => {

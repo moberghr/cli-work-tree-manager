@@ -390,7 +390,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const takePrs = useCallback((r: Awaited<ReturnType<typeof fetchPrs>>) => {
     setPrs(r.prs ?? []);
     setPrsLoaded(true);
-    setPrsNote(r.available === false ? 'gh isn’t installed or logged in (gh auth login).' : (r.error ?? null));
+    setPrsNote(
+      r.available === false
+        ? 'Couldn’t list pull requests: is your git host’s CLI installed and signed in? (Welcome checks it.)'
+        : (r.error ?? null),
+    );
   }, []);
   const prsFailed = useCallback((err: Error) => {
     setPrsLoaded(true);

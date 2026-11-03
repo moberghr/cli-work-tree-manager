@@ -1,12 +1,7 @@
-import type { CommandRunner } from './ship.js';
 import type { ThreadCode } from '../api-types.js';
 import { MAX_THREAD_BODY, type ReviewFeedback } from './review-types.js';
-import { hostForRepo } from '../hosts/index.js';
-import type { GitHost } from '../hosts/types.js';
-import { github } from '../hosts/github/adapter.js';
 
 export { isThreadCode, MAX_THREAD_BODY, threadCode, type ReviewComment, type ReviewFeedback, type ReviewThread } from './review-types.js';
-export { parseReviewFeedback } from '../hosts/github/review.js';
 import { CONTEXT_WARN } from '../sessions/session-view.js';
 import { commandsFor } from '../hosts/commands.js';
 import { quoteForAgent } from './review-quote.js';
@@ -28,26 +23,10 @@ import { quoteForAgent } from './review-quote.js';
  *     posted after watching began. Those have no resolved state, so the
  *     first sight of a PR takes them as history (baseline) instead of
  *     replaying old discussion.
+ *
+ * Pure (the demo's notes use it): asking a host — who you are, its feedback —
+ * is pr-watch-hosts.ts.
  */
-
-/**
- * Who you're signed in as on the host (GitHub by default), asked once: the PR
- * watch tells your PRs from someone else's by it. A failed ask is asked again.
- */
-export function viewerLogin(run: CommandRunner, host: Pick<GitHost, 'viewer'> = github): () => Promise<string | null> {
-  let known: string | null = null;
-  return async () => {
-    if (known) return known;
-    const login = await host.viewer(run, process.cwd()).catch(() => null);
-    if (login) known = login;
-    return known;
-  };
-}
-
-/** A PR's review feedback, asked of the host the repo is on. */
-export async function fetchReviewFeedback(repoPath: string, prNumber: number, run: CommandRunner): Promise<ReviewFeedback | null> {
-  return hostForRepo(repoPath).host.reviewFeedback(run, repoPath, prNumber);
-}
 
 /**
  * Whose review text may be handed to Claude: people with write access to

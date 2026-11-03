@@ -1,13 +1,17 @@
 import { execFile } from 'node:child_process';
 import { originUrl, ownerRepo, readGitConfig } from '../../worktree/repo-scan.js';
 import type { PullRequestInfo } from '../../pr/pr-types.js';
+import { defaultRunner, type CommandRunner } from '../../platform/command-runner.js';
 
 /**
  * GitHub's PR list: one GraphQL search for every repo on github.com (your
  * open PRs, and those asking your review by name), and `gh pr list` per repo
  * for the rest (GitHub Enterprise, or every repo when the search fails).
- * Moved from core/pr/pr.ts, which re-exports what tests and callers import.
+ * Reached only through the adapter (`github.list`); core/pr/pr.ts asks each repo's host.
  */
+
+/** Runs a command and gives its stdout; rejects when it fails. */
+export type ListExec = (cmd: string, args: string[], cwd: string, timeout: number) => Promise<string>;
 
 function execAsync(cmd: string, args: string[], cwd: string, timeout: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -197,9 +201,14 @@ export function githubRepoOf(configText: string): string | null {
 const PR_LIST_LIMIT = 100;
 
 /** Open PRs for a repo; null when gh couldn't say (missing, offline, not a GitHub repo). */
-async function fetchPullRequests(repoPath: string, repoAlias: string, currentUser: string): Promise<PullRequestInfo[] | null> {
+async function fetchPullRequests(
+  exec: ListExec,
+  repoPath: string,
+  repoAlias: string,
+  currentUser: string,
+): Promise<PullRequestInfo[] | null> {
   try {
-    const stdout = await execAsync(
+    const stdout = await exec(
       'gh',
       [
         'pr',
@@ -226,9 +235,9 @@ async function fetchPullRequests(repoPath: string, repoAlias: string, currentUse
  * Runs all repo fetches in parallel.
  * Returns a map from branch name → array of PRs across repos.
  */
-async function getCurrentUser(): Promise<string> {
+async function getCurrentUser(exec: ListExec): Promise<string> {
   try {
-    const stdout = await execAsync('gh', ['api', 'user', '--jq', '.login'], process.cwd(), 5000);
+    const stdout = await exec('gh', ['api', 'user', '--jq', '.login'], process.cwd(), 5000);
     return stdout.trim();
   } catch {
     return '';
@@ -245,12 +254,24 @@ export interface PrListDeps {
   gitConfig: (repoPath: string) => string | null;
 }
 
-export function defaultPrListDeps(): PrListDeps {
+/**
+ * The list's real stand-ins. `run`: the real runner (GitHub's own execFile, with tighter timeouts than
+ * the runner's minute), or any other — a test's — used as given (a failed run rejects, as execFile does).
+ */
+export function defaultPrListDeps(run: CommandRunner = defaultRunner): PrListDeps {
+  const exec: ListExec =
+    run === defaultRunner
+      ? execAsync
+      : async (cmd, args, cwd) => {
+          const r = await run(cmd, args, cwd);
+          if (r.code !== 0) throw new Error(r.stderr || `${cmd} failed`);
+          return r.stdout;
+        };
   let user: Promise<string> | null = null;
   return {
     search: async () => {
       try {
-        return await execAsync(
+        return await exec(
           'gh',
           ['api', 'graphql', '-f', `query=${PR_SEARCH_QUERY}`, '-f', `mine=${PR_SEARCH_VARS.mine}`, '-f', `asked=${PR_SEARCH_VARS.asked}`],
           process.cwd(),
@@ -260,7 +281,7 @@ export function defaultPrListDeps(): PrListDeps {
         return null;
       }
     },
-    listRepo: async (repoPath, alias) => fetchPullRequests(repoPath, alias, await (user ??= getCurrentUser())),
+    listRepo: async (repoPath, alias) => fetchPullRequests(exec, repoPath, alias, await (user ??= getCurrentUser(exec))),
     gitConfig: readGitConfig,
   };
 }

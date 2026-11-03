@@ -1,6 +1,5 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
-import { defaultHost, hostById } from '../hosts/index.js';
-import { commandsFor } from '../hosts/commands.js';
+import { commandsFor, hostName } from '../hosts/commands.js';
 import type { SessionCi, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
 import {
@@ -91,6 +90,9 @@ export interface PrWatchDeps {
   /** Who you're signed in as on a host (`host`: its id; absent: GitHub): a PR by someone else (you work on it or
    *  review it) is theirs — its review threads are addressed to its author, and its CI isn't yours to fix unasked. */
   viewer?: (host?: string) => Promise<string | null>;
+  /** The host (`host`: its id; absent: GitHub) refused for its API limit, in its own words (absent: `RATE_LIMITED`).
+   *  Wired per host by pr-watch-hosts.ts, as `viewer` and `reviewFeedback` are. */
+  rateLimited?: (host: string | undefined, text: string) => boolean;
   /** Review threads/comments on a PR (null when gh can't say). */
   reviewFeedback?: (repoPath: string, prNumber: number) => Promise<ReviewFeedback | null>;
   /** Per session: what was already acted on — CI head commits reported,
@@ -333,8 +335,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const feedbackCache = new Map<string, { number: number; updatedAt: string; at: number; fb: ReviewFeedback }>();
   /** A session's check in flight: a refresh joins it instead of starting another. */
   const inflight = new Map<string, Promise<SessionCi | null>>();
-  /** Sweeps skip until then: GitHub's API limit was spent (see check). */
+  /** Sweeps skip until then: a host's API limit was spent (see check); which host's, for the note. */
   let pausedUntil = 0;
+  let pausedBy = hostName(undefined);
   const sessionOf = (id: string) => deps.sessions().find((s) => s.id === id);
 
   /**
@@ -406,12 +409,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     }
     // GitHub refused: every PR reads as "none". Keep what we knew, act on
     // nothing, and let the sweeps rest (each would only spend more).
-    const limited = pre.repos.find((r) => r.ghError && (hostById(r.host) ?? defaultHost()).rateLimited(r.ghError));
+    const limitedBy = deps.rateLimited ?? ((_host: string | undefined, text: string) => RATE_LIMITED.test(text));
+    const limited = pre.repos.find((r) => r.ghError && limitedBy(r.host, r.ghError));
     if (limited) {
-      const hostName = (hostById(limited.host) ?? defaultHost()).name;
+      const name = hostName(limited.host);
       pausedUntil = now() + RATE_LIMIT_PAUSE_MS;
-      schedule?.pause(pausedUntil, `${hostName}'s API limit is spent`);
-      note(`${hostName} says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
+      pausedBy = name;
+      schedule?.pause(pausedUntil, `${name}'s API limit is spent`);
+      note(`${name} says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
       return states.get(id) ?? null;
     }
     const opts = deps.options();
@@ -430,6 +435,10 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         })
         .map((r) => r.name),
     );
+    // Who you are on its host couldn't be told this time (signed out, offline): mine or theirs is unknown, so
+    // nothing of it is handed over — its CI and conflicts wait for a check that can tell (review threads are
+    // held by the feedback's own viewer, newFeedback). Never read as yours: someone else's would go to Claude.
+    const unsure = new Set(pre.repos.filter((r) => deps.viewer && r.pr?.author && !viewers.get(r.host)).map((r) => r.name));
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
     const feedback: Array<{ repo: string; number: number; items: FeedbackItem[]; host?: string }> = [];
@@ -503,7 +512,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const retired = (await deps.retireReplies?.(id, ci).catch(() => [] as string[])) ?? [];
     if (retired.length)
       note(
-        `${retired.length} repl${retired.length === 1 ? 'y' : 'ies'} dropped: ${retired.length === 1 ? 'its thread was' : 'their threads were'} resolved on GitHub`,
+        `${retired.length} repl${retired.length === 1 ? 'y' : 'ies'} dropped: ${retired.length === 1 ? 'its thread was' : 'their threads were'} resolved on their host`,
         'action',
       );
     if (feedback.length) {
@@ -533,7 +542,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       } else note(`couldn't hand ${what} to its Claude; trying again next time`, 'warn');
     } else feedbackSeen.commit(); // only history / baselines: nothing to deliver
     if (opts.fixCi) {
-      const fresh = failingOf(ci).filter((f) => !theirs.has(f.repo) && !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
+      const failing = failingOf(ci).filter((f) => !theirs.has(f.repo) && !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
+      const held = failing.filter((f) => unsure.has(f.repo));
+      if (held.length)
+        note(
+          `checks fail on ${held.map((f) => `#${f.number}`).join(', ')}, but who you are on ${[...new Set(held.map((f) => hostName(pre.repos.find((r) => r.name === f.repo)?.host)))].join(' / ')} is unknown: not asking its Claude until it can tell the PR is yours`,
+          'warn',
+        );
+      const fresh = failing.filter((f) => !unsure.has(f.repo));
       if (fresh.length) {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
@@ -546,7 +562,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     // A conflict: once per PR head (a push that conflicts again — the base moved on — is told again).
     // Someone else's PR is theirs to bring up to date, as its CI is.
     if (opts.fixConflicts !== false) {
-      const fresh = conflictingOf(ci).filter((c) => !theirs.has(c.repo) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`));
+      const fresh = conflictingOf(ci).filter(
+        (c) => !theirs.has(c.repo) && !unsure.has(c.repo) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`),
+      );
       if (fresh.length) {
         const seen = staged(id);
         for (const c of fresh) seen.add(`${id}:${c.repo}:conflict:${c.headSha}`);
@@ -616,7 +634,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const watch: PrWatch = {
     tick() {
       if (now() < pausedUntil) {
-        deps.activity?.skip('pr-watch', 'Checking pull requests', "GitHub's API limit is spent; resting");
+        deps.activity?.skip('pr-watch', 'Checking pull requests', `${pausedBy}'s API limit is spent; resting`);
         return Promise.resolve();
       }
       // One sweep at a time: a slow gh must not stack sweeps up.

@@ -4,17 +4,16 @@ import {
   DEFAULT_TRUSTED_BOTS,
   isTrusted,
   isThreadCode,
-  fetchReviewFeedback,
   newFeedback,
   openThreadCount,
   openThreadsOf,
-  parseReviewFeedback,
   reviewMessage,
   subAgentHint,
   threadCode,
-  viewerLogin,
   type ReviewFeedback,
 } from '../../../src/core/pr/pr-review.js';
+import { parseReviewFeedback } from '../../../src/core/hosts/github/review.js';
+import { fetchReviewFeedback, viewerLogin } from '../../../src/core/pr/pr-watch-hosts.js';
 import { threadsWithoutDraft } from '../../../src/server/routes/pr-reply-routes.js';
 
 const c = (id: string, author: string, body = `body ${id}`, association = 'COLLABORATOR') => ({
@@ -73,6 +72,39 @@ describe('viewerLogin', () => {
     expect(await viewer()).toBe('me');
     expect(run).toHaveBeenCalledTimes(2);
     expect(run).toHaveBeenCalledWith('gh', ['api', 'user', '--jq', '.login'], expect.any(String));
+  });
+
+  it("asks each host its own CLI, once per host: Azure DevOps' name is never GitHub's login (#63 review F001)", async () => {
+    const run = vi.fn(async (cmd: string) =>
+      cmd === 'gh'
+        ? { code: 0, stdout: 'gh-login\n', stderr: '' }
+        : cmd === 'az'
+          ? { code: 0, stdout: JSON.stringify({ user: { name: 'me@acme.example' } }), stderr: '' }
+          : { code: 1, stdout: '', stderr: 'no' },
+    );
+    const viewer = viewerLogin(run);
+    expect(await viewer('azure')).toBe('me@acme.example');
+    expect(await viewer()).toBe('gh-login');
+    expect(await viewer('github')).toBe('gh-login');
+    expect(await viewer('nobody')).toBe('gh-login'); // an unknown id (an older row): the default host's
+    expect(await viewer('azure')).toBe('me@acme.example');
+    expect(run.mock.calls.map((c) => c[0])).toEqual(['az', 'gh']); // each asked once
+  });
+
+  it("one host failing doesn't answer for another, and is asked again", async () => {
+    let azUp = false;
+    const run = vi.fn(async (cmd: string) =>
+      cmd === 'gh'
+        ? { code: 0, stdout: 'gh-login\n', stderr: '' }
+        : azUp
+          ? { code: 0, stdout: JSON.stringify({ user: { name: 'me@acme.example' } }), stderr: '' }
+          : { code: 1, stdout: '', stderr: 'Please run az login' },
+    );
+    const viewer = viewerLogin(run);
+    expect(await viewer()).toBe('gh-login');
+    expect(await viewer('azure')).toBeNull();
+    azUp = true;
+    expect(await viewer('azure')).toBe('me@acme.example');
   });
 });
 

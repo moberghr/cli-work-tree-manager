@@ -13,7 +13,7 @@ import { defaultRunner, type CommandRunner, type RunResult } from '../../../src/
 import { mergeSelected, shipPreflight } from '../../../src/core/pr/ship.js';
 import { fetchAllPullRequests } from '../../../src/core/pr/pr.js';
 import { createPrWatch } from '../../../src/core/pr/pr-watch.js';
-import { fetchReviewFeedback } from '../../../src/core/pr/pr-review.js';
+import { prWatchHostDeps } from '../../../src/core/pr/pr-watch-hosts.js';
 import { prStageOf } from '../../../src/core/pr/pr-stage.js';
 import { postReply, rememberSent, threadRefusal } from '../../../src/core/pr/pr-replies.js';
 import { blockedPrState, blockRefFrom } from '../../../src/core/rail/session-blocks.js';
@@ -287,7 +287,7 @@ describe('the adapter, through the same flows as the fake host', () => {
       prOf({ pullRequestId: 8, createdBy: { uniqueName: 'ana@acme.example' }, reviewers: [{ uniqueName: ME, vote: 0 }] }),
       prOf({ pullRequestId: 9, createdBy: { uniqueName: 'ana@acme.example' }, reviewers: [] }),
     ];
-    const { map } = await fetchAllPullRequests({ api: api.path }, undefined, { run });
+    const { map } = await fetchAllPullRequests({ api: api.path }, { run });
     expect(map.get('feat/refunds')?.map((p) => [p.number, p.isMine, p.reviewRequested, p.host])).toEqual([
       [7, true, false, 'azure'],
       [8, false, true, 'azure'],
@@ -324,8 +324,8 @@ describe('the adapter, through the same flows as the fake host', () => {
       tell: async (_id, body) => void told.push(body),
       broadcast: () => undefined,
       options: () => ({ autoArchive: false, fixCi: true, reviewComments: true }),
-      viewer: (host) => (host === 'azure' ? azure.viewer(run, api.path) : Promise.resolve(null)),
-      reviewFeedback: (p, n) => fetchReviewFeedback(p, n, run),
+      // work web's own wiring (ci-routes.ts): who you are asked of Azure DevOps, not of GitHub.
+      ...prWatchHostDeps(run),
       told: () => ({ has: (k) => seen.has(k), add: (k) => void seen.add(k) }),
     });
     const ci = (await watch.refresh('s1')) as SessionCi;

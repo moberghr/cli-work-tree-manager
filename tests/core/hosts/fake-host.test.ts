@@ -11,9 +11,9 @@ import type { ShipPr, SessionCi } from '../../../src/core/api-types.js';
 import type { ReviewFeedback } from '../../../src/core/pr/review-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 import { fetchAllPullRequests } from '../../../src/core/pr/pr.js';
-import { mergeSelected, shipPreflight, defaultRunner } from '../../../src/core/pr/ship.js';
+import { mergeSelected, shipPreflight, defaultRunner as realRunner, type CommandRunner } from '../../../src/core/pr/ship.js';
 import { createPrWatch } from '../../../src/core/pr/pr-watch.js';
-import { fetchReviewFeedback } from '../../../src/core/pr/pr-review.js';
+import { prWatchHostDeps } from '../../../src/core/pr/pr-watch-hosts.js';
 import { prStageOf } from '../../../src/core/pr/pr-stage.js';
 import { listReplies, postReply, rememberSent, saveDraft, threadRefusal } from '../../../src/core/pr/pr-replies.js';
 import { blockedPrState, blockRefFrom } from '../../../src/core/rail/session-blocks.js';
@@ -27,12 +27,20 @@ import { commitsWrittenOn } from '../../../src/core/time/time-deps.js';
  * ("Fakehub": its own CLI name, link format, thread ids and words) drives
  * the PR list, Ship, the PR watch and its stages, reply drafts, blockers and
  * Start from a PR through the GitHost interface — and a group whose two
- * repos are on two different hosts. Nothing here calls gh: the repos are real
+ * repos are on two different hosts. Nothing here calls gh (the runner records
+ * any call, and the suite fails on one): the repos are real
  * git (Ship reads them), their origins on the fake hosts' domains, pushes
  * going to a local bare repo through `url.<bare>.insteadOf`.
  */
 
 const NO_GITHUB = /GitHub|\bgh\b/;
+
+/** The real runner (git for Ship), recording any `gh` call: none may happen on these hosts. */
+const ghCalls: string[][] = [];
+const defaultRunner: CommandRunner = (cmd, args, cwd) => {
+  if (cmd === 'gh') ghCalls.push(args);
+  return realRunner(cmd, args, cwd);
+};
 
 interface FakeState {
   prs: Map<string, ShipPr>; // by branch
@@ -44,6 +52,8 @@ interface FakeState {
   resolved: string[];
   prStates: Map<string, 'OPEN' | 'MERGED' | 'CLOSED'>;
   limited: boolean;
+  /** Who you are on it; null: it can't say (signed out). */
+  viewer: string | null;
 }
 
 function fakeHost(id: string, name: string, domain: string, cli: string): { host: GitHost; state: FakeState } {
@@ -57,6 +67,7 @@ function fakeHost(id: string, name: string, domain: string, cli: string): { host
     resolved: [],
     prStates: new Map(),
     limited: false,
+    viewer: 'me',
   };
   const linkRe = new RegExp(`^https://${domain.replace(/\./g, '\\.')}/([\\w-]+/[\\w-]+)/pr/(\\d+)$`);
   const host: GitHost = {
@@ -71,7 +82,7 @@ function fakeHost(id: string, name: string, domain: string, cli: string): { host
     },
     prRef: (n) => `refs/${id}/${n}`,
     list: async (repos) => ({ prs: state.list.filter((p) => repos.some((r) => r.alias === p.repoAlias)), incomplete: [] }),
-    viewer: async () => 'me',
+    viewer: async () => state.viewer,
     prForBranch: async (_run, _cwd, branch) => {
       if (state.limited) return { kind: 'error', error: `${name} says: slow down` };
       const pr = state.prs.get(branch);
@@ -206,6 +217,7 @@ beforeAll(() => {
 }, 60_000);
 
 afterAll(() => {
+  expect(ghCalls).toEqual([]);
   for (const u of unregister) u();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -301,8 +313,8 @@ describe('the PR watch, its stage and its notes', () => {
       tell: async (_id, body) => void told.push(body),
       broadcast: () => undefined,
       options: () => ({ autoArchive: false, fixCi: true, reviewComments: true }),
-      viewer: async (host) => (host === 'other' ? 'me-on-other' : 'me'),
-      reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
+      // work web's own wiring (ci-routes.ts): who you are, feedback and API-limit words, each asked of the repo's host.
+      ...prWatchHostDeps(defaultRunner),
       told: () => {
         const seen = new Set<string>();
         return { has: (k) => seen.has(k), add: (k) => void seen.add(k) };
@@ -312,7 +324,16 @@ describe('the PR watch, its stage and its notes', () => {
   it("failing checks and review threads on Fakehub: the stage, and notes in Fakehub's words — never GitHub's", async () => {
     fake.state.limited = false;
     fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }] }));
-    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    other.state.viewer = 'me-on-other';
+    other.state.prs.set(
+      'feat/refunds',
+      openPr(8, web.head, {
+        author: 'me-on-other',
+        checks: 'fail',
+        failing: [{ name: 'lint' }],
+        url: 'https://git.other.example/team/web/pr/8',
+      }),
+    );
     fake.state.feedback = {
       viewer: 'me',
       threads: [
@@ -350,7 +371,31 @@ describe('the PR watch, its stage and its notes', () => {
     expect(review).toContain('on Fakehub');
     expect(review).toContain('[thread FAKE-1]');
     expect(ciNote).toContain('`fk builds <n>`');
+    // Each repo's PR is yours by its own host's word (`me` on Fakehub, `me-on-other` on Otherhub): both told, each in its host's commands.
+    expect(ciNote).toContain('#7');
+    expect(ciNote).toContain('#8');
+    expect(ciNote).toContain('`oth builds <n>`');
     for (const t of told) expect(t).not.toMatch(NO_GITHUB);
+  }, 60_000);
+
+  it("who you are on a host can't be told: its PR is neither yours nor theirs, and nothing of it goes to Claude", async () => {
+    fake.state.feedback = null;
+    other.state.feedback = null;
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], author: 'me' }));
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null; // signed out of Fakehub
+    const told: string[] = [];
+    const w = watch(told);
+    await w.refresh('shop1');
+    expect(told.filter((t) => t.startsWith('CI is failing'))).toEqual([]);
+    fake.state.viewer = 'me'; // signed in again: asked again, and the PR is yours
+    await w.refresh('shop1');
+    expect(told.filter((t) => t.startsWith('CI is failing'))).toHaveLength(1);
+    fake.state.viewer = 'someone-else';
+    const w2: string[] = [];
+    await watch(w2).refresh('shop1');
+    expect(w2.filter((t) => t.startsWith('CI is failing'))).toEqual([]); // theirs: shown, never handed over
+    fake.state.viewer = 'me';
   }, 60_000);
 
   it("the host's own words for its API limit: the watch keeps what it knew and tells nobody", async () => {
@@ -442,8 +487,9 @@ describe('Start from a PR, and what its session is told', () => {
   });
 
   it("a day's commits leave out the ones a host wrote itself (a squash merge), whichever host", () => {
-    const day = new Date().toISOString().slice(0, 10);
-    const at = new Date().toISOString();
+    // A local day, and a commit at half past midnight local time: a UTC day here failed east of UTC every night.
+    const day = '2026-11-02';
+    const at = new Date(2026, 10, 2, 0, 30).toISOString();
     const log = [
       `a1\t${at}\tme@example.com\tmine`,
       `b2\t${at}\trobot@code.fake.example\tSquash`,

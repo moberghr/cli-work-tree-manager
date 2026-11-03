@@ -36,3 +36,11 @@ describe('config gitHosts: the host of an origin its URL cannot tell', () => {
     expect(hostForOrigin('git@git.corp.example:team/api.git').id).toBe('github');
   });
 });
+
+describe('GitHub Enterprise needs no gitHosts entry (#63 review F012)', () => {
+  it('a server no adapter claims is already asked as GitHub (gh finds the server from the repo folder)', () => {
+    write({ gitHosts: {} });
+    expect(hostForOrigin('git@ghe.corp.example:team/api.git').id).toBe('github');
+    expect(hostForOrigin('https://ghe.corp.example/team/api.git').id).toBe('github');
+  });
+});

@@ -1,14 +1,7 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import {
-  checksFromRollup,
-  failingFromRollup,
-  mergeBlockers,
-  mergeSelected,
-  runShipAction,
-  shipPreflight,
-  type CommandRunner,
-} from '../../../src/core/pr/ship.js';
+import { checksFromRollup, failingFromRollup } from '../../../src/core/hosts/github/pr-ops.js';
+import { mergeBlockers, mergeSelected, runShipAction, shipPreflight, type CommandRunner } from '../../../src/core/pr/ship.js';
 import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 
 /**

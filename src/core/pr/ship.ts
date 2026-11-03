@@ -43,9 +43,6 @@ export function shipRepos(session: WorktreeSession): Array<{ name: string; path:
   }));
 }
 
-// GitHub's check rollup reading moved to its adapter; still importable from here.
-export { checksFromRollup, failingFromRollup } from '../hosts/github/pr-ops.js';
-
 type RepoFacts = Omit<RepoShipState, 'mergeBlockers' | 'done' | 'doneReason'>;
 
 /**

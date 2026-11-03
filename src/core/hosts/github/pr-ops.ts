@@ -54,6 +54,16 @@ export function checksFromRollup(rollup: CheckRollupItem[] | null | undefined): 
 /** First line of a CLI's error output. */
 export const oneLineErr = (s: string) => s.trim().split('\n')[0] ?? '';
 
+/**
+ * The line of gh's error output that says why: the one about GitHub's API limit wherever it is (gh may warn
+ * first, and the limit is what the watch and the blockers' sweep rest on), else the first.
+ */
+export const reasonLine = (s: string) =>
+  s
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => /rate limit/i.test(l)) ?? oneLineErr(s);
+
 /** `gh pr view <branch>`: the branch's PR as work's ShipPr, none, or why gh couldn't say. */
 export async function githubPrForBranch(run: CommandRunner, cwd: string, branch: string): Promise<PrLookup> {
   const view = await run(
@@ -106,7 +116,7 @@ export async function githubPrForBranch(run: CommandRunner, cwd: string, branch:
   }
   if (view.code === 127) return { kind: 'error', error: 'GitHub CLI (gh) not found — install it to open and merge PRs' };
   if (/no pull requests found/i.test(view.stderr)) return { kind: 'none' };
-  return { kind: 'error', error: oneLineErr(view.stderr) || 'gh pr view failed' };
+  return { kind: 'error', error: reasonLine(view.stderr) || 'gh pr view failed' };
 }
 
 /** `gh pr create --fill`: the new PR's link when gh printed one. */
@@ -204,7 +214,7 @@ export async function githubPrState(
   cwd: string,
 ): Promise<HostResult<{ state: 'OPEN' | 'MERGED' | 'CLOSED' }>> {
   const r = await run('gh', ['pr', 'view', url, '--json', 'state', '-q', '.state'], cwd);
-  if (r.code !== 0) return { ok: false, error: oneLineErr(r.stderr) || 'gh pr view failed' };
+  if (r.code !== 0) return { ok: false, error: reasonLine(r.stderr) || 'gh pr view failed' };
   const st = r.stdout.trim();
   return st === 'OPEN' || st === 'MERGED' || st === 'CLOSED' ? { ok: true, state: st } : { ok: false, error: `gh said ${st || 'nothing'}` };
 }

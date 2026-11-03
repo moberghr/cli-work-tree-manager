@@ -7,7 +7,7 @@ import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { findSession } from '../../core/sessions/web-state.js';
 import { defaultRunner, shipPreflight } from '../../core/pr/ship.js';
-import { fetchReviewFeedback, viewerLogin } from '../../core/pr/pr-review.js';
+import { prWatchHostDeps } from '../../core/pr/pr-watch-hosts.js';
 import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
 import { readStatus, turnInProgress } from '../../core/status/session-status.js';
 import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
@@ -88,8 +88,8 @@ export function mountCiRoutes(
         askGh: (r) => r.hasUpstream || !!watch.state(id)?.repos.find((x) => x.name === r.name)?.pr,
       });
     },
-    reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
-    viewer: viewerLogin(defaultRunner),
+    // Who you are, review feedback and API-limit words: each repo asked of its own host.
+    ...prWatchHostDeps(defaultRunner),
     runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
     ...(opts.activity ? { activity: opts.activity } : {}),
     busy: midTurn,
