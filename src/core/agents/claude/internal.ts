@@ -29,6 +29,13 @@ export function internalClaudeSpawn(opts: { model?: string } = {}): { args: stri
   };
 }
 
+/**
+ * The Claude Code the read-only flags below were measured on: the oldest a checkout run is started with. An older one
+ * (or one whose version can't be told) gets no checkout run — the Reviews AI step reads the diff alone (version.ts,
+ * `claudeReadOnlyAvailable`). Measure again before lowering it.
+ */
+export const READ_ONLY_MIN_VERSION = '2.1.317';
+
 /** The read-only file tools a review run gets: nothing that runs a command, writes, or reaches the network. */
 export const READ_ONLY_TOOLS = 'Read,Grep,Glob';
 

@@ -191,6 +191,19 @@ export function touchSession(target: string, branch: string): void {
   });
 }
 
+/**
+ * A current `work` launches the session's agent directly, in its own permission mode: a `launchedUnsafe` from before
+ * `--unsafe` was retired no longer describes it (legacy-unsafe.ts). REMOVE IN THE NEXT RELEASE.
+ */
+export function clearLaunchedUnsafe(target: string, branch: string): void {
+  tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s || s.launchedUnsafe === undefined) return;
+    delete s.launchedUnsafe;
+    putRow(d, s);
+  });
+}
+
 export async function upsertSession(
   target: string,
   isGroup: boolean,

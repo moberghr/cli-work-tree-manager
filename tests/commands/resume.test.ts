@@ -217,7 +217,7 @@ describe('recent --resume updates lastAccessedAt', () => {
 });
 
 describe('--unsafe, retired', () => {
-  it('work resume / recent still take it, say it is gone, and launch with no skip-permissions flag; an old row with launchedUnsafe is never rewritten', async () => {
+  it('work resume / recent still take it, say it is gone, and launch with no skip-permissions flag; an old row read back no longer says launchedUnsafe', async () => {
     vi.mocked(launchAi).mockClear();
     seedConfig();
     const old = Object.assign(makeSession(), { launchedUnsafe: true }); // a row from before
@@ -229,6 +229,11 @@ describe('--unsafe, retired', () => {
     const warned = vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
     expect(warned.filter((w) => w.includes(UNSAFE_GONE))).toHaveLength(2);
     for (const call of vi.mocked(launchAi).mock.calls) expect(call[2]).toEqual({ resume: true });
+    // Launched normally now: the row from before no longer guards it (legacy-unsafe.ts), and keeps the rest.
+    const back = loadHistory().find((x) => x.branch === old.branch);
+    expect(back).toBeDefined();
+    expect(back).not.toHaveProperty('launchedUnsafe');
+    expect(back?.paths).toEqual(old.paths);
     vi.mocked(select).mockReset();
   });
 

@@ -5,7 +5,7 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/platform/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
 import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
-import { findSession, loadHistory } from '../core/sessions/history.js';
+import { clearLaunchedUnsafe, findSession, loadHistory } from '../core/sessions/history.js';
 import { retiredUnsafeOption, warnRetiredUnsafe } from './shared/retired-unsafe.js';
 import { keepingWarnings } from '../core/platform/report.js';
 import { SETUP_WARNINGS } from '../core/worktree/setup-child.js';
@@ -170,6 +170,8 @@ export const treeCommand: CommandModule = {
       if (resume) {
         console.log(chalk.gray(`Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`));
       }
+      // Started normally now: a launchedUnsafe from before the retirement no longer describes it (legacy-unsafe.ts; remove next release).
+      clearLaunchedUnsafe(sessionKey.target, sessionKey.branch);
       console.log(`Starting ${tool.cmd}...`);
       launchAi(dir, tool, { initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
     };

@@ -469,6 +469,27 @@ describe('the AI step in a temporary checkout of the PR', () => {
     expect(threw.notes().some((n) => n.endsWith('(the checkout run gave no answer: disk full)'))).toBe(true);
   });
 
+  it('a checkout run that answered but whose checkout would not go: its note is kept in Activity (F005)', async () => {
+    const agent = vi.fn(async (_p: string) => 'unused');
+    const why = "its checkout /t/api-7-sha7-x wouldn't go: the next start sweeps it";
+    const h = harness({ agent, agentInCheckout: async () => ({ answer, why }) });
+    await h.queue.sweep();
+    expect(agent).not.toHaveBeenCalled();
+    expect(h.rows.get('api#7')!.aiStep).toBe('done');
+    expect(h.notes()).toContain(`action: api #7: prepared — 1 story, 1 untested change; read in a temporary checkout of the PR (${why})`);
+  });
+
+  it("an installed agent its read-only mode wasn't measured on: no checkout run, the diff alone, and Activity says why (decision 1)", async () => {
+    const agent = vi.fn(async (_p: string) => answer);
+    const why = 'no checkout run: Claude Code 2.1.200 is older than 2.1.317, the version its read-only flags were measured on';
+    const h = harness({ agent, agentInCheckout: async () => ({ answer: null, skipped: true, why }) });
+    await h.queue.sweep();
+    expect(agent).toHaveBeenCalledTimes(1);
+    expect(agent.mock.calls[0][0]).not.toContain(CHECKOUT_LINES[0]);
+    expect(h.rows.get('api#7')!.aiStep).toBe('done');
+    expect(h.notes()).toContain(`action: api #7: prepared — 1 story, 1 untested change; read from the diff alone (${why})`);
+  });
+
   it("an agent with no read-only words (no read-only run): the checkout isn't made, the diff alone (#64 F005)", async () => {
     const agent = vi.fn(async (_p: string) => answer);
     const agentInCheckout = vi.fn(async () => ({ answer }));

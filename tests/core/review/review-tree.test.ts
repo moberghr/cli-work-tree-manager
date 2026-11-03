@@ -9,6 +9,7 @@ import {
   createReviewTree,
   NO_LFS,
   NO_LFS_ENV,
+  removeReviewTree,
   reviewTreeName,
   sweepReviewTrees,
   withReviewTree,
@@ -108,8 +109,8 @@ describe("the settings files Claude Code reads (its adapter's rule), and the fol
     expect(
       ['CLAUDE.md', '.claude/rules/x.md', '.claude/commands/c.md', 'settings.json', 'x/.claude/settings.jsonc'].some(isSettingsFile),
     ).toBe(false);
-    expect(reviewTreeName('api', 5, 'abcdef1234567')).toBe('api-5-abcdef12');
-    expect(reviewTreeName('../evil name', 5, 'abc')).toBe('__evil_name-5-abc');
+    expect(reviewTreeName('api', 5, 'abcdef1234567', 'k3x9')).toBe('api-5-abcdef12-k3x9');
+    expect(reviewTreeName('../evil name', 5, 'abc', '../r')).toBe('__evil_name-5-abc-r');
   });
 });
 
@@ -117,7 +118,7 @@ describe('a temporary checkout of the PR', () => {
   it('is a detached worktree at the reviewed commit, its settings files gone, its CLAUDE.md and rules kept, no hook run, no symlink', async () => {
     const t = await createReviewTree(defaultRunner, at, { root, strip: isSettingsFile });
     if (!t.ok) throw new Error(t.error);
-    expect(path.basename(t.dir)).toBe(reviewTreeName('api', 5, prSha));
+    expect(path.basename(t.dir)).toMatch(new RegExp(`^${reviewTreeName('api', 5, prSha, '')}-[a-z0-9]+$`));
     expect(git(t.dir, 'rev-parse', 'HEAD')).toBe(prSha);
     expect(git(t.dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD'); // detached
     expect(t.removed.sort()).toEqual(['.claude/settings.json', '.claude/settings.local.json', '.mcp.json', 'pkg/.claude/settings.json']);
@@ -149,6 +150,16 @@ describe('a temporary checkout of the PR', () => {
     expect(r).toEqual({ ok: true, value: 'answer' });
     expect(fs.existsSync(seen)).toBe(false);
     expect(worktrees()).not.toContain(path.basename(seen));
+  });
+
+  it('two runs on the same head (two work webs) get folders of their own: the second never deletes the first’s (F008)', async () => {
+    const first = await createReviewTree(defaultRunner, at, { root, strip: isSettingsFile });
+    const second = await createReviewTree(defaultRunner, at, { root, strip: isSettingsFile });
+    if (!first.ok || !second.ok) throw new Error('not made');
+    expect(second.dir).not.toBe(first.dir);
+    expect(fs.existsSync(path.join(first.dir, 'src', 'Logic.cs'))).toBe(true); // still there, being read
+    expect(await removeReviewTree(defaultRunner, repo, first.dir)).toBe(true);
+    expect(await removeReviewTree(defaultRunner, repo, second.dir)).toBe(true);
   });
 
   it('is removed when the run throws, and the error goes on', async () => {
@@ -206,6 +217,47 @@ describe('the AI step in a checkout (review-deps `agentInCheckout`)', () => {
     expect(r).toBeNull();
     expect(ran).toBe(false);
     expect(fs.existsSync(root)).toBe(false);
+  });
+
+  it("the installed agent isn't one its read-only mode was measured on (or can't be told): skipped, no checkout made, said why", async () => {
+    let ran = false;
+    const io = (available: () => Promise<{ ok: boolean; why?: string }>) => ({
+      run: defaultRunner,
+      readOnly: () => ({ isSettingsFile, available }),
+      agent: async () => ((ran = true), 'x'),
+      root,
+    });
+    expect(
+      await agentInCheckout(
+        at,
+        'p',
+        io(async () => ({ ok: false, why: 'Claude Code 2.1.200 is older than 2.1.317' })),
+      ),
+    ).toEqual({
+      answer: null,
+      skipped: true,
+      why: 'no checkout run: Claude Code 2.1.200 is older than 2.1.317',
+    });
+    expect(
+      await agentInCheckout(
+        at,
+        'p',
+        io(async () => {
+          throw new Error('claude --version hung');
+        }),
+      ),
+    ).toEqual({ answer: null, skipped: true, why: 'no checkout run: claude --version hung' });
+    expect(ran).toBe(false);
+    expect(fs.existsSync(root) ? fs.readdirSync(root).filter((d) => !d.startsWith('.')) : []).toEqual([]);
+    // Ok: it runs as before.
+    expect(
+      await agentInCheckout(
+        at,
+        'p',
+        io(async () => ({ ok: true })),
+      ),
+    ).toEqual({ answer: 'x' });
+    expect(ran).toBe(true);
   });
 
   it('runs the agent in the checkout with the prompt, then removes it; no answer says why', async () => {

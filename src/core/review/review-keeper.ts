@@ -1,5 +1,6 @@
 import type { ActivityLog } from '../platform/activity.js';
 import type { ReviewQueue } from './review-queue.js';
+import { bestEffort } from '../platform/best-effort.js';
 
 /**
  * When work web sweeps for PR reviews (#64): the first a few minutes after
@@ -33,11 +34,17 @@ export function startReviewSweeps(opts: {
   const schedule = opts.activity?.schedule('reviews', 'Preparing PR reviews', REVIEWS_EVERY_MS);
   const sweep = () => {
     schedule?.next(now() + REVIEWS_EVERY_MS);
-    try {
-      opts.tidy?.();
-    } catch {
-      /* the sweep runs anyway; the next one tries again */
-    }
+    // The sweep runs anyway and the next one tries again, but a failure is said: in the debug log and in Activity.
+    bestEffort('settle the reviews a stopped work web left', () => {
+      try {
+        opts.tidy?.();
+      } catch (err) {
+        opts.activity
+          ?.start('reviews', 'Settling what a stopped work web left')
+          .fail(`${(err as Error).message}: the sweep runs anyway, and the next one tries again`);
+        throw err;
+      }
+    });
     void opts.queue.sweep();
   };
   let every: ReturnType<typeof setInterval> | null = null;

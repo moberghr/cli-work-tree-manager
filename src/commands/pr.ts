@@ -6,6 +6,8 @@ import { sessionIdFor } from '../core/sessions/session-id.js';
 import { draftReply, listReplies, postDrafts, sessionRepoRefs } from '../core/pr/pr-replies.js';
 import { defaultRunner } from '../core/pr/ship.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
+import { STILL_UNSAFE } from '../core/sessions/legacy-unsafe.js';
+import { runsUnsafeFromBefore } from '../core/sessions/legacy-unsafe-io.js';
 
 /** Tell a running work web a draft changed, so the session header shows it. Best effort. */
 async function nudgeWeb(sessionId: string): Promise<void> {
@@ -26,6 +28,14 @@ function sessionHere() {
     process.exit(1);
   }
   return s;
+}
+
+/** An agent still running without permission prompts from before --unsafe was retired drafts and posts nothing
+ *  (legacy-unsafe.ts). REMOVE IN THE NEXT RELEASE. */
+function refuseStillUnsafe(s: ReturnType<typeof sessionHere>): void {
+  if (!runsUnsafeFromBefore(sessionIdFor(s), s)) return;
+  console.error(chalk.red(STILL_UNSAFE));
+  process.exit(1);
 }
 
 /**
@@ -52,6 +62,7 @@ export const prCommand: CommandModule = {
             .option('body-file', { type: 'string', describe: 'Read the reply from this file instead' }),
         async (argv) => {
           const s = sessionHere();
+          refuseStillUnsafe(s);
           const text = argv['body-file']
             ? fs.readFileSync(String(argv['body-file']), 'utf8')
             : ((argv.text as string[] | undefined) ?? []).join(' ');
@@ -85,6 +96,7 @@ export const prCommand: CommandModule = {
             }),
         async (argv) => {
           const s = sessionHere();
+          refuseStillUnsafe(s);
           const id = sessionIdFor(s);
           const asked = (argv.threads as string[] | undefined) ?? [];
           const drafts = listReplies(id).filter((r) => r.status === 'draft' && (argv.all || asked.includes(r.threadId)));

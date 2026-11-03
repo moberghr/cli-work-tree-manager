@@ -39,10 +39,18 @@ describe('when work web sweeps', () => {
       order.push('tidy');
       if (++n === 1) throw new Error('state.db busy');
     });
-    const sweeps = startReviewSweeps({ queue: { sweep }, jobs: true, tidy });
+    const activity = createActivityLog({ now: () => Date.now() });
+    const sweeps = startReviewSweeps({ queue: { sweep }, activity, jobs: true, tidy });
     vi.advanceTimersByTime(REVIEWS_FIRST_MS);
     vi.advanceTimersByTime(REVIEWS_EVERY_MS);
     expect(order).toEqual(['tidy', 'sweep', 'tidy', 'sweep']);
+    // Said, not swallowed (F009): a failed run in Activity, with why; the debug log has it too (bestEffort).
+    const failed = activity.snapshot().recent.filter((r) => r.kind === 'reviews' && r.status === 'failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({
+      label: 'Settling what a stopped work web left',
+      summary: 'state.db busy: the sweep runs anyway, and the next one tries again',
+    });
     sweeps.stop();
   });
 

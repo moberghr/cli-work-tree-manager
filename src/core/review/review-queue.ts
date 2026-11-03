@@ -60,9 +60,10 @@ export interface ReviewQueueDeps {
   /**
    * The AI step read-only in a temporary checkout of the PR at its head (review-tree.ts, `runInternalReadOnly`),
    * tried before `agent`: null when the agent has no read-only mode; `answer` null when the run gave none (`why`) —
-   * either way `agent` then reads the diff alone.
+   * either way `agent` then reads the diff alone. `skipped`: not run at all (the installed agent isn't one its
+   * read-only mode was measured on), `why` says so.
    */
-  agentInCheckout?: (at: ReviewTreeAt, prompt: string) => Promise<{ answer: string | null; why?: string } | null>;
+  agentInCheckout?: (at: ReviewTreeAt, prompt: string) => Promise<{ answer: string | null; why?: string; skipped?: boolean } | null>;
   /** What the checkout run's prompt says of its folder in its agent's words (`oneShot.readOnly.promptLines`); null: none. */
   checkoutLines?: () => string[] | null;
   /** Remove the temporary checkouts a stopped run left: once, before the first sweep's reviews (review-tree.ts). */
@@ -235,9 +236,12 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
           { repoPath: project.path, alias: project.alias, number: at.number, headSha: at.headSha },
           reviewPrompt(at, prepared.files, kinds, { checkout: lines }) ?? prompt,
         )
-        .catch((err: Error) => ({ answer: null, why: err.message }));
-      if (inTree?.answer) return { answer: inTree.answer, how: 'read in a temporary checkout of the PR' };
-      if (inTree) fellBack = `the checkout run gave no answer${inTree.why ? `: ${inTree.why}` : ''}`;
+        .catch((err: Error): { answer: null; why: string; skipped?: boolean } => ({ answer: null, why: err.message }));
+      // Its note (a checkout that wouldn't go) is kept for Activity, answer or not.
+      if (inTree?.answer)
+        return { answer: inTree.answer, how: `read in a temporary checkout of the PR${inTree.why ? ` (${inTree.why})` : ''}` };
+      if (inTree?.skipped) fellBack = inTree.why ?? 'the checkout run was skipped';
+      else if (inTree) fellBack = `the checkout run gave no answer${inTree.why ? `: ${inTree.why}` : ''}`;
     }
     const answer = await deps.agent(prompt).catch(() => null);
     return { answer, how: `read from the diff alone (${fellBack})` };
@@ -284,7 +288,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
         preparedAt: now().toISOString(),
       };
       // Read and written in one transaction: a draft you add meanwhile is carried over, never overwritten.
-      const review = deps.store.upsert(meta.repo, meta.number, (was) => carryForward(was, fresh));
+      const review = deps.store.upsert(meta.repo, meta.number, (was) => carryForward(was, fresh, now()));
       deps.changed();
       return { ok: true, review, ...(how ? { how } : {}) };
     } catch (err) {

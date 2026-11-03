@@ -50,23 +50,26 @@ export async function agentInCheckout(
   prompt: string,
   io: {
     run: CommandRunner;
-    /** The summarising agent's read-only run (its rule for settings files); null: it has none. */
-    readOnly: () => Pick<AgentReadOnly, 'isSettingsFile'> | null;
+    /** The summarising agent's read-only run (its rule for settings files, whether the installed agent can); null: it has none. */
+    readOnly: () => Pick<AgentReadOnly, 'isSettingsFile' | 'available'> | null;
     agent: (prompt: string, cwd: string) => Promise<string | null>;
     root?: string;
   },
-): Promise<{ answer: string | null; why?: string } | null> {
+): Promise<{ answer: string | null; why?: string; skipped?: boolean } | null> {
   const mode = io.readOnly();
   if (!mode) return null;
+  // Its isolation rests on the installed agent being one it was measured on (Claude: its version): else no checkout.
+  const can = mode.available ? await mode.available().catch((err: Error) => ({ ok: false, why: err.message })) : { ok: true };
+  if (!can.ok) return { answer: null, skipped: true, why: `no checkout run: ${can.why ?? "the agent can't run it read-only"}` };
   const r = await withReviewTree(io.run, at, (dir) => io.agent(prompt, dir), {
     strip: (rel) => mode.isSettingsFile(rel),
     ...(io.root ? { root: io.root } : {}),
   });
   if (!r.ok) return { answer: null, why: r.error };
-  const left = r.left ? ` (its checkout ${r.left} wouldn't go: the next start sweeps it)` : '';
+  const left = r.left ? `its checkout ${r.left} wouldn't go: the next start sweeps it` : '';
   return r.value
-    ? { answer: r.value, ...(left ? { why: left.trim() } : {}) }
-    : { answer: null, why: `no answer: it failed or took over ${CHECKOUT_AGENT_TIMEOUT_MS / 60_000} minutes${left}` };
+    ? { answer: r.value, ...(left ? { why: left } : {}) }
+    : { answer: null, why: `no answer: it failed or took over ${CHECKOUT_AGENT_TIMEOUT_MS / 60_000} minutes${left ? ` (${left})` : ''}` };
 }
 
 /** config.json, or an empty one (no repos: nothing to review). */

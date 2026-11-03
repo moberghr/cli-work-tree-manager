@@ -321,6 +321,83 @@ describe('Fix it myself: the flow', () => {
     expect(fail).toHaveBeenCalledWith("couldn't tell Refunds: its comments are full");
   });
 
+  it('a review prepared again while the session is made keeps the drafts it claimed: they leave with it, never submittable (F003)', async () => {
+    const h = setup();
+    let duringIds: string[] = [];
+    h.deps.create = async (alias, branch) => {
+      // A new push: the queue prepares the review again, carried forward over the row as it is.
+      const next = carryForward(h.rows.get('api#231')!, review(), at);
+      h.rows.set('api#231', next);
+      duringIds = next.drafts.map((d) => d.id);
+      expect(submitRefusal(next, { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'x' }] }, at)).toContain('Fix it myself');
+      return { ok: true, sessionId: 'new1', label: `${alias} · ${branch}` };
+    };
+    const out = await fixItMyself(h.deps, 'api', 231, { drafts: ['d1'] });
+    expect(duringIds).toContain('d1'); // held as it was
+    expect(duringIds).not.toContain('d2'); // the AI step's unclaimed one is the new run's to say
+    expect(out).toMatchObject({ ok: true });
+    expect(out).not.toHaveProperty('warnings');
+    const r = h.rows.get('api#231')!;
+    expect(r.drafts.map((d) => d.id)).not.toContain('d1');
+    expect(r.fixingMyself?.[0].comments).toHaveLength(1);
+    expect(r.fixing).toBeUndefined();
+    // Pure: a claim left over (past FIX_CLAIM_STALE_MS) holds nothing.
+    const stale = { ...review(), fixing: { at: new Date(at.getTime() - FIX_CLAIM_STALE_MS - 1).toISOString(), drafts: ['d1'] } };
+    expect(carryForward(stale, review(), at).drafts.map((d) => d.id)).not.toContain('d1');
+  });
+
+  it('it frees only its own claim: one taken over since (a later time) stays, on a failure and on success (F004)', async () => {
+    let t = at;
+    const later = () => new Date(t.getTime() + FIX_CLAIM_STALE_MS + 60_000);
+    const theirs = () => ({ at: later().toISOString(), drafts: ['d2'] });
+    // Ours goes stale while the creation hangs; another window claims d2 at a later time, then ours fails.
+    const failing = setup({
+      now: () => t,
+      create: async () => {
+        failing.rows.set('api#231', { ...failing.rows.get('api#231')!, fixing: theirs() });
+        return { ok: false as const, error: 'git worktree add failed' };
+      },
+    });
+    expect(await fixItMyself(failing.deps, 'api', 231, { drafts: ['d1'] })).toMatchObject({ ok: false, status: 409 });
+    expect(failing.rows.get('api#231')!.fixing).toEqual(theirs());
+    // The same on success: d1 leaves, their claim on d2 stands.
+    t = at;
+    const ok = setup({
+      now: () => t,
+      start: async () => {
+        ok.rows.set('api#231', { ...ok.rows.get('api#231')!, fixing: theirs() });
+        return 'started';
+      },
+    });
+    expect(await fixItMyself(ok.deps, 'api', 231, { drafts: ['d1'] })).toMatchObject({ ok: true });
+    expect(ok.rows.get('api#231')!.fixing).toEqual(theirs());
+    expect(ok.rows.get('api#231')!.drafts.map((d) => d.id)).toEqual(['d2']);
+  });
+
+  it('the review gone meanwhile is said; something that throws releases the claim, fails the run and is thrown on (F004)', async () => {
+    const gone = setup();
+    gone.deps.start = async () => {
+      gone.rows.delete('api#231');
+      return 'started';
+    };
+    const out = await fixItMyself(gone.deps, 'api', 231, { drafts: ['d1'] });
+    expect(out).toMatchObject({ ok: true, warnings: ['the review went away meanwhile: nothing to take the comments off'] });
+    expect(gone.notes).toHaveBeenCalledWith(expect.stringContaining('the review went away meanwhile'), {
+      level: 'warn',
+      sessionId: 'new1',
+    });
+
+    const boom = setup({
+      liveSessionOn: () => {
+        throw new Error('history unreadable');
+      },
+    });
+    await expect(fixItMyself(boom.deps, 'api', 231, { drafts: ['d1'] })).rejects.toThrow('history unreadable');
+    expect(boom.rows.get('api#231')!.fixing).toBeUndefined();
+    expect(boom.rows.get('api#231')!.drafts).toHaveLength(2);
+    expect(boom.fail).toHaveBeenCalledWith('history unreadable');
+  });
+
   it('its warnings are noted in Activity at warn, with the session (#64 F002)', async () => {
     const { deps, notes } = setup({ start: async () => Promise.reject(new Error('host down')) });
     await fixItMyself(deps, 'api', 231, { drafts: ['d1'] });

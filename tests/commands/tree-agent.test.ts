@@ -14,6 +14,7 @@ const { git } = await import('../../src/core/git/git.js');
 const { saveConfig } = await import('../../src/core/platform/config.js');
 const { loadHistory, saveHistory } = await import('../../src/core/sessions/history.js');
 const { treeCommand } = await import('../../src/commands/tree.js');
+const { UNSAFE_GONE } = await import('../../src/commands/shared/retired-unsafe.js');
 
 let home: string;
 let repo: string;
@@ -139,5 +140,28 @@ describe('work tree --account', () => {
       expect.anything(),
     );
     expect(fs.existsSync(path.join(home, 'wt'))).toBe(false);
+  });
+});
+
+describe('work tree --unsafe, retired (remove next release)', () => {
+  it("says it is gone, launches with no skip-permissions flag, and clears an old row's launchedUnsafe", async () => {
+    await tree();
+    saveHistory(loadHistory().map((x) => ({ ...x, launchedUnsafe: true }))); // a row from before
+    vi.mocked(launchAi).mockClear();
+    vi.mocked(console.error).mockClear();
+    await (treeCommand.handler as (argv: unknown) => unknown)({
+      _: [],
+      target: 'api',
+      branch: 'feat/x',
+      host: false,
+      pull: false,
+      fresh: false,
+      unsafe: true,
+    });
+    expect(vi.mocked(console.error).mock.calls.map((c) => String(c[0]))).toEqual([expect.stringContaining(UNSAFE_GONE)]);
+    expect(launchAi).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(launchAi).mock.calls[0][2]).not.toHaveProperty('unsafe');
+    expect(JSON.stringify(vi.mocked(launchAi).mock.calls[0])).not.toMatch(/skip-permissions/);
+    expect(loadHistory()[0]).not.toHaveProperty('launchedUnsafe');
   });
 });

@@ -148,6 +148,11 @@ export interface AgentReadOnly {
   isSettingsFile(relPath: string): boolean;
   /** What the run's prompt says of the folder in the agent's own words: its tools, and which of its files it was given. */
   promptLines: string[];
+  /**
+   * Whether the installed agent can run it as it was measured (Claude: its version, at least the one its flags were
+   * measured on). Not ok: no checkout run, and `why` says so. Absent: always.
+   */
+  available?(): Promise<{ ok: boolean; why?: string }>;
 }
 
 /** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */

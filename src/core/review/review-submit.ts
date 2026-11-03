@@ -335,14 +335,17 @@ export function removeDraft(r: PrReviewWire, id: string): { review: PrReviewWire
 /**
  * A review prepared again (a new push, or Prepare again) keeps what is yours: your drafts that still go on a line of
  * the new diff (the rest set aside in `dropped` with their text and why), what you posted (as a record), what you
- * submitted, a submit in doubt or under way (and every draft it names, as it is: it may be posted), and your drafts
- * set aside before. The AI step's unsent drafts are replaced by the new ones, numbered past every id the review has
+ * submitted, a submit in doubt or under way (and every draft it names, as it is: it may be posted), the drafts a Fix it
+ * myself claim that stands is taking, and your drafts set aside before. The AI step's unsent drafts are replaced by the new ones, numbered past every id the review has
  * ever had (`lastDraft`), so no id is handed out twice — one a submit in doubt names is never a new draft's.
  */
-export function carryForward(was: PrReviewWire | null, fresh: PrReviewWire): PrReviewWire {
+export function carryForward(was: PrReviewWire | null, fresh: PrReviewWire, now: Date = new Date()): PrReviewWire {
   if (!was) return fresh;
   const files = new Map(fresh.files.map((f) => [f.path, f]));
   const held = heldIds(was);
+  // The drafts Fix it myself is taking to a session stay as they are while its claim stands: replaced by new ids, it
+  // would take none of them off, and the same comments would stay submittable.
+  if (fixClaimActive(was, now)) for (const id of was.fixing?.drafts ?? []) held.add(id);
   const keep: ReviewDraftWire[] = [];
   // Yours set aside before stay; the AI step's are the new run's to say.
   const dropped: ReviewDroppedWire[] = (was.dropped ?? []).filter((d) => d.by === 'you');

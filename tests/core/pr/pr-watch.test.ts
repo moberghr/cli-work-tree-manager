@@ -832,6 +832,25 @@ describe('PR watch', () => {
       expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
     });
 
+    it('an agent still running as started --unsafe before the retirement gets no review text; the strip still counts (remove next release)', async () => {
+      let t = LATER;
+      let unsafe = true;
+      const runsUnsafe = vi.fn((id: string) => id === 's1' && unsafe);
+      const h = harness([repo('api', pr({ updatedAt: '2026-10-26T12:53:12Z' }))], ON, false, fb([thread('1', 'alice')]), {
+        now: () => t,
+        runsUnsafe,
+      });
+      await h.watch.tick();
+      expect(h.deps.tell).not.toHaveBeenCalled();
+      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+      expect(runsUnsafe).toHaveBeenCalledWith('s1');
+      // Restarted by a current host: the guard drops out, and the thread is handed over at its next read.
+      unsafe = false;
+      t += THREADS_RECHECK_MS + 1;
+      await h.watch.tick();
+      expect(h.deps.tell).toHaveBeenCalledTimes(1);
+    });
+
     it('only looks at open PRs, and not at all when turned off', async () => {
       const merged = harness([repo('api', pr({ state: 'MERGED' }), true)], ON, false, fb([thread('1', 'alice')]));
       await merged.watch.tick();

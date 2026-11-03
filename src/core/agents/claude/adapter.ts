@@ -102,6 +102,9 @@ export const claudeAgent: AgentAdapter = {
       }),
       isSettingsFile: claudeSettingsFile,
       promptLines: CLAUDE_READ_ONLY_LINES,
+      // Its flags were measured on one Claude Code (READ_ONLY_MIN_VERSION): an older one gets no checkout run.
+      // Loaded when a review asks: the hook processes load this adapter on every turn edge.
+      available: async () => (await import('./version.js')).claudeReadOnlyAvailable(),
     },
   },
   instructionsFile: 'CLAUDE.md',

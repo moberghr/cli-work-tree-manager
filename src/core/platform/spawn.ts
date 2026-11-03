@@ -13,7 +13,8 @@ import { shellEnv } from './shell-env.js';
  * On Windows a bare program name is started by its absolute path on PATH, never from the working
  * folder (`programPath`, program-path.ts): cross-spawn's lookup checks the spawn's cwd first, and a
  * `git.cmd` at a worktree's root would run in place of git. A path is resolved against the call's
- * cwd, as cross-spawn would. A `shell: true` command line is the caller's own: left as it is, run
+ * cwd, as cross-spawn would. A program that resolves to a batch file runs in cmd.exe, so it gets `shellEnv` too
+ * (a bare name inside it isn't looked up in the working folder). A `shell: true` command line is the caller's own: left as it is, run
  * with cmd.exe's lookup in the working folder turned off (`shellEnv`, shell-env.ts). A program
  * that isn't on PATH fails as "<name> not found on PATH" (`explainNotOnPath`).
  */
@@ -23,6 +24,9 @@ let loaded: CrossSpawn | null = null;
 const load = (): CrossSpawn => (loaded ??= createRequire(import.meta.url)('cross-spawn') as CrossSpawn);
 
 type Options = { env?: NodeJS.ProcessEnv; shell?: unknown; cwd?: unknown };
+
+/** What Windows starts through cmd.exe: a `.cmd` or `.bat` file. */
+export const BATCH_FILE = /\.(cmd|bat)$/i;
 
 /** The call's arguments with its program resolved from PATH (Windows; see above). */
 export function onPathOnly(args: unknown[], platform: NodeJS.Platform = process.platform): unknown[] {
@@ -36,7 +40,12 @@ export function onPathOnly(args: unknown[], platform: NodeJS.Platform = process.
     return out;
   }
   const cwd = typeof options?.cwd === 'string' ? options.cwd : undefined;
-  return [programPath(cmd, options?.env ?? process.env, platform, cwd), ...args.slice(1)];
+  const file = programPath(cmd, options?.env ?? process.env, platform, cwd);
+  const out = [file, ...args.slice(1)];
+  // A batch file is run by cmd.exe (cross-spawn's `cmd.exe /d /s /c`), and a bare name inside it would be looked up
+  // in the working folder first — a worktree's own `probex.bat` in place of the program the batch file means.
+  if (BATCH_FILE.test(file)) out[at] = { ...(options ?? {}), env: shellEnv(options?.env ?? process.env, platform) };
+  return out;
 }
 
 const spawn = Object.assign(

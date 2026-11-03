@@ -6,6 +6,7 @@ import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../platform/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../platform/ai-launcher.js';
 import { batchArgProblem, programFor } from '../platform/batch-launch.js';
+import { shellEnv } from '../platform/shell-env.js';
 import childProcess from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -114,7 +115,7 @@ export function resolvePtyCommand(
   cmd: string,
   args: string[],
   opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
-): { file: string; args: string[] | string } {
+): { file: string; args: string[] | string; env?: NodeJS.ProcessEnv } {
   if (process.platform !== 'win32') return { file: cmd, args };
   const program = programFor(cmd, { env: opts.env ?? process.env, cwd: opts.cwd });
   if (!program) throw new Error(`${cmd} not found on PATH`);
@@ -123,10 +124,12 @@ export function resolvePtyCommand(
   if (why) throw new Error(`${cmd}: ${why}`);
   const parse = (crossSpawn as unknown as { _parse: CrossSpawnParse })._parse;
   const parsed = parse(program.file, args, opts);
+  // cmd.exe runs the batch file in the worktree: a bare name inside it must not find a file of the branch (shellEnv).
+  const env = shellEnv(opts.env ?? process.env);
   if (parsed.options.windowsVerbatimArguments) {
-    return { file: parsed.command, args: parsed.args.join(' ') };
+    return { file: parsed.command, args: parsed.args.join(' '), env };
   }
-  return { file: parsed.file ?? parsed.command, args: parsed.args };
+  return { file: parsed.file ?? parsed.command, args: parsed.args, env };
 }
 
 /** How long a terminal must have been quiet after its first output before a prompt is typed into it. */
@@ -257,7 +260,7 @@ export class PtySession {
     if (aiOptions?.port !== undefined) {
       env.PORT = String(aiOptions.port);
     }
-    const { file: spawnCmd, args: spawnArgs } = resolvePtyCommand(rawCmd, rawArgs, { env, cwd });
+    const { file: spawnCmd, args: spawnArgs, env: batchEnv } = resolvePtyCommand(rawCmd, rawArgs, { env, cwd });
 
     debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows });
     ensureSpawnHelper();
@@ -267,7 +270,7 @@ export class PtySession {
       cwd,
       cols,
       rows,
-      env,
+      env: (batchEnv as Record<string, string> | undefined) ?? env,
       ...conptyOptions(process.platform, readUseBundledConpty()),
     });
     // node-pty's start is synchronous (Windows: creating the pseudo-console): a slow one holds up the whole host.

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CommandRunner } from '../platform/command-runner.js';
@@ -38,13 +39,23 @@ export interface ReviewTreeOpts {
   root?: string;
   /** A file the agent would read as its settings (the agent's own rule): deleted from the copy. */
   strip: (relPath: string) => boolean;
+  /** The run's part of the folder's name (default `runSuffix()`, fresh each time; tests fix it). */
+  run?: string;
 }
 
-/** `<alias>-<n>-<short sha>`, only characters a folder name takes everywhere. Pure. */
-export function reviewTreeName(alias: string, number: number, headSha: string): string {
+/**
+ * `<alias>-<n>-<short sha>-<run>`, only characters a folder name takes everywhere. Pure. `run` is this run's own
+ * (`runSuffix`): two work webs reviewing the same head (the dev server's click beside the main one) each get their
+ * own folder, never deleting the other's checkout. A stopped run's folder is found by the sweep (by age).
+ */
+export function reviewTreeName(alias: string, number: number, headSha: string, run: string): string {
   const safe = alias.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '_') || 'repo';
-  return `${safe}-${number}-${headSha.slice(0, 8)}`;
+  const tag = run.replace(/[^A-Za-z0-9]/g, '');
+  return `${safe}-${number}-${headSha.slice(0, 8)}${tag ? `-${tag}` : ''}`;
 }
+
+/** A run's own part of its folder's name: this process and a random part. */
+export const runSuffix = (): string => `${process.pid.toString(36)}${randomBytes(3).toString('hex')}`;
 
 const firstLine = (s: string) => s.trim().split(/\r?\n/)[0] ?? '';
 
@@ -73,10 +84,10 @@ export async function createReviewTree(
   opts: ReviewTreeOpts,
 ): Promise<HostResult<{ dir: string; removed: string[] }>> {
   const root = opts.root ?? reviewTreesDir();
-  const dir = path.join(root, reviewTreeName(at.alias, at.number, at.headSha));
+  const dir = path.join(root, reviewTreeName(at.alias, at.number, at.headSha, opts.run ?? runSuffix()));
   const noHooks = path.join(root, NO_HOOKS);
   fs.mkdirSync(noHooks, { recursive: true });
-  // One left here (a run that stopped): gone first, so `worktree add` gets an empty folder.
+  // One left here under this very name (a fixed `run`): gone first, so `worktree add` gets an empty folder.
   if (fs.existsSync(dir)) await removeReviewTree(run, at.repoPath, dir);
   const added = await run(
     'git',

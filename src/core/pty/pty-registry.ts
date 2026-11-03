@@ -169,6 +169,11 @@ export class PtyRegistry {
   spawn(id: string, spec: SpawnSpec & { keptEnv?: Record<string, string> }, restored = false): PtyInfo {
     const existing = this.entries.get(id);
     if (existing && (!existing.pty.exited || existing.restarting || existing.halted)) return this.info(existing);
+    // A restore entry (or an older client) from before --unsafe was retired may carry `unsafe: true` and its tool an
+    // `unsafeFlag`: neither is started with, nor written back — the entry this host records says it starts normally,
+    // which is what lifts the one-release guards (sessions/legacy-unsafe.ts). REMOVE the strip with them next release.
+    const { unsafeFlag: _retired, ...tool } = spec.tool as typeof spec.tool & { unsafeFlag?: unknown };
+    spec = { ...spec, tool };
 
     // A spawn from a shell keeps the variables config `hostEnv` names; a
     // restore — or a respawn without a shell (the Terminal tab) — runs with

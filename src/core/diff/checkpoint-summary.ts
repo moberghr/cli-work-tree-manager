@@ -137,9 +137,14 @@ export function internalCanRead(): boolean {
  * What only the summarising agent knows of its read-only run: which files of a folder it reads as settings (deleted
  * from a checkout before it starts), and how its prompt names its tools and instructions. Null: it has no such run.
  */
-export function internalReadOnly(): Pick<AgentReadOnly, 'isSettingsFile' | 'promptLines'> | null {
+export function internalReadOnly(): Pick<AgentReadOnly, 'isSettingsFile' | 'promptLines' | 'available'> | null {
   const mode = internalAgent(agentSettings()).oneShot?.readOnly;
-  return mode ? { isSettingsFile: (p) => mode.isSettingsFile(p), promptLines: mode.promptLines } : null;
+  if (!mode) return null;
+  return {
+    isSettingsFile: (p) => mode.isSettingsFile(p),
+    promptLines: mode.promptLines,
+    ...(mode.available ? { available: () => mode.available!() } : {}),
+  };
 }
 
 /**

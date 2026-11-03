@@ -266,7 +266,18 @@ describe('PtyRegistry launch options', () => {
     expect(spawned).toHaveLength(1);
     const { args } = buildAiLaunchArgs(spawned[0].spec.tool, spawned[0].spec);
     expect(args).toEqual(['--continue']);
+    // The entry it rewrites says it starts normally: what lifts the one-release guards (legacy-unsafe.ts).
     expect(readSaved().a).not.toHaveProperty('unsafe');
+    expect(readSaved().a.tool).not.toHaveProperty('unsafeFlag');
+    // And a restart by this host keeps it so.
+    const done = reg.restart('a');
+    spawned[0].pty.exit(0);
+    await done;
+    await reg.flush();
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1].spec).not.toHaveProperty('unsafe');
+    expect(readSaved().a).not.toHaveProperty('unsafe');
+    expect(readSaved().a.tool).not.toHaveProperty('unsafeFlag');
   });
 
   it('never persists env, prompt or fresh; a restore continues', async () => {

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { json, tx, withDb, type Db } from '../platform/db.js';
 import type { PrReply, SessionCi, ThreadCode } from '../api-types.js';
 import { isThreadCode, MAX_THREAD_BODY, threadCode } from './pr-review.js';
@@ -252,6 +253,19 @@ export function replyFolder(
     own = undefined; // an unreadable config: the first folder, as before
   }
   return own ?? session.paths.find((p) => p) ?? process.cwd();
+}
+
+/**
+ * The folder to ask about a reply's thread from, for the PR watch's retiring of answered replies: the reply's repo's
+ * own folder when it is there on disk, else the session's first folder that is, else none (not asked).
+ */
+export function replyFolderOnDisk(
+  session: (Pick<WorktreeSession, 'target' | 'paths'> & Partial<Pick<WorktreeSession, 'isGroup' | 'repos'>>) | null | undefined,
+  repo: string,
+  exists: (p: string) => boolean = fs.existsSync,
+): string | null {
+  const own = session ? replyFolder(session, repo) : null;
+  return own && exists(own) ? own : (session?.paths.find((p) => exists(p)) ?? null);
 }
 
 /**

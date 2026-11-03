@@ -1,5 +1,6 @@
 import type { AgentState } from '../status/attention.js';
 import type { PermissionRequest, SendHow } from '../api-types.js';
+import { STILL_UNSAFE } from './legacy-unsafe.js';
 
 /**
  * Driving a session from outside its terminal — another Claude, a script,
@@ -28,6 +29,8 @@ export interface SendDeps {
   start: (id: string) => Promise<boolean>;
   state: (id: string) => AgentState | null;
   archived: (id: string) => boolean;
+  /** Its agent still runs as started `--unsafe` before the retirement (legacy-unsafe.ts). REMOVE IN THE NEXT RELEASE. */
+  stillUnsafe?: (id: string) => boolean;
 }
 
 export type SendResult = { ok: true; how: SendHow; sentAt: string } | { ok: false; status: 400 | 409 | 502; error: string };
@@ -37,6 +40,8 @@ export async function sendToSession(id: string, text: string, deps: SendDeps, op
   if (!body) return { ok: false, status: 400, error: 'the message is empty' };
   if (body.length > MAX_SEND_CHARS) return { ok: false, status: 400, error: `the message is over ${MAX_SEND_CHARS} characters` };
   if (deps.archived(id)) return { ok: false, status: 409, error: 'it is archived: restore it first' };
+  // It would act on this unreviewed, and it may have come from another agent (legacy-unsafe.ts; remove next release).
+  if (deps.stillUnsafe?.(id)) return { ok: false, status: 409, error: STILL_UNSAFE };
   const sentAt = (opts.now?.() ?? new Date()).toISOString();
   // What the comment route did, as it decided it — not a second look at the state.
   const delivered = await deps.post(id, body);

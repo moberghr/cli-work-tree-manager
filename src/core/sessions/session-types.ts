@@ -38,6 +38,10 @@ export interface WorktreeSession {
    *  be lost, its branch kept. Re-entering it with `work tree` (or Restore)
    *  recreates the worktree and clears it. */
   archivedAt?: string;
+  /** From before `--unsafe` was retired: its agent was last launched directly with the skip-permissions flag.
+   *  Written no more; read only by legacy-unsafe.ts for one release, and cleared by a current direct launch
+   *  (`clearLaunchedUnsafe`). REMOVE IN THE NEXT RELEASE. */
+  launchedUnsafe?: boolean;
   /** The agent it runs (`claude`, `codex`, …: agents/), recorded when it was
    *  created — when work has an adapter for it — so changing the default
    *  (config `aiCommand`) doesn't change what an existing session runs.

@@ -9,6 +9,7 @@ import {
   type SendDeps,
   type TurnStatus,
 } from '../../../src/core/sessions/session-control.js';
+import { STILL_UNSAFE } from '../../../src/core/sessions/legacy-unsafe.js';
 
 /** Driving a session from outside its terminal: the policy (session-control.ts), with its I/O faked. */
 
@@ -39,6 +40,14 @@ describe('sendToSession', () => {
     expect(await sendToSession('s', 'x', deps({ hostRuns: () => true }, 'next-turn'))).toMatchObject({ how: 'next-turn' });
     // The host runs it but the route typed nothing (it had nothing pending to nudge): its next turn.
     expect(await sendToSession('s', 'x', deps({ hostRuns: () => true }, null))).toMatchObject({ how: 'next-turn' });
+  });
+
+  it('an agent still running as started --unsafe before the retirement is refused, nothing posted (remove next release)', async () => {
+    const d = deps({ stillUnsafe: (id) => id === 's', hostRuns: () => true });
+    expect(await sendToSession('s', 'Run the tests', d)).toEqual({ ok: false, status: 409, error: STILL_UNSAFE });
+    expect(d.posted).toEqual([]);
+    expect(d.start).not.toHaveBeenCalled();
+    expect(await sendToSession('t', 'x', d)).toMatchObject({ ok: true });
   });
 
   it('running in a terminal outside work: queued for its next turn there, nothing started', async () => {

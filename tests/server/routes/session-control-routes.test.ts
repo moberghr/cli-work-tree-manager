@@ -3,6 +3,8 @@ import { Hono } from 'hono';
 import { mountSessionControlRoutes, type ControlDeps } from '../../../src/server/routes/session-control-routes.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
+import { dbPtySessions } from '../../../src/core/pty/pty-sessions-file.js';
+import { STILL_UNSAFE } from '../../../src/core/sessions/legacy-unsafe.js';
 
 /** POST …/send, …/agent/start, …/agent/stop and GET …/screen, with the PTY host and comment route faked. */
 
@@ -41,6 +43,20 @@ describe('POST /api/sessions/:id/send', () => {
     expect(await res.json()).toMatchObject({ how: 'typed', sentAt: expect.any(String) });
     expect(deps.post).toHaveBeenCalledWith(id, 'Run the tests');
     expect(events).toContain('sessions-changed');
+  });
+
+  it("refuses an agent an older host still runs as started --unsafe (its restore entry), until a current host's entry says otherwise (remove next release)", async () => {
+    saveHistory([s]);
+    const tool = { cmd: 'claude', flags: [], resumeFlag: '--continue' };
+    dbPtySessions.write({ [id]: { cwd: '/wt/x', tool, startedAt: 'x', ...{ unsafe: true } } as never });
+    const { a, deps } = app({ hostRuns: () => true });
+    const res = await post(a, `/api/sessions/${id}/send`, { text: 'Run the tests' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: STILL_UNSAFE });
+    expect(deps.post).not.toHaveBeenCalled();
+    dbPtySessions.write({ [id]: { cwd: '/wt/x', tool, startedAt: 'y' } as never }); // restarted by a current host
+    expect((await post(a, `/api/sessions/${id}/send`, { text: 'Run the tests' })).status).toBe(200);
+    dbPtySessions.write({});
   });
 
   it('refusals keep their reason; an unknown session is 404; a failed queue is 502', async () => {

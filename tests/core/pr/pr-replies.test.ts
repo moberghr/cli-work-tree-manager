@@ -13,6 +13,7 @@ import {
   postDrafts,
   postReply,
   replyFolder,
+  replyFolderOnDisk,
   postedSince,
   rememberSent,
   retireResolvedReplies,
@@ -582,6 +583,40 @@ describe("a reply is asked from its own repo's folder: that repo's host server (
     };
     await postDrafts(s, listReplies(id), false, run);
     expect(new Set(cwds)).toEqual(new Set(['/wt/shop/web']));
+  });
+
+  it("the dashboard's Post (the route) asks and posts from the reply's repo's folder, for a group session (F007)", async () => {
+    const s = { ...session, branch: 'feat/x', createdAt: 'x', lastAccessedAt: 'x' } as WorktreeSession;
+    saveHistory([s]);
+    const id = sessionIdFor(s);
+    rememberSent(id, [thread(T1, { repo: 'web' })]);
+    const cwds: string[] = [];
+    const run: CommandRunner = async (_cmd, args, cwd) => {
+      cwds.push(cwd);
+      return isThreadRead(args) ? threadNow() : { code: 0, stdout: '{}', stderr: '' };
+    };
+    const a = new Hono();
+    mountPrReplyRoutes(a, { broadcast: () => {}, run });
+    const res = await a.request(`/api/sessions/${id}/replies/${T1}/post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: 'Done', resolve: false }),
+    });
+    expect(res.status).toBe(200);
+    expect(cwds.length).toBeGreaterThan(0);
+    expect(new Set(cwds)).toEqual(new Set(['/wt/shop/web']));
+  });
+
+  it("the PR watch's retiring (ci-routes): the reply's repo's folder when it's there, else the first one that is, else none (F007)", () => {
+    const on =
+      (...there: string[]) =>
+      (p: string) =>
+        there.includes(p);
+    expect(replyFolderOnDisk(session, 'web', on('/wt/shop/api', '/wt/shop/web'))).toBe('/wt/shop/web');
+    expect(replyFolderOnDisk(session, 'web', on('/wt/shop/api'))).toBe('/wt/shop/api'); // its folder gone
+    expect(replyFolderOnDisk(session, 'nowhere', on('/wt/shop/web'))).toBe('/wt/shop/web');
+    expect(replyFolderOnDisk(session, 'web', on())).toBeNull();
+    expect(replyFolderOnDisk(null, 'web', on('/wt/shop/web'))).toBeNull();
   });
 });
 
