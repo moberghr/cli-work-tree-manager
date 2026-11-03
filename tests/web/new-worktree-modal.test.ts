@@ -87,6 +87,21 @@ describe('the project field', () => {
     expect(options().length).toBeGreaterThan(0);
   });
 
+  it('a click that opens the list selects the name, so typing replaces it; a click in the open list keeps the caret', async () => {
+    await open();
+    await act(async () => picker().focus());
+    picker().setSelectionRange(5, 5); // a caret left at the end
+    const opening = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    await act(async () => void picker().dispatchEvent(opening));
+    expect(opening.defaultPrevented).toBe(true); // the browser doesn't put its caret over the selection
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([0, 'jobly'.length]);
+    await act(async () => type(picker(), 'work'));
+    expect(options()).toEqual(['work-tree']);
+    const inside = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    await act(async () => void picker().dispatchEvent(inside));
+    expect(inside.defaultPrevented).toBe(false);
+  });
+
   it('type to narrow, ↓ and Enter to pick (not submitting), Escape closes the list but not the dialog', async () => {
     const { onClose } = await open();
     await act(async () => picker().focus());

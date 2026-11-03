@@ -3,6 +3,13 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **Click the project field and type.** In New worktree, a click on the
+  project field selects the project in it, so what you type replaces it and
+  searches. The click used to leave the cursor after the name, and what you
+  typed was added to it.
+
 ## 2.9.3 — 2026-11-02
 
 - **No more two Claudes on one session.** A PTY host that hung (stuck starting
