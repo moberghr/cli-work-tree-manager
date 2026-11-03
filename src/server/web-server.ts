@@ -82,7 +82,7 @@ import { defaultTimeDeps } from '../core/time/time-deps.js';
 import { createTimeKeeper, TIME_EVERY_MS } from '../core/time/time-keeper.js';
 import { mountTimeRoutes } from './routes/time-routes.js';
 import { mountReviewRoutes } from './routes/review-routes.js';
-import { realReviewQueue, realReviewRouteIo } from '../core/review/review-deps.js';
+import { realFixIo, realReviewQueue, realReviewRouteIo } from '../core/review/review-deps.js';
 import { startReviewSweeps } from '../core/review/review-keeper.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
@@ -698,7 +698,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // but prepares none (it acts on nothing; your clicks still do).
   const reviewQueue = realReviewQueue({ activity, changed: () => broadcast('reviews-changed', {}) });
   const reviewSweeps = startReviewSweeps({ queue: reviewQueue, activity, jobs });
-  mountReviewRoutes(app, { ...realReviewRouteIo(), runNow: (repo, n) => reviewQueue.runNow(repo, n), broadcast });
+  mountReviewRoutes(app, {
+    ...realReviewRouteIo(),
+    runNow: (repo, n) => reviewQueue.runNow(repo, n),
+    broadcast,
+    // Fix it myself: a session on the PR's branch, made as New worktree makes one, or the live one told by a note.
+    fixMyself: realFixIo({ create: makeWorktree, note: noteThroughComments(app), activity }),
+  });
 
   // Old archived conversations get compressed (archive-retention.ts): a few
   // minutes after start, then daily.

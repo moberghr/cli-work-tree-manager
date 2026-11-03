@@ -162,11 +162,16 @@ describe('the review queue', () => {
     expect(r.stories.map((s) => [s.title, s.by])).toEqual([['src', 'folder']]);
     expect(r.why).toBe('no agent for the AI step: stories are by folder');
     expect(r.mergeBase).toBe('mb');
+    expect(r).not.toHaveProperty('fork');
     await h.queue.sweep(); // the same head: not again
     expect(h.prepare).toHaveBeenCalledTimes(1);
     h.setOpen([pr(7, { headSha: 'sha7b' })]); // a push: again
     await h.queue.sweep();
     expect(h.prepare).toHaveBeenCalledTimes(2);
+    // A fork's PR: its review says so (Fix it myself refuses it).
+    h.setOpen([pr(7, { headSha: 'sha7c', fork: true })]);
+    await h.queue.sweep();
+    expect(h.rows.get('api#7')!.fork).toBe(true);
   });
 
   it('a push seen: the review is queued again, but its head stays the one its lines were read at until it is prepared', async () => {

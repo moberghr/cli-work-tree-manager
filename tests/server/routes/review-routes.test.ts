@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { mountReviewRoutes, type ReviewRouteDeps } from '../../../src/server/routes/review-routes.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
-import type { PrReviewWire, ReviewsWire, ReviewSettingsWire } from '../../../src/core/api-types.js';
+import type { PrReviewWire, ReviewFixResultWire, ReviewsWire, ReviewSettingsWire } from '../../../src/core/api-types.js';
 
 function setup(over: Partial<ReviewRouteDeps> = {}, shared?: Map<string, PrReviewWire>) {
   const rows = shared ?? new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
@@ -278,5 +278,44 @@ describe('review routes', () => {
     expect((await req('DELETE', '/api/reviews/api/231/dropped')).status).toBe(200);
     expect(rows.get('api#231')!.dropped).toBeUndefined();
     expect((await req('DELETE', '/api/reviews/web/1/dropped')).status).toBe(404);
+  });
+
+  it('Fix it myself: the session gets the comments, the review loses them, both lists are told; refusals say why', async () => {
+    const start = vi.fn(async () => 'started');
+    const fixMyself: ReviewRouteDeps['fixMyself'] = {
+      lookUp: async (r) => ({
+        ok: true,
+        pr: { alias: r.repo, number: r.number, title: r.title, url: r.url, branch: r.branch, base: r.base, author: r.author },
+      }),
+      liveSessionOn: () => null,
+      create: async (alias, branch) => ({ ok: true, sessionId: 'sess1', label: `${alias} · ${branch}` }),
+      start,
+      note: async () => undefined,
+    };
+    const { req, rows, broadcast } = setup({ fixMyself });
+    const res = await req('POST', '/api/reviews/api/231/fix-myself', { drafts: ['d1'] });
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as ReviewFixResultWire;
+    expect(out).toMatchObject({ sessionId: 'sess1', created: true });
+    expect(out.review.drafts.map((d) => d.id)).toEqual(['d2']);
+    expect(rows.get('api#231')!.fixingMyself?.[0].sessionId).toBe('sess1');
+    expect(start).toHaveBeenCalledWith('sess1', expect.stringContaining('Ask me before pushing'));
+    expect(broadcast).toHaveBeenCalledWith('reviews-changed', { repo: 'api', number: 231 });
+    expect(broadcast).toHaveBeenCalledWith('sessions-changed', expect.anything());
+    expect((await req('POST', '/api/reviews/api/231/fix-myself', { drafts: ['d1'] })).status).toBe(400);
+    expect((await req('POST', '/api/reviews/api/999/fix-myself', { drafts: ['d2'] })).status).toBe(404);
+
+    // A session made whose agent took neither start nor note: the drafts stay, and the answer names the session.
+    const stuck = setup({
+      fixMyself: { ...fixMyself, start: async () => Promise.reject(new Error('x')), note: async () => Promise.reject(new Error('y')) },
+    });
+    const failed = await stuck.req('POST', '/api/reviews/api/231/fix-myself', { drafts: ['d1'] });
+    expect(failed.status).toBe(409);
+    expect(await failed.json()).toMatchObject({ sessionId: 'sess1' });
+    expect(stuck.rows.get('api#231')!.drafts).toHaveLength(2);
+    expect(stuck.broadcast).toHaveBeenCalledWith('sessions-changed', expect.anything());
+
+    // A server without it refuses.
+    expect((await setup().req('POST', '/api/reviews/api/231/fix-myself', { drafts: ['d1'] })).status).toBe(501);
   });
 });

@@ -1,5 +1,5 @@
 import { json, tx, withDb } from '../platform/db.js';
-import type { PrReviewWire } from '../api-types.js';
+import type { PrReviewWire, ReviewFixWire } from '../api-types.js';
 
 /**
  * Prepared reviews, one per PR (`repo#number`), in state.db `pr_reviews`
@@ -43,7 +43,31 @@ export function isReview(v: unknown): v is PrReviewWire {
         typeof r.submitting.at === 'string' &&
         typeof r.submitting.pid === 'number' &&
         Array.isArray(r.submitting.drafts))) &&
-    (r.lastDraft === undefined || typeof r.lastDraft === 'number')
+    (r.lastDraft === undefined || typeof r.lastDraft === 'number') &&
+    (r.fork === undefined || r.fork === true) &&
+    (r.fixingMyself === undefined || (Array.isArray(r.fixingMyself) && r.fixingMyself.every(isFix)))
+  );
+}
+
+/** One batch of drafts taken off to fix yourself, as written here. */
+function isFix(v: unknown): boolean {
+  const f = v as Partial<ReviewFixWire> | null;
+  return (
+    !!f &&
+    typeof f === 'object' &&
+    typeof f.at === 'string' &&
+    typeof f.sessionId === 'string' &&
+    typeof f.branch === 'string' &&
+    Array.isArray(f.comments) &&
+    f.comments.every(
+      (c) =>
+        !!c &&
+        typeof c === 'object' &&
+        typeof c.path === 'string' &&
+        typeof c.line === 'number' &&
+        typeof c.body === 'string' &&
+        (c.by === undefined || c.by === 'ai' || c.by === 'you'),
+    )
   );
 }
 

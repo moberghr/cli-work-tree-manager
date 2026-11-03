@@ -22,7 +22,15 @@ import { relativeTime } from '../../../utils/time.js';
 import { DiffFile } from '../../Diff/DiffFile.js';
 import { ReviewProvider } from '../../../state/ReviewProvider.js';
 import { ResizeDivider, useResizableSize, type ResizeSpec } from '../../Layout/ResizeDivider.js';
-import { groupReviews, pendingDrafts, reviewSections, type ReviewSection } from '../../../state/review-view.js';
+import {
+  fixingLines,
+  fixMyselfBlocked,
+  groupReviews,
+  pendingDrafts,
+  reviewSections,
+  type ReviewSection,
+} from '../../../state/review-view.js';
+import { FixMyselfDialog } from '../FixMyselfDialog.js';
 
 /**
  * Reviews (#64, `g v`): the PRs with a review prepared, waiting or running,
@@ -32,7 +40,8 @@ import { groupReviews, pendingDrafts, reviewSections, type ReviewSection } from 
  * other file by kind, the generated and mechanical ones folded; the diff on
  * the right follows it, each story's reasoning above its files. Draft
  * comments sit on their lines; you add your own the same way; all of them
- * go out as one review from the submit bar, in your name, on your click.
+ * go out as one review from the submit bar, in your name, on your click —
+ * or, Fix it myself, leave it for a session on the PR's branch.
  */
 
 const STATUS_LABEL: Record<PrReviewWire['status'], string> = {
@@ -74,9 +83,13 @@ interface Props {
   onShown?: (pr: { repo: string; number: number } | null) => void;
   /** Opens the Ctrl+K assistant on this review. */
   onAsk?: () => void;
+  /** Opens a session on its Terminal tab (Fix it myself's, once it has the comments). */
+  onOpenSession?: (id: string) => void;
+  /** A session's name, for "being fixed in …" (null: unknown — its branch then). */
+  sessionName?: (id: string) => string | null;
 }
 
-export function ReviewsTab({ onShown, onAsk }: Props) {
+export function ReviewsTab({ onShown, onAsk, onOpenSession, sessionName }: Props) {
   const [list, setList] = useState<ReviewsWire | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<{ repo: string; number: number } | null>(null);
@@ -180,14 +193,33 @@ export function ReviewsTab({ onShown, onAsk }: Props) {
         {showSettings ? (
           <ReviewSettings />
         ) : selected ? (
-          <ReviewView key={`${selected.repo}#${selected.number}`} repo={selected.repo} number={selected.number} onAsk={onAsk} />
+          <ReviewView
+            key={`${selected.repo}#${selected.number}`}
+            repo={selected.repo}
+            number={selected.number}
+            onAsk={onAsk}
+            onOpenSession={onOpenSession}
+            sessionName={sessionName}
+          />
         ) : null}
       </section>
     </div>
   );
 }
 
-function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onAsk?: () => void }) {
+function ReviewView({
+  repo,
+  number,
+  onAsk,
+  onOpenSession,
+  sessionName,
+}: {
+  repo: string;
+  number: number;
+  onAsk?: () => void;
+  onOpenSession?: (id: string) => void;
+  sessionName?: (id: string) => string | null;
+}) {
   const [r, setR] = useState<PrReviewWire | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<ParsedFile[] | null>(null);
@@ -309,6 +341,19 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
             </button>
           </div>
         )}
+        {fixingLines(r, (id) => sessionName?.(id) ?? null).map((f, i) => (
+          <p key={`${f.sessionId}:${i}`} className="wd-start-note wd-review-fixing">
+            {f.text}
+            {onOpenSession && (
+              <>
+                {' '}
+                <button type="button" className="wd-link-button" onClick={() => onOpenSession(f.sessionId)}>
+                  Open it →
+                </button>
+              </>
+            )}
+          </p>
+        ))}
         {r.dropped && r.dropped.length > 0 && (
           <details className="wd-review-dropped">
             <summary className="wd-review-warn">
@@ -449,17 +494,28 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
         </ReviewProvider>
       )}
       {/* Outside the provider (remounted when the drafts change): a submit's error stays on screen. */}
-      {r.status === 'ready' && <SubmitBar review={r} onDone={setR} />}
+      {r.status === 'ready' && <SubmitBar review={r} onDone={setR} onOpenSession={onOpenSession} />}
     </article>
   );
 }
 
 /** The review's drafts go out together: a verdict, a summary, and every draft still on the diff. */
-function SubmitBar({ review, onDone }: { review: PrReviewWire; onDone: (r: PrReviewWire) => void }) {
+function SubmitBar({
+  review,
+  onDone,
+  onOpenSession,
+}: {
+  review: PrReviewWire;
+  onDone: (r: PrReviewWire) => void;
+  onOpenSession?: (id: string) => void;
+}) {
   const [event, setEvent] = useState<ReviewEvent>('comment');
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fixing, setFixing] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const blocked = fixMyselfBlocked(review);
   const drafts = pendingDrafts(review);
   const submit = () => {
     setBusy(true);
@@ -503,7 +559,29 @@ function SubmitBar({ review, onDone }: { review: PrReviewWire; onDone: (r: PrRev
       >
         {busy || review.submitting ? 'Submitting…' : `Submit review on ${hostName(review.host)}`}
       </button>
+      <button
+        type="button"
+        className="wd-btn-secondary"
+        disabled={busy || !!blocked}
+        title={blocked ?? 'Make the ticked comments yourself, in a session on the PR’s branch, instead of posting them'}
+        onClick={() => setFixing(true)}
+      >
+        Fix it myself…
+      </button>
       {error && <span className="wd-modal-error">{error}</span>}
+      {note && <span className="wd-review-warn">{note}</span>}
+      {fixing && (
+        <FixMyselfDialog
+          review={review}
+          onClose={() => setFixing(false)}
+          onDone={(out) => {
+            setFixing(false);
+            onDone(out.review);
+            setNote(out.warnings?.length ? out.warnings.join(' · ') : null);
+            onOpenSession?.(out.sessionId);
+          }}
+        />
+      )}
     </div>
   );
 }

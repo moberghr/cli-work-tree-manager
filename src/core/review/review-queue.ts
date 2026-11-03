@@ -183,6 +183,7 @@ const metaOf = (repo: string, host: GitHost, pr: OpenPr): ReviewMeta => ({
   base: pr.base,
   headSha: pr.headSha,
   ...(host.id === 'github' ? {} : { host: host.id }),
+  ...(pr.fork ? { fork: true as const } : {}),
 });
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

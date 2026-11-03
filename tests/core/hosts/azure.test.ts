@@ -422,12 +422,17 @@ describe('the adapter, through the same flows as the fake host', () => {
       }),
     ).toEqual({ ok: true, url: 'https://dev.azure.com/acme/Shop/_git/api/pullrequest/7' });
     expect(az.posted[0]).toMatchObject({ resource: 'pullRequestThreads', method: 'POST', body: { threadContext: { filePath: '/b.txt' } } });
-    az.prs = [prOf({ isDraft: true }), prOf({ pullRequestId: 8, createdBy: { uniqueName: 'ana@acme.example' } })];
+    az.prs = [
+      prOf({ isDraft: true }),
+      prOf({ pullRequestId: 8, createdBy: { uniqueName: 'ana@acme.example' }, forkSource: { repository: { name: 'api' } } }),
+    ];
     const open = await azure.openPrs(run, api.path);
     expect(open.ok && open.prs.map((p) => [p.number, p.isDraft, p.author])).toEqual([
       [7, true, ME],
       [8, false, 'ana@acme.example'],
     ]);
+    // A fork's PR is said (Fix it myself refuses it); the other isn't marked.
+    expect(open.ok && open.prs.map((p) => p.fork)).toEqual([undefined, true]);
     expect(azure.prRef(7)).toBe('refs/pull/7/merge');
     expect(azure.prRefIsMerge).toBe(true); // the review reads the head: the merge's second parent
   });

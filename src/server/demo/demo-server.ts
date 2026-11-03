@@ -89,7 +89,24 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // The demo is not the singleton and has nothing to clean up; refuse.
   app.post('/api/shutdown', (c) => c.json({ error: 'the demo is stopped with Ctrl+C' }, 501));
   // PR reviews prepared in the background (demo-reviews.ts).
-  mountDemoReviews(app, (event, data) => broadcast({ event, data } as DemoEvent));
+  mountDemoReviews(app, (event, data) => broadcast({ event, data } as DemoEvent), {
+    // Fix it myself: the demo's live session on the PR's branch, or a new one, told by a note it answers.
+    liveOn: (alias, branch) => {
+      const s = scenario.list().find((x) => x.target === alias && x.branch === branch && !x.archive);
+      return s ? { id: s.id, label: `${s.target} · ${s.branch}` } : null;
+    },
+    create: (alias, branch, name) => {
+      const s = scenario.create(alias, branch, name);
+      return { id: s.id, label: `${s.target} · ${s.branch}` };
+    },
+    note: (id, body) => {
+      const store = scenario.comments(id);
+      if (!store) throw new Error('unknown session');
+      const comment = store.post({ side: 'general', status: 'published', author: 'user', body });
+      scenario.replyLater(id, comment.id);
+      broadcast({ event: 'comments-changed', data: { sessionId: id, id: comment.id } });
+    },
+  });
   // Reply drafts on review threads (demo-replies.ts).
   const draftsFor = mountDemoReplies(app, scenario, (sessionId) => {
     broadcast({ event: 'replies-changed', data: { sessionId } });

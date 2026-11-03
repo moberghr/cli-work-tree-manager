@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getConfigDir, getConfigPath, loadConfig } from '../../../src/core/platform/config.js';
 import { setReviewMode } from '../../../src/core/worktree/repo-admin.js';
-import { realReviewRouteIo, reviewSettings } from '../../../src/core/review/review-deps.js';
+import { realFixIo, realReviewRouteIo, reviewSettings } from '../../../src/core/review/review-deps.js';
+import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
+import { upsertSession } from '../../../src/core/sessions/history.js';
 import { writeReview } from '../../../src/core/review/review-store.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
 
@@ -56,5 +58,34 @@ describe('setting a project’s mode, and the settings the Reviews tab shows', (
     expect(io.today()).toBe(1);
     expect(io.repoPath('api')).toBe('/r/api');
     expect(io.repoPath('nope')).toBeNull();
+  });
+});
+
+describe("Fix it myself's real session side", () => {
+  it('makes the session as New worktree does (the repo, the PR’s branch, a name) and names it by its id; finds a live one from the history', async () => {
+    seed({});
+    const asked: unknown[] = [];
+    const io = realFixIo({
+      create: async (req) => {
+        asked.push(req);
+        return { ok: true, branch: req.branch!, launchDir: '/wt/x', paths: ['/wt/x'], warnings: ['w'] };
+      },
+      note: async () => undefined,
+    });
+    expect(await io.create('api', 'feat/refunds', 'Fix my review of #231')).toEqual({
+      ok: true,
+      sessionId: sessionIdFor({ target: 'api', branch: 'feat/refunds' }),
+      label: 'api · feat/refunds',
+      warnings: ['w'],
+    });
+    expect(asked).toEqual([{ target: 'api', branch: 'feat/refunds', name: 'Fix my review of #231' }]);
+    // A live session whose folder is there (this HOME's, standing in for its worktree) and on the branch.
+    const dir = getConfigDir();
+    await upsertSession('api', false, 'feat/refunds', [dir], undefined, undefined, undefined, ['api']);
+    expect(io.liveSessionOn('api', 'feat/refunds')).toEqual({
+      id: sessionIdFor({ target: 'api', branch: 'feat/refunds' }),
+      label: 'api · feat/refunds',
+    });
+    expect(io.liveSessionOn('api', 'other')).toBeNull();
   });
 });

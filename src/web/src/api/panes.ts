@@ -481,6 +481,25 @@ export async function submitReview(
   if (res.ok && body) return body;
   throw new ReviewSubmitError(body?.error ?? `${res.status} ${res.statusText}`, body?.review ?? null);
 }
+/**
+ * Fix it myself: these drafts leave the review for a session on the PR's branch (made for them, or the live one on it,
+ * told by a note). The server's reason when it refuses.
+ */
+export async function fixReviewMyself(
+  repo: string,
+  n: number,
+  drafts: string[],
+): Promise<import('../../../core/api-types.js').ReviewFixResultWire> {
+  const res = await fetch(`${reviewPath(repo, n)}/fix-myself`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drafts }),
+  });
+  const body = (await res.json().catch(() => null)) as
+    (import('../../../core/api-types.js').ReviewFixResultWire & { error?: string }) | null;
+  if (res.ok && body) return body;
+  throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+}
 /** After a submit that may have gone out: you looked at the PR — it went, or it didn't. */
 export function settleReviewInDoubt(repo: string, n: number, went: boolean): Promise<PrReviewWire> {
   return postJson(`${reviewPath(repo, n)}/in-doubt`, { went });

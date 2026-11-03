@@ -87,6 +87,8 @@ export interface OpenPr {
   deletions: number;
   /** Logins whose review it asks for by name. */
   requested: string[];
+  /** From a fork: its branch isn't on origin (absent: not, or the host didn't say). */
+  fork?: true;
 }
 
 export type HostResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };

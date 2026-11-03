@@ -35,6 +35,20 @@ function realApp() {
     settings: () => ({ projects: [], maxPerDay: null, maxLines: 3000 }),
     setMode: async () => undefined,
     broadcast: () => undefined,
+    // Fix it myself as the demo's: every session new, notes go nowhere.
+    fixMyself: {
+      lookUp: async (r) =>
+        r.fork
+          ? { ok: false, error: 'a fork' }
+          : {
+              ok: true,
+              pr: { alias: r.repo, number: r.number, title: r.title, url: r.url, branch: r.branch, base: r.base, author: r.author },
+            },
+      liveSessionOn: () => null,
+      create: async (alias, branch) => ({ ok: true, sessionId: `${alias}-${branch}`, label: `${alias} · ${branch}` }),
+      start: async () => 'started',
+      note: async () => undefined,
+    },
   });
   return app;
 }
@@ -63,6 +77,13 @@ const TABLE: Array<[string, string, unknown?]> = [
   ['POST', '/api/reviews/api/231/submit', { event: 'comment', body: 'ok', drafts: [{ id: 'd1', body: 'x' }] }],
   ['POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'x' }] }],
   ['DELETE', '/api/reviews/api/231/drafts/d1'],
+  ['POST', '/api/reviews/api/231/fix-myself', { drafts: [] }],
+  ['POST', '/api/reviews/api/231/fix-myself', { drafts: 'd2' }],
+  ['POST', '/api/reviews/api/231/fix-myself', { drafts: ['zz'] }],
+  ['POST', '/api/reviews/api/231/fix-myself', { drafts: ['d1'] }],
+  ['POST', '/api/reviews/web/1/fix-myself', { drafts: ['d2'] }],
+  ['POST', '/api/reviews/api/231/fix-myself', { drafts: ['d2'] }],
+  ['POST', '/api/reviews/api/231/fix-myself', { drafts: ['d2'] }],
   ['POST', '/api/reviews/api/231/in-doubt', { went: true }],
   ['POST', '/api/reviews/api/231/in-doubt', { went: 'maybe' }],
   ['DELETE', '/api/reviews/api/231/dropped'],
@@ -91,6 +112,44 @@ describe("the demo's review routes answer as the real ones", () => {
     expect(real).toContain('DELETE /api/reviews/api/231/drafts/d1 409');
     expect(real).toContain('POST /api/reviews/api/231/in-doubt 409');
     expect(real).toContain('DELETE /api/reviews/api/231/drafts/u3 200');
+    expect(real.filter((l) => l.startsWith('POST /api/reviews/api/231/fix-myself'))).toEqual([
+      'POST /api/reviews/api/231/fix-myself 400',
+      'POST /api/reviews/api/231/fix-myself 400',
+      'POST /api/reviews/api/231/fix-myself 400',
+      'POST /api/reviews/api/231/fix-myself 409', // d1 was posted
+      'POST /api/reviews/api/231/fix-myself 200',
+      'POST /api/reviews/api/231/fix-myself 400', // d2 left the review
+    ]);
+  });
+
+  it("a demo Fix it myself: a session on the PR's branch with the instruction, or the live one told; a fork's refused", async () => {
+    const made: string[] = [];
+    const notes: Array<[string, string]> = [];
+    let live: { id: string; label: string } | null = null;
+    const app = new Hono();
+    mountDemoReviews(app, () => undefined, {
+      liveOn: () => live,
+      create: (alias, branch) => {
+        made.push(`${alias} ${branch}`);
+        return { id: 'demo1', label: `${alias} · ${branch}` };
+      },
+      note: (id, body) => void notes.push([id, body]),
+    });
+    const post = (body: unknown) =>
+      app.request('/api/reviews/api/231/fix-myself', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const out = (await (await post({ drafts: ['d1'] })).json()) as { sessionId: string; created: boolean; review: PrReviewWire };
+    expect(out).toMatchObject({ sessionId: 'demo1', created: true });
+    expect(made).toEqual(['api feat/refunds']);
+    expect(notes[0][1]).toContain('4. Ask me before pushing, and push only once I say yes.');
+    expect(out.review.fixingMyself?.[0]).toMatchObject({ sessionId: 'demo1', branch: 'feat/refunds' });
+    expect(out.review.drafts.map((d) => d.id)).toEqual(['d2']);
+    live = { id: 'live1', label: 'Refunds' };
+    expect(await (await post({ drafts: ['d2'] })).json()).toMatchObject({ sessionId: 'live1', created: false });
+    expect(made).toHaveLength(1);
   });
 
   it('a demo submit whose summary says #timeout is held in doubt, through the real flow; settled, it went', async () => {

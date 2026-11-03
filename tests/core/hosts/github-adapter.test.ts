@@ -123,6 +123,8 @@ describe("GitHub's review-queue groundwork", () => {
           deletions: 2,
           reviewRequests: [{ login: 'me' }, { name: 'team' }],
         },
+        // A fork's: said, so Fix it myself refuses it (its branch isn't on origin).
+        { number: 8, headRefOid: 'def', isCrossRepository: true },
         { number: 'x' },
         null,
       ]),
@@ -144,8 +146,10 @@ describe("GitHub's review-queue groundwork", () => {
           deletions: 2,
           requested: ['me'],
         },
+        expect.objectContaining({ number: 8, fork: true }),
       ],
     });
+    expect((r.ok && r.prs[0]) || {}).not.toHaveProperty('fork');
     expect(calls[0]).toMatchObject({ cmd: 'gh', cwd: '/repo' });
     expect(calls[0].args.slice(0, 4)).toEqual(['pr', 'list', '--state', 'open']);
   });

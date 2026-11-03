@@ -5778,6 +5778,21 @@ a.wd-pr-chip:hover {
 .wd-review-settings td {
   padding: 4px 8px 4px 0;
 }
+.wd-fix-myself-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.wd-fix-myself-list li {
+  padding: 6px 0;
+  border-top: 1px solid var(--border, #8884);
+}
+.wd-fix-myself-list li div {
+  white-space: pre-wrap;
+  margin-left: 22px;
+}
 @media (max-width: 760px) {
   .wd-reviews,
   .wd-review-body {

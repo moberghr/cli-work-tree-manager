@@ -909,6 +909,12 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
               setAssistantMounted(true);
               setAssistantOpen(true);
             }}
+            // Fix it myself: the session with the comments, on its terminal.
+            onOpenSession={hopTo}
+            sessionName={(id) => {
+              const s = sessions.find((x) => x.id === id);
+              return s ? (s.titleIsYours && s.title ? s.title : `${s.target} · ${s.branch}`) : null;
+            }}
           />
         );
         break;

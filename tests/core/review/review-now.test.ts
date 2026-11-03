@@ -13,5 +13,13 @@ describe('the Reviews tab’s PR, as its review is now', () => {
     updateReview('api', 231, (r) => ({ ...r, drafts: r.drafts.map((d) => ({ ...d, state: 'posted' as const })) }));
     expect(describeReviewNow('api', 231)).toContain('0 draft comment(s) wait');
     expect(describeReviewNow('api', 999)).toContain('no review of it is prepared');
+    // Comments taken off to fix yourself: said, with where they went (fenced: paths and branches are the PR's).
+    updateReview('api', 231, (r) => ({
+      ...r,
+      fixingMyself: [{ at: 'now', sessionId: 's1', branch: 'feat/refunds', comments: [{ path: 'a.cs', line: 3, body: 'b' }] }],
+    }));
+    expect(describeReviewNow('api', 231)).toContain(
+      '1 comment(s) taken off the review: the user is fixing them in a session instead of posting them (Fix it myself), on <<< feat/refunds >>>: <<< a.cs:3 >>>.',
+    );
   });
 });

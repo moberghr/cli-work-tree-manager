@@ -20,6 +20,7 @@ const api = vi.hoisted(() => ({
   saveReviewMode: vi.fn(),
   settleReviewInDoubt: vi.fn(),
   clearReviewDropped: vi.fn(),
+  fixReviewMyself: vi.fn(),
 }));
 vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/panes.js')>()),
@@ -243,5 +244,64 @@ describe('ReviewsTab', () => {
     act(() => root.render(createElement(ReviewsTab, {})));
     await flush();
     expect(button('Preparing…').disabled).toBe(true);
+  });
+
+  it('Fix it myself: every draft ticked; the ticked ones go, the unticked stay; the session opens, and the review says where they went', async () => {
+    const onOpenSession = vi.fn();
+    const [d1, d2] = review.drafts;
+    api.fixReviewMyself.mockResolvedValue({
+      sessionId: 'sess1',
+      created: true,
+      review: {
+        ...review,
+        drafts: [d2],
+        fixingMyself: [
+          {
+            at: '2026-11-02T11:00:00Z',
+            sessionId: 'sess1',
+            branch: 'feat/refunds',
+            comments: [{ path: d1.path, line: d1.line, body: d1.body }],
+          },
+        ],
+      },
+    });
+    act(() =>
+      root.render(createElement(ReviewsTab, { onOpenSession, sessionName: (id: string) => (id === 'sess1' ? 'Refunds fixes' : null) })),
+    );
+    await flush();
+    act(() => button('Fix it myself…').click());
+    const dialog = container.querySelector('[role="dialog"]')!;
+    const boxes = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    expect(boxes.map((b) => b.checked)).toEqual([true, true]);
+    expect(dialog.textContent).toContain(`${d1.path}:${d1.line} · AI`);
+    expect(dialog.textContent).toContain('asks you before pushing');
+    act(() => boxes[1].click());
+    expect(button('Fix 1 myself')).toBeDefined();
+    await act(async () => button('Fix 1 myself').click());
+    await flush();
+    expect(api.fixReviewMyself).toHaveBeenCalledWith('api', 231, [d1.id]);
+    expect(onOpenSession).toHaveBeenCalledWith('sess1');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('.wd-review-fixing')!.textContent).toContain('1 comment being fixed in Refunds fixes');
+    expect(container.querySelector('.wd-review-submit')!.textContent).toContain('1 comment on the diff');
+  });
+
+  it("Fix it myself is disabled with the reason for a fork's PR; a refusal is said in the dialog", async () => {
+    api.fetchReview.mockResolvedValue({ ...review, fork: true });
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    expect(button('Fix it myself…').disabled).toBe(true);
+    expect(button('Fix it myself…').title).toContain('fork');
+
+    api.fetchReview.mockResolvedValue(review);
+    api.fixReviewMyself.mockRejectedValue(new Error('Your local branch feat/refunds and the PR’s have gone separate ways'));
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(createElement(ReviewsTab, {})));
+    await flush();
+    act(() => button('Fix it myself…').click());
+    await act(async () => button('Fix 2 myself').click());
+    await flush();
+    expect(container.querySelector('[role="dialog"] .wd-modal-error')!.textContent).toContain('gone separate ways');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupReviews, pendingDrafts, reviewSections } from '../../src/web/src/state/review-view.js';
+import { fixingLines, fixMyselfBlocked, groupReviews, pendingDrafts, reviewSections } from '../../src/web/src/state/review-view.js';
 import { demoReview } from '../../src/server/demo/demo-reviews.js';
 import { summaryOf } from '../../src/core/review/review-build.js';
 
@@ -56,5 +56,32 @@ describe('the list of reviews', () => {
 
   it('none: one list, newest first', () => {
     expect(groupReviews(list, 'none')).toEqual([{ repo: null, reviews: [list[1], list[2], list[0]] }]);
+  });
+});
+
+describe('Fix it myself, as the tab shows it', () => {
+  const r = demoReview(new Date('2026-11-02T10:00:00Z'));
+  it('offered unless a fork, a submit in doubt or under way, or no draft left; why it is not, in words', () => {
+    expect(fixMyselfBlocked(r)).toBeNull();
+    expect(fixMyselfBlocked({ ...r, fork: true })).toContain('fork');
+    expect(fixMyselfBlocked({ ...r, inDoubt: { at: 'x', event: 'comment', drafts: [], summary: null, error: 'e' } })).toContain(
+      'may have gone out',
+    );
+    expect(fixMyselfBlocked({ ...r, submitting: { at: 'x', pid: 1, event: 'comment', drafts: [], summary: null } })).toContain(
+      'being submitted',
+    );
+    expect(fixMyselfBlocked({ ...r, drafts: r.drafts.map((d) => ({ ...d, state: 'posted' as const })) })).toBe('No draft comments to fix');
+  });
+  it('each batch taken off: how many, in the session (by name, else its branch)', () => {
+    const batch = (sessionId: string, n: number) => ({
+      at: 'x',
+      sessionId,
+      branch: 'feat/refunds',
+      comments: Array.from({ length: n }, () => ({ path: 'a', line: 1, body: 'b' })),
+    });
+    expect(fixingLines({ ...r, fixingMyself: [batch('s1', 3), batch('s2', 1)] }, (id) => (id === 's1' ? 'Refunds' : null))).toEqual([
+      { sessionId: 's1', text: '3 comments being fixed in Refunds' },
+      { sessionId: 's2', text: '1 comment being fixed in feat/refunds' },
+    ]);
   });
 });

@@ -1583,6 +1583,35 @@ export interface PrReviewWire {
    * submit in doubt names is never a newer draft's. Absent: the highest id it holds.
    */
   lastDraft?: number;
+  /** The PR comes from a fork: its branch isn't on origin, so Fix it myself can't open a session on it. */
+  fork?: true;
+  /** Drafts you took off the review to fix yourself (Fix it myself), each batch with the session it went to. */
+  fixingMyself?: ReviewFixWire[];
+}
+
+/** Draft comments you took off a review to fix yourself, in a session on the PR's branch. */
+export interface ReviewFixWire {
+  /** When (ISO). */
+  at: string;
+  /** The session they went to (made for them, or one already on the branch). */
+  sessionId: string;
+  /** The PR's branch the session is on. */
+  branch: string;
+  comments: Array<{ path: string; line: number; body: string; by?: 'ai' | 'you' }>;
+}
+
+/** POST /api/reviews/:repo/:number/fix-myself — the drafts (ids) to fix yourself instead of posting them. */
+export interface ReviewFixInput {
+  drafts: string[];
+}
+
+/** What Fix it myself did: the session the comments went to (`created`: made for them), and the review now. */
+export interface ReviewFixResultWire {
+  sessionId: string;
+  created: boolean;
+  review: PrReviewWire;
+  /** Something that went wrong after the session had the instruction (a draft that couldn't be taken off, a start that fell back to a note). */
+  warnings?: string[];
 }
 
 /** One row of the Reviews list. */

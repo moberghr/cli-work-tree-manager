@@ -29,6 +29,13 @@ describe('prepared reviews in state.db', () => {
     expect(isReview({ ...r, dropped: 'x' })).toBe(false);
     expect(isReview({ ...r, inDoubt: { at: 'now' } })).toBe(false);
     expect(isReview({ ...r, inDoubt: { at: 'now', event: 'comment', drafts: [], summary: null, error: 'e' } })).toBe(true);
+    // Fix it myself's batches: shape-checked, each comment too; a fork is `true` or absent.
+    const fix = { at: 'now', sessionId: 's1', branch: 'feat/x', comments: [{ path: 'a.cs', line: 3, body: 'b', by: 'ai' }] };
+    expect(isReview({ ...r, fork: true, fixingMyself: [fix] })).toBe(true);
+    expect(isReview({ ...r, fork: 'yes' })).toBe(false);
+    expect(isReview({ ...r, fixingMyself: fix })).toBe(false);
+    expect(isReview({ ...r, fixingMyself: [{ ...fix, sessionId: 1 }] })).toBe(false);
+    expect(isReview({ ...r, fixingMyself: [{ ...fix, comments: [{ path: 'a.cs', line: '3', body: 'b' }] }] })).toBe(false);
   });
 
   it("drops the reviews of PRs no longer open — only for the repos asked (a repo that couldn't be listed keeps its own)", () => {

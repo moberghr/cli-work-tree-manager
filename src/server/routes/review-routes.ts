@@ -3,6 +3,8 @@ import type { ParsedFile } from '../../core/diff/diff-parse.js';
 import type { PrReviewWire, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
 import { addDraft, clearDropped, removeDraft, settleInDoubt } from '../../core/review/review-submit.js';
 import { submitPrReview, type SubmitFlowDeps } from '../../core/review/review-submit-flow.js';
+import { fixItMyself, type FixMyselfDeps } from '../../core/review/review-fix.js';
+import type { ReviewFixResultWire } from '../../core/api-types.js';
 import { summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 
@@ -14,7 +16,9 @@ import { isReviewMode } from '../../core/review/review-config.js';
  * processes; what a submit that stopped part way sent is recorded and never
  * sent again; one that may have gone out waits for you to say whether it did
  * (POST …/in-doubt) before anything is sent again). The per-project settings
- * for automatic reviews. Every change broadcasts `reviews-changed`.
+ * for automatic reviews. Fix it myself (POST …/fix-myself, `fixItMyself`
+ * in core): the ticked drafts leave the review for a session on the PR's
+ * branch. Every change broadcasts `reviews-changed`.
  */
 
 export interface ReviewRouteDeps extends SubmitFlowDeps {
@@ -27,6 +31,8 @@ export interface ReviewRouteDeps extends SubmitFlowDeps {
   settings: () => ReviewSettingsWire;
   setMode: (project: string, mode: 'all' | 'asked' | 'off') => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
+  /** Fix it myself's session side (the PR's lookup, the live session on its branch, making one, telling it); absent: refused. */
+  fixMyself?: Omit<FixMyselfDeps, 'read' | 'update'>;
 }
 
 const num = (s: string) => (/^\d+$/.test(s) ? Number(s) : null);
@@ -112,6 +118,21 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     if (out.ok || out.review) changed(repo, n);
     if (out.ok) return c.json(out.review);
     return c.json({ error: out.error, ...(out.review ? { review: out.review } : {}) }, out.status);
+  });
+
+  // Fix it myself: the ticked drafts leave the review for a session on the PR's branch (made, or the live one told).
+  app.post('/api/reviews/:repo/:number/fix-myself', async (c) => {
+    const repo = c.req.param('repo');
+    const n = num(c.req.param('number'));
+    if (n === null || !deps.read(repo, n)) return c.json({ error: 'no review of that PR' }, 404);
+    if (!deps.fixMyself) return c.json({ error: 'not available on this server' }, 501);
+    const input: unknown = await c.req.json().catch(() => null);
+    const out = await fixItMyself({ ...deps.fixMyself, read: deps.read, update: deps.update }, repo, n, input);
+    if (out.ok || out.sessionId) deps.broadcast('sessions-changed', { ts: Date.now() });
+    if (!out.ok) return c.json({ error: out.error, ...(out.sessionId ? { sessionId: out.sessionId } : {}) }, out.status);
+    changed(repo, n);
+    const { ok: _ok, ...wire } = out;
+    return c.json(wire satisfies ReviewFixResultWire);
   });
 
   // After a submit that may have gone out: you looked at the PR, and say whether it did.

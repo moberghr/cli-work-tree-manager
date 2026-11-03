@@ -2,10 +2,11 @@ import type { Hono } from 'hono';
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { buildReview, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
-import type { PrReviewWire, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
+import type { PrReviewWire, ReviewFixResultWire, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
 import type { SubmitReviewResult } from '../../core/hosts/types.js';
 import { addDraft, clearDropped, removeDraft, settleInDoubt } from '../../core/review/review-submit.js';
 import { submitPrReview } from '../../core/review/review-submit-flow.js';
+import { fixItMyself } from '../../core/review/review-fix.js';
 
 /**
  * The demo's PR reviews (#64): a large made-up pull request — a refunds
@@ -219,7 +220,26 @@ function waitingReview(now: Date): PrReviewWire {
   };
 }
 
-export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unknown) => void): void {
+/** The demo's sessions, for Fix it myself: the live one on a branch, a new one started with a prompt, a note to one. */
+export interface DemoReviewSessions {
+  liveOn: (alias: string, branch: string) => { id: string; label: string } | null;
+  /** A new session on the branch (`name`: what it's called). */
+  create: (alias: string, branch: string, name: string) => { id: string; label: string };
+  note: (id: string, body: string) => void;
+}
+
+/** Sessions nobody keeps (the parity test's): every one is new, notes go nowhere. */
+const noSessions: DemoReviewSessions = {
+  liveOn: () => null,
+  create: (alias, branch) => ({ id: `${alias}-${branch}`, label: `${alias} · ${branch}` }),
+  note: () => undefined,
+};
+
+export function mountDemoReviews(
+  app: Hono,
+  broadcast: (event: string, data: unknown) => void,
+  sessions: DemoReviewSessions = noSessions,
+): void {
   const now = new Date();
   const reviews = new Map<string, PrReviewWire>([
     ['api#231', demoReview(now)],
@@ -305,6 +325,48 @@ export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unk
     if (out.ok || out.review) broadcast('reviews-changed', { repo, number: n });
     if (out.ok) return c.json(out.review);
     return c.json({ error: out.error, ...(out.review ? { review: out.review } : {}) }, out.status);
+  });
+  // Fix it myself: the real flow (`fixItMyself`) over the demo's reviews and sessions; a fork's PR is refused as there.
+  app.post('/api/reviews/:repo/:number/fix-myself', async (c) => {
+    const repo = c.req.param('repo');
+    const n = /^\d+$/.test(c.req.param('number')) ? Number(c.req.param('number')) : null;
+    if (n === null || !reviews.get(key(repo, String(n)))) return c.json({ error: 'no review of that PR' }, 404);
+    const input: unknown = await c.req.json().catch(() => null);
+    const out = await fixItMyself(
+      {
+        read: (rp, num) => reviews.get(key(rp, String(num))) ?? null,
+        update: (rp, num, change) => {
+          const was = reviews.get(key(rp, String(num)));
+          if (!was) return null;
+          const next = change(was);
+          reviews.set(key(rp, String(num)), next);
+          return next;
+        },
+        lookUp: async (r) =>
+          r.fork
+            ? { ok: false, error: "it comes from a fork: its branch isn't on origin" }
+            : {
+                ok: true,
+                pr: { alias: r.repo, number: r.number, title: r.title, url: r.url, branch: r.branch, base: r.base, author: r.author },
+              },
+        liveSessionOn: (alias, branch) => sessions.liveOn(alias, branch),
+        create: async (alias, branch, name) => {
+          const s = sessions.create(alias, branch, name);
+          return { ok: true, sessionId: s.id, label: s.label };
+        },
+        // The demo's agent "starts" on its instruction: a note it answers, as every demo note.
+        start: async (id, prompt) => sessions.note(id, prompt),
+        note: async (id, body) => sessions.note(id, body),
+      },
+      repo,
+      n,
+      input,
+    );
+    if (!out.ok) return c.json({ error: out.error }, out.status);
+    broadcast('reviews-changed', { repo, number: n });
+    broadcast('sessions-changed', { ts: Date.now() });
+    const { ok: _ok, ...wire } = out;
+    return c.json(wire satisfies ReviewFixResultWire);
   });
   app.post('/api/reviews/:repo/:number/in-doubt', async (c) => {
     const k = key(c.req.param('repo'), c.req.param('number'));

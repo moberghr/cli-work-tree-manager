@@ -14,6 +14,15 @@ import { createReviewQueue, type ReviewQueue, type ReviewQueueDeps } from './rev
 import { dropReviewRef, preparePr, reviewDiff, reviewRef } from './review-source.js';
 import { allReviews, keepOnly, readReview, updateReview, upsertReview } from './review-store.js';
 import { preparedOn } from './review-submit.js';
+import fs from 'node:fs';
+import type { FixMyselfDeps } from './review-fix.js';
+import { sessionOnBranch } from './review-fix.js';
+import { resolvePrToStart } from '../pr/pr-start.js';
+import { loadHistory } from '../sessions/history.js';
+import { checkedOutBranch } from '../git/git-head.js';
+import { sessionIdFor } from '../sessions/session-id.js';
+import type { CreateWorktree } from '../worktree/setup-child.js';
+import { startSessionWithPrompt } from '../sessions/session-start.js';
 
 /**
  * The review queue and its routes' I/O, real: the repos from config, each on
@@ -124,5 +133,37 @@ export function realReviewRouteIo() {
     alive: isPidAlive,
     settings: reviewSettings,
     setMode: setReviewMode,
+  };
+}
+
+/**
+ * Fix it myself's session side, real: the PR looked up as Start's Work on it does, the live session on its branch
+ * from the history, a new one made through `create` (work web's `makeWorktree`, in a child) and started in the PTY
+ * host, a note through `note` (work web's comment route).
+ */
+export function realFixIo(opts: {
+  create: CreateWorktree;
+  note: (sessionId: string, body: string) => Promise<void>;
+  activity?: ActivityLog;
+}): Omit<FixMyselfDeps, 'read' | 'update'> {
+  return {
+    lookUp: (r) => resolvePrToStart(r.url, loadConfig() ?? { repos: {}, groups: {} }, r.repo),
+    liveSessionOn: (alias, branch) =>
+      sessionOnBranch(loadHistory(), loadConfig(), alias, branch, { branchOf: checkedOutBranch, exists: (p) => fs.existsSync(p) }),
+    create: async (alias, branch, name) => {
+      const config = loadConfig();
+      if (!config) return { ok: false, error: 'no config' };
+      const made = await opts.create({ target: alias, branch, name }, config);
+      if (!made.ok) return made;
+      return {
+        ok: true,
+        sessionId: sessionIdFor({ target: alias, branch: made.branch }),
+        label: `${alias} · ${made.branch}`,
+        ...(made.warnings?.length ? { warnings: made.warnings } : {}),
+      };
+    },
+    start: startSessionWithPrompt,
+    note: opts.note,
+    ...(opts.activity ? { activity: opts.activity } : {}),
   };
 }

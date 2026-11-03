@@ -26,6 +26,8 @@ export interface ReviewMeta {
   base: string;
   headSha: string;
   host?: string;
+  /** From a fork (its branch isn't on origin). */
+  fork?: true;
 }
 
 /** What git said beyond the diff: files whose change is whitespace only, files .gitattributes marks generated. */
@@ -239,6 +241,10 @@ export function describeReview(r: PrReviewWire): string {
     r.drafts.length
       ? `${r.drafts.filter((d) => d.state === 'draft').length} draft comment(s) wait for the user's Post; you never post them.`
       : '',
+    ...(r.fixingMyself ?? []).map(
+      (f) =>
+        `${f.comments.length} comment(s) taken off the review: the user is fixing them in a session instead of posting them (Fix it myself), on <<< ${asData(f.branch, 120)} >>>: <<< ${f.comments.map((c) => `${asData(c.path, 120)}:${c.line}`).join(', ')} >>>.`,
+    ),
   ];
   return lines.filter(Boolean).join('\n');
 }

@@ -61,7 +61,8 @@ export function lastDraftNumber(r: PrReviewWire): number {
 }
 
 /** The drafts a submit in doubt or under way names: they may be posted, so they stay as they are until it's known. */
-const heldIds = (r: PrReviewWire): Set<string> => new Set([...(r.inDoubt?.drafts ?? []), ...(r.submitting?.drafts ?? [])].map((d) => d.id));
+export const heldIds = (r: PrReviewWire): Set<string> =>
+  new Set([...(r.inDoubt?.drafts ?? []), ...(r.submitting?.drafts ?? [])].map((d) => d.id));
 
 /** A submit request as sent, checked; a reason when it can't go. */
 export function submitRefusal(r: PrReviewWire, input: unknown): string | null {
@@ -335,6 +336,7 @@ export function carryForward(was: PrReviewWire | null, fresh: PrReviewWire): PrR
     ...(was.submitted ? { submitted: was.submitted } : {}),
     ...(was.inDoubt ? { inDoubt: was.inDoubt } : {}),
     ...(was.submitting ? { submitting: was.submitting } : {}),
+    ...(was.fixingMyself?.length ? { fixingMyself: was.fixingMyself } : {}),
   };
 }
 

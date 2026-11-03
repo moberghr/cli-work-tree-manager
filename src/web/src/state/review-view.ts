@@ -83,3 +83,24 @@ export function groupReviews(
 
 /** The drafts that would go out with the review (not posted yet). */
 export const pendingDrafts = (r: PrReviewWire) => r.drafts.filter((d) => d.state === 'draft');
+
+/**
+ * Why Fix it myself can't be offered now (null: it can) — the button disabled with this as its reason. The server
+ * checks the same (`fixRefusal`): a fork's branch isn't on origin; a submit in doubt or under way speaks for the
+ * drafts; nothing to take off.
+ */
+export function fixMyselfBlocked(r: PrReviewWire): string | null {
+  if (r.fork) return "It comes from a fork: its branch isn't on origin, so a session couldn't push to it";
+  if (r.inDoubt) return 'The last submit may have gone out: say whether it went first';
+  if (r.submitting) return 'This review is being submitted';
+  if (!pendingDrafts(r).length) return 'No draft comments to fix';
+  return null;
+}
+
+/** "3 comments being fixed in feat/x" — each batch Fix it myself took off, named by its session (`nameOf`) or branch. */
+export function fixingLines(r: PrReviewWire, nameOf: (id: string) => string | null): Array<{ sessionId: string; text: string }> {
+  return (r.fixingMyself ?? []).map((f) => ({
+    sessionId: f.sessionId,
+    text: `${f.comments.length} comment${f.comments.length === 1 ? '' : 's'} being fixed in ${nameOf(f.sessionId) ?? f.branch}`,
+  }));
+}

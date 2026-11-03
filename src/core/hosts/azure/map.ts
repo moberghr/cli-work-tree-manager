@@ -194,6 +194,7 @@ export function openPrOf(repo: AzureRepo, pr: AzPr): OpenPr | null {
     additions: 0,
     deletions: 0,
     requested: (pr.reviewers ?? []).filter((r) => r && (r.vote ?? 0) === 0 && r.uniqueName).map((r) => r!.uniqueName!),
+    ...(pr.forkSource ? { fork: true as const } : {}),
   };
 }
 
