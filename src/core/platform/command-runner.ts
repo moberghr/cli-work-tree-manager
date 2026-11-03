@@ -22,9 +22,12 @@ export const RUN_TIMED_OUT = 124;
  * .exe files, so a `gh` installed as a .cmd shim (scoop, wrappers) would
  * look "not installed"; cross-spawn resolves shims like `work tree` does,
  * with cmd-escaped args. Exit code 127 = the binary itself is missing.
- * A batch file on Windows is never handed cmd.exe's special characters
- * (`launchFor`, batch-launch.ts): a Python CLI's shim (`az.cmd`) is skipped
- * for its Python, any other refuses such an argument (exit 1, said why).
+ * On Windows it starts what `launchFor` (batch-launch.ts) resolved — the
+ * absolute file on PATH, never the bare name (cross-spawn would look that up
+ * again, the working folder first: a worktree's own `git.cmd` would run) —
+ * and a batch file is never handed cmd.exe's special characters: a Python
+ * or Node shim (`az.cmd`, npm's) is skipped for its interpreter, any other
+ * refuses such an argument (exit 1, said why).
  */
 export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
   new Promise((resolve) => {

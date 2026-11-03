@@ -196,6 +196,13 @@ export const azure: GitHost = {
     cmd: 'az',
     label: 'Azure CLI (azure-devops)',
     checkArgs: ['account', 'show'],
+    requires: [
+      {
+        args: ['extension', 'show', '--name', 'azure-devops'],
+        failing:
+          "Optional: add the Azure CLI's azure-devops extension (az extension add --name azure-devops) to see the pull requests of your Azure DevOps repos.",
+      },
+    ],
     missing:
       'Optional: install the Azure CLI and its azure-devops extension (az extension add --name azure-devops) to see the pull requests of your Azure DevOps repos.',
     failing: 'Optional: run `az login` so work can see your Azure DevOps pull requests.',

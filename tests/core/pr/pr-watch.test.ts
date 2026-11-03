@@ -223,6 +223,84 @@ describe('PR watch', () => {
     expect(asked.every((a) => !a.restingAzure)).toBe(true);
   });
 
+  it('a session on two hosts, one resting: checked (the other host is asked), but it keeps what it knew and acts on nothing', async () => {
+    let t = LATER;
+    const az = (p: ShipPr | null, ghError?: string) =>
+      ({ ...repo('payments', p), host: 'azure', ...(ghError ? { ghError } : {}) }) as RepoShipState;
+    let answer: RepoShipState[] = [repo('api', pr()), az(pr({ number: 3 }))];
+    const restingSeen: boolean[] = [];
+    const tell = vi.fn(async () => {});
+    const archive = vi.fn(async () => {});
+    const watch = createPrWatch({
+      sessions: () => [{ id: 'mix', session: session(true) }],
+      preflight: vi.fn(async (_s: WorktreeSession, o?: { resting?: (host: string | undefined) => boolean }) => {
+        restingSeen.push(!!o?.resting?.('azure'));
+        return { repos: answer };
+      }),
+      archive,
+      tell,
+      broadcast: vi.fn(),
+      options: () => ON,
+      told: () => ({ has: () => false, add: () => undefined }),
+      rateLimited: (host, text) => host === 'azure' && /TF400733/.test(text),
+      now: () => t,
+    });
+    await watch.tick();
+    answer = [repo('api', pr()), az(null, 'TF400733: The request was blocked')];
+    await watch.tick(); // Azure DevOps rests from here
+    t += 60_000;
+    // GitHub's PR now fails its checks (that would be told) and Azure DevOps' wasn't asked (reads as no PR).
+    answer = [repo('api', failing('bbb')), az(null)];
+    await watch.tick();
+    expect(restingSeen).toEqual([false, false, true]); // still checked: GitHub isn't resting
+    expect(watch.state('mix')?.repos.map((r) => r.pr?.number)).toEqual([7, 3]);
+    expect(watch.state('mix')?.repos[0].pr?.checks).toBe('pass');
+    expect(tell).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it("after a restart, a session's saved check says which host it is on: one whose host rests isn't asked before its first check", async () => {
+    let t = LATER;
+    let phase: 'start' | 'first' | 'after' = 'start';
+    const azSession = (target: string) => ({ ...session(), target });
+    const saved: SessionCi = {
+      checkedAt: '2026-09-30T10:00:00.000Z',
+      repos: [{ name: 'billing', pr: pr({ number: 9 }), done: false, host: 'azure' }],
+    };
+    const preflight = vi.fn(async (s: WorktreeSession) => ({
+      repos: [{ ...repo(s.target, null), host: 'azure', ghError: 'TF400733: The request was blocked' } as RepoShipState],
+    }));
+    const watch = createPrWatch({
+      // At start both sessions (so the saved check of `billing` is kept); the first sweep sees only `payments`.
+      sessions: () =>
+        phase === 'first'
+          ? [{ id: 'payments', session: azSession('payments') }]
+          : [
+              { id: 'payments', session: azSession('payments') },
+              { id: 'billing', session: azSession('billing') },
+            ],
+      preflight,
+      archive: vi.fn(async () => {}),
+      tell: vi.fn(async () => {}),
+      broadcast: vi.fn(),
+      options: () => ON,
+      told: () => ({ has: () => false, add: () => undefined }),
+      rateLimited: (host, text) => host === 'azure' && /TF400733/.test(text),
+      now: () => t,
+      saved: { load: () => [['billing', saved]], save: vi.fn() },
+    });
+    expect(watch.state('billing')?.repos[0].pr?.number).toBe(9);
+    phase = 'first';
+    await watch.tick(); // payments: Azure DevOps refuses, and rests
+    expect(preflight).toHaveBeenCalledTimes(1);
+    phase = 'after';
+    t += 60_000;
+    await watch.tick();
+    // billing was never preflighted by this watch; its saved check puts it on Azure DevOps, which rests.
+    expect(preflight).toHaveBeenCalledTimes(1);
+    expect(watch.state('billing')?.repos[0].pr?.number).toBe(9);
+  });
+
   it('a review lookup that fails keeps the last count for the same PR', async () => {
     const feedback = vi.fn<() => Promise<ReviewFeedback | null>>(
       async () =>

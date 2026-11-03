@@ -83,6 +83,8 @@ interface ToolSpec {
   missing: string;
   /** A failure that isn't "not installed" (gh logged out). */
   failing?: string;
+  /** Checked first, each with its own line when it fails (az's azure-devops extension). */
+  requires?: Array<{ args: string[]; failing: string }>;
 }
 
 const TOOLS: ToolSpec[] = [
@@ -119,6 +121,7 @@ function toolsNow(): ToolSpec[] {
       args: h.cli.checkArgs,
       missing: h.cli.missing,
       failing: h.cli.failing,
+      ...(h.cli.requires ? { requires: h.cli.requires } : {}),
     }));
   return [TOOLS[0], TOOLS[1], ...hosts, ...TOOLS.slice(2)];
 }
@@ -127,16 +130,17 @@ function toolsNow(): ToolSpec[] {
 export async function checkTools(run: CommandRunner = defaultRunner): Promise<ToolCheck[]> {
   return Promise.all(
     toolsNow().map(async (t): Promise<ToolCheck> => {
-      const r = await run(t.cmd, t.args, os.tmpdir()).catch(() => ({ code: 127, stdout: '', stderr: '' }));
+      const ask = (args: string[]) => run(t.cmd, args, os.tmpdir()).catch(() => ({ code: 127, stdout: '', stderr: '' }));
+      const notFound = (r: { code: number; stderr: string }) => r.code === 127 || /not (found|recognized)|ENOENT/i.test(r.stderr);
+      const result = (ok: boolean, detail: string): ToolCheck => ({ id: t.id, label: t.label, needed: t.needed, ok, detail });
+      // What it needs beyond itself first (az's azure-devops extension): `az account show` passes without it.
+      for (const pre of t.requires ?? []) {
+        const r = await ask(pre.args);
+        if (r.code !== 0) return result(false, notFound(r) ? t.missing : pre.failing);
+      }
+      const r = await ask(t.args);
       const ok = r.code === 0;
-      const notFound = r.code === 127 || /not (found|recognized)|ENOENT/i.test(r.stderr);
-      return {
-        id: t.id,
-        label: t.label,
-        needed: t.needed,
-        ok,
-        detail: ok ? (r.stdout || r.stderr).split('\n')[0].trim() : notFound ? t.missing : (t.failing ?? t.missing),
-      };
+      return result(ok, ok ? (r.stdout || r.stderr).split('\n')[0].trim() : notFound(r) ? t.missing : (t.failing ?? t.missing));
     }),
   );
 }

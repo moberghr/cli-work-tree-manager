@@ -112,8 +112,14 @@ describe('checkTools', () => {
   });
 
   it('az is listed (after gh) only when an enrolled repo is on Azure DevOps', async () => {
-    const run: CommandRunner = async (cmd) => {
-      return cmd === 'az' ? { code: 1, stdout: '', stderr: 'Please run az login' } : { code: 0, stdout: `${cmd} 1\n`, stderr: '' };
+    let azAnswers: (args: string[]) => { code: number; stdout: string; stderr: string } = (args) =>
+      args[0] === 'extension'
+        ? { code: 0, stdout: '{"name":"azure-devops"}', stderr: '' }
+        : { code: 1, stdout: '', stderr: 'Please run az login' };
+    const asked: string[][] = [];
+    const run: CommandRunner = async (cmd, args) => {
+      if (cmd === 'az') asked.push(args);
+      return cmd === 'az' ? azAnswers(args) : { code: 0, stdout: `${cmd} 1\n`, stderr: '' };
     };
     const repo = (name: string, origin: string) => {
       const p = path.join(home, 'repos', name);
@@ -137,6 +143,26 @@ describe('checkTools', () => {
       ['acli', true, false],
     ]);
     expect(tools[3].detail).toMatch(/az login/);
+    expect(asked).toEqual([
+      ['extension', 'show', '--name', 'azure-devops'],
+      ['account', 'show'],
+    ]);
+
+    // Signed in, but without the azure-devops extension (`az account show` alone passes): said so, how to add it.
+    azAnswers = (args) =>
+      args[0] === 'extension'
+        ? { code: 1, stdout: '', stderr: 'ERROR: The extension azure-devops is not installed.' }
+        : { code: 0, stdout: '{}', stderr: '' };
+    const noExt = (await checkTools(run))[3];
+    expect(noExt.ok).toBe(false);
+    expect(noExt.detail).toMatch(/az extension add --name azure-devops/);
+    expect(noExt.detail).not.toMatch(/az login/);
+
+    // az itself missing: the install line; everything there: ok.
+    azAnswers = () => ({ code: 127, stdout: '', stderr: '' });
+    expect((await checkTools(run))[3].detail).toMatch(/install the Azure CLI/);
+    azAnswers = (args) => ({ code: 0, stdout: args[0] === 'account' ? 'signed in\n' : '{}', stderr: '' });
+    expect((await checkTools(run))[3]).toMatchObject({ ok: true, detail: 'signed in' });
   });
 });
 

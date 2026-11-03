@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { azReason, azure, routeValueOk } from '../../../src/core/hosts/azure/adapter.js';
 import { azureRepoId, azureThreadId, parseAzureOrigin, parseAzurePrUrl, parseAzureThreadId } from '../../../src/core/hosts/azure/origin.js';
 import { checksOf, feedbackOf, mergeState, reviewDecision, type AzPr } from '../../../src/core/hosts/azure/map.js';
@@ -162,6 +162,8 @@ interface AzState {
   limited: boolean;
   /** What the completing PATCH answers as the PR's status. */
   completeAs: string;
+  /** The default branch the repositories call answers (null: none). */
+  defaultBranch: string | null;
   /** These az commands fail (their first words, e.g. 'account show'), with this stderr. */
   failing: Record<string, string>;
   calls: string[][];
@@ -175,6 +177,7 @@ const fresh = (): AzState => ({
   posted: [],
   limited: false,
   completeAs: 'completed',
+  defaultBranch: 'refs/heads/main',
   failing: {},
   calls: [],
 });
@@ -208,7 +211,8 @@ const run: CommandRunner = async (cmd, args, cwd): Promise<RunResult> => {
       return ok({ pullRequestId: 7, status: az.completeAs, mergeStatus: 'queued' });
     }
     if (resource === 'pullRequestIterations') return ok({ value: az.iterations ?? [{ id: 1, sourceRefCommit: { commitId: api.head } }] });
-    if (resource === 'repositories') return ok({ id: 'guid', name: 'api', defaultBranch: 'refs/heads/main' });
+    if (resource === 'repositories')
+      return ok({ id: 'guid', name: 'api', ...(az.defaultBranch ? { defaultBranch: az.defaultBranch } : {}) });
     if (resource === 'pullRequests' && method === 'POST') {
       az.posted.push({ resource, method, body: inFile });
       return ok({ pullRequestId: 12, status: 'active' });
@@ -605,6 +609,58 @@ describe('#65 review: what az answers, and what it fails to', () => {
     ]);
     // Nothing of the commit's text is on argv.
     expect(az.calls.flat().some((a) => a.includes('Add refunds'))).toBe(false);
+  });
+
+  it("createPr: a commit's several lines, quotes, & and % reach the description intact, in the file — never argv", async () => {
+    const subject = 'Refunds: "partial" & full';
+    const body = ['First line', '', '"Quoted" & piped | %PATH% ^caret', 'last line'].join('\n');
+    const withCommit: CommandRunner = async (cmd, args, cwd) =>
+      cmd === 'git' && args[0] === 'log'
+        ? { code: 0, stdout: `${args[2] === '--format=%s' ? subject : body}\n`, stderr: '' }
+        : run(cmd, args, cwd);
+    expect(await azure.createPr(withCommit, api.path, 'feat/refunds', { draft: false })).toMatchObject({ ok: true });
+    expect(az.posted).toMatchObject([{ body: { title: subject, description: body, isDraft: false } }]);
+    expect(az.calls.flat().some((a) => a.includes('Quoted') || a.includes('partial'))).toBe(false);
+  });
+
+  it('createPr: the repo lookup failing, or no default branch, says so and creates nothing', async () => {
+    az.failing = { 'devops invoke --org https://dev.azure.com/acme --area git --resource repositories': 'ERROR: TF401019: no such repo' };
+    expect(await azure.createPr(run, api.path, 'feat/refunds', { draft: false })).toEqual({
+      ok: false,
+      error: 'ERROR: TF401019: no such repo',
+    });
+    az.failing = {};
+    az.defaultBranch = null;
+    expect(await azure.createPr(run, api.path, 'feat/refunds', { draft: false })).toEqual({
+      ok: false,
+      error: "couldn't tell api's default branch",
+    });
+    expect(az.posted).toEqual([]);
+  });
+
+  it("createPr: a temp folder that can't be tidied never fails a call that went through", async () => {
+    const rm = vi.spyOn(fs, 'rmSync').mockImplementation(() => {
+      throw new Error('EBUSY: in use');
+    });
+    try {
+      expect(await azure.createPr(run, api.path, 'feat/refunds', { draft: false })).toEqual({
+        ok: true,
+        url: 'https://dev.azure.com/acme/Shop/_git/api/pullrequest/12',
+      });
+      expect(rm).toHaveBeenCalled();
+    } finally {
+      rm.mockRestore();
+    }
+    expect(az.posted).toHaveLength(1); // sent once, not again
+  });
+
+  it('a route value Azure DevOps has no name like is refused before az runs (invoke)', async () => {
+    for (const bad of [-1, 1.5]) {
+      const out = await azure.mergePr(run, api.path, bad, 'squash', api.head);
+      expect(out).toMatchObject({ ok: false, error: "refused: pullRequestId isn't a name Azure DevOps has" });
+    }
+    expect(az.calls).toEqual([]);
+    expect(az.patched).toEqual([]);
   });
 
   it('mergedPr: the completed PR whose head is the tip; none; undefined when az fails', async () => {

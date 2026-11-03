@@ -2,6 +2,7 @@ import spawn from './spawn.js';
 import { detachHere } from './process.js';
 import { applyEnvDelta, hasEnvDelta, type EnvDelta } from './env-delta.js';
 import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-launcher.js';
+import { launchFor } from './batch-launch.js';
 
 /** Get the platform-appropriate default editor. */
 export function getEditor(): string {
@@ -66,5 +67,9 @@ export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {},
   const spawnOpts: Parameters<typeof spawn.sync>[2] =
     // The AI tool runs in this terminal: nothing to hide.
     env ? { cwd, stdio: 'inherit', windowsHide: false, env: env as NodeJS.ProcessEnv } : { cwd, stdio: 'inherit', windowsHide: false };
-  spawn.sync(cmd, args, spawnOpts);
+  // Windows: npm's claude.cmd is skipped for node on its script, and another batch file never gets a prompt
+  // cmd.exe would act on (`&`, `%`, quotes, a line break that cuts the rest): refused, said why (batch-launch.ts).
+  const launch = launchFor(cmd, args, { env: env ?? process.env });
+  if ('refused' in launch) throw new Error(`${launch.refused} (give it the prompt in its terminal instead)`);
+  spawn.sync(launch.cmd, launch.args, spawnOpts);
 }

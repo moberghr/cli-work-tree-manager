@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { programPath } from './program-path.js';
 import { isPidAlive, killTreeAsync } from './process.js';
 import { packageRoot } from './package-root.js';
 import { getConfigDir } from './config.js';
@@ -303,8 +304,11 @@ async function linuxProcesses(): Promise<RunningProcess[]> {
 
 const run = (cmd: string, args: string[]): Promise<string> =>
   new Promise((resolve) =>
-    execFile(cmd, args, { encoding: 'utf-8', windowsHide: true, timeout: 20_000, maxBuffer: 64 * 1024 * 1024 }, (_err, stdout) =>
-      resolve(stdout ?? ''),
+    execFile(
+      programPath(cmd),
+      args,
+      { encoding: 'utf-8', windowsHide: true, timeout: 20_000, maxBuffer: 64 * 1024 * 1024 },
+      (_err, stdout) => resolve(stdout ?? ''),
     ),
   );
 

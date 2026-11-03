@@ -3,7 +3,8 @@ import { forgetCatchUp } from '../../core/conversations/catch-up.js';
 import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import crossSpawn from 'cross-spawn';
+import crossSpawn from '../../core/platform/spawn.js';
+import { programPath } from '../../core/platform/program-path.js';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -327,11 +328,15 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     }
     const title = `${session.target} · ${session.branch || '(base)'}`.replace(/;/g, ' ');
     try {
-      const child = spawn('wt.exe', ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'], {
-        stdio: 'ignore',
-        shell: false,
-        windowsHide: false, // a Windows Terminal tab: the window is what was asked for
-      });
+      const child = spawn(
+        programPath('wt.exe'),
+        ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'],
+        {
+          stdio: 'ignore',
+          shell: false,
+          windowsHide: false, // a Windows Terminal tab: the window is what was asked for
+        },
+      );
       // A missing wt.exe fails asynchronously, after we've answered —
       // swallow it so it can't crash the server.
       child.on('error', () => {});

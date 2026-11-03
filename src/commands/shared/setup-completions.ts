@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import chalk from 'chalk';
-import spawn from 'cross-spawn';
+import spawn from '../../core/platform/spawn.js';
 
 export interface ShellProfile {
   shell: string;

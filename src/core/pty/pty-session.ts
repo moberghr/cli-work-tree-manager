@@ -5,6 +5,7 @@ import xtermHeadless from '@xterm/headless';
 import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../platform/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../platform/ai-launcher.js';
+import { batchArgProblem, programFor } from '../platform/batch-launch.js';
 import childProcess from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -70,8 +71,8 @@ export interface PtyAiOptions {
   unsafe?: boolean;
   resume?: boolean;
   promptFile?: string;
-  /** Initial prompt passed on the command line (escaped — see
-   *  resolvePtyCommand). */
+  /** Initial prompt: on the command line as an argument of its own; for a batch-file agent on Windows that cmd.exe
+   *  would parse (its `&`, `%`, quotes, line breaks), typed in once the agent is up instead (resolvePtyCommand). */
   initialPrompt?: string;
   /** Dev-server port exposed to the launched process as $PORT. */
   port?: number;
@@ -87,15 +88,22 @@ type CrossSpawnParse = (
   options: { env?: NodeJS.ProcessEnv; cwd?: string },
 ) => { command: string; args: string[]; file?: string; options: { windowsVerbatimArguments?: boolean } };
 
+/** Whether `cmd` starts as a batch file on Windows — cmd.exe would parse its arguments (a Node or Python shim doesn't: it's skipped). */
+export function startsAsBatch(cmd: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' && programFor(cmd, { env })?.batch === true;
+}
+
 /**
  * Turn `cmd args` into what node-pty should spawn, safely.
  *
- * Windows: resolved the way cross-spawn (used by `work tree`'s direct
- * launch) resolves it — a real .exe is spawned directly with normal argv
- * quoting; a .cmd/.bat shim goes through `cmd.exe /d /s /c "…"` with
- * cmd-metacharacters caret-escaped, handed to node-pty as a verbatim
- * command line. Never a bare `cmd.exe /c cmd args`: that lets `&`, `|`, `%`
- * in an argument (a prompt, a path) run as commands (§1.1).
+ * Windows: the program is the absolute file PATH gives it, never one in the working folder (`programFor`,
+ * batch-launch.ts: a worktree's own `claude.cmd` doesn't run); a missing one throws. A real .exe is spawned
+ * directly with normal argv quoting. A batch file that starts a Node script — npm's `claude.cmd` — or a Python
+ * module is skipped: its interpreter is spawned on the script, the arguments as argv, no cmd.exe. Any other batch
+ * file goes through `cmd.exe /d /s /c "…"` (cross-spawn's escaping, a verbatim command line), and only with
+ * arguments free of cmd's special characters: cmd.exe parses them twice, so `"&echo X&"` would run and a line break
+ * cut the rest; such arguments throw (the caller types a prompt in after the start instead). Never a bare
+ * `cmd.exe /c cmd args` (§1.1). Elsewhere: as given.
  */
 export function resolvePtyCommand(
   cmd: string,
@@ -103,13 +111,23 @@ export function resolvePtyCommand(
   opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
 ): { file: string; args: string[] | string } {
   if (process.platform !== 'win32') return { file: cmd, args };
+  const program = programFor(cmd, { env: opts.env ?? process.env });
+  if (!program) throw new Error(`${cmd} isn't on PATH`);
+  if (!program.batch) return { file: program.file, args: [...program.pre, ...args] };
+  const why = batchArgProblem(args);
+  if (why) throw new Error(`${cmd}: ${why}`);
   const parse = (crossSpawn as unknown as { _parse: CrossSpawnParse })._parse;
-  const parsed = parse(cmd, args, opts);
+  const parsed = parse(program.file, args, opts);
   if (parsed.options.windowsVerbatimArguments) {
     return { file: parsed.command, args: parsed.args.join(' ') };
   }
   return { file: parsed.file ?? parsed.command, args: parsed.args };
 }
+
+/** How long a terminal must have been quiet after its first output before a prompt is typed into it. */
+export const PROMPT_SETTLE_MS = 800;
+/** The longest a prompt waits for that quiet before it is typed anyway. */
+export const PROMPT_WAIT_MS = 20_000;
 
 /** Config `useBundledConpty`, read at each start (off when config can't be read). */
 function readUseBundledConpty(): boolean {
@@ -159,6 +177,7 @@ export class PtySession {
 
     let rawCmd: string;
     let rawArgs: string[];
+    let typeLater: string | undefined;
 
     if (command) {
       // Custom command (e.g. work tree)
@@ -166,12 +185,14 @@ export class PtySession {
       rawArgs = command.args;
     } else if (aiOptions) {
       // Launch configured AI tool (default: claude)
-      ({ cmd: rawCmd, args: rawArgs } = buildAiLaunchArgs(aiOptions.tool, {
-        unsafe: aiOptions.unsafe,
-        resume: aiOptions.resume,
-        promptFile: aiOptions.promptFile,
-        initialPrompt: aiOptions.initialPrompt,
-      }));
+      const launchOpts = { unsafe: aiOptions.unsafe, resume: aiOptions.resume, promptFile: aiOptions.promptFile };
+      ({ cmd: rawCmd, args: rawArgs } = buildAiLaunchArgs(aiOptions.tool, { ...launchOpts, initialPrompt: aiOptions.initialPrompt }));
+      // A batch-file agent (not a Node or Python shim) on Windows: cmd.exe would parse the prompt — its `&` runs,
+      // a line break cuts it. Never on its command line: typed in once it's up, as any note to a session is.
+      if (aiOptions.initialPrompt && batchArgProblem([aiOptions.initialPrompt]) && startsAsBatch(aiOptions.tool.cmd, aiOptions.env)) {
+        ({ cmd: rawCmd, args: rawArgs } = buildAiLaunchArgs(aiOptions.tool, launchOpts));
+        typeLater = aiOptions.initialPrompt;
+      }
     } else {
       throw new Error('PtySession requires either a custom command or aiOptions');
     }
@@ -217,6 +238,8 @@ export class PtySession {
       }
     });
 
+    if (typeLater !== undefined) this.typeWhenSettled(typeLater, aiOptions?.tool.cmd ?? 'claude');
+
     this.pty.onExit(({ exitCode }) => {
       if (!this._loggedOutput && this._outputBuffer) {
         debug('PtySession output before exit', { cwd, output: this._outputBuffer.slice(0, 500) });
@@ -225,6 +248,40 @@ export class PtySession {
       debug('PtySession exited', { cwd, exitCode });
       this._exited = true;
       this.onExit?.(exitCode);
+    });
+  }
+
+  /**
+   * Type `text` into the agent's prompt once it is up: after its first output and `PROMPT_SETTLE_MS` of quiet (at
+   * most `PROMPT_WAIT_MS`), through the agent's own submit (agents/). For a prompt that can't go on its command line.
+   */
+  private typeWhenSettled(text: string, tool: string): void {
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    let typed = false;
+    const type = () => {
+      if (typed) return;
+      typed = true;
+      clearTimeout(quiet);
+      clearTimeout(cap);
+      sub.dispose();
+      if (this._exited) return;
+      void agentById(tool)
+        .input.submit((d) => {
+          this.write(d);
+          return Promise.resolve(!this._exited);
+        }, text)
+        .catch((err: unknown) => debug('PtySession: typing the first prompt failed', (err as Error).message));
+    };
+    const cap = setTimeout(type, PROMPT_WAIT_MS);
+    cap.unref?.();
+    const sub = this.pty.onData(() => {
+      clearTimeout(quiet);
+      quiet = setTimeout(type, PROMPT_SETTLE_MS);
+    });
+    this.pty.onExit(() => {
+      typed = true;
+      clearTimeout(quiet);
+      clearTimeout(cap);
     });
   }
 

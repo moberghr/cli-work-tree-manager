@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const spawned = vi.hoisted(() => [] as Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>);
 vi.mock('../../../src/core/platform/spawn.js', () => ({
@@ -93,5 +96,35 @@ describe('launchAi: the environment it starts the agent with (T1)', () => {
     launchAi('/wt/api', tool, {}, 5124);
     expect(envOf()!.PORT).toBe('5124');
     expect(KEY in envOf()!).toBe(false);
+  });
+});
+
+describe('launchAi: a prompt never reaches cmd.exe (--no-host)', () => {
+  const SHIM = path.resolve(__dirname, '../../functional/fixtures/echo-ai.cmd');
+  const prompt = 'fix "it" & echo INJECTED\nsecond line %PATH%';
+
+  it.runIf(process.platform === 'win32')("a Node shim (npm's claude.cmd) is skipped: node on its script, the prompt as argv", () => {
+    launchAi('C:\\wt', { ...getAiTool({}), cmd: SHIM }, { initialPrompt: prompt });
+    expect(path.basename(spawned.at(-1)!.cmd).toLowerCase()).toBe('node.exe');
+    expect(spawned.at(-1)!.args).toEqual([path.resolve(__dirname, '../../functional/fixtures/echo-ai.cjs'), prompt]);
+  });
+
+  it.runIf(process.platform === 'win32')('another batch file is refused the prompt, and nothing starts', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launch-ai-'));
+    try {
+      const bat = path.join(dir, 'agent.cmd');
+      fs.writeFileSync(bat, '@echo %*\r\n');
+      const before = spawned.length;
+      expect(() => launchAi(dir, { ...getAiTool({}), cmd: bat }, { initialPrompt: prompt })).toThrow(/refused: an argument has/);
+      expect(spawned.length).toBe(before);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('elsewhere the tool and its prompt go as given', () => {
+    launchAi('/wt', getAiTool({}), { initialPrompt: prompt });
+    expect(spawned.at(-1)!.cmd).toBe('claude');
+    expect(spawned.at(-1)!.args.at(-1)).toBe(prompt);
   });
 });

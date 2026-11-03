@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import spawn from 'cross-spawn';
+import spawn from '../core/platform/spawn.js';
 import type { CommandModule } from 'yargs';
 import { loadHistory } from '../core/sessions/history.js';
 import { selectSessions, expandRunUnits, anyFailed, type RunResult, type RunUnit } from '../core/sessions/fleet.js';

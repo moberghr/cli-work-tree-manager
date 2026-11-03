@@ -111,6 +111,9 @@ export interface GitHost {
     label: string;
     /** Args that succeed only when it's installed and signed in. */
     checkArgs: string[];
+    /** Checked before `checkArgs`, each with Welcome's line when it fails: what the CLI needs beyond itself (az's
+     *  azure-devops extension: `az account show` passes without it). */
+    requires?: Array<{ args: string[]; failing: string }>;
     /** Welcome's line when it isn't installed. */
     missing: string;
     /** Welcome's line when it runs but fails (signed out). */
