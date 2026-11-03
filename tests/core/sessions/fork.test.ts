@@ -170,7 +170,8 @@ describe('forkSession', () => {
   });
 });
 
-describe('POST /api/sessions/:id/fork (real git)', () => {
+// Real repos, worktrees and an added repo per test: 4-10 s on a Windows runner, 28 s on a slow one.
+describe('POST /api/sessions/:id/fork (real git)', { timeout: 60_000 }, () => {
   const git = (cwd: string, ...args: string[]) =>
     execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {
       cwd,
