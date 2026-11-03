@@ -540,6 +540,25 @@ describe('PR watch', () => {
     });
   });
 
+  it('merged at a commit after the checked-out one (a bot updated the branch, never pulled): archived; unpushed commits still keep it (reported: SD-4013)', () => {
+    // Backend: worktree at e9fca69, PR merged at a1e49b3 — a merge of dev made on GitHub.
+    // Frontend: merged at the checked-out commit, one generated file left uncommitted.
+    const backend = { ...repo('straumur-backend', merged(), false), localSha: 'e9fca69', dirtyFiles: 0 } as RepoShipState;
+    backend.pr = { ...backend.pr!, headSha: 'a1e49b3' };
+    const frontend = { ...repo('straumur-frontend', merged(), false), localSha: 'a3ebcf6', dirtyFiles: 1 } as RepoShipState;
+    frontend.pr = { ...frontend.pr!, headSha: 'a3ebcf6' };
+    const s = { lastAccessedAt: ENTERED };
+    expect(autoArchiveVerdict({ repos: [backend, frontend] }, s, LATER)).toEqual({
+      archive: false,
+      why: 'straumur-backend: PR merged, but a commit checked out that the PR didn’t merge',
+    });
+    expect(autoArchiveVerdict({ repos: [{ ...backend, behindMergedHead: true }, frontend] }, s, LATER)).toEqual({ archive: true });
+    expect(autoArchiveVerdict({ repos: [{ ...backend, behindMergedHead: true, ahead: 1 }, frontend] }, s, LATER)).toEqual({
+      archive: false,
+      why: 'straumur-backend: PR merged, but 1 unpushed commit',
+    });
+  });
+
   it('merged work isn’t held up by replies to post or notes for Claude: archived, and the note says what was kept (reported)', async () => {
     const activity = createActivityLog();
     const h = harness([repo('api', merged(), true)], ON, false, null, { waiting: () => ['2 replies to post on review threads'], activity });
