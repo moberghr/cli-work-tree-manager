@@ -66,7 +66,17 @@ export function ProjectPicker({
           e.target.select();
           if (!value) setOpen(true);
         }}
-        onMouseDown={() => setOpen(true)}
+        // The click that opens the list selects the name too, so typing replaces it. Selecting on focus alone
+        // didn't hold: the click's own caret replaces that selection, and a field already focused isn't focused
+        // again. Once the list is open a click places the caret as usual (editing what you typed).
+        onMouseDown={(e) => {
+          if (!open) {
+            e.preventDefault();
+            e.currentTarget.focus();
+            e.currentTarget.select();
+          }
+          setOpen(true);
+        }}
         onChange={(e) => {
           setQuery(e.target.value);
           setActive(0);
