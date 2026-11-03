@@ -3,18 +3,53 @@ on:
   push:
     branches: [main]
   pull_request:
+# A new push to a PR replaces its run still going; every push to main runs to the end.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  changes:
+    # What a PR touches. The package and desktop jobs test what only a change
+    # to packaging or to desktop/ can break, so a PR runs them only then; a
+    # push to main runs them all, before anything is released from it.
+    runs-on: ubuntu-latest
+    outputs:
+      packaging: ${{ steps.diff.outputs.packaging }}
+      desktop: ${{ steps.diff.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: diff
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "packaging=true" >> "$GITHUB_OUTPUT"
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A PR is checked out as its merge into the base: the first parent is the base.
+          files=$(git diff --name-only HEAD^1 HEAD)
+          printf '%s\n' "$files"
+          has() { printf '%s\n' "$files" | grep -qE "$1" && echo true || echo false; }
+          # What decides the installed package: dependencies, the bundle's
+          # config and entry points, what `files` ships, the postinstall.
+          echo "packaging=$(has '^(package\.json|npm-shrinkwrap\.json|tsup\.config\.ts|scripts/|plugins/|\.claude-plugin/|packaging/|tests/packaging/|src/(bin|cli|wd-bin|install-skills-bin)\.ts|\.github/workflows/ci\.yml)')" >> "$GITHUB_OUTPUT"
+          echo "desktop=$(has '^(desktop/|\.github/workflows/ci\.yml)')" >> "$GITHUB_OUTPUT"
   build:
     # Windows is where ConPTY, .cmd shims, cmd.exe escaping and NTFS
-    # filename rules live (the pty-host / attach functional tests); Node 22
-    # is the supported floor.
+    # filename rules live (the pty-host / attach functional tests). Its tests
+    # take three times Linux's, so they run in three shards side by side:
+    # Windows alone was the run's length. Node 22 is the supported floor,
+    # checked on every push to main. Typecheck, lint and format check once,
+    # on Linux with Node 24: they don't change with the OS.
+    name: build (${{ matrix.os }}, ${{ matrix.node }}${{ matrix.shard && format(', {0}', matrix.shard) || '' }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest, node: 24 }
-          - { os: ubuntu-latest, node: 22 }
-          - { os: windows-latest, node: 24 }
+        include: ${{ fromJSON(github.event_name == 'push' && '[{"os":"ubuntu-latest","node":24,"checks":true},{"os":"windows-latest","node":24,"shard":"1/3"},{"os":"windows-latest","node":24,"shard":"2/3"},{"os":"windows-latest","node":24,"shard":"3/3"},{"os":"ubuntu-latest","node":22}]' || '[{"os":"ubuntu-latest","node":24,"checks":true},{"os":"windows-latest","node":24,"shard":"1/3"},{"os":"windows-latest","node":24,"shard":"2/3"},{"os":"windows-latest","node":24,"shard":"3/3"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -26,20 +61,23 @@ jobs:
       # What a global install gets (`dependencies`) must have no known high or
       # critical advisory; dev tools are Dependabot's to update.
       - run: npm audit --omit=dev --audit-level=high
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+        if: ${{ matrix.checks }}
       - run: npm run typecheck
+        if: ${{ matrix.checks }}
       - run: npm run lint
+        if: ${{ matrix.checks }}
       - run: npm run format:check
+        if: ${{ matrix.checks }}
       # Build before testing: the functional `work attach` test drives the
       # built dist/bin.js (it skips itself when there is no build).
       - run: npm run build
-      - run: npm test
-        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) }}
-      # One leg measures coverage (a report, no threshold yet) and keeps the lcov.
+      - run: npm test -- ${{ matrix.shard && format('--shard={0}', matrix.shard) || '' }}
+        if: ${{ !matrix.checks }}
+      # The checks leg measures coverage (a report, no threshold yet) and keeps the lcov.
       - run: npm run test:coverage
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+        if: ${{ matrix.checks }}
       - uses: actions/upload-artifact@v4
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+        if: ${{ matrix.checks }}
         with:
           name: coverage
           path: coverage/lcov.info
@@ -47,6 +85,8 @@ jobs:
     # The desktop app's own tests (desktop/src-tauri: the runtime copy, PATH,
     # updates, the taskbar badge, how its work web ended). Windows is where it
     # mostly runs; Linux covers the non-Windows paths.
+    needs: changes
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,12 +107,17 @@ jobs:
   package:
     # The installed package on every OS and supported Node: the native
     # modules (better-sqlite3 for state.db, node-pty) must come down as
-    # prebuilt binaries and load, and `work` must open its database.
+    # prebuilt binaries and load, and `work` must open its database. Each
+    # Node gets its own prebuilt binaries, so 22 (the floor) and 24 are both
+    # tried, on every push to main. A PR that changes packaging tries Linux
+    # and Windows on 24: macOS runners are few, and one waited 15 minutes.
+    needs: changes
+    if: ${{ needs.changes.outputs.packaging == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [22, 24]
+        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest","windows-latest"]') }}
+        node: ${{ fromJSON(github.event_name == 'push' && '[22,24]' || '[24]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
