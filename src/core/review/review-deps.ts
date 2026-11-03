@@ -80,13 +80,14 @@ export function realReviewQueueDeps(opts: { activity?: ActivityLog; changed: () 
     run: defaultRunner,
     prepare: (repoPath, host, pr) => preparePr(defaultRunner, repoPath, host, pr),
     dropRef: (repoPath, number) => dropReviewRef(defaultRunner, repoPath, number),
-    agent: (prompt) => runInternal(prompt, AGENT_TIMEOUT_MS),
+    // The reviews lane: a review may run for minutes, and nothing else (checkpoint names, Catch me up…) waits behind it.
+    agent: (prompt) => runInternal(prompt, AGENT_TIMEOUT_MS, { lane: 'reviews' }),
     checkoutLines: () => internalReadOnly()?.promptLines ?? null,
     agentInCheckout: (at, prompt) =>
       agentInCheckout(at, prompt, {
         run: defaultRunner,
         readOnly: internalReadOnly,
-        agent: (p, cwd) => runInternalReadOnly(p, cwd, CHECKOUT_AGENT_TIMEOUT_MS),
+        agent: (p, cwd) => runInternalReadOnly(p, cwd, CHECKOUT_AGENT_TIMEOUT_MS, { lane: 'reviews' }),
       }),
     sweepTrees: () => sweepReviewTrees(defaultRunner, { olderThanMs: TREE_SWEEP_MIN_AGE_MS }),
     rules: () => rulesWith(config().reviews?.rules),

@@ -94,19 +94,38 @@ function heuristicLabel(files: ParsedFile[], added: number, deleted: number): st
   return `${files.length} files · +${added} −${deleted}`;
 }
 
-/** One internal run at a time, however many turns finish together. */
-const internalQueue = createSerialQueue();
+/**
+ * Where an internal run waits its turn. Each lane runs one at a time, however many ask together, and lanes don't
+ * wait on each other: `shared` is everything quick (checkpoint names, Catch me up, fork and archive summaries, the
+ * Time AI step, the Jira watch, a group's instructions); `reviews` is the Reviews AI step alone, which may hold its
+ * lane for minutes (a checkout run, then the fallback) and so must never keep the others waiting.
+ */
+export type InternalLane = 'shared' | 'reviews';
+
+const lanes: Record<InternalLane, ReturnType<typeof createSerialQueue>> = {
+  shared: createSerialQueue(),
+  reviews: createSerialQueue(),
+};
+
+export interface InternalRunOptions {
+  /** A few words wanted: the agent's small model. */
+  small?: boolean;
+  /** The lane it waits in (default `shared`). */
+  lane?: InternalLane;
+}
 
 /**
  * Run work's summarising agent (config `internalAgent`, Claude Code by
  * default: agents/ `oneShot`) with the prompt on stdin; resolve its trimmed
  * stdout, or null on error, timeout, or an agent that has no one-shot runs.
- * Async (never blocks the server event loop). `small`: a few words wanted.
+ * Async (never blocks the server event loop). One at a time in its lane.
  */
-export function runInternal(prompt: string, timeoutMs = 25_000, opts: { small?: boolean } = {}): Promise<string | null> {
+export function runInternal(prompt: string, timeoutMs = 25_000, opts: InternalRunOptions = {}): Promise<string | null> {
   const oneShot = internalAgent(agentSettings()).oneShot;
   if (!oneShot) return Promise.resolve(null);
-  return internalQueue(() => runNow(prompt, timeoutMs, oneShot.command(opts)));
+  const { lane = 'shared', ...agentOpts } = opts;
+  const command = oneShot.command(agentOpts);
+  return lanes[lane](() => runNow(prompt, timeoutMs, command));
 }
 
 /** The summarising agent has a read-only run in a folder (`oneShot.readOnly`): the Reviews AI step can read a checkout. */
@@ -128,16 +147,12 @@ export function internalReadOnly(): Pick<AgentReadOnly, 'isSettingsFile' | 'prom
  * confined to that folder, nothing that runs or writes, none of the folder's settings. Null when the agent has no
  * such mode, or on error or timeout (its process tree killed first, so the caller can remove the folder).
  */
-export function runInternalReadOnly(
-  prompt: string,
-  cwd: string,
-  timeoutMs: number,
-  opts: { small?: boolean } = {},
-): Promise<string | null> {
+export function runInternalReadOnly(prompt: string, cwd: string, timeoutMs: number, opts: InternalRunOptions = {}): Promise<string | null> {
   const oneShot = internalAgent(agentSettings()).oneShot;
   if (!oneShot?.readOnly) return Promise.resolve(null);
-  const command = oneShot.readOnly.command({ ...opts, cwd });
-  return internalQueue(() => runNow(prompt, timeoutMs, command));
+  const { lane = 'shared', ...agentOpts } = opts;
+  const command = oneShot.readOnly.command({ ...agentOpts, cwd });
+  return lanes[lane](() => runNow(prompt, timeoutMs, command));
 }
 
 function runNow(
