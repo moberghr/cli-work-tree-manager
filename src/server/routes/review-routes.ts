@@ -1,48 +1,29 @@
 import type { Hono } from 'hono';
 import type { ParsedFile } from '../../core/diff/diff-parse.js';
-import type { SubmitReviewResult } from '../../core/hosts/types.js';
-import type { PrReviewWire, ReviewEvent, ReviewSettingsWire, ReviewsWire, ReviewSubmitInput } from '../../core/api-types.js';
-import {
-  addDraft,
-  afterFailedSubmit,
-  afterSubmit,
-  clearDropped,
-  removeDraft,
-  settleInDoubt,
-  submitComments,
-  submitRefusal,
-  summaryToSend,
-} from '../../core/review/review-submit.js';
+import type { PrReviewWire, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
+import { addDraft, clearDropped, removeDraft, settleInDoubt } from '../../core/review/review-submit.js';
+import { submitPrReview, type SubmitFlowDeps } from '../../core/review/review-submit-flow.js';
 import { summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 
 /**
  * Prepared PR reviews (#64): the list, a review, its diff, preparing one now,
  * its draft comments (the AI step's and yours), and submitting them as one
- * review — only on your click (POST …/submit), as PR replies are: one
- * submit of a review at a time; what a submit that stopped part way sent is
- * recorded and never sent again; one that may have gone out (a timed-out
- * call) waits for you to say whether it did (POST …/in-doubt) before
- * anything is sent again. The per-project settings for automatic reviews.
- * Every change broadcasts `reviews-changed`.
+ * review — only on your click (POST …/submit, `submitPrReview` in core: a
+ * durable claim in the review's row, so one submit at a time across
+ * processes; what a submit that stopped part way sent is recorded and never
+ * sent again; one that may have gone out waits for you to say whether it did
+ * (POST …/in-doubt) before anything is sent again). The per-project settings
+ * for automatic reviews. Every change broadcasts `reviews-changed`.
  */
 
-export interface ReviewRouteDeps {
+export interface ReviewRouteDeps extends SubmitFlowDeps {
   runNow: (repo: string, number: number) => Promise<{ ok: true; review: PrReviewWire } | { ok: false; error: string }>;
-  read: (repo: string, number: number) => PrReviewWire | null;
   all: () => PrReviewWire[];
-  update: (repo: string, number: number, change: (r: PrReviewWire) => PrReviewWire) => PrReviewWire | null;
   limits: () => { maxPerDay: number | null; maxLines: number };
   today: () => number;
-  /** A repo alias's folder (where its git and host CLI run). */
-  repoPath: (alias: string) => string | null;
   /** The PR's diff from its merge-base to its fetched head. */
   diff: (repoPath: string, from: string, number: number) => Promise<ParsedFile[] | null>;
-  submit: (
-    repoPath: string,
-    number: number,
-    review: { commitId: string; event: ReviewEvent; body: string; comments: Array<{ path: string; line: number; body: string }> },
-  ) => Promise<SubmitReviewResult>;
   settings: () => ReviewSettingsWire;
   setMode: (project: string, mode: 'all' | 'asked' | 'off') => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
@@ -52,8 +33,6 @@ const num = (s: string) => (/^\d+$/.test(s) ? Number(s) : null);
 
 export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
   const changed = (repo: string, number: number) => deps.broadcast('reviews-changed', { repo, number });
-  /** The reviews being submitted now: a second submit (another window, a double click) waits for none, it's refused. */
-  const submitting = new Set<string>();
 
   app.get('/api/reviews', (c) => {
     const reviews = deps
@@ -127,37 +106,12 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
   app.post('/api/reviews/:repo/:number/submit', async (c) => {
     const repo = c.req.param('repo');
     const n = num(c.req.param('number'));
-    const r = n === null ? null : deps.read(repo, n);
-    const at = deps.repoPath(repo);
-    if (!r || n === null || !at) return c.json({ error: 'no review of that PR' }, 404);
+    if (n === null) return c.json({ error: 'no review of that PR' }, 404);
     const input: unknown = await c.req.json().catch(() => null);
-    // Checked and taken with no await between: two requests at once can't both pass.
-    const k = `${repo}#${n}`;
-    if (submitting.has(k)) return c.json({ error: 'this review is being submitted already' }, 409);
-    const cur = deps.read(repo, n) ?? r; // as it is after the wait for the body (a submit that just ended changed it)
-    const refusal = submitRefusal(cur, input);
-    if (refusal) return c.json({ error: refusal }, cur.inDoubt ? 409 : 400);
-    const ok = input as ReviewSubmitInput;
-    submitting.add(k);
-    try {
-      const res = await deps.submit(at, n, {
-        commitId: cur.headSha,
-        event: ok.event,
-        body: summaryToSend(cur, ok),
-        comments: submitComments(cur, ok),
-      });
-      if (!res.ok) {
-        // What went out before it stopped is recorded (never sent again); what may have, waits for your word.
-        const next = deps.update(repo, n, (was) => afterFailedSubmit(was, ok, res, new Date()));
-        changed(repo, n);
-        return c.json({ error: res.error, ...(next ? { review: next } : {}) }, 409);
-      }
-      const next = deps.update(repo, n, (was) => afterSubmit(was, ok, res.url, new Date()));
-      changed(repo, n);
-      return c.json(next);
-    } finally {
-      submitting.delete(k);
-    }
+    const out = await submitPrReview(deps, repo, n, input);
+    if (out.ok || out.review) changed(repo, n);
+    if (out.ok) return c.json(out.review);
+    return c.json({ error: out.error, ...(out.review ? { review: out.review } : {}) }, out.status);
   });
 
   // After a submit that may have gone out: you looked at the PR, and say whether it did.

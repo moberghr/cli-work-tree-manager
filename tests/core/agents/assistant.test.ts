@@ -292,9 +292,11 @@ describe('POST /api/assistant/context', () => {
     const { describeReviewNow } = await import('../../../src/core/review/review-now.js');
     await post({ tab: 'reviews', review: { repo: 'api', number: 231 } });
     expect(assistantContextReview()).toEqual({ repo: 'api', number: 231 });
-    expect(readAssistantContext()).not.toContain('Refunds'); // nothing of the review is stored
     expect(describeReviewNow('api', 231)).toBe('The Reviews tab shows api PR #231: no review of it is prepared (any more).');
     writeReview(demoReview(new Date('2026-11-02T10:00:00Z')));
+    // A review exists now, and still nothing of it is in the stored context: only which PR.
+    expect(readAssistantContext()).not.toContain('Refunds');
+    expect(readAssistantContext()).toContain('[work dashboard]');
     const said = readAssistantContext(Date.now(), describeReviewNow('api', 231))!;
     expect(said).toContain('the prepared review of api PR #231');
     expect(said).toContain('<<< Refunds: partial refunds on paid orders >>>'); // the PR's text fenced as data

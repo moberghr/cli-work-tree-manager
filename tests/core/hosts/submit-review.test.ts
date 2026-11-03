@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { github } from '../../../src/core/hosts/github/adapter.js';
 import { azure } from '../../../src/core/hosts/azure/adapter.js';
 import type { CommandRunner } from '../../../src/core/platform/command-runner.js';
@@ -173,11 +173,32 @@ describe('a submit that stops part way says what went out, and what may have', (
   };
   const review = { commitId: 'abc', event: 'approve' as const, body: 'Looks good.', comments };
 
-  it('Azure DevOps: the second thread fails — the first went out; nothing is in doubt', async () => {
+  it('Azure DevOps: the second thread is refused (a clear refusal) — the first went out; nothing is in doubt', async () => {
+    expect(await azure.submitReview(failOn(2, 1, 'TF401181: The pull request cannot be edited').run, repo, 7, review)).toEqual({
+      ok: false,
+      error: 'src/b.cs:2: TF401181: The pull request cannot be edited',
+      posted: 1,
+    });
+  });
+
+  it('Azure DevOps: a server error (no clear refusal) may have gone through: in doubt, with the steps after it untried', async () => {
     expect(await azure.submitReview(failOn(2, 1).run, repo, 7, review)).toEqual({
       ok: false,
       error: 'src/b.cs:2: TF400898: server error',
       posted: 1,
+      inDoubt: { comments: [1], summary: false, rest: true },
+    });
+    // az said it did it in words that couldn't be read: in doubt too.
+    let calls = 0;
+    const garbled = azRecorder(() => (++calls === 1 ? { code: 0, stdout: 'not json', stderr: '' } : { code: 0, stdout: '{}', stderr: '' }));
+    expect(await azure.submitReview(garbled.run, repo, 7, review)).toMatchObject({
+      posted: 0,
+      inDoubt: { comments: [0], summary: false, rest: true },
+    });
+    // The last comment of a plain comment review with no summary: nothing after it.
+    const plain = { ...review, event: 'comment' as const, body: '' };
+    expect(await azure.submitReview(failOn(2, 124, 'az timed out').run, repo, 7, plain)).toMatchObject({
+      inDoubt: { comments: [1], summary: false, rest: false },
     });
   });
 
@@ -186,19 +207,19 @@ describe('a submit that stops part way says what went out, and what may have', (
       ok: false,
       error: 'src/b.cs:2: az timed out',
       posted: 1,
-      inDoubt: { comments: [1], summary: false },
+      inDoubt: { comments: [1], summary: false, rest: true },
     });
   });
 
   it('Azure DevOps: the summary fails (or times out), then the vote fails — each says what went out', async () => {
-    expect(await azure.submitReview(failOn(3, 1).run, repo, 7, review)).toEqual({
+    expect(await azure.submitReview(failOn(3, 1, 'ERROR: (400) Bad Request').run, repo, 7, review)).toEqual({
       ok: false,
-      error: 'the summary: TF400898: server error',
+      error: 'the summary: ERROR: (400) Bad Request',
       posted: 2,
     });
     expect(await azure.submitReview(failOn(3, 124, 'slow').run, repo, 7, review)).toMatchObject({
       posted: 2,
-      inDoubt: { comments: [], summary: true },
+      inDoubt: { comments: [], summary: true, rest: true }, // the vote after it wasn't cast
     });
     expect(await azure.submitReview(failOn(4, 1, 'TF401181: no vote').run, repo, 7, review)).toEqual({
       ok: false,
@@ -206,6 +227,29 @@ describe('a submit that stops part way says what went out, and what may have', (
       posted: 2,
       summaryPosted: true,
     });
+  });
+
+  it('GitHub: a 502, a reset connection — no clear refusal — may have made it: all of it in doubt; a 422 is a refusal', async () => {
+    for (const stderr of ['gh: Bad Gateway (HTTP 502)', 'read tcp: connection reset by peer', '']) {
+      const { run } = azRecorder(() => ({ code: 1, stdout: '', stderr }));
+      expect(await github.submitReview(run, '/repo', 7, review)).toMatchObject({ ok: false, inDoubt: { comments: [0, 1], summary: true } });
+    }
+    for (const stderr of ['gh: Validation Failed (HTTP 422)', 'To get started with GitHub CLI, please run:  gh auth login']) {
+      const { run } = azRecorder(() => ({ code: 1, stdout: '', stderr }));
+      expect(await github.submitReview(run, '/repo', 7, review)).not.toHaveProperty('inDoubt');
+    }
+  });
+
+  it('GitHub: the temp file that can’t be removed (in use on Windows) never turns a review that went out into a failure', async () => {
+    const rm = vi.spyOn(fs, 'rmSync').mockImplementation(() => {
+      throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+    });
+    try {
+      const { run } = recorder(() => ({ code: 0, stdout: JSON.stringify({ html_url: 'u' }), stderr: '' }));
+      expect(await github.submitReview(run, '/repo', 7, review)).toEqual({ ok: true, url: 'u' });
+    } finally {
+      rm.mockRestore();
+    }
   });
 
   it('GitHub: one call makes all of it or none; one that timed out may have made it — all of it is in doubt', async () => {

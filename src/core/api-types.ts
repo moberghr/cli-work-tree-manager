@@ -1476,6 +1476,26 @@ export interface ReviewInDoubtWire {
   /** The summary that may have gone out; null when it wasn't part of it. */
   summary: string | null;
   error: string;
+  /**
+   * The steps after the doubtful one weren't tried (Azure DevOps: the comments after it, the summary, the vote): if it
+   * went out, the review went out only in part. Absent: the doubtful call was the whole rest of it.
+   */
+  partial?: boolean;
+}
+
+/**
+ * A submit under way (the durable claim in the `pr_reviews` row): a second submit — another window, the dev server on
+ * the same state.db — is refused while it stands. One left by a work web that stopped is taken as in doubt.
+ */
+export interface ReviewSubmittingWire {
+  at: string;
+  /** The process submitting it. */
+  pid: number;
+  event: ReviewEvent;
+  /** The drafts it sends, with the text sent. */
+  drafts: Array<{ id: string; body: string }>;
+  /** The summary it sends; null when none. */
+  summary: string | null;
 }
 
 /** A draft review comment — the AI step's note (`by: 'ai'`) or yours — on a line of the PR's new side; it goes out only in a review you submit. */
@@ -1556,6 +1576,13 @@ export interface PrReviewWire {
   dropped?: ReviewDroppedWire[];
   /** A submit that may or may not have gone out: you say which (POST …/in-doubt) before anything is sent again. */
   inDoubt?: ReviewInDoubtWire;
+  /** A submit under way: nothing else is sent until it ends. */
+  submitting?: ReviewSubmittingWire;
+  /**
+   * The highest number a draft id (`d<n>`, `u<n>`) of this review has had: ids are never handed out twice, so an id a
+   * submit in doubt names is never a newer draft's. Absent: the highest id it holds.
+   */
+  lastDraft?: number;
 }
 
 /** One row of the Reviews list. */

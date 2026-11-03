@@ -15,7 +15,7 @@ import {
   settleReviewInDoubt,
   submitReview,
 } from '../../../api/panes.js';
-import { isStaleRunning } from '../../../../../core/review/review-submit.js';
+import { isStaleRunning, nothingToSubmit } from '../../../../../core/review/review-submit.js';
 import { reviewDraftsApi } from '../../../api/review-drafts-api.js';
 import { useSse } from '../../../api/events.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -294,7 +294,8 @@ function ReviewView({ repo, number, onAsk }: { repo: string; number: number; onA
               Your submit {relativeTime(r.inDoubt.at)} ago may have gone out ({r.inDoubt.error}):{' '}
               {r.inDoubt.drafts.length ? `${r.inDoubt.drafts.length} comment${r.inDoubt.drafts.length === 1 ? '' : 's'}` : ''}
               {r.inDoubt.drafts.length && r.inDoubt.summary ? ' and ' : ''}
-              {r.inDoubt.summary ? 'the summary' : ''}. Look at the PR on{' '}
+              {r.inDoubt.summary ? 'the summary' : ''}
+              {r.inDoubt.partial ? ' (what came after it wasn’t sent: if it went, only part of the review did)' : ''}. Look at the PR on{' '}
               <a href={r.url} target="_blank" rel="noreferrer">
                 {hostName(r.host)}
               </a>
@@ -497,10 +498,10 @@ function SubmitBar({ review, onDone }: { review: PrReviewWire; onDone: (r: PrRev
       <button
         type="button"
         className="wd-btn-primary"
-        disabled={busy || !!review.inDoubt || (event !== 'approve' && !drafts.length && !body.trim())}
+        disabled={busy || !!review.inDoubt || !!review.submitting || nothingToSubmit(review, event, drafts.length, body)}
         onClick={submit}
       >
-        {busy ? 'Submitting…' : `Submit review on ${hostName(review.host)}`}
+        {busy || review.submitting ? 'Submitting…' : `Submit review on ${hostName(review.host)}`}
       </button>
       {error && <span className="wd-modal-error">{error}</span>}
     </div>

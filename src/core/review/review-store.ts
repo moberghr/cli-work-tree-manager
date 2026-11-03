@@ -37,7 +37,13 @@ export function isReview(v: unknown): v is PrReviewWire {
     Array.isArray(r.drafts) &&
     Array.isArray(r.unstoried) &&
     (r.dropped === undefined || Array.isArray(r.dropped)) &&
-    (r.inDoubt === undefined || (!!r.inDoubt && Array.isArray(r.inDoubt.drafts) && typeof r.inDoubt.at === 'string'))
+    (r.inDoubt === undefined || (!!r.inDoubt && Array.isArray(r.inDoubt.drafts) && typeof r.inDoubt.at === 'string')) &&
+    (r.submitting === undefined ||
+      (!!r.submitting &&
+        typeof r.submitting.at === 'string' &&
+        typeof r.submitting.pid === 'number' &&
+        Array.isArray(r.submitting.drafts))) &&
+    (r.lastDraft === undefined || typeof r.lastDraft === 'number')
   );
 }
 

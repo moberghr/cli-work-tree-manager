@@ -6,8 +6,9 @@ import { dayKey } from '../conversations/work-time-view.js';
  * step's and your own, each with its text as you left it), a verdict and a
  * summary go out together as one review, in your name, only on your click.
  * What a submit that stopped part way already sent is recorded and never
- * sent again; one whose outcome isn't known (a timed-out call) waits for you
- * to say whether it went. Adding and removing a draft; carrying your drafts
+ * sent again; one whose outcome isn't known (a call that failed without a
+ * clear refusal) waits for you to say whether it went. Draft ids are never
+ * handed out twice (`lastDraft`). Adding and removing a draft; carrying your drafts
  * and what you submitted over to a review prepared again. The routes, the
  * queue, the demo and the SPA share these rules.
  */
@@ -40,10 +41,36 @@ export function onDiffLine(file: Pick<ReviewFileWire, 'lines'> | undefined, line
 
 const fileOf = (r: PrReviewWire, path: string) => r.files.find((f) => f.path === path);
 
+/** A draft id's number (`d3`, `u3` → 3); 0 for anything else. */
+const draftNumber = (id: string): number => {
+  const m = /^[du](\d+)$/.exec(id);
+  return m ? Number(m[1]) : 0;
+};
+
+/**
+ * The highest number a draft id of this review has had: the recorded one (`lastDraft`), and every id it still names —
+ * its drafts, a submit in doubt, a submit under way (a review from before `lastDraft`). A new draft is numbered past it.
+ */
+export function lastDraftNumber(r: PrReviewWire): number {
+  const ids = [
+    ...r.drafts.map((d) => d.id),
+    ...(r.inDoubt?.drafts ?? []).map((d) => d.id),
+    ...(r.submitting?.drafts ?? []).map((d) => d.id),
+  ];
+  return ids.reduce((m, id) => Math.max(m, draftNumber(id)), r.lastDraft ?? 0);
+}
+
+/** The drafts a submit in doubt or under way names: they may be posted, so they stay as they are until it's known. */
+const heldIds = (r: PrReviewWire): Set<string> => new Set([...(r.inDoubt?.drafts ?? []), ...(r.submitting?.drafts ?? [])].map((d) => d.id));
+
 /** A submit request as sent, checked; a reason when it can't go. */
 export function submitRefusal(r: PrReviewWire, input: unknown): string | null {
   if (r.inDoubt)
-    return 'the last submit may have gone out (it timed out): look at the PR, then say whether it went before sending anything again';
+    return 'the last submit may have gone out (it failed without a clear answer): look at the PR, then say whether it went before sending anything again';
+  if (r.submitting) return 'this review is being submitted already';
+  // Its files, lines and drafts are the prepared diff's, and the head they're sent at is that one: not while a new
+  // push is being prepared (that would put them on another commit).
+  if (r.status === 'queued' || r.status === 'running') return 'it is being prepared again (a new push): submit once it is ready';
   const i = input as Partial<ReviewSubmitInput> | null;
   if (!i || typeof i !== 'object') return 'expected {event, body, drafts}';
   if (!EVENTS.has(i.event as ReviewEvent)) return 'event must be comment, approve or request-changes';
@@ -62,10 +89,23 @@ export function submitRefusal(r: PrReviewWire, input: unknown): string | null {
     if (!onDiffLine(fileOf(r, known.path), known.line))
       return `the comment on ${known.path}:${known.line} isn't on a line of the diff: the host would refuse the whole review`;
   }
-  if (i.event === 'comment' && !i.drafts.length && !i.body.trim()) return 'nothing to submit: no comment and no summary';
-  if (i.event === 'request-changes' && !i.drafts.length && !i.body.trim()) return 'say what to change: a comment or a summary';
+  if (nothingToSubmit(r, i.event as ReviewEvent, i.drafts.length, i.body))
+    return i.event === 'comment' ? 'nothing to submit: no comment and no summary' : 'say what to change: a comment or a summary';
   return null;
 }
+
+/**
+ * Nothing to send for this verdict (the SPA's button reads it too): a comment needs a comment or a summary; request
+ * changes too, unless a submit that stopped part way already said what to change (its vote alone may follow it).
+ */
+export function nothingToSubmit(r: Pick<PrReviewWire, 'submitted'>, event: ReviewEvent, drafts: number, body: string): boolean {
+  if (event === 'approve' || drafts > 0 || body.trim()) return false;
+  return event === 'comment' || !r.submitted?.partial;
+}
+
+/** The status a refusal answers with: 409 when the review's state stands in the way (try again later), else 400. */
+export const refusalStatus = (r: PrReviewWire): 400 | 409 =>
+  r.inDoubt || r.submitting || r.status === 'queued' || r.status === 'running' ? 409 : 400;
 
 /** The line comments to send, as the host takes them. */
 export function submitComments(r: PrReviewWire, input: ReviewSubmitInput): Array<{ path: string; line: number; body: string }> {
@@ -82,10 +122,64 @@ export function summaryToSend(r: PrReviewWire, input: ReviewSubmitInput): string
   return r.submitted?.partial && r.submitted.summary === body ? '' : body;
 }
 
+/**
+ * How long a submit's claim stands before it's taken as left over even though its process seems alive (a reused pid):
+ * past many comments' calls at a minute each.
+ */
+export const SUBMIT_CLAIM_STALE_MS = 30 * 60_000;
+
+/** The review claimed for this submit (in the transaction that checked it): what it sends, by whom. */
+export function withClaim(r: PrReviewWire, input: ReviewSubmitInput, pid: number, now: Date): PrReviewWire {
+  const summary = summaryToSend(r, input);
+  return {
+    ...r,
+    submitting: {
+      at: now.toISOString(),
+      pid,
+      event: input.event,
+      drafts: input.drafts.map((d) => ({ id: d.id, body: d.body.trim() })),
+      summary: summary || null,
+    },
+  };
+}
+
+/**
+ * A claim left over: made before this machine booted, by a process that's gone, or older than
+ * `SUBMIT_CLAIM_STALE_MS`. Its own process's claim (a submit still waiting for the host) stands until the time.
+ */
+export function claimStale(
+  claim: NonNullable<PrReviewWire['submitting']>,
+  now: Date,
+  self: { pid: number; bootedAt: number; alive: (pid: number) => boolean },
+): boolean {
+  const at = Date.parse(claim.at);
+  if (!Number.isFinite(at) || now.getTime() - at > SUBMIT_CLAIM_STALE_MS) return true;
+  if (at < self.bootedAt) return true;
+  return claim.pid !== self.pid && !self.alive(claim.pid);
+}
+
+/**
+ * A claim left over by a work web that stopped while submitting: what it was sending may have gone out, so it's in
+ * doubt (all of it, perhaps only in part) for you to say — never just dropped (a retry would post it twice).
+ */
+export function claimToDoubt(r: PrReviewWire, error: string): PrReviewWire {
+  const { submitting: claim, ...rest } = r;
+  if (!claim) return r;
+  return {
+    ...rest,
+    inDoubt: { at: claim.at, event: claim.event, drafts: claim.drafts, summary: claim.summary, error, partial: true },
+  };
+}
+
+const unclaimed = (r: PrReviewWire): PrReviewWire => {
+  const { submitting: _done, ...rest } = r;
+  return rest;
+};
+
 /** The review once submitted: the drafts sent are posted (with the text sent), the rest stay drafts. */
 export function afterSubmit(r: PrReviewWire, input: ReviewSubmitInput, url: string | undefined, now: Date): PrReviewWire {
   const sent = new Map(input.drafts.map((d) => [d.id, d.body.trim()]));
-  const { inDoubt: _settled, ...rest } = r;
+  const { inDoubt: _settled, ...rest } = unclaimed(r);
   const body = input.body.trim();
   return {
     ...rest,
@@ -100,16 +194,20 @@ export interface SubmitFailure {
   /** The first N comments sent went out. */
   posted?: number;
   summaryPosted?: boolean;
-  /** A call that timed out: these (indexes into the comments sent) and perhaps the summary may have gone out. */
-  inDoubt?: { comments: number[]; summary: boolean };
+  /**
+   * A call that failed without a clear refusal: these (indexes into the comments sent) and perhaps the summary may have
+   * gone out; `rest`: the steps after it weren't tried.
+   */
+  inDoubt?: { comments: number[]; summary: boolean; rest?: boolean };
 }
 
 /**
  * The review after a submit that failed: the comments that went out are posted (never sent again), a summary that
  * went out is recorded (not sent again), and what may have gone out waits for you (`inDoubt`). A clean refusal
- * (nothing went out) leaves it as it was.
+ * (nothing went out) leaves it as it was. The submit's claim ends either way.
  */
-export function afterFailedSubmit(r: PrReviewWire, input: ReviewSubmitInput, failure: SubmitFailure, now: Date): PrReviewWire {
+export function afterFailedSubmit(r0: PrReviewWire, input: ReviewSubmitInput, failure: SubmitFailure, now: Date): PrReviewWire {
+  const r = unclaimed(r0);
   const posted = Math.max(0, Math.min(failure.posted ?? 0, input.drafts.length));
   const went = new Map(input.drafts.slice(0, posted).map((d) => [d.id, d.body.trim()]));
   const body = summaryToSend(r, input);
@@ -137,6 +235,7 @@ export function afterFailedSubmit(r: PrReviewWire, input: ReviewSubmitInput, fai
             drafts: doubtful.map((d) => ({ id: d.id, body: d.body.trim() })),
             summary: maybe?.summary && body ? body : null,
             error: failure.error,
+            ...(maybe?.rest ? { partial: true } : {}),
           },
         }
       : {}),
@@ -145,7 +244,9 @@ export function afterFailedSubmit(r: PrReviewWire, input: ReviewSubmitInput, fai
 
 /**
  * You looked at the PR after a submit that may have gone out: it went (its comments are posted, its summary
- * recorded), or it didn't (nothing changes but the doubt). Null when nothing is in doubt.
+ * recorded), or it didn't (nothing changes but the doubt). Null when nothing is in doubt. "It went" is complete only
+ * when the doubtful call was all that was left: steps after it that weren't tried (Azure DevOps' later comments,
+ * summary or vote) leave it partial — never a verdict recorded that wasn't cast.
  */
 export function settleInDoubt(r: PrReviewWire, went: boolean, now: Date): PrReviewWire | null {
   if (!r.inDoubt) return null;
@@ -158,7 +259,7 @@ export function settleInDoubt(r: PrReviewWire, went: boolean, now: Date): PrRevi
     submitted: {
       at: now.toISOString(),
       event: inDoubt.event,
-      ...(r.submitted?.partial ? { partial: true } : {}),
+      ...(inDoubt.partial ? { partial: true } : {}),
       ...(r.submitted?.url ? { url: r.submitted.url } : {}),
       ...(inDoubt.summary ? { summary: inDoubt.summary } : r.submitted?.summary ? { summary: r.submitted.summary } : {}),
     },
@@ -173,34 +274,43 @@ export function addDraft(r: PrReviewWire, input: unknown): { review: PrReviewWir
   if (typeof i.line !== 'number' || !Number.isInteger(i.line) || i.line < 1) return { error: 'a line of the new side, please' };
   if (!onDiffLine(file, i.line)) return { error: `line ${i.line} isn't in the diff: a review comment goes on a line it shows` };
   if (typeof i.body !== 'string' || !i.body.trim() || i.body.length > MAX_DRAFT) return { error: 'the comment is empty or too long' };
-  const n = r.drafts.filter((d) => d.id.startsWith('u')).reduce((m, d) => Math.max(m, Number(d.id.slice(1)) || 0), 0) + 1;
+  // Numbered past every id this review has had: never one a submit in doubt (or under way) still names.
+  const n = lastDraftNumber(r) + 1;
   return {
-    review: { ...r, drafts: [...r.drafts, { id: `u${n}`, path: i.path, line: i.line, body: i.body.trim(), state: 'draft', by: 'you' }] },
+    review: {
+      ...r,
+      drafts: [...r.drafts, { id: `u${n}`, path: i.path, line: i.line, body: i.body.trim(), state: 'draft', by: 'you' }],
+      lastDraft: n,
+    },
   };
 }
 
-/** A draft taken off the review (never one already posted); a reason when it can't be. */
+/** A draft taken off the review (never one already posted, nor one a submit may have sent); a reason when it can't be. */
 export function removeDraft(r: PrReviewWire, id: string): { review: PrReviewWire } | { error: string; status: 404 | 409 } {
   const d = r.drafts.find((x) => x.id === id);
   if (!d) return { error: 'no such draft', status: 404 };
   if (d.state === 'posted') return { error: 'it was posted: it stays as a record', status: 409 };
-  return { review: { ...r, drafts: r.drafts.filter((x) => x.id !== id) } };
+  if (heldIds(r).has(id)) return { error: 'a submit may have sent it: say whether it went out first', status: 409 };
+  // The id is kept as used: a later draft never takes it.
+  return { review: { ...r, drafts: r.drafts.filter((x) => x.id !== id), lastDraft: lastDraftNumber(r) } };
 }
 
 /**
  * A review prepared again (a new push, or Prepare again) keeps what is yours: your drafts that still go on a line of
  * the new diff (the rest set aside in `dropped` with their text and why), what you posted (as a record), what you
- * submitted, a submit in doubt, and your drafts set aside before. The AI step's unsent drafts are replaced by the new
- * ones, numbered after every kept id so none is taken twice.
+ * submitted, a submit in doubt or under way (and every draft it names, as it is: it may be posted), and your drafts
+ * set aside before. The AI step's unsent drafts are replaced by the new ones, numbered past every id the review has
+ * ever had (`lastDraft`), so no id is handed out twice — one a submit in doubt names is never a new draft's.
  */
 export function carryForward(was: PrReviewWire | null, fresh: PrReviewWire): PrReviewWire {
   if (!was) return fresh;
   const files = new Map(fresh.files.map((f) => [f.path, f]));
+  const held = heldIds(was);
   const keep: ReviewDraftWire[] = [];
   // Yours set aside before stay; the AI step's are the new run's to say.
   const dropped: ReviewDroppedWire[] = (was.dropped ?? []).filter((d) => d.by === 'you');
   for (const d of was.drafts) {
-    if (d.state === 'posted') keep.push(d);
+    if (d.state === 'posted' || held.has(d.id)) keep.push(d);
     else if (d.by === 'you') {
       if (onDiffLine(files.get(d.path), d.line)) keep.push(d);
       else
@@ -213,16 +323,18 @@ export function carryForward(was: PrReviewWire | null, fresh: PrReviewWire): PrR
         });
     }
   }
-  // Numbered past every kept AI id: a posted d1 and a new d1 would be one draft to the view and to a submit.
-  const nextAi = keep.filter((d) => /^d\d+$/.test(d.id)).reduce((m, d) => Math.max(m, Number(d.id.slice(1))), 0);
-  const ai = fresh.drafts.map((d, i) => ({ ...d, id: `d${nextAi + i + 1}` }));
+  // Numbered past every id ever used: a d1 a submit in doubt names and a new d1 would be one draft to a settle.
+  const base = lastDraftNumber(was);
+  const ai = fresh.drafts.map((d, i) => ({ ...d, id: `d${base + i + 1}` }));
   const allDropped = [...dropped, ...(fresh.dropped ?? [])];
   return {
     ...fresh,
     drafts: [...keep, ...ai],
+    lastDraft: base + ai.length,
     ...(allDropped.length ? { dropped: allDropped } : {}),
     ...(was.submitted ? { submitted: was.submitted } : {}),
     ...(was.inDoubt ? { inDoubt: was.inDoubt } : {}),
+    ...(was.submitting ? { submitting: was.submitting } : {}),
   };
 }
 

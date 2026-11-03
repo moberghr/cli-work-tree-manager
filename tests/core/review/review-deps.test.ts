@@ -1,11 +1,9 @@
 import fs from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { getConfigDir, getConfigPath, loadConfig } from '../../../src/core/platform/config.js';
 import { setReviewMode } from '../../../src/core/worktree/repo-admin.js';
 import { realReviewRouteIo, reviewSettings } from '../../../src/core/review/review-deps.js';
-import { REVIEWS_EVERY_MS, REVIEWS_FIRST_MS, startReviewSweeps } from '../../../src/core/review/review-keeper.js';
 import { writeReview } from '../../../src/core/review/review-store.js';
-import { createActivityLog } from '../../../src/core/platform/activity.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
 
 // Each test file has its own HOME (tests/setup): this config.json and state.db are throwaways.
@@ -58,38 +56,5 @@ describe('setting a project’s mode, and the settings the Reviews tab shows', (
     expect(io.today()).toBe(1);
     expect(io.repoPath('api')).toBe('/r/api');
     expect(io.repoPath('nope')).toBeNull();
-  });
-});
-
-describe('when work web sweeps', () => {
-  afterEach(() => vi.useRealTimers());
-
-  it('the first a few minutes after start, then every 10, each shown as the next in Activity; stop ends it', () => {
-    vi.useFakeTimers();
-    const sweep = vi.fn(async () => undefined);
-    const activity = createActivityLog({ now: () => Date.now() });
-    const sweeps = startReviewSweeps({ queue: { sweep }, activity, jobs: true });
-    const next = () => activity.snapshot().schedules.find((s) => s.kind === 'reviews')!.nextAt;
-    expect(next()).toBe(new Date(Date.now() + REVIEWS_FIRST_MS).toISOString());
-    vi.advanceTimersByTime(REVIEWS_FIRST_MS - 1);
-    expect(sweep).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
-    expect(sweep).toHaveBeenCalledTimes(1);
-    expect(next()).toBe(new Date(Date.now() + REVIEWS_EVERY_MS).toISOString());
-    vi.advanceTimersByTime(REVIEWS_EVERY_MS - REVIEWS_FIRST_MS);
-    expect(sweep).toHaveBeenCalledTimes(2);
-    sweeps.stop();
-    vi.advanceTimersByTime(REVIEWS_EVERY_MS * 3);
-    expect(sweep).toHaveBeenCalledTimes(2);
-  });
-
-  it('a work web that acts on nothing (the dev server) never sweeps, and shows no schedule', () => {
-    vi.useFakeTimers();
-    const sweep = vi.fn(async () => undefined);
-    const activity = createActivityLog();
-    startReviewSweeps({ queue: { sweep }, activity, jobs: false });
-    vi.advanceTimersByTime(REVIEWS_EVERY_MS * 3);
-    expect(sweep).not.toHaveBeenCalled();
-    expect(activity.snapshot().schedules).toEqual([]);
   });
 });

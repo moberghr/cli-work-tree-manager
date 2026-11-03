@@ -29,6 +29,9 @@ function realApp() {
     repoPath: (a) => (a === 'api' ? '/repos/api' : null),
     diff: async () => demoReviewFiles(),
     submit: async () => ({ ok: true, url: 'u' }),
+    pid: 1,
+    bootedAt: () => 0,
+    alive: () => true,
     settings: () => ({ projects: [], maxPerDay: null, maxLines: 3000 }),
     setMode: async () => undefined,
     broadcast: () => undefined,
@@ -53,7 +56,7 @@ const TABLE: Array<[string, string, unknown?]> = [
   ['POST', '/api/reviews/api/231/drafts', { path: H, line: 999, body: 'off the diff' }],
   ['POST', '/api/reviews/api/231/drafts', { path: 'nope.cs', line: 1, body: 'x' }],
   ['POST', '/api/reviews/web/1/drafts', { path: H, line: 6, body: 'x' }],
-  ['DELETE', '/api/reviews/api/231/drafts/u1'],
+  ['DELETE', '/api/reviews/api/231/drafts/u3'],
   ['DELETE', '/api/reviews/api/231/drafts/zz'],
   ['POST', '/api/reviews/api/231/submit', { event: 'merge', body: '', drafts: [] }],
   ['POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [] }],
@@ -87,5 +90,22 @@ describe("the demo's review routes answer as the real ones", () => {
     expect(real).toContain('POST /api/reviews/api/231/drafts 200');
     expect(real).toContain('DELETE /api/reviews/api/231/drafts/d1 409');
     expect(real).toContain('POST /api/reviews/api/231/in-doubt 409');
+    expect(real).toContain('DELETE /api/reviews/api/231/drafts/u3 200');
+  });
+
+  it('a demo submit whose summary says #timeout is held in doubt, through the real flow; settled, it went', async () => {
+    const app = demoApp();
+    const post = (url: string, body: unknown) =>
+      app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await post('/api/reviews/api/231/submit', { event: 'approve', body: 'Fine #timeout', drafts: [{ id: 'd1', body: 'x' }] });
+    expect(res.status).toBe(409);
+    const out = (await res.json()) as { error: string; review: PrReviewWire };
+    expect(out.error).toBe('the host timed out (demo)');
+    expect(out.review.inDoubt).toMatchObject({ drafts: [{ id: 'd1', body: 'x' }], summary: 'Fine #timeout' });
+    expect(out.review.submitting).toBeUndefined();
+    expect((await post('/api/reviews/api/231/submit', { event: 'approve', body: '', drafts: [] })).status).toBe(409);
+    const went = (await (await post('/api/reviews/api/231/in-doubt', { went: true })).json()) as PrReviewWire;
+    expect(went.drafts.find((d) => d.id === 'd1')!.state).toBe('posted');
+    expect(went.submitted).toMatchObject({ event: 'approve', summary: 'Fine #timeout' });
   });
 });

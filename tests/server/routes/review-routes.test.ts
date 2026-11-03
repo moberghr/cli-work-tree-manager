@@ -4,8 +4,8 @@ import { mountReviewRoutes, type ReviewRouteDeps } from '../../../src/server/rou
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
 import type { PrReviewWire, ReviewsWire, ReviewSettingsWire } from '../../../src/core/api-types.js';
 
-function setup(over: Partial<ReviewRouteDeps> = {}) {
-  const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
+function setup(over: Partial<ReviewRouteDeps> = {}, shared?: Map<string, PrReviewWire>) {
+  const rows = shared ?? new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
   const broadcast = vi.fn();
   const submit = vi.fn(async () => ({ ok: true as const, url: 'https://example/review/1' }));
   const setMode = vi.fn(async () => undefined);
@@ -33,6 +33,9 @@ function setup(over: Partial<ReviewRouteDeps> = {}) {
     }),
     setMode,
     broadcast,
+    pid: 1,
+    bootedAt: () => 0,
+    alive: () => true,
     ...over,
   };
   const app = new Hono();
@@ -112,6 +115,64 @@ describe('review routes', () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
+  it('the claim is in the row: a second work web on the same state.db (the dev server) is refused while one submits', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const submit = vi.fn(async () => {
+      await gate;
+      return { ok: true as const, url: 'u' };
+    });
+    const one = setup({ submit, pid: 100 });
+    const two = setup({ submit, pid: 200, alive: (pid) => pid === 100 }, one.rows);
+    const first = one.req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'x' }] });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(one.rows.get('api#231')!.submitting).toMatchObject({ pid: 100, event: 'comment', drafts: [{ id: 'd1', body: 'x' }] });
+    const second = await two.req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd2', body: 'y' }] });
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({ error: 'this review is being submitted already' });
+    release();
+    expect((await first).status).toBe(200);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(one.rows.get('api#231')!.submitting).toBeUndefined();
+  });
+
+  it('a claim left by a work web that stopped is taken as in doubt (it may have gone out), never just dropped', async () => {
+    const { req, rows, submit } = setup({ alive: () => false });
+    rows.set('api#231', {
+      ...rows.get('api#231')!,
+      submitting: { at: new Date().toISOString(), pid: 99, event: 'approve', drafts: [{ id: 'd1', body: 'sent?' }], summary: 'S' },
+    });
+    const res = await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd2', body: 'y' }] });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; review: PrReviewWire };
+    expect(body.error).toContain('may have gone out');
+    expect(body.review.submitting).toBeUndefined();
+    expect(body.review.inDoubt).toMatchObject({ event: 'approve', drafts: [{ id: 'd1', body: 'sent?' }], summary: 'S', partial: true });
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('a host call that throws (after it may have posted) is recorded in doubt, not a 500 that leaves Submit enabled', async () => {
+    const { req, rows } = setup({
+      submit: async () => {
+        throw new Error('EBUSY: resource busy or locked');
+      },
+    });
+    const res = await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: 'S', drafts: [{ id: 'd1', body: 'a' }] });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("couldn't tell whether it went out: EBUSY: resource busy or locked");
+    expect(rows.get('api#231')!.inDoubt).toMatchObject({ drafts: [{ id: 'd1', body: 'a' }], summary: 'S' });
+    expect(rows.get('api#231')!.submitting).toBeUndefined();
+  });
+
+  it('not while a new push is being prepared: its lines would go on another commit', async () => {
+    const { req, rows, submit } = setup();
+    rows.set('api#231', { ...rows.get('api#231')!, status: 'queued' });
+    const res = await req('POST', '/api/reviews/api/231/submit', { event: 'comment', body: '', drafts: [{ id: 'd1', body: 'a' }] });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain('being prepared again');
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it('a submit that stopped part way: what went out is posted, the retry sends only the rest (no summary twice)', async () => {
     const submit = vi
       .fn<ReviewRouteDeps['submit']>()
@@ -166,7 +227,7 @@ describe('review routes', () => {
     });
     expect(res.status).toBe(200);
     expect(rows.get('api#231')!.drafts.at(-1)).toEqual({
-      id: 'u1',
+      id: 'u3',
       path: 'src/Shop.Orders/Pricing/Rounding.cs',
       line: 3,
       body: 'Why away from zero?',

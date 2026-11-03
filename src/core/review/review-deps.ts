@@ -2,6 +2,7 @@ import { loadConfig } from '../platform/config.js';
 import { defaultRunner } from '../platform/command-runner.js';
 import { hostForRepo } from '../hosts/index.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
+import { bootTime, isPidAlive } from '../platform/process.js';
 import { setReviewMode } from '../worktree/repo-admin.js';
 import type { ReviewEvent, ReviewSettingsWire } from '../api-types.js';
 import type { WorkConfig } from '../platform/config.js';
@@ -80,7 +81,10 @@ export function realReviewRouteIo() {
       number: number,
       review: { commitId: string; event: ReviewEvent; body: string; comments: Array<{ path: string; line: number; body: string }> },
     ) => hostForRepo(repoPath).host.submitReview(defaultRunner, repoPath, number, review),
-
+    // Whose submit claim it is: this process, and whether another's still runs.
+    pid: process.pid,
+    bootedAt: bootTime,
+    alive: isPidAlive,
     settings: reviewSettings,
     setMode: setReviewMode,
   };

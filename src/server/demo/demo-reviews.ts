@@ -2,8 +2,10 @@ import type { Hono } from 'hono';
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { buildReview, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
-import type { PrReviewWire, ReviewMode, ReviewSettingsWire, ReviewsWire, ReviewSubmitInput } from '../../core/api-types.js';
-import { addDraft, afterSubmit, clearDropped, removeDraft, settleInDoubt, submitRefusal } from '../../core/review/review-submit.js';
+import type { PrReviewWire, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
+import type { SubmitReviewResult } from '../../core/hosts/types.js';
+import { addDraft, clearDropped, removeDraft, settleInDoubt } from '../../core/review/review-submit.js';
+import { submitPrReview } from '../../core/review/review-submit-flow.js';
 
 /**
  * The demo's PR reviews (#64): a large made-up pull request — a refunds
@@ -11,8 +13,21 @@ import { addDraft, afterSubmit, clearDropped, removeDraft, settleInDoubt, submit
  * controller, the handler and validator, DI wiring, a package bump, a
  * renamed file, a lockfile and tests — grouped by the real rules
  * (`buildReview`) with a scripted AI answer; and one waiting for a click.
- * The same routes as review-routes.ts, in memory.
+ * The same routes as review-routes.ts, in memory; a submit goes through the
+ * real flow (`submitPrReview`) to a pretend host, which "times out" — the
+ * submit in doubt — when the summary says `#timeout`.
  */
+
+/** The demo's host: it takes every review, except one whose summary asks it to time out (the in-doubt path). */
+export async function demoHostSubmit(url: string, review: { body: string; comments: unknown[] }): Promise<SubmitReviewResult> {
+  if (review.body.includes('#timeout'))
+    return {
+      ok: false,
+      error: 'the host timed out (demo)',
+      inDoubt: { comments: review.comments.map((_, i) => i), summary: !!review.body.trim() },
+    };
+  return { ok: true, url: `${url}#pullrequestreview-1` };
+}
 
 const hunk = (path: string, lines: string[], status: 'added' | 'modified' = 'modified') => {
   const added = lines.filter((l) => l.startsWith('+')).length;
@@ -263,16 +278,33 @@ export function mountDemoReviews(app: Hono, broadcast: (event: string, data: unk
     return c.json(added.review);
   });
   app.post('/api/reviews/:repo/:number/submit', async (c) => {
-    const k = key(c.req.param('repo'), c.req.param('number'));
-    const r = reviews.get(k);
-    if (!r) return c.json({ error: 'no review of that PR' }, 404);
+    const repo = c.req.param('repo');
+    const n = /^\d+$/.test(c.req.param('number')) ? Number(c.req.param('number')) : null;
+    if (n === null) return c.json({ error: 'no review of that PR' }, 404);
     const input: unknown = await c.req.json().catch(() => null);
-    const refusal = submitRefusal(r, input);
-    if (refusal) return c.json({ error: refusal }, r.inDoubt ? 409 : 400);
-    const next = afterSubmit(r, input as ReviewSubmitInput, `${r.url}#pullrequestreview-1`, new Date());
-    reviews.set(k, next);
-    broadcast('reviews-changed', { repo: r.repo, number: r.number });
-    return c.json(next);
+    const out = await submitPrReview(
+      {
+        read: (rp, num) => reviews.get(key(rp, String(num))) ?? null,
+        update: (rp, num, change) => {
+          const was = reviews.get(key(rp, String(num)));
+          if (!was) return null;
+          const next = change(was);
+          reviews.set(key(rp, String(num)), next);
+          return next;
+        },
+        repoPath: (alias) => (alias === 'api' ? '/demo/api' : null),
+        submit: async (_at, num, review) => demoHostSubmit(reviews.get(key(repo, String(num)))?.url ?? '', review),
+        pid: 0,
+        bootedAt: () => 0,
+        alive: () => true,
+      },
+      repo,
+      n,
+      input,
+    );
+    if (out.ok || out.review) broadcast('reviews-changed', { repo, number: n });
+    if (out.ok) return c.json(out.review);
+    return c.json({ error: out.error, ...(out.review ? { review: out.review } : {}) }, out.status);
   });
   app.post('/api/reviews/:repo/:number/in-doubt', async (c) => {
     const k = key(c.req.param('repo'), c.req.param('number'));

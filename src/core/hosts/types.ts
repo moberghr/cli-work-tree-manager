@@ -93,12 +93,19 @@ export type HostResult<T = object> = ({ ok: true } & T) | { ok: false; error: st
 
 /**
  * How a review submit went. A failure says what went out before it (`posted`: the first N comments, in the order
- * given; `summaryPosted`), and what may have (`inDoubt`: a call that timed out, which the host may have carried out):
- * a retry must send none of those again.
+ * given; `summaryPosted`), and what may have (`inDoubt`: a call that failed without a clear refusal — timed out, a
+ * server error, a dropped connection, an answer it couldn't read — which the host may have carried out; `rest`: the
+ * steps after it weren't tried): a retry must send none of those again.
  */
 export type SubmitReviewResult =
   | { ok: true; url?: string }
-  | { ok: false; error: string; posted?: number; summaryPosted?: boolean; inDoubt?: { comments: number[]; summary: boolean } };
+  | {
+      ok: false;
+      error: string;
+      posted?: number;
+      summaryPosted?: boolean;
+      inDoubt?: { comments: number[]; summary: boolean; rest?: boolean };
+    };
 
 export interface GitHost {
   /** Stable id, on the wire and in config (`github`, `azure`). */

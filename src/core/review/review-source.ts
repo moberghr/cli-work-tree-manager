@@ -24,7 +24,7 @@ export interface PreparedPr {
 }
 
 /** How many paths one `git check-attr` gets: a big PR's every path on one command line passes Windows' limit. */
-const ATTR_CHUNK = 200;
+export const ATTR_CHUNK = 200;
 
 const git = (run: CommandRunner, cwd: string, ...args: string[]) => run('git', args, cwd);
 
@@ -65,7 +65,7 @@ export async function reviewDiff(run: CommandRunner, repoPath: string, from: str
 }
 
 /** Whitespace-only files (absent from `git diff -w`) and those `.gitattributes` marks linguist-generated. */
-async function diffExtras(run: CommandRunner, repoPath: string, from: string, to: string, files: ParsedFile[]): Promise<DiffExtras> {
+export async function diffExtras(run: CommandRunner, repoPath: string, from: string, to: string, files: ParsedFile[]): Promise<DiffExtras> {
   const changed = files.filter((f) => f.added + f.deleted > 0).map((f) => f.path);
   const w = await git(run, repoPath, 'diff', '--no-color', '--no-ext-diff', '-M', '-w', '--name-only', from, to);
   const real = new Set(

@@ -30,15 +30,19 @@ export function startReviewSweeps(opts: {
     schedule?.next(now() + REVIEWS_EVERY_MS);
     void opts.queue.sweep();
   };
-  const first = setTimeout(sweep, REVIEWS_FIRST_MS);
+  let every: ReturnType<typeof setInterval> | null = null;
+  // The interval starts at the first sweep, so the next one is the 10 minutes Activity says.
+  const first = setTimeout(() => {
+    sweep();
+    every = setInterval(sweep, REVIEWS_EVERY_MS);
+    every.unref?.();
+  }, REVIEWS_FIRST_MS);
   first.unref?.();
   schedule?.next(now() + REVIEWS_FIRST_MS);
-  const every = setInterval(sweep, REVIEWS_EVERY_MS);
-  every.unref?.();
   return {
     stop() {
       clearTimeout(first);
-      clearInterval(every);
+      if (every) clearInterval(every);
     },
   };
 }

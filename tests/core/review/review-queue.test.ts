@@ -163,6 +163,30 @@ describe('the review queue', () => {
     expect(h.prepare).toHaveBeenCalledTimes(2);
   });
 
+  it('a push seen: the review is queued again, but its head stays the one its lines were read at until it is prepared', async () => {
+    const h = harness();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    h.prepare.mockImplementationOnce(async () => prepared('sha7'));
+    await h.queue.sweep();
+    expect(h.rows.get('api#7')).toMatchObject({ status: 'ready', headSha: 'sha7' });
+    h.prepare.mockImplementationOnce(async () => {
+      await gate;
+      return prepared('sha7b');
+    });
+    h.setOpen([pr(7, { headSha: 'sha7b' })]);
+    const sweeping = h.queue.sweep();
+    await new Promise((r) => setTimeout(r, 5));
+    // Queued or running for the new push: files, lines and drafts are still the old diff's, and so is the head.
+    expect(h.rows.get('api#7')).toMatchObject({ headSha: 'sha7', listedHead: 'sha7b' });
+    expect(['queued', 'running']).toContain(h.rows.get('api#7')!.status);
+    release();
+    await sweeping;
+    expect(h.rows.get('api#7')).toMatchObject({ status: 'ready', headSha: 'sha7b' });
+    // Never prepared: the listed head is all there is.
+    expect(withStatus(null, { ...pr(9), repo: 'api' }, 'queued', null, new Date()).headSha).toBe('sha9');
+  });
+
   it('a fetched head that is not the listed one (an Azure DevOps merge ref, a push meanwhile) is not prepared again each sweep', async () => {
     const h = harness();
     h.prepare.mockImplementation(async () => prepared('fetched-tip'));
@@ -346,7 +370,7 @@ describe('the review queue', () => {
     expect(again.drafts.map((d) => [d.id, d.state, d.body])).toEqual([
       ['d1', 'posted', 'AI again'],
       ['u1', 'draft', 'mine, still on the diff'],
-      ['d2', 'draft', 'AI again'],
+      ['d3', 'draft', 'AI again'], // past every id the review had (u2 included): never one handed out before
     ]);
     expect(again.dropped).toEqual([
       { path: 'src/Gone.cs', line: 1, body: 'mine, its file gone', by: 'you', why: "src/Gone.cs isn't changed by the PR any more" },

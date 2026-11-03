@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { ChecksState, FailingCheck, MergeMethod, ShipPr } from '../../api-types.js';
 import { RUN_TIMED_OUT, type CommandRunner } from '../../platform/command-runner.js';
 import type { HostResult, OpenPr, PrForStart, PrLookup, SubmitReviewResult } from '../types.js';
+import { refusedClearly } from '../submit-doubt.js';
 
 /**
  * GitHub's PR operations through `gh` (argv only): a branch's PR (Ship and
@@ -313,14 +314,14 @@ export async function githubSubmitReview(
       }),
     );
     const r = await run('gh', ['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '--input', file], cwd);
-    // One call makes the whole review, or none of it — unless it timed out: then GitHub may have made it.
-    if (r.code === RUN_TIMED_OUT)
-      return {
-        ok: false,
-        error: oneLineErr(r.stderr) || 'gh timed out',
-        inDoubt: { comments: review.comments.map((_, i) => i), summary: !!review.body.trim() },
-      };
-    if (r.code !== 0) return { ok: false, error: oneLineErr(r.stderr) || 'gh could not submit the review' };
+    // One call makes the whole review, or none of it — unless it failed without a clear refusal (timed out, a 5xx, a
+    // dropped connection): then GitHub may have made it.
+    if (r.code !== 0) {
+      const error = oneLineErr(r.stderr) || (r.code === RUN_TIMED_OUT ? 'gh timed out' : 'gh could not submit the review');
+      return refusedClearly(r.code, r.stderr, GH_REFUSAL)
+        ? { ok: false, error }
+        : { ok: false, error, inDoubt: { comments: review.comments.map((_, i) => i), summary: !!review.body.trim() } };
+    }
     try {
       const url = (JSON.parse(r.stdout) as { html_url?: unknown }).html_url;
       return { ok: true, ...(typeof url === 'string' ? { url } : {}) };
@@ -328,6 +329,14 @@ export async function githubSubmitReview(
       return { ok: true };
     }
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    // Tidying the temp folder never turns a call that went through into a failure (a retry would post it again).
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* a leftover temp file; the OS clears its temp folder */
+    }
   }
 }
+
+/** gh's own words for a request it never made, or GitHub refused: signed out, no such repo. */
+const GH_REFUSAL = /gh auth login|not logged in|authentication required|Could not resolve to a Repository/i;

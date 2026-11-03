@@ -13,7 +13,7 @@ import { isOwnCheckout, ownCheckoutNote } from '../core/worktree/own-checkout.js
 import { loadConfig } from '../core/platform/config.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
-import { bestEffort, bestEffortAsync } from '../core/platform/best-effort.js';
+import { bestEffort, bestEffortAsync, logSwallowed } from '../core/platform/best-effort.js';
 import { assistantContextDay, assistantContextMonth, assistantContextReview, readAssistantContext } from '../core/agents/assistant.js';
 import { agentById, type AgentAdapter, type TurnEdge } from '../core/agents/index.js';
 
@@ -295,6 +295,33 @@ async function recordStatus(
   if (recorded) await post('api/status-changed', cwd);
 }
 
+/**
+ * What the dashboard shows, as it is at this prompt: the Time tab's day (Save, Post or a rebuild may have changed it
+ * since the tab said which), or its month on the Month view, or the Reviews tab's PR (a re-prepare or a submit since).
+ * Null when the view is none of those. A reader that fails says so in the context (and the debug log) rather than
+ * vanishing: the assistant would otherwise answer about a review it was never shown.
+ */
+export async function assistantViewNow(): Promise<string | null> {
+  const day = assistantContextDay();
+  const month = assistantContextMonth();
+  const review = assistantContextReview();
+  const said = async (what: string, read: () => Promise<string>): Promise<string> => {
+    try {
+      return await read();
+    } catch (err) {
+      logSwallowed(`assistant context: ${what}`, err);
+      return `(work couldn't read ${what} now: ${(err as Error).message})`;
+    }
+  };
+  if (month) return said(`the month ${month}`, async () => (await import('../core/time/time-actions.js')).describeMonthNow(month));
+  if (day) return said(`the day ${day}`, async () => (await import('../core/time/time-actions.js')).describeDayNow(day));
+  if (review)
+    return said(`the review of ${review.repo} PR #${review.number}`, async () =>
+      (await import('../core/review/review-now.js')).describeReviewNow(review.repo, review.number),
+    );
+  return null;
+}
+
 async function handleHook(event: HookEvent, agentId = 'claude'): Promise<void> {
   {
     // Bail when this hook fired from one of work's OWN internal `claude -p`
@@ -310,20 +337,7 @@ async function handleHook(event: HookEvent, agentId = 'claude'): Promise<void> {
     // own folder): stdout becomes context for the prompt — what the user is
     // looking at in the dashboard.
     if (event === 'assistant-context') {
-      // The Time tab's day as it is now (Save, Post or a rebuild may have changed it since the tab said which).
-      // Or the month, on the Month view.
-      // The Reviews tab's PR: its review as it is now (a re-prepare or a submit since).
-      const day = assistantContextDay();
-      const month = assistantContextMonth();
-      const review = assistantContextReview();
-      const dayNow = month
-        ? await import('../core/time/time-actions.js').then((m) => m.describeMonthNow(month)).catch(() => null)
-        : day
-          ? await import('../core/time/time-actions.js').then((m) => m.describeDayNow(day)).catch(() => null)
-          : review
-            ? await import('../core/review/review-now.js').then((m) => m.describeReviewNow(review.repo, review.number)).catch(() => null)
-            : null;
-      const text = readAssistantContext(Date.now(), dayNow);
+      const text = readAssistantContext(Date.now(), await assistantViewNow());
       if (text) process.stdout.write(text + '\n');
       return;
     }

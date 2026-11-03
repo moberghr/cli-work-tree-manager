@@ -4,6 +4,7 @@ import path from 'node:path';
 import { RUN_TIMED_OUT, type CommandRunner } from '../../platform/command-runner.js';
 import { originUrl, readGitConfig } from '../../worktree/repo-scan.js';
 import type { GitHost, SubmitReviewResult } from '../types.js';
+import { refusedClearly } from '../submit-doubt.js';
 import type { PullRequestInfo } from '../../pr/pr-types.js';
 import { azureCommands } from './commands.js';
 import {
@@ -59,19 +60,35 @@ export function azReason(stderr: string): string {
   return lines.find((l) => THROTTLED.test(l)) ?? lines.find((l) => !/^WARNING:/i.test(l)) ?? lines[0] ?? '';
 }
 
-/** What az said: its value, or why not (`timedOut`: it didn't answer in time, so what it was asked may have happened). */
-type AzResult<T> = { ok: true; value: T } | { ok: false; error: string; timedOut?: boolean };
+/**
+ * What az said: its value, or why not. `uncertain`: no clear refusal — it timed out, a server error, a dropped
+ * connection, or it exited 0 with an answer that couldn't be read — so what it was asked may have happened (a
+ * write's caller holds it in doubt; a read's ignores it).
+ */
+type AzResult<T> = { ok: true; value: T } | { ok: false; error: string; uncertain?: boolean };
+
+/**
+ * Azure DevOps' own words for a request it refused, beyond a 4xx status: not signed in, no permission (TF400813,
+ * TF401027/8, VS403xxx), no such repository (TF401019), a PR that can't be changed (TF401181), a policy that refused it.
+ */
+const AZ_REFUSAL = /az login|az devops login|Before you can run Azure DevOps commands|TF400813|TF40102[78]|TF401019|TF401181|VS403\d{3}/i;
 
 /** `az … --output json`, parsed; an error with its first line when az fails or says something that isn't JSON. */
 async function az<T>(run: CommandRunner, cwd: string, args: string[]): Promise<AzResult<T>> {
   const r = await run('az', [...args, '--output', 'json'], cwd);
   if (r.code === 127) return { ok: false, error: 'Azure CLI (az) not found — install it and the azure-devops extension' };
-  if (r.code === RUN_TIMED_OUT) return { ok: false, error: azReason(r.stderr) || 'az timed out', timedOut: true };
-  if (r.code !== 0) return { ok: false, error: azReason(r.stderr) || `az ${args.slice(0, 3).join(' ')} failed` };
+  if (r.code === RUN_TIMED_OUT) return { ok: false, error: azReason(r.stderr) || 'az timed out', uncertain: true };
+  if (r.code !== 0)
+    return {
+      ok: false,
+      error: azReason(r.stderr) || `az ${args.slice(0, 3).join(' ')} failed`,
+      ...(refusedClearly(r.code, r.stderr, AZ_REFUSAL) ? {} : { uncertain: true }),
+    };
   try {
     return { ok: true, value: JSON.parse(r.stdout || 'null') as T };
   } catch {
-    return { ok: false, error: "couldn't read what az said" };
+    // It said it did it, in words that couldn't be read: a write may well have happened.
+    return { ok: false, error: "couldn't read what az said", uncertain: true };
   }
 }
 
@@ -371,13 +388,16 @@ export const azure: GitHost = {
   },
 
   // Each comment its own thread, then the summary, then the vote: what went out before a failure is said, so a retry
-  // sends none of it again; a call that timed out may have gone through (`inDoubt`).
+  // sends none of it again; a call that failed without a clear refusal may have gone through (`inDoubt`), and the
+  // steps after it weren't tried (`rest`: if it went, the review went only in part).
   async submitReview(run, cwd, number, review): Promise<SubmitReviewResult> {
     const r = repoAt(cwd);
     if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };
     // The push the review read: its comments are anchored there (nothing is posted when it can't be found).
     const iteration = review.comments.length ? await iterationAt(run, cwd, r, number, review.commitId) : null;
     if (iteration && !iteration.ok) return { ok: false, error: iteration.error, posted: 0 };
+    const summary = !!review.body.trim();
+    const vote = review.event !== 'comment';
     for (const [i, c] of review.comments.entries()) {
       const made = await postThread(run, cwd, r, number, c, iteration?.ok ? iteration.value : 0);
       if (!made.ok)
@@ -385,10 +405,11 @@ export const azure: GitHost = {
           ok: false,
           error: `${c.path}:${c.line}: ${made.error}`,
           posted: i,
-          ...(made.timedOut ? { inDoubt: { comments: [i], summary: false } } : {}),
+          ...(made.uncertain
+            ? { inDoubt: { comments: [i], summary: false, rest: i < review.comments.length - 1 || summary || vote } }
+            : {}),
         };
     }
-    const summary = !!review.body.trim();
     if (summary) {
       const general = await invoke(run, cwd, r, 'pullRequestThreads', { pullRequestId: number }, 'POST', {
         comments: [{ parentCommentId: 0, content: review.body, commentType: 1 }],
@@ -399,7 +420,7 @@ export const azure: GitHost = {
           ok: false,
           error: `the summary: ${general.error}`,
           posted: review.comments.length,
-          ...(general.timedOut ? { inDoubt: { comments: [], summary: true } } : {}),
+          ...(general.uncertain ? { inDoubt: { comments: [], summary: true, rest: vote } } : {}),
         };
     }
     // The verdict as Azure DevOps votes: approve 10, wait for author −5; a plain comment leaves the vote as it is.

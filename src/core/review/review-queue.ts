@@ -112,8 +112,9 @@ export function withStatus(
   return {
     ...rest,
     ...meta,
-    // The head a prepared review was read at stays until it's prepared again; the listed one is what a sweep compares.
-    headSha: status === 'ready' ? was.headSha : meta.headSha,
+    // The head a prepared review was read at stays while its content (files, lines, drafts) stands, until it's
+    // prepared again: a submit goes at the commit its lines are from. The listed one is what a sweep compares.
+    headSha: was.preparedAt ? was.headSha : meta.headSha,
     listedHead: meta.headSha,
     status,
     why,

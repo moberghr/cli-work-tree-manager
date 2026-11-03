@@ -73,6 +73,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/review/review-build.ts', // pure: a PR's review from its diff (kinds, tests, stories)
       'src/core/review/review-config.ts', // pure: review modes and limits
       'src/core/review/review-submit.ts', // pure: submitting a review, adding a draft
+      'src/core/review/review-submit-flow.ts', // the submit flow: claim, host call, record — all I/O injected
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

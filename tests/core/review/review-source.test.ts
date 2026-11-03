@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { dropReviewRef, preparePr, reviewRef } from '../../../src/core/review/review-source.js';
-import { defaultRunner } from '../../../src/core/platform/command-runner.js';
+import { ATTR_CHUNK, diffExtras, dropReviewRef, preparePr, reviewRef } from '../../../src/core/review/review-source.js';
+import { defaultRunner, type CommandRunner } from '../../../src/core/platform/command-runner.js';
+import type { ParsedFile } from '../../../src/core/diff/diff-parse.js';
 import { kindsOf } from '../../../src/core/review/review-build.js';
 
 /**
@@ -112,6 +113,32 @@ describe('preparePr', () => {
     await dropReviewRef(defaultRunner, clone, 14);
     expect(git(clone, 'for-each-ref', reviewRef(14))).toBe('');
   }, 60_000);
+
+  it('a big PR: check-attr gets its paths in chunks (one command line would pass Windows’ limit), every chunk read', async () => {
+    const files = Array.from({ length: 2 * ATTR_CHUNK + 50 }, (_, i) => ({ path: `src/F${i}.cs`, added: 1, deleted: 0 }) as ParsedFile);
+    const attrCalls: string[][] = [];
+    const run: CommandRunner = async (_cmd, args) => {
+      if (args[0] === 'diff') return { code: 0, stdout: files.map((f) => f.path).join('\n'), stderr: '' };
+      const paths = args.slice(args.indexOf('--') + 1);
+      attrCalls.push(paths);
+      // The last file of each chunk is marked generated.
+      return {
+        code: 0,
+        stdout: paths.map((p, i) => `${p}: linguist-generated: ${i === paths.length - 1 ? 'set' : 'unspecified'}`).join('\n'),
+        stderr: '',
+      };
+    };
+    const extras = await diffExtras(run, '/repo', 'base', 'head', files);
+    expect(attrCalls.map((c) => c.length)).toEqual([ATTR_CHUNK, ATTR_CHUNK, 50]);
+    expect(attrCalls.flat()).toEqual(files.map((f) => f.path));
+    expect([...extras.generated]).toEqual([`src/F${ATTR_CHUNK - 1}.cs`, `src/F${2 * ATTR_CHUNK - 1}.cs`, `src/F${2 * ATTR_CHUNK + 49}.cs`]);
+    // An older git that refuses --source: no file marked, and no more chunks asked.
+    attrCalls.length = 0;
+    const old: CommandRunner = async (_cmd, args) =>
+      args[0] === 'check-attr' ? (attrCalls.push([]), { code: 129, stdout: '', stderr: 'unknown option' }) : run(_cmd, args, '');
+    expect([...(await diffExtras(old, '/repo', 'base', 'head', files)).generated]).toEqual([]);
+    expect(attrCalls).toHaveLength(1);
+  });
 
   it('a PR ref origin does not have: refused with git’s reason', async () => {
     const r = await preparePr(defaultRunner, clone, { prRef: () => 'refs/heads/nope' }, { number: 13, base: 'main' });
