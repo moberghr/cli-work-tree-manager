@@ -2,9 +2,9 @@ import { useMemo } from 'react';
 import type { PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
 import type { ParsedFile } from '../../../../../../core/diff/diff-parse.js';
 import { DiffFile } from '../../../Diff/DiffFile.js';
-import { commentContext, gist, pageOf, shortWhere, splitPath, type ReviewPage } from '../../../../state/review-view.js';
+import { commentContext, gist, pageOf, splitPath, type ReviewPage } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
-import { FileSummary, FolderPath, Prose } from './ReviewText.js';
+import { FileSummary, FileWhere, FolderPath, Prose } from './ReviewText.js';
 
 /**
  * The draft comments one at a time, in the review's order: each with the code
@@ -39,7 +39,12 @@ export function CommentWalk({
   const file = useMemo(() => (d ? files?.find((f) => f.path === d.path) : undefined), [d, files]);
   const around = useMemo(() => (file && d ? commentContext(file, d.line) : null), [file, d]);
   const page = d ? pageOf(pages, d.path) : -1;
+  const statusOf = useMemo(() => new Map(r.files.map((f) => [f.path, f.status])), [r.files]);
   const summary = d ? r.files.find((f) => f.path === d.path)?.summary : undefined;
+  const where = (c: ReviewDraftWire) => {
+    const status = statusOf.get(c.path);
+    return <FileWhere path={c.path} line={c.line} {...(status ? { status } : {})} />;
+  };
   return (
     <div className="wd-review-walk">
       <div className="wd-review-pagerbar" role="navigation" aria-label="Comments">
@@ -59,7 +64,7 @@ export function CommentWalk({
         {d && (
           <>
             <span className="wd-review-walk-where" title={d.path}>
-              {shortWhere(d)} <FolderPath folder={splitPath(d.path).folder} />
+              {where(d)} <FolderPath folder={splitPath(d.path).folder} />
             </span>
             <label className="wd-review-walk-looked">
               <input type="checkbox" checked={looked.has(d.id)} onChange={(e) => onLooked(d.id, e.target.checked)} /> Looked at
@@ -102,8 +107,8 @@ export function CommentWalk({
           <ol className="wd-review-walk-list" aria-label="Every comment">
             {walk.map((c, i) => (
               <li key={c.id} className={(i === at ? 'wd-review-walk-current ' : '') + (looked.has(c.id) ? 'wd-review-looked' : '')}>
-                <button type="button" className="wd-link-button" onClick={() => onGo(i)} title={`${c.path}:${c.line}`}>
-                  {shortWhere(c)}
+                <button type="button" className="wd-review-walk-item" onClick={() => onGo(i)} title={`${c.path}:${c.line}`}>
+                  {where(c)}
                 </button>{' '}
                 <span className="wd-start-note">{gist(c.body, 110)}</span>
               </li>

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  changeType,
   commentContext,
+  commentsByFile,
+  diffstatBlocks,
+  fileOnScreen,
   commentWalk,
   fixingLines,
   fixMyselfBlocked,
@@ -313,10 +317,11 @@ describe('a long file name in the tree', () => {
       'From',
       'Partner',
       'Submission',
-      'Command.',
-      'cs',
+      'Command.cs',
     ]);
-    expect(nameParts('use-deferred_diff.ts')).toEqual(['use-', 'deferred_', 'diff.', 'ts']);
+    expect(nameParts('use-deferred_diff.ts')).toEqual(['use-', 'deferred_', 'diff.ts']);
+    expect(nameParts('review-view.test.ts')).toEqual(['review-', 'view.', 'test.ts']);
+    expect(nameParts('.gitignore')).toEqual(['.gitignore']);
     expect(nameParts('README')).toEqual(['README']);
   });
 
@@ -349,5 +354,53 @@ describe('a long file name in the tree', () => {
     );
     expect(label.length).toBeLessThanOrEqual(60);
     expect(label).toBe('Support staff can now refund part of a paid order, and the…');
+  });
+});
+
+describe('a file row: what kind of change, how big, its comments', () => {
+  it('the change as a letter: A added, M modified, D deleted, R renamed (from where), B binary', () => {
+    expect(changeType({ status: 'added' })).toEqual({ type: 'added', letter: 'A', label: 'Added' });
+    expect(changeType({ status: 'modified' })).toEqual({ type: 'modified', letter: 'M', label: 'Modified' });
+    expect(changeType({ status: 'deleted' })).toEqual({ type: 'deleted', letter: 'D', label: 'Deleted' });
+    expect(changeType({ status: 'renamed', oldPath: 'a/Old.cs' })).toEqual({
+      type: 'renamed',
+      letter: 'R',
+      label: 'Renamed from a/Old.cs',
+    });
+    expect(changeType({ status: 'binary' }).letter).toBe('B');
+    // Anything else reads as modified; a modified file with an old path was renamed.
+    expect(changeType({ status: 'copied' }).type).toBe('modified');
+    expect(changeType({ status: 'modified', oldPath: 'x.cs' }).type).toBe('renamed');
+  });
+
+  it("GitHub's five-block diffstat: the shares in green and red, each side with a line keeps a block", () => {
+    expect(diffstatBlocks(222, 0)).toEqual(['add', 'add', 'add', 'add', 'add']);
+    expect(diffstatBlocks(0, 40)).toEqual(['del', 'del', 'del', 'del', 'del']);
+    expect(diffstatBlocks(60, 40)).toEqual(['add', 'add', 'add', 'del', 'del']);
+    expect(diffstatBlocks(500, 1)).toEqual(['add', 'add', 'add', 'add', 'del']);
+    expect(diffstatBlocks(1, 500)).toEqual(['add', 'del', 'del', 'del', 'del']);
+    expect(diffstatBlocks(2, 1)).toEqual(['add', 'add', 'del', 'none', 'none']);
+    expect(diffstatBlocks(0, 0)).toEqual(['none', 'none', 'none', 'none', 'none']);
+  });
+
+  it('the draft comments still to go out, per file (posted ones left out)', () => {
+    const r = demoReview(new Date('2026-11-02T10:00:00Z'));
+    const handler = 'src/Shop.Orders/Refunds/RefundHandler.cs';
+    expect([...commentsByFile(r)]).toEqual([[handler, 2]]);
+    const posted = { ...r, drafts: r.drafts.map((d, i) => (i === 0 ? { ...d, state: 'posted' as const } : d)) };
+    expect(commentsByFile(posted).get(handler)).toBe(1);
+  });
+
+  it('the file on screen: the last whose top reached the line, else the first', () => {
+    const tops = [
+      { path: 'a', top: 0 },
+      { path: 'b', top: 400 },
+      { path: 'c', top: 900 },
+    ];
+    expect(fileOnScreen(tops, 50)).toBe('a');
+    expect(fileOnScreen(tops, 450)).toBe('b');
+    expect(fileOnScreen(tops, 5000)).toBe('c');
+    expect(fileOnScreen([{ path: 'a', top: 100 }], 0)).toBe('a');
+    expect(fileOnScreen([], 0)).toBeNull();
   });
 });

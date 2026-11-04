@@ -5744,7 +5744,7 @@ a.wd-pr-chip:hover {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--review-tree-width, 260px) 4px minmax(0, 1fr);
+  grid-template-columns: var(--review-tree-width, 300px) 4px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
 .wd-review-tree {
@@ -5773,34 +5773,239 @@ a.wd-pr-chip:hover {
   opacity: 0.85;
   margin: 0 0 2px 14px;
 }
-.wd-review-tree-file {
+/* A file wherever a review lists one (FileRow): the change badge, the name bold, its comments, ✓ and line counts on
+   top; its folder under it in monospace, dimmed. */
+.wd-review-filerow {
   display: block;
+  width: 100%;
+  box-sizing: border-box;
   background: none;
   border: none;
+  border-left: 2px solid transparent;
   color: inherit;
   font: inherit;
-  cursor: pointer;
   text-align: left;
-  padding: 3px 4px 3px 22px;
-  width: 100%;
-  border-radius: 4px;
-  overflow-wrap: anywhere;
+  padding: 4px 6px 4px 8px;
+  border-radius: 0 4px 4px 0;
 }
-.wd-review-tree-file:hover {
+button.wd-review-filerow {
+  cursor: pointer;
+}
+button.wd-review-filerow:hover:not(:disabled) {
   background: var(--hover);
 }
-.wd-review-tree-name {
-  color: var(--accent);
+button.wd-review-filerow:disabled {
+  cursor: default;
 }
-.wd-review-tree-viewed .wd-review-tree-name {
-  color: var(--muted);
+.wd-review-tree .wd-review-filerow {
+  margin-left: 6px;
+  width: calc(100% - 6px);
 }
-.wd-review-tree-stat {
+.wd-review-filerow-current,
+button.wd-review-filerow-current:hover:not(:disabled) {
+  background: var(--current);
+  border-left-color: var(--accent);
+}
+.wd-review-filerow-viewed .wd-review-filerow-top > .wd-review-filename,
+.wd-review-filerow-viewed .wd-review-badge,
+.wd-review-filerow-viewed .wd-review-folder {
+  opacity: 0.55;
+}
+.wd-review-filerow-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.wd-review-filerow-top > .wd-review-filename {
+  flex: 1 1 auto;
+}
+/* No folder line (the story tree): inline flow with a hanging indent under the badge, the facts floated right after the
+   name — on its last line when they fit there, else on the next. */
+.wd-review-filerow-oneline {
+  display: block;
+  padding-left: 22px;
+  text-indent: -22px;
+  line-height: 18px;
+}
+.wd-review-filerow-oneline > * {
+  text-indent: 0;
+}
+.wd-review-filerow-oneline > .wd-review-badge {
+  vertical-align: top;
+  margin-right: 6px;
+}
+.wd-review-filerow-oneline > .wd-review-filename {
+  display: inline;
+}
+.wd-review-filerow-oneline > .wd-review-filerow-facts {
+  float: right;
+  margin-left: 8px;
+}
+/* Under the name: its folder, and its line counts at the right — in the same place on every row. */
+.wd-review-filerow-sub {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 1px 0 0 22px;
+}
+.wd-review-filerow-sub > .wd-review-folder {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.wd-review-filerow-sub > .wd-review-counts {
+  flex: none;
+  margin-left: auto;
+  line-height: 14px;
+}
+.wd-review-filename {
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--fg);
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.wd-review-filerow-facts {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 18px;
+}
+.wd-review-filerow .wd-review-folder {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 14px;
+}
+.wd-review-filerow-detail {
+  display: block;
   font-size: 11px;
   color: var(--muted);
+  margin-left: 22px;
 }
-.wd-review-tree-file .wd-review-folder {
-  display: block;
+.wd-review-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.wd-review-badge-added {
+  background: var(--status-added-bg);
+  color: var(--status-added-fg);
+}
+.wd-review-badge-modified {
+  background: var(--status-modified-bg);
+  color: var(--status-modified-fg);
+}
+.wd-review-badge-deleted {
+  background: var(--status-deleted-bg);
+  color: var(--status-deleted-fg);
+}
+.wd-review-badge-renamed {
+  background: var(--status-renamed-bg);
+  color: var(--status-renamed-fg);
+}
+.wd-review-badge-binary {
+  background: var(--status-binary-bg);
+  color: var(--status-binary-fg);
+}
+.wd-review-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wd-review-plus {
+  color: var(--status-added-fg);
+}
+.wd-review-minus {
+  color: var(--status-deleted-fg);
+}
+.wd-review-diffstat {
+  display: inline-flex;
+  gap: 1px;
+  margin-left: 2px;
+}
+.wd-review-block {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--status-binary-bg);
+}
+.wd-review-block-add {
+  background: var(--status-added-fg);
+}
+.wd-review-block-del {
+  background: var(--status-deleted-fg);
+}
+.wd-review-filecomments {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  height: 15px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--status-renamed-bg);
+  color: var(--status-renamed-fg);
+}
+.wd-review-fileviewed {
+  color: var(--status-added-fg);
+  font-size: 12px;
+  font-weight: 700;
+}
+/* Lists on the wide overview stay compact: the counts near the name, not across the page. */
+.wd-review-gaps .wd-review-filerow,
+.wd-review-noise .wd-review-filerow,
+.wd-review-folded-files .wd-review-filerow,
+.wd-review-story-testfiles .wd-review-filerow {
+  max-width: 640px;
+}
+.wd-review-walk-where .wd-review-folder {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: normal;
+}
+/* Where a comment is: badge, the name bold, ":169" in monospace. */
+.wd-review-where {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+.wd-review-where .wd-review-filename {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.wd-review-fileline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+  margin-left: -5px;
+}
+.wd-review-walk-item {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.wd-review-walk-item:hover .wd-review-filename {
+  text-decoration: underline;
 }
 /* A folder wraps only after a slash (FolderPath's <wbr>), never inside a folder's name. */
 .wd-review-folder {
@@ -5821,13 +6026,42 @@ a.wd-pr-chip:hover {
   max-width: calc(100% - 24px);
 }
 .wd-review-tree-num {
-  display: inline-block;
-  min-width: 18px;
-  text-align: center;
-  font-size: 11px;
-  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 50%;
   background: var(--hover);
   margin-right: 2px;
+  vertical-align: top;
+}
+/* A story's risk as a stripe on its head, and its number's ring: 5 red, 4 amber, 3 blue, 2 and 1 grey. */
+.wd-review-tree-head[class*='wd-review-tree-risk-'] {
+  border-left: 3px solid var(--risk, var(--border));
+  padding-left: 5px;
+  border-radius: 0 4px 4px 0;
+}
+.wd-review-tree-head[class*='wd-review-tree-risk-'] .wd-review-tree-num {
+  background: none;
+  border: 1.5px solid var(--risk, var(--border));
+  color: var(--risk, var(--muted));
+}
+.wd-review-tree-risk-5 {
+  --risk: var(--status-deleted-fg);
+}
+.wd-review-tree-risk-4 {
+  --risk: var(--warn-fg);
+}
+.wd-review-tree-risk-3 {
+  --risk: var(--status-renamed-fg);
+}
+.wd-review-tree-risk-2,
+.wd-review-tree-risk-1 {
+  --risk: var(--muted);
 }
 .wd-review-tree-current > .wd-review-tree-head {
   background: var(--current);
@@ -6078,11 +6312,6 @@ a.wd-pr-chip:hover {
 .wd-review-attention-item:hover {
   border-color: var(--border);
   background: var(--hover);
-}
-.wd-review-where {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  color: var(--accent);
 }
 .wd-review-gist {
   font-size: 13px;

@@ -129,8 +129,8 @@ describe('the overview', () => {
     expect(text('.wd-review-short')).toContain('Adds partial refunds to paid orders');
     const items = [...container.querySelectorAll('.wd-review-attention > ul > li')].map((li) => li.textContent);
     expect(items).toEqual([
-      'RefundHandler.cs:6Two refunds at once both read the old `Refunded` — guard with a row version or a check in the update.',
-      'RefundHandler.cs:7Nothing stops refunding more than the order total.',
+      'ARefundHandler.cs:6Two refunds at once both read the old `Refunded` — guard with a row version or a check in the update.',
+      'ARefundHandler.cs:7Nothing stops refunding more than the order total.',
     ]);
     expect(text('.wd-review-attention h3')).toContain('2 of 2 to look at');
     const cards = [...container.querySelectorAll('.wd-review-card')].map((c) => c.textContent);
@@ -146,6 +146,22 @@ describe('the overview', () => {
     expect(cards[0]).toContain('2 files · 2 comments · ✓ 2 tests · 1 file untested');
     expect(cards[1]).toContain('1 file · no tests');
     expect(text('.wd-review-gaps')).toContain('Rounding.cs');
+    // Where a comment is: the change badge, the name bold, the line apart.
+    const where = container.querySelector('.wd-review-attention .wd-review-where')!;
+    expect(where.querySelector('.wd-review-badge-added')!.textContent).toBe('A');
+    expect(where.querySelector('.wd-review-filename')!.textContent).toBe('RefundHandler.cs');
+    expect(where.querySelector('.wd-review-fileline')!.textContent).toBe(':6');
+    // An untested file: its badge, its counts in colour, its folder under it.
+    const gap = container.querySelector('.wd-review-gaps .wd-review-filerow')!;
+    const firstGap = review.files.find((f) => f.path === review.tests.gaps[0])!;
+    expect(gap.querySelector('.wd-review-badge')!.textContent).toBe(firstGap.status === 'added' ? 'A' : 'M');
+    expect(gap.querySelector('.wd-review-plus')!.textContent).toMatch(/^\+\d+$/);
+    expect(gap.querySelector('.wd-review-minus')!.textContent).toMatch(/^−\d+$/);
+    expect(gap.querySelectorAll('.wd-review-diffstat .wd-review-block')).toHaveLength(5);
+    // The folder wraps only after a slash: a break opportunity there, none inside a name.
+    const gapFolder = gap.querySelector('.wd-review-folder')!;
+    expect(gapFolder.textContent).toBe(firstGap.path.slice(0, firstGap.path.lastIndexOf('/')));
+    expect(gapFolder.innerHTML).toBe(firstGap.path.slice(0, firstGap.path.lastIndexOf('/')).split('/').join('/<wbr>'));
     // No diff on the overview.
     expect(container.querySelector('.wd-file')).toBeNull();
     const noise = button('Not worth reading');
@@ -226,10 +242,28 @@ describe('one story at a time', () => {
       'RefundHandler.cs',
       'RefundValidator.cs',
     ]);
-    // The folder wraps only after a slash: a break opportunity there, none inside a name.
-    const folder = tree.querySelector('.wd-review-tree-file .wd-review-folder')!;
-    expect(folder.textContent).toBe('+11 −0 · src/Shop.Orders/Refunds');
-    expect(folder.innerHTML).toContain('src/<wbr>Shop.Orders/<wbr>Refunds');
+    // No folder line in the tree: the diff's header has the path, and the row's tooltip (below).
+    expect(tree.querySelector('.wd-review-tree-file .wd-review-folder')).toBeNull();
+    // Each file row: the change badge, the name bold, its draft comments, its counts green and red with a diffstat.
+    const row = tree.querySelector('.wd-review-tree-file')!;
+    expect(row.querySelector('.wd-review-badge-added')!.textContent).toBe('A');
+    expect(row.querySelector('.wd-review-badge')!.getAttribute('title')).toBe('Added');
+    expect(row.querySelector('.wd-review-filecomments')!.textContent).toBe('2');
+    expect(row.querySelector('.wd-review-filecomments')!.getAttribute('title')).toBe('2 draft comments');
+    expect(row.querySelector('.wd-review-plus')!.textContent).toBe('+11');
+    expect(row.querySelector('.wd-review-minus')!.textContent).toBe('−0');
+    expect([...row.querySelectorAll('.wd-review-block')].map((b) => b.className)).toEqual(
+      Array(5).fill('wd-review-block wd-review-block-add'),
+    );
+    // The second file has no comments; the first one's diff is on screen when the story opens.
+    expect(tree.querySelectorAll('.wd-review-tree-file')[1].querySelector('.wd-review-filecomments')).toBeNull();
+    expect(row.classList.contains('wd-review-filerow-current')).toBe(true);
+    expect(row.getAttribute('aria-current')).toBe('true');
+    // The story heads: number in a ring, the risk as a stripe.
+    const heads = tree.querySelectorAll('.wd-review-tree-head');
+    expect(heads[0].classList.contains('wd-review-tree-risk-5')).toBe(true);
+    expect(heads[0].getAttribute('title')).toContain('Risk 5/5');
+    expect(heads[2].className).toBe('wd-review-tree-head');
     // A file's tooltip: its path and what changed in it.
     const handler = review.files.find((f) => f.path.endsWith('RefundHandler.cs'))!;
     expect(tree.querySelector<HTMLButtonElement>('.wd-review-tree-file')!.title).toBe(`${handler.path}\n\n${handler.summary}`);
@@ -283,6 +317,12 @@ describe('one story at a time', () => {
     act(() => container.querySelector<HTMLInputElement>('.wd-viewed-checkbox')!.click());
     expect(text('.wd-review-progress')).toContain('1/2 viewed here · 1/7 in all');
     expect(localStorage.getItem('work-web:review-viewed:api#231@a1b2c3d')).toContain('RefundHandler.cs');
+    // The tree's row says so: a ✓ and dimmed; the other file isn't.
+    const rows = container.querySelectorAll('.wd-review-tree-file');
+    expect(rows[0].classList.contains('wd-review-filerow-viewed')).toBe(true);
+    expect(rows[0].querySelector('.wd-review-fileviewed')!.textContent).toBe('✓');
+    expect(rows[1].classList.contains('wd-review-filerow-viewed')).toBe(false);
+    expect(rows[1].querySelector('.wd-review-fileviewed')).toBeNull();
     await act(async () => button('Next: Prices that end in half a cent now round away from zero instead of to the nearest even…').click());
     await flush();
     expect(text('.wd-review-pager-pos')).toBe('Story 2 of 2');
@@ -290,6 +330,35 @@ describe('one story at a time', () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Next story"]')!.click());
     await flush();
     expect(text('.wd-review-pager-pos')).toBe('Schema · 3 of 8');
+  });
+
+  it('the tree marks the file whose diff is on screen as the pane scrolls, and the one clicked', async () => {
+    await render({ start: { ...OVERVIEW, mode: 'story', at: 0 } });
+    const rows = () => [...container.querySelectorAll('.wd-review-tree-file')];
+    const current = () => rows().map((r) => r.classList.contains('wd-review-filerow-current'));
+    expect(current()).toEqual([true, false]);
+    // The second file's header has reached the pane's top: it's the one on screen.
+    const pane = container.querySelector<HTMLElement>('.wd-review-diff-pane')!;
+    const files = [...pane.querySelectorAll<HTMLElement>(':scope > .wd-review-section > .wd-review-file > .wd-file')];
+    expect(files).toHaveLength(2);
+    const rect = (top: number) => ({ top, bottom: top + 100, left: 0, right: 0, width: 0, height: 100, x: 0, y: top, toJSON: () => ({}) });
+    pane.getBoundingClientRect = () => rect(100) as DOMRect;
+    files[0].getBoundingClientRect = () => rect(-500) as DOMRect;
+    files[1].getBoundingClientRect = () => rect(104) as DOMRect;
+    await act(async () => {
+      pane.dispatchEvent(new Event('scroll'));
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+    expect(current()).toEqual([false, true]);
+    // A click on a file marks it at once, and keeps it marked while the pane scrolls to it.
+    Element.prototype.scrollIntoView = () => undefined;
+    act(() => (rows()[0] as HTMLButtonElement).click());
+    expect(current()).toEqual([true, false]);
+    await act(async () => {
+      pane.dispatchEvent(new Event('scroll'));
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+    expect(current()).toEqual([true, false]);
   });
 
   it('a generated page lists its files and folds the diffs until asked; a new file’s imports fold into one row', async () => {

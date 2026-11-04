@@ -1,26 +1,26 @@
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PrReviewWire } from '../../../../../../core/api-types.js';
 import type { ParsedFile } from '../../../../../../core/diff/diff-parse.js';
 import { FLAG_LABEL } from '../../../../../../core/review/review-plan.js';
 import { DiffFile } from '../../../Diff/DiffFile.js';
 import { ResizeDivider, useResizableSize, type ResizeSpec } from '../../../Layout/ResizeDivider.js';
 import {
-  nameParts,
+  commentsByFile,
+  fileOnScreen,
   plainProse,
   reviewProgress,
   shortLabel,
-  splitPath,
   testsLine,
   viewedCount,
   type ReviewEntry,
   type ReviewPage,
 } from '../../../../state/review-view.js';
-import { FileSummary, FolderPath, Prose } from './ReviewText.js';
+import { FileRow, FileSummary, Prose } from './ReviewText.js';
 
 const TREE_SPEC: ResizeSpec = {
   storageKey: 'work-web:review-tree-width',
   cssVar: '--review-tree-width',
-  defaultPx: 260,
+  defaultPx: 300,
   min: 180,
   max: 520,
   axis: 'x',
@@ -68,11 +68,57 @@ export function StoryPager({
   const byPath = useMemo(() => new Map((files ?? []).map((f) => [f.path, f])), [files]);
   const [testsOpen, setTestsOpen] = useState<string | null>(null);
   const [shown, setShown] = useState<string | null>(null);
+  const comments = useMemo(() => commentsByFile(r), [r]);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [onScreen, setOnScreen] = useState<string | null>(null);
+  const frame = useRef(0);
+  const pageKey = page?.key;
+  // Keyed by the paths themselves: the pages are worked out again on every review fetch.
+  const pathsKey = page ? page.code.map((e) => e.path).join('\n') : '';
+  const codePaths = useMemo(() => (pathsKey ? pathsKey.split('\n') : []), [pathsKey]);
+  const anchorOf = useCallback((path: string) => `review-${r.number}-${pageKey}-${path.replace(/[^\w-]/g, '_')}`, [r.number, pageKey]);
+  // A file picked in the tree stays marked while the pane scrolls to it (smooth, and the diffs above may still grow),
+  // until the scrolling has been quiet a moment — even when the pane can't bring it to the top.
+  const picked = useRef(false);
+  const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // The file whose diff is on screen, marked in the tree as the pane scrolls (measured once a frame).
+  const track = useCallback(() => {
+    if (picked.current) {
+      clearTimeout(settle.current);
+      settle.current = setTimeout(() => (picked.current = false), 200);
+      return;
+    }
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      const pane = paneRef.current;
+      if (!pane) return;
+      const top = pane.getBoundingClientRect().top;
+      const tops = codePaths.flatMap((path) => {
+        const el = document.getElementById(anchorOf(path));
+        return el ? [{ path, top: el.getBoundingClientRect().top - top }] : [];
+      });
+      setOnScreen(fileOnScreen(tops, 16));
+    });
+  }, [codePaths, anchorOf]);
+  useEffect(() => {
+    setOnScreen(codePaths[0] ?? null);
+    picked.current = false;
+    return () => {
+      cancelAnimationFrame(frame.current);
+      clearTimeout(settle.current);
+    };
+  }, [codePaths]);
   if (!page) return <p className="wd-start-note">Nothing to read here.</p>;
   const mine = viewedCount(page.code, viewed);
   const all = reviewProgress(pages, viewed);
-  const anchor = (path: string) => `review-${r.number}-${page.key}-${path.replace(/[^\w-]/g, '_')}`;
-  const goTo = (path: string) => document.getElementById(anchor(path))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const anchor = anchorOf;
+  const goTo = (path: string) => {
+    setOnScreen(path);
+    picked.current = true;
+    clearTimeout(settle.current);
+    settle.current = setTimeout(() => (picked.current = false), 400);
+    document.getElementById(anchor(path))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   const diffsShown = !page.folded || shown === page.key;
   const s = page.story;
   const fileView = (e: ReviewEntry) => {
@@ -133,10 +179,10 @@ export function StoryPager({
             <div key={p.key} className={`wd-review-tree-section${i === at ? ' wd-review-tree-current' : ''}`}>
               <button
                 type="button"
-                className="wd-review-tree-head"
+                className={`wd-review-tree-head${p.story ? ` wd-review-tree-risk-${p.story.riskLevel}` : ''}`}
                 onClick={() => onGo(i)}
                 aria-current={i === at ? 'page' : undefined}
-                title={plainProse(p.label)}
+                title={p.story ? `${plainProse(p.label)}\n\nRisk ${p.story.riskLevel}/5` : plainProse(p.label)}
               >
                 <span className="wd-review-tree-num">{p.story ? i + 1 : '·'}</span>{' '}
                 <span className={p.story ? 'wd-review-tree-label' : undefined}>
@@ -146,47 +192,30 @@ export function StoryPager({
               </button>
               {i === at && (
                 <ul>
-                  {p.code.map((e) => {
-                    const { name, folder } = splitPath(e.path);
-                    return (
-                      <li key={e.path}>
-                        <button
-                          type="button"
-                          className={`wd-review-tree-file${viewed.has(e.path) ? ' wd-review-tree-viewed' : ''}`}
-                          onClick={() => goTo(e.path)}
-                          title={e.summary ? `${e.path}\n\n${plainProse(e.summary)}` : `${e.path} — ${e.why}`}
-                        >
-                          <span className="wd-review-tree-name">
-                            {viewed.has(e.path) ? '✓ ' : ''}
-                            {nameParts(name).map((part, k) => (
-                              <Fragment key={k}>
-                                {k > 0 && <wbr />}
-                                {part}
-                              </Fragment>
-                            ))}
-                          </span>
-                          <FolderPath
-                            folder={folder}
-                            prefix={
-                              <>
-                                <span className="wd-review-tree-stat">
-                                  +{e.added} −{e.deleted}
-                                </span>
-                                {folder && ' · '}
-                              </>
-                            }
-                          />
-                        </button>
-                      </li>
-                    );
-                  })}
+                  {p.code.map((e) => (
+                    <li key={e.path}>
+                      <FileRow
+                        path={e.path}
+                        file={{ status: e.status, added: e.added, deleted: e.deleted, ...(e.oldPath ? { oldPath: e.oldPath } : {}) }}
+                        comments={comments.get(e.path) ?? 0}
+                        viewed={viewed.has(e.path)}
+                        current={onScreen === e.path}
+                        folder={false}
+                        bar
+                        className="wd-review-tree-file"
+                        nameClass="wd-review-tree-name"
+                        onClick={() => goTo(e.path)}
+                        title={e.summary ? `${e.path}\n\n${plainProse(e.summary)}` : `${e.path} — ${e.why}`}
+                      />
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>
           ))}
         </nav>
         <ResizeDivider layoutRef={bodyRef} size={treeWidth} onCommit={setTreeWidth} spec={TREE_SPEC} />
-        <div className="wd-review-diff-pane" key={page.key}>
+        <div className="wd-review-diff-pane" key={page.key} ref={paneRef} onScroll={track}>
           <section className="wd-review-section">
             <div className="wd-review-section-head">
               <h3 className={s ? 'wd-review-story-title' : undefined}>
@@ -251,14 +280,11 @@ export function StoryPager({
             {s && testsOpen === page.key && (
               <div className="wd-review-story-testfiles">
                 <ul>
-                  {page.tests.map((e) => {
-                    const { name, folder } = splitPath(e.path);
-                    return (
-                      <li key={e.path} title={e.path}>
-                        🧪 {name} <FolderPath folder={folder} /> <span className="wd-start-note">· {e.why}</span>
-                      </li>
-                    );
-                  })}
+                  {page.tests.map((e) => (
+                    <li key={e.path}>
+                      <FileRow path={e.path} file={e} comments={comments.get(e.path) ?? 0} detail={e.why} />
+                    </li>
+                  ))}
                 </ul>
                 {page.tests.map(fileView)}
               </div>
@@ -267,8 +293,8 @@ export function StoryPager({
               <div className="wd-review-folded-files">
                 <ul>
                   {page.code.map((e) => (
-                    <li key={e.path} title={e.path}>
-                      {splitPath(e.path).name} <span className="wd-review-folder">{e.why}</span>
+                    <li key={e.path}>
+                      <FileRow path={e.path} file={e} detail={e.why} />
                     </li>
                   ))}
                 </ul>

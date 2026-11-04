@@ -2,18 +2,18 @@ import { useState } from 'react';
 import type { PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
 import { FLAG_LABEL } from '../../../../../../core/review/review-plan.js';
 import {
+  commentsByFile,
   gist,
   inShort,
   notWorthReading,
   pageOf,
   plainProse,
   shortWhere,
-  splitPath,
   storyCards,
   type ReviewPage,
 } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
-import { FolderPath, Prose } from './ReviewText.js';
+import { FileRow, FileWhere, Prose } from './ReviewText.js';
 
 /**
  * A review's overview — where it opens: what the PR does in short, the draft
@@ -48,6 +48,8 @@ export function ReviewOverview({
   const kinds = pages.map((p, i) => ({ p, i })).filter(({ p }) => !p.story && !p.folded);
   const t = r.tests;
   const left = walk.filter((d) => !looked.has(d.id)).length;
+  const fileOf = new Map(r.files.map((f) => [f.path, f]));
+  const comments = commentsByFile(r);
   return (
     <div className="wd-review-overview">
       <section className="wd-review-short" aria-label="In short">
@@ -86,7 +88,7 @@ export function ReviewOverview({
                   title="Looked at (only in this browser)"
                 />
                 <button type="button" className="wd-review-attention-item" onClick={() => onComment(i)} title={`${d.path}:${d.line}`}>
-                  <span className="wd-review-where">{shortWhere(d)}</span>
+                  <FileWhere path={d.path} line={d.line} {...(fileOf.get(d.path) ? { status: fileOf.get(d.path)!.status } : {})} />
                   {d.by === 'you' && <span className="wd-start-note"> · yours</span>}
                   <span className="wd-review-gist">{gist(d.body)}</span>
                 </button>
@@ -165,14 +167,18 @@ export function ReviewOverview({
           </h3>
           <ul>
             {t.gaps.map((g) => {
-              const { name, folder } = splitPath(g);
               const page = pageOf(pages, g);
+              const f = fileOf.get(g);
               return (
                 <li key={g}>
-                  <button type="button" className="wd-link-button" disabled={page < 0} onClick={() => onStory(page)} title={g}>
-                    {name}
-                  </button>{' '}
-                  <FolderPath folder={folder} />
+                  <FileRow
+                    path={g}
+                    {...(f ? { file: f } : {})}
+                    comments={comments.get(g) ?? 0}
+                    bar
+                    disabled={page < 0}
+                    onClick={() => onStory(page)}
+                  />
                 </li>
               );
             })}
@@ -205,8 +211,8 @@ export function ReviewOverview({
           {noiseOpen && (
             <ul>
               {noise.files.map((f) => (
-                <li key={f.path} title={f.path}>
-                  {splitPath(f.path).name} <span className="wd-review-folder">{f.why}</span>
+                <li key={f.path}>
+                  <FileRow path={f.path} file={f} detail={f.why} />
                 </li>
               ))}
             </ul>

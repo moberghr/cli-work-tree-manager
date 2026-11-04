@@ -20,6 +20,8 @@ export interface ReviewEntry {
   added: number;
   deleted: number;
   status: string;
+  /** Where a renamed file came from. */
+  oldPath?: string;
   /** Why it's where it is: the rule that put it in its kind, or "tests …" for a story's test. */
   why: string;
   role: 'code' | 'test';
@@ -54,6 +56,7 @@ export function reviewPages(r: PrReviewWire): ReviewPage[] {
     added: f.added,
     deleted: f.deleted,
     status: f.status,
+    ...(f.oldPath ? { oldPath: f.oldPath } : {}),
     why: why ?? f.why,
     role,
     ...(f.summary ? { summary: f.summary } : {}),
@@ -239,6 +242,53 @@ export function gist(body: string, max = 140): string {
 /** "CreateMerchantCommand.cs:169" — where a comment is, short. */
 export const shortWhere = (d: { path: string; line: number }) => `${baseName(d.path)}:${d.line}`;
 
+/** A file's change as a letter in a coloured badge, GitHub's way: A added, M modified, D deleted, R renamed, B binary. */
+export type ChangeType = 'added' | 'modified' | 'deleted' | 'renamed' | 'binary';
+export function changeType(f: { status: string; oldPath?: string }): { type: ChangeType; letter: string; label: string } {
+  const type: ChangeType =
+    f.status === 'added' || f.status === 'deleted' || f.status === 'renamed' || f.status === 'binary'
+      ? f.status
+      : f.oldPath && f.status === 'modified'
+        ? 'renamed'
+        : 'modified';
+  const label =
+    type === 'renamed' && f.oldPath
+      ? `Renamed from ${f.oldPath}`
+      : { added: 'Added', modified: 'Modified', deleted: 'Deleted', renamed: 'Renamed', binary: 'Binary' }[type];
+  return { type, letter: type.charAt(0).toUpperCase(), label };
+}
+
+/**
+ * GitHub's diffstat: five blocks, green for the added share, red for the deleted, grey for what's left. A change of
+ * fewer than five lines fills that many; each side with any line keeps at least one block.
+ */
+export function diffstatBlocks(added: number, deleted: number, blocks = 5): Array<'add' | 'del' | 'none'> {
+  const total = added + deleted;
+  const filled = Math.min(blocks, total);
+  let add = total ? Math.round((filled * added) / total) : 0;
+  if (added > 0 && add === 0) add = 1;
+  if (deleted > 0 && filled - add === 0 && filled > 1) add = filled - 1;
+  const del = filled - add;
+  return [...Array<'add'>(add).fill('add'), ...Array<'del'>(del).fill('del'), ...Array<'none'>(blocks - filled).fill('none')];
+}
+
+/** The draft comments still to go out, per file. */
+export function commentsByFile(r: PrReviewWire): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const d of pendingDrafts(r)) out.set(d.path, (out.get(d.path) ?? 0) + 1);
+  return out;
+}
+
+/**
+ * The file whose diff is on screen: the last one whose top has reached `line` (the pane's top plus a little), else the
+ * first. `tops` in the page's order, measured against the same origin as `line`.
+ */
+export function fileOnScreen(tops: Array<{ path: string; top: number }>, line: number): string | null {
+  let at: string | null = tops[0]?.path ?? null;
+  for (const t of tops) if (t.top <= line) at = t.path;
+  return at;
+}
+
 /** A file as the story view's tree shows it: its name whole, its folder apart (dimmed). */
 export function splitPath(path: string): { name: string; folder: string } {
   const i = path.lastIndexOf('/');
@@ -247,10 +297,14 @@ export function splitPath(path: string): { name: string; folder: string } {
 
 /**
  * A file name in the places it may wrap — before each capital of a CamelCase word and after a dot, `_` or `-` — so a
- * long C# name breaks into words in a narrow tree rather than mid-word: "CreateMerchant|Command.|cs".
+ * long C# name breaks into words in a narrow tree rather than mid-word: "Create|Merchant|Command.cs". The extension
+ * stays with the word before it (never "Controller." with "cs" alone on the next line).
  */
 export function nameParts(name: string): string[] {
-  return name.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[._-])/).filter(Boolean);
+  const parts = name.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[._-])/).filter(Boolean);
+  const last = parts.length - 1;
+  if (last > 0 && parts[last - 1].endsWith('.') && !parts[last].includes('.')) parts.splice(last - 1, 2, parts[last - 1] + parts[last]);
+  return parts;
 }
 
 /**
