@@ -159,3 +159,147 @@ describe('POST /api/sessions/:id/account', () => {
     expect(log).toEqual([]);
   });
 });
+
+describe('the Accounts page: add, default, remove, login', () => {
+  const config = (accounts: Record<string, string> = {}) =>
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: {}, groups: {}, copyFiles: [], claudeAccounts: accounts });
+  const fakeLogins = () => {
+    const calls: string[] = [];
+    return {
+      calls,
+      logins: {
+        start: vi.fn(async (n: string) => (calls.push(`start ${n}`), `account-login:${n}`)),
+        stop: vi.fn(async (n: string) => {
+          calls.push(`stop ${n}`);
+          return { skills: Promise.resolve({ ok: true, message: 'ok' }) };
+        }),
+      },
+    };
+  };
+  function mount(o: { sessions?: WorktreeSession[]; lookOnly?: string; logins?: boolean } = {}) {
+    const events: string[] = [];
+    const f = fakeLogins();
+    const app = new Hono();
+    mountAccountRoutes(app, {
+      switcher: createAccountSwitcher({} as AccountSwitchDeps),
+      broadcast: (e) => events.push(e),
+      lookOnly: o.lookOnly,
+      ...(o.logins === false ? {} : { logins: f.logins }),
+      sessions: () => o.sessions ?? [],
+      readings: () => [
+        { account: 'default', at: now, windows: [{ id: 'five_hour', label: '5-hour limit', usedPercent: 40, resetsAt: null }] },
+      ],
+    });
+    const call = (method: string, url: string, body?: unknown) =>
+      app.request(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    return { app, events, call, ...f };
+  }
+  const sessionOn = (account: string, archivedAt?: string): WorktreeSession => ({
+    target: 'api',
+    branch: `feat/${account}`,
+    isGroup: false,
+    paths: ['/wt/x'],
+    createdAt: now,
+    lastAccessedAt: now,
+    account,
+    ...(archivedAt ? { archivedAt } : {}),
+  });
+
+  it('GET says who runs on each account, its last reading, and that the page may manage them', async () => {
+    config({ work: path.join(home, '.claude-work') });
+    const { app } = mount({ sessions: [sessionOn('work'), sessionOn('work', now)] });
+    const w = (await (await app.request('/api/accounts')).json()) as AccountsWire;
+    expect(w.canManage).toBe(true);
+    const work = w.accounts.find((a) => a.name === 'work')!;
+    expect(work.liveSessions).toEqual(['api · feat/work']);
+    expect(work.archivedSessions).toEqual(['api · feat/work']);
+    expect(w.accounts[0].usage?.windows[0]?.usedPercent).toBe(40);
+    expect(work.usage).toBeNull();
+  });
+
+  it('POST /api/accounts records it in config.json and makes its folder (default ~/.claude-<name>); a bad name is a 400', async () => {
+    config();
+    const { call, events } = mount();
+    const r = await call('POST', '/api/accounts', { name: 'work' });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: true, name: 'work', dir: path.join(home, '.claude-work') });
+    expect(fs.existsSync(path.join(home, '.claude-work'))).toBe(true);
+    expect(events).toEqual(['accounts-changed']);
+    const bad = await call('POST', '/api/accounts', { name: 'Not Valid' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toContain('not a valid account name');
+    const taken = await call('POST', '/api/accounts', { name: 'work' });
+    expect(((await taken.json()) as { error: string }).error).toContain('already an account');
+    // A folder inside work's own state is refused by the same rules as `work account add`.
+    const inside = await call('POST', '/api/accounts', { name: 'w2', folder: path.join(home, '.work', 'x') });
+    expect(inside.status).toBe(400);
+  });
+
+  it('POST …/default chooses it; an unknown one is a 400', async () => {
+    config({ work: path.join(home, '.claude-work') });
+    const { call, app } = mount();
+    expect((await call('POST', '/api/accounts/work/default')).status).toBe(200);
+    expect(((await (await app.request('/api/accounts')).json()) as AccountsWire).default).toBe('work');
+    expect((await call('POST', '/api/accounts/nope/default')).status).toBe(400);
+  });
+
+  it('DELETE: refused while a live session runs on it (never forced); archived ones refuse it until force; stops its login terminal', async () => {
+    const work = path.join(home, '.claude-work');
+    fs.mkdirSync(work);
+    config({ work });
+    const live = mount({ sessions: [sessionOn('work')] });
+    const r = await live.call('DELETE', '/api/accounts/work?force=1');
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ kind: 'live', sessions: ['api · feat/work'] });
+
+    const archived = mount({ sessions: [sessionOn('work', now)] });
+    const a = await archived.call('DELETE', '/api/accounts/work');
+    expect(a.status).toBe(409);
+    expect(await a.json()).toMatchObject({ kind: 'archived', sessions: ['api · feat/work'] });
+    const forced = await archived.call('DELETE', '/api/accounts/work?force=1');
+    expect(forced.status).toBe(200);
+    expect(archived.calls).toEqual(['stop work']);
+    expect(archived.events).toEqual(['accounts-changed']);
+    expect(fs.existsSync(work)).toBe(true); // its folder stays
+    expect((await archived.call('DELETE', '/api/accounts/default')).status).toBe(400);
+  });
+
+  it('login: starts its terminal (its id for the WebSocket), stops it, and the page hears of both', async () => {
+    config({ work: path.join(home, '.claude-work') });
+    const { call, calls, events } = mount();
+    const r = await call('POST', '/api/accounts/work/login');
+    expect(await r.json()).toEqual({ ok: true, id: 'account-login:work' });
+    const s = await call('DELETE', '/api/accounts/work/login');
+    expect(await s.json()).toEqual({ ok: true, installingSkills: true });
+    await new Promise((res) => setTimeout(res, 0));
+    expect(calls).toEqual(['start work', 'stop work']);
+    expect(events).toEqual(['accounts-changed', 'accounts-changed']);
+  });
+
+  it('the dev server (look only) lists them but changes nothing; without login terminals the page says why', async () => {
+    config({ work: path.join(home, '.claude-work') });
+    const dev = mount({ lookOnly: 'the dev server changes no account' });
+    const w = (await (await dev.app.request('/api/accounts')).json()) as AccountsWire;
+    expect(w).toMatchObject({ canManage: false, manageNote: 'the dev server changes no account' });
+    const asks: Array<[string, string]> = [
+      ['POST', '/api/accounts'],
+      ['POST', '/api/accounts/work/default'],
+      ['DELETE', '/api/accounts/work'],
+      ['POST', '/api/accounts/work/login'],
+      ['DELETE', '/api/accounts/work/login'],
+    ];
+    for (const [m, u] of asks) {
+      const r = await dev.call(m, u, u === '/api/accounts' ? { name: 'x' } : undefined);
+      expect(r.status, `${m} ${u}`).toBe(409);
+    }
+    expect(dev.calls).toEqual([]);
+    expect(dev.events).toEqual([]);
+    const none = mount({ logins: false });
+    expect(((await (await none.app.request('/api/accounts')).json()) as AccountsWire).canManage).toBe(false);
+    expect((await none.call('POST', '/api/accounts/work/login')).status).toBe(409);
+  });
+});

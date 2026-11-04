@@ -58,7 +58,7 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
           { label: 'Open in terminal', hint: sessionKey('terminal'), run: () => a.openTerminal(s), separated: true },
           { label: 'Open in editor', hint: sessionKey('editor'), run: () => a.openEditor(s) },
           ...(a.fork ? [{ label: 'Fork…', hint: sessionKey('fork'), run: () => a.fork!(s) }] : []),
-          ...(a.account && canSwitchAccount(s, true)
+          ...(a.account && canSwitchAccount(s)
             ? [{ label: 'Claude account…', hint: sessionKey('account'), run: () => a.account!(s) }]
             : []),
           ...(a.addRepo && canAddRepo(s) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: () => a.addRepo!(s) }] : []),

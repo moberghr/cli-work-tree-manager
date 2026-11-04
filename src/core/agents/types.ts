@@ -276,6 +276,12 @@ export interface AgentAccountAdmin {
   remove(name: string, usedBy: () => AccountUsers): Promise<void>;
   /** Start the agent's own CLI in this terminal on the account, so the user logs in (blocks until it exits). */
   login(name: string): void;
+  /**
+   * The same CLI as `login` starts, for a terminal work starts itself (the dashboard's login terminal, in the PTY host):
+   * its command and how its environment differs for the account. In the agent's own permission mode, as every start.
+   * Throws an AccountAdminError for an unknown account.
+   */
+  loginLaunch(name: string): { tool: AiToolSpec; agentEnv: EnvDelta };
   /** Give the account work's skills (the install at setup reaches only the accounts there were then). */
   installSkills(name: string): { ok: boolean; message: string };
 }

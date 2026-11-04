@@ -71,8 +71,8 @@ import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.j
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
 import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
 import { AccountDialog } from '../components/Dashboard/AccountDialog.js';
-import { useAccounts } from '../hooks/use-accounts.js';
-import { accountAction, cancelledText, hasMultipleAccounts, switchText } from '../state/accounts.js';
+import { accountAction, cancelledText, switchText } from '../state/accounts.js';
+import { AccountsTab } from '../components/Dashboard/tabs/AccountsTab.js';
 import { addedRepoText, canAddRepo, withWarnings } from '../state/add-repo.js';
 import { SnoozeUntilDialog } from '../components/Dashboard/SnoozeUntilDialog.js';
 import { BlockedByDialog } from '../components/Dashboard/BlockedBy.js';
@@ -100,6 +100,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   reviews: 'Reviews',
   time: 'Time',
   repos: 'Repos',
+  accounts: 'Claude accounts',
   welcome: 'Welcome',
 };
 
@@ -231,9 +232,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // Session folder a repo is being added to (Add a repo…).
   const [addingRepo, setAddingRepo] = useState<SessionSummary | null>(null);
   const [switchingAccount, setSwitchingAccount] = useState<SessionSummary | null>(null);
-  // Claude account… is offered only once there is more than one account to pick from.
-  const { data: accounts, error: accountsError } = useAccounts();
-  const multipleAccounts = hasMultipleAccounts(accounts);
+  // The Accounts page opens with its Add form (Claude account…'s "Add another account…", New worktree's link).
+  const [addingAccount, setAddingAccount] = useState(false);
   // Session being snoozed until a time of your choosing.
   const [snoozingUntil, setSnoozingUntil] = useState<SessionSummary | null>(null);
   // Session being marked as waiting on other work.
@@ -286,11 +286,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // Claude account… on a session (a menu, the header, ⇧C): the dialog, or why not (state/accounts.ts).
   const openAccount = useCallback(
     (x: SessionSummary) => {
-      const a = accountAction(x, { multiple: multipleAccounts, loadError: accountsError });
+      const a = accountAction(x);
       if (a.kind === 'open') setSwitchingAccount(x);
       else showToast({ text: a.text, kind: 'error' });
     },
-    [multipleAccounts, accountsError, showToast],
+    [showToast],
   );
   // What a rail row's menu does — the same for the keys on the open session.
   const menuActions = useMemo(
@@ -316,7 +316,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         canAddRepo(x)
           ? setAddingRepo(x)
           : showToast({ text: 'A repo can be added only to a session folder (a group’s, or one made with sessionFolders)', kind: 'error' }),
-      account: multipleAccounts ? (x: SessionSummary) => openAccount(x) : undefined,
+      account: (x: SessionSummary) => openAccount(x),
       snooze: (x: SessionSummary, choice: SnoozeFor) =>
         void snoozeSession(x, choice).then(
           () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
@@ -326,7 +326,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       snoozeUntil: (x: SessionSummary) => setSnoozingUntil(x),
       blockBy: (x: SessionSummary) => setBlocking(x),
     }),
-    [showToast, multipleAccounts, openAccount],
+    [showToast, openAccount],
   );
   // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
   const sessionMenu = useCallback((s: SessionSummary) => sessionMenuItems(s, menuActions), [menuActions]);
@@ -465,6 +465,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     },
     [navigate],
   );
+  // The Accounts page with its Add form showing.
+  const openAddAccount = useCallback(() => {
+    setAddingAccount(true);
+    goTab('accounts');
+  }, [goTab]);
   // First run: nothing set up, or no repo and no session yet — open on
   // Welcome (once, at load; a link to a session wins).
   const routeAtLoad = useRef(route);
@@ -626,6 +631,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           s: 'sessions',
           w: 'start',
           r: 'repos',
+          a: 'accounts',
           c: 'cleanup',
           j: 'jira',
           h: 'time',
@@ -961,6 +967,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       case 'repos':
         body = <ReposTab onBack={() => goTab('start')} />;
         break;
+      case 'accounts':
+        body = <AccountsTab startAdding={addingAccount} onAddingShown={() => setAddingAccount(false)} />;
+        break;
       case 'welcome':
         body = <WelcomeTab onNewWorktree={() => openNew(null)} onDone={() => goTab('start')} />;
         break;
@@ -988,7 +997,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         inboxCount={inboxCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
-        usage={<UsageMeter onOpenSession={(id) => openSession(id)} />}
+        usage={<UsageMeter onOpenSession={(id) => openSession(id)} onAccounts={() => goTab('accounts')} />}
         activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
         help={
           <HelpMenu
@@ -998,6 +1007,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             note={desk ? desk.note : upd.note}
             onWhatsNew={() => setWhatsNew({ focus: null })}
             onShortcuts={() => setHelpOpen(true)}
+            onAccounts={() => goTab('accounts')}
             onRestart={() => void restartToUpdate()}
             agents={outdatedAgents.agents}
             onRestartAgents={outdatedAgents.restart}
@@ -1040,6 +1050,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             setNewOpen(false);
             setNewInitial(null);
             goTab('repos');
+          }}
+          onAddAccount={() => {
+            setNewOpen(false);
+            setNewInitial(null);
+            openAddAccount();
           }}
         />
       )}
@@ -1133,6 +1148,10 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             setSwitchingAccount(null);
             refetch.trigger();
             showToast({ text: cancelledText(to) });
+          }}
+          onAddAccount={() => {
+            setSwitchingAccount(null);
+            openAddAccount();
           }}
         />
       )}

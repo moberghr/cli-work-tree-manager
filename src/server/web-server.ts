@@ -132,6 +132,7 @@ import {
 import { busyForRestart, createRestarter, installedAtCache, QUEUE_RECHECK_MS, restartNotesSummary } from '../core/pty/agent-restart.js';
 import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
 import { mountAccountRoutes } from './routes/account-routes.js';
+import { defaultAccountLogins } from '../core/sessions/account-login-deps.js';
 import { accountSwitchNote, createAccountSwitcher } from '../core/sessions/account-switch.js';
 import { defaultAccountSwitchDeps } from '../core/sessions/account-switch-deps.js';
 import { createAccountSwitchLink } from '../core/sessions/account-switch-link.js';
@@ -662,7 +663,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountAccountRoutes(app, {
     switcher: accountSwitcher,
     broadcast,
-    lookOnly: dev ? 'the dev server switches nothing: use the real work web (the app, or `work account switch`)' : undefined,
+    lookOnly: dev ? 'the dev server changes no account: use the real work web (the app, or `work account`)' : undefined,
+    // The Accounts page's login terminals, in the PTY host (not the dev server's: it starts nothing there).
+    logins: dev ? undefined : defaultAccountLogins({ activity, workBin: getWorkBin }),
   });
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);

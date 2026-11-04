@@ -41,6 +41,8 @@ describe('which agents run a version from before their tool updated', () => {
       pty('host-from-before', '2026-10-08T09:00:00Z', { tool: undefined }),
       pty('elsewhere', '2026-10-08T09:00:00Z', { tool: 'opencode' }),
       pty('gone', '2026-10-08T09:00:00Z', { exited: true }),
+      // An account's login terminal (the Accounts page's) is never restarted: it would resume an old login.
+      pty('account-login:work', '2026-10-08T09:00:00Z'),
     ];
     expect(outdatedPtys(ptys, (tool) => (tool === 'claude' ? at : null)).map((p) => p.id)).toEqual(['old']);
   });

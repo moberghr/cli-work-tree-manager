@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { AccountsWire } from '../../../core/api-types.js';
 import { fetchAccounts } from '../api/client.js';
+import { useSse } from '../api/events.js';
 
 export interface AccountsState {
   /** The accounts; null until known, or when the server couldn't say: nothing account-related is then offered. */
@@ -9,12 +10,19 @@ export interface AccountsState {
   error: string | null;
 }
 
+/** The server's event stream, where there is one to listen to (none in a test's DOM). */
+const EVENTS = typeof EventSource === 'undefined' ? null : '/events';
+
 /**
- * The agent's accounts, read when the page opens and again when the window gets focus (one is
- * added with `work account add` in a terminal). A failed read keeps what was known and says why.
+ * The agent's accounts, read when the page opens, again when one changes (`accounts-changed`: the
+ * Accounts page) and when the window gets focus (one added with `work account add` in a terminal).
+ * A failed read keeps what was known and says why. `reload` reads them again now.
  */
-export function useAccounts(load: () => Promise<AccountsWire> = fetchAccounts): AccountsState {
+export function useAccounts(load: () => Promise<AccountsWire> = fetchAccounts): AccountsState & { reload: () => void } {
   const [state, setState] = useState<AccountsState>({ data: null, error: null });
+  const [tick, setTick] = useState(0);
+  const reload = useCallback(() => setTick((t) => t + 1), []);
+  useSse(EVENTS, { events: { 'accounts-changed': reload } });
   useEffect(() => {
     let live = true;
     const read = () => {
@@ -29,6 +37,6 @@ export function useAccounts(load: () => Promise<AccountsWire> = fetchAccounts): 
       live = false;
       window.removeEventListener('focus', read);
     };
-  }, [load]);
-  return state;
+  }, [load, tick]);
+  return { ...state, reload };
 }

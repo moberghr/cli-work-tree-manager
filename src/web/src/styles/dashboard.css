@@ -5563,6 +5563,113 @@ a.wd-pr-chip:hover {
 .wd-account-pending {
   color: var(--accent, inherit);
 }
+.wd-account-add-link {
+  margin-right: auto;
+}
+/* The Accounts page (#/accounts): one row per login, the Add form, and its login terminal. */
+.wd-tab-accounts {
+  overflow-y: auto;
+}
+.wd-tab-accounts > * {
+  flex-shrink: 0;
+}
+.wd-accounts-intro,
+.wd-accounts-add,
+.wd-accounts-confirm,
+.wd-accounts-list {
+  padding-left: 32px;
+  padding-right: 32px;
+  max-width: 1100px;
+}
+.wd-accounts-intro {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-accounts-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.wd-accounts-add label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wd-accounts-add input {
+  width: 220px;
+}
+.wd-accounts-error {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--status-deleted-fg);
+}
+.wd-accounts-list {
+  list-style: none;
+  margin: 0;
+}
+/* name + folder · login · usage · sessions · actions */
+.wd-accounts-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 100px minmax(0, 1.6fr) minmax(0, 1fr) 300px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.wd-accounts-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wd-accounts-usage,
+.wd-accounts-sessions {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-accounts-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+@media (max-width: 800px) {
+  .wd-accounts-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .wd-accounts-usage,
+  .wd-accounts-sessions {
+    grid-column: 1 / -1;
+  }
+}
+.wd-modal.wd-account-login-panel {
+  width: min(960px, 94vw);
+  max-width: 94vw;
+  height: min(640px, 88vh);
+}
+.wd-account-login-panel > .wd-account-note {
+  margin: 8px 16px;
+}
+.wd-account-login-term {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  margin: 0 16px;
+  background: #1e1e1e;
+}
+.wd-account-login-term .wd-pty-host {
+  flex: 1;
+  min-width: 0;
+}
+.wd-account-login-term > p {
+  margin: 12px;
+  color: #d4d4d4;
+}
 /* Reviews (#64): the list by repo — the page while no review is open, folded away (Reviews ▾) while one is —
    beside one review: a compact header with Overview · Stories · Comments, the mode's body, and the submit bar. */
 .wd-reviews {

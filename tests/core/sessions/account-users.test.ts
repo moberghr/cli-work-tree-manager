@@ -21,6 +21,7 @@ function echoAgent(remove = vi.fn(async (_n: string, usedBy: () => { live: strin
       setDefault: async () => {},
       remove,
       login: () => {},
+      loginLaunch: () => ({ tool: { cmd: 'echo', baseArgs: [], resumeFlag: '', promptFileFlag: '', promptFlag: '' }, agentEnv: {} }),
       installSkills: () => ({ ok: true, message: '' }),
     },
   };

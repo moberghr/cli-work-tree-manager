@@ -81,3 +81,21 @@ export function resetPhrase(resetsAt: string | null, now: number): string {
   const d = new Date(at);
   return at - now < 24 * 3_600_000 ? `resets ${clock(d)}` : `resets ${WEEKDAYS[d.getDay()]} ${clock(d)}`;
 }
+
+/** How long ago, in a few words ("3 min ago"). */
+export function ageText(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+/** An account's last reading in a line ("5-hour limit 42% · Weekly limit 18% · read 3 min ago"); a window past its reset reads 0. */
+export function usageText(reading: Pick<UsageAccount, 'at' | 'windows'> | null | undefined, now: number): string {
+  if (!reading || reading.windows.length === 0) return 'no usage reading yet';
+  const windows = reading.windows.map((w) => `${w.label} ${Math.round(agedWindow(w, now).usedPercent)}%`);
+  const at = Date.parse(reading.at);
+  return [...windows, Number.isFinite(at) ? `read ${ageText(now - at)}` : ''].filter(Boolean).join(' · ');
+}

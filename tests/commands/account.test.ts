@@ -90,6 +90,24 @@ describe('work account', () => {
     expect(text()).toContain('installed the Claude Code plugin');
   });
 
+  it('skills <name> installs work’s skills into that account alone (what the Accounts page runs in a child after a login)', async () => {
+    await run({ action: 'add', name: 'work', login: false });
+    spawnSync.mockClear();
+    await run({ action: 'skills', name: 'work' });
+    const dir = path.join(home, '.claude-work');
+    const calls = spawnSync.mock.calls as Array<[string, string[], { stdio?: string; env?: Record<string, string> }]>;
+    expect(calls.map((c) => c[1].join(' '))).toContain('plugin install work-tree@moberg-plugins --scope user');
+    expect(calls.every((c) => c[2].env?.CLAUDE_CONFIG_DIR === dir && c[2].stdio === 'pipe')).toBe(true);
+    expect(process.exitCode).toBeUndefined();
+    out = [];
+    await run({ action: 'skills', name: 'nope' });
+    expect(process.exitCode).toBe(1);
+    expect(text()).toContain('no account “nope”');
+    process.exitCode = undefined;
+    await run({ action: 'skills' });
+    expect(text()).toContain('Usage: work account skills <name>');
+  });
+
   it('add --no-login records without starting claude to log in (the skills still go in), and takes a folder', async () => {
     await run({ action: 'add', name: 'work', folder: path.join(home, 'elsewhere'), login: false });
     const calls = spawnSync.mock.calls as Array<[string, string[], { stdio?: string }]>;

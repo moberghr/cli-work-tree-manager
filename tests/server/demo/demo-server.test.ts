@@ -71,6 +71,50 @@ describe('demo server: Claude accounts', () => {
     expect((await sessions()).find((x) => x.id === s.id)?.account).toBeUndefined();
   });
 
+  it('the Accounts page: add (the name rules), log in through a pretend terminal, make it the default, remove it', async () => {
+    const bad = await send('POST', '/api/accounts', { name: 'Bad Name' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toContain('not a valid account name');
+    const added = await send('POST', '/api/accounts', { name: 'team' });
+    expect(await added.json()).toEqual({ ok: true, name: 'team', dir: '~/.claude-team' });
+    expect((await send('POST', '/api/accounts', { name: 'team' })).status).toBe(400);
+    type W = { accounts: Array<{ name: string; loggedIn: boolean | null; isDefault: boolean }>; default: string; canManage?: boolean };
+    let w = await get<W>('/api/accounts');
+    expect(w.canManage).toBe(true);
+    expect(w.accounts.find((a) => a.name === 'team')?.loggedIn).toBe(false);
+
+    const login = (await (await send('POST', '/api/accounts/team/login')).json()) as { id: string };
+    expect(login.id).toBe('account-login:team');
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/sessions/${encodeURIComponent(login.id)}/terminal`);
+    const frames: Array<{ bin: boolean; text: string }> = [];
+    ws.on('message', (d, bin) => frames.push({ bin, text: d.toString() }));
+    await new Promise((r) => ws.on('open', r));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(JSON.parse(frames[0].text).data).toContain('/login');
+    ws.send(JSON.stringify({ type: 'input', data: '/login\r' }));
+    await new Promise((r) => setTimeout(r, 50));
+    ws.close();
+    expect((await send('DELETE', '/api/accounts/team/login')).status).toBe(200);
+    w = await get<W>('/api/accounts');
+    expect(w.accounts.find((a) => a.name === 'team')?.loggedIn).toBe(true);
+
+    expect((await send('POST', '/api/accounts/team/default')).status).toBe(200);
+    expect((await get<W>('/api/accounts')).default).toBe('team');
+    expect((await send('DELETE', '/api/accounts/team')).status).toBe(200);
+    w = await get<W>('/api/accounts');
+    expect(w.accounts.map((a) => a.name)).toEqual(['default', 'work', 'spare']);
+    expect(w.default).toBe('default'); // the default falls back
+    expect((await send('DELETE', '/api/accounts/default')).status).toBe(400);
+  });
+
+  it('removing an account a session runs on is refused, naming it; an archived one needs force', async () => {
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    await send('POST', `/api/sessions/${s.id}/account`, { to: 'work' });
+    const r = await send('DELETE', '/api/accounts/work?force=1');
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ kind: 'live', sessions: [`${s.target} · ${s.branch}`] });
+  });
+
   it('refuses as the real one does: the same account, an unknown one, an unknown session', async () => {
     const s = (await sessions()).find((x) => !x.archivedAt)!;
     expect((await send('POST', `/api/sessions/${s.id}/account`, { to: 'default' })).status).toBe(409);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { agentById } from '../agents/index.js';
 import { ASSISTANT_ID } from '../agents/assistant.js';
+import { isAccountLoginId } from './account-login-id.js';
 import { loadConfig } from '../platform/config.js';
 import { PtySession } from './pty-session.js';
 import { atomicWriteFile, ensureFile, withFileLockSync } from '../platform/fs-safe.js';
@@ -573,13 +574,15 @@ export class PtyRegistry {
    * Respawn everything in the persisted list. Called once at host startup.
    * Worktrees that no longer exist are dropped, and so is the Ctrl+K
    * assistant: it starts when you open it (its conversation resumes then) —
-   * restored, one opened once ran for good, a Claude nobody used.
+   * restored, one opened once ran for good, a Claude nobody used. Nor is an
+   * account's login terminal (account-login.ts): it is the Accounts page's,
+   * for as long as its panel is open.
    */
   async restore(): Promise<string[]> {
     const saved = this.readPersisted();
     const restored: string[] = [];
     for (const [id, entry] of Object.entries(saved)) {
-      if (id === ASSISTANT_ID || !this.cwdExists(entry.cwd)) continue;
+      if (id === ASSISTANT_ID || isAccountLoginId(id) || !this.cwdExists(entry.cwd)) continue;
       try {
         this.spawn(id, entry, true);
         restored.push(id);

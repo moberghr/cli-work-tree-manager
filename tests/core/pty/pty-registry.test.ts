@@ -154,6 +154,25 @@ describe('PtyRegistry', () => {
     expect(Object.keys(readSaved())).toEqual(['a']); // and it's off the list from then on
   });
 
+  it("never restores an account's login terminal, and a fresh one never resumes a conversation (the Accounts page's)", async () => {
+    const first = makeRegistry(() => true);
+    first.spawn('a', { cwd: '/x', tool });
+    first.spawn('account-login:work', {
+      cwd: '/home/.work/account-login',
+      tool,
+      fresh: true,
+      agentEnv: { CLAUDE_CONFIG_DIR: '/acc/work' },
+    });
+    expect(spawned[1].spec.resume).toBe(false); // `fresh`: a login, not a conversation to go on with
+    await first.flush();
+    first.disposeAllKeepingState();
+    await first.flush();
+    const second = makeRegistry(() => true);
+    expect(await second.restore()).toEqual(['a']);
+    expect(second.get('account-login:work')).toBeNull();
+    expect(Object.keys(readSaved())).toEqual(['a']);
+  });
+
   it('does not restore sessions whose worktree is gone', async () => {
     fs.writeFileSync(sessionsPath, JSON.stringify({ a: { cwd: '/gone', tool, startedAt: '' } }));
     const reg = new PtyRegistry({ spawner, hasConversation: () => false, sessionsPath, cwdExists: () => false });

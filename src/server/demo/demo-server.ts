@@ -38,7 +38,6 @@ import type {
   PtyHostRestartWire,
 } from '../../core/api-types.js';
 import { demoUsage } from './demo-usage.js';
-import { DEMO_ACCOUNTS, isDemoAccount } from './demo-accounts.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
 import { demoCodeFile, demoCodeFiles, demoCodeSearch } from './demo-code.js';
@@ -703,7 +702,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : undefined;
     // New worktree's More options may pick another Claude account: recorded, as the real one does (an unknown one refused).
     const account = typeof body.account === 'string' && body.account ? body.account : undefined;
-    if (account !== undefined && !isDemoAccount(account)) return c.json({ error: `Unknown Claude Code account: ${account}` }, 400);
+    if (account !== undefined && !scenario.accounts.has(account)) return c.json({ error: `Unknown Claude Code account: ${account}` }, 400);
     const s = scenario.create(body.target, branch, prompt, undefined, account);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
@@ -883,7 +882,36 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
   app.get('/api/usage', (c) => c.json(demoUsage() satisfies UsageWire));
   // Claude accounts: two made-up logins; a switch just records it (demo-accounts.ts).
-  app.get('/api/accounts', (c) => c.json(DEMO_ACCOUNTS satisfies AccountsWire));
+  app.get('/api/accounts', (c) => c.json(scenario.accounts.wire(scenario.accountUsers()) satisfies AccountsWire));
+  // The Accounts page: add, choose the default, remove (sessions on it refuse it, as the real ones do), and a pretend login terminal.
+  app.post('/api/accounts', async (c) => {
+    const body = await json(c);
+    if (typeof body.name !== 'string' || !body.name) return c.json({ error: 'name is required' }, 400);
+    const r = scenario.accounts.add(body.name, typeof body.folder === 'string' ? body.folder : undefined);
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json(r.body);
+  });
+  app.post('/api/accounts/:name/default', (c) => {
+    const r = scenario.accounts.setDefault(c.req.param('name'));
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json({ ok: true });
+  });
+  app.delete('/api/accounts/:name', (c) => {
+    const r = scenario.accounts.remove(c.req.param('name'), c.req.query('force') === '1', scenario.accountUsers());
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json({ ok: true });
+  });
+  app.post('/api/accounts/:name/login', (c) => {
+    const r = scenario.accounts.startLogin(c.req.param('name'));
+    return r.ok ? c.json({ ok: true, id: r.id }) : c.json(r.body, r.status);
+  });
+  app.delete('/api/accounts/:name/login', (c) => {
+    scenario.accountsChanged();
+    return c.json({ ok: true, installingSkills: false });
+  });
   app.post('/api/sessions/:id/account', async (c) => {
     const to = (await json(c)).to;
     if (typeof to !== 'string' || !to) return c.json({ error: 'to is required' }, 400);

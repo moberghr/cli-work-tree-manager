@@ -28,6 +28,8 @@ interface Props {
   onClose: () => void;
   /** The Repos page, for a project that isn't in the list yet. */
   onManageRepos?: () => void;
+  /** The Accounts page's Add account, from the Claude account pick. */
+  onAddAccount?: () => void;
   /** Test seam; defaults to GET /api/branch-check. */
   checkBranch?: (target: string, branch: string) => Promise<BranchCheck>;
   /** Test seam; defaults to GET /api/pr-start. */
@@ -83,6 +85,7 @@ export function NewWorktreeModal({
   onCreated,
   onClose,
   onManageRepos,
+  onAddAccount,
   checkBranch = fetchBranchCheck,
   findPr = lookupPr,
   loadAccounts = fetchAccounts,
@@ -98,14 +101,16 @@ export function NewWorktreeModal({
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
   const [more, setMore] = useState(!!initial?.base);
-  // Claude accounts: a pick shows only when there is more than one (the default is preselected).
+  // Claude accounts: a pick shows only when there is more than one (the default is preselected); with one, a link to add another.
   const [accounts, setAccounts] = useState<AccountsWire | null>(null);
+  const [onlyAccount, setOnlyAccount] = useState(false);
   const [account, setAccount] = useState('');
   useEffect(() => {
     let live = true;
     loadAccounts().then(
       (a) => {
-        if (!live || a.accounts.length < 2) return;
+        if (!live) return;
+        if (a.accounts.length < 2) return setOnlyAccount(a.accounts.length === 1);
         setAccounts(a);
         setAccount((cur) => cur || (a.accounts.find((x) => x.isDefault) ?? a.accounts[0]).name);
       },
@@ -410,7 +415,23 @@ export function NewWorktreeModal({
                       </option>
                     ))}
                   </select>
+                  {onAddAccount && (
+                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                      Add account…
+                    </button>
+                  )}
                 </label>
+              )}
+              {!accounts && onlyAccount && onAddAccount && (
+                <p className="wd-modal-row wd-modal-hint">
+                  <span>Claude account</span>
+                  <span>
+                    one login (~/.claude) ·{' '}
+                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                      Add another account…
+                    </button>
+                  </span>
+                </p>
               )}
               <label className="wd-modal-row">
                 <span>Base branch (optional)</span>

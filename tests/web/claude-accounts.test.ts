@@ -84,35 +84,25 @@ const click = (el: Element) =>
   });
 
 describe('account helpers', () => {
-  it('a live session whose agent can have accounts may switch once there is more than one account', () => {
-    expect(canSwitchAccount(session(), true)).toBe(true);
-    expect(canSwitchAccount(session(), false)).toBe(false);
-    expect(canSwitchAccount(session({ archivedAt: '2026-10-01' }), true)).toBe(false);
-    expect(canSwitchAccount(session({ agent: codex }), true)).toBe(false);
+  it('a live session whose agent can have accounts may switch — with one account too (its dialog offers to add another)', () => {
+    expect(canSwitchAccount(session())).toBe(true);
+    expect(canSwitchAccount(session({ archivedAt: '2026-10-01' }))).toBe(false);
+    expect(canSwitchAccount(session({ agent: codex }))).toBe(false);
     // The capability decides (agentWire's can.accounts), not the agent's name (A1).
-    expect(canSwitchAccount(session({ agent: { ...codex, id: 'claude' } }), true)).toBe(false);
-    expect(canSwitchAccount(session({ agent: { ...codex, can: { ...codex.can, accounts: true } } }), true)).toBe(true);
+    expect(canSwitchAccount(session({ agent: { ...codex, id: 'claude' } }))).toBe(false);
+    expect(canSwitchAccount(session({ agent: { ...codex, can: { ...codex.can, accounts: true } } }))).toBe(true);
   });
 
-  it('Claude account…: offered with more than one account; opens, or says why not (T4)', () => {
+  it('Claude account…: always opens for a live session with accounts; says why not otherwise', () => {
     expect(hasMultipleAccounts(ACCOUNTS)).toBe(true);
     expect(hasMultipleAccounts({ accounts: [ACCOUNTS.accounts[0]!] })).toBe(false);
     expect(hasMultipleAccounts(null)).toBe(false);
-    expect(accountAction(session(), { multiple: true, loadError: null })).toEqual({ kind: 'open' });
-    expect(accountAction(session({ archivedAt: '2026-10-01' }), { multiple: true, loadError: null })).toEqual({
+    expect(accountAction(session())).toEqual({ kind: 'open' });
+    expect(accountAction(session({ archivedAt: '2026-10-01' }))).toEqual({
       kind: 'toast',
       text: 'Only a live session of an agent with accounts can change its account',
     });
-    expect(accountAction(session({ agent: codex }), { multiple: true, loadError: null }).kind).toBe('toast');
-    // ⇧C with one account, or when they couldn't be read: why, rather than nothing.
-    expect(accountAction(session(), { multiple: false, loadError: null })).toEqual({
-      kind: 'toast',
-      text: 'Only one Claude account is set up: add another with `work account add <name>`',
-    });
-    expect(accountAction(session(), { multiple: false, loadError: 'HTTP 500' })).toEqual({
-      kind: 'toast',
-      text: "Couldn't load the Claude accounts: HTTP 500",
-    });
+    expect(accountAction(session({ agent: codex })).kind).toBe('toast');
   });
 
   it('the toasts after a switch and after a cancel (T4)', () => {
@@ -145,7 +135,7 @@ describe('account helpers', () => {
     expect(accountRow(ACCOUNTS.accounts[1], 'default')).toEqual({ disabled: false, hint: '' });
     const bad = accountRow(ACCOUNTS.accounts[2], 'default');
     expect(bad.disabled).toBe(true);
-    expect(bad.hint).toContain('work account add spare');
+    expect(bad.hint).toContain('Accounts page');
     expect(accountRow(ACCOUNTS.accounts[3], 'default').disabled).toBe(false);
   });
 
@@ -251,7 +241,7 @@ describe('AccountDialog', () => {
     expect(text).toContain('current');
     expect(radio('work').disabled).toBe(true); // the session's own
     expect(radio('spare').disabled).toBe(true);
-    expect(text).toContain('work account add spare');
+    expect(text).toContain('log in on the Accounts page');
     expect(radio('default').disabled).toBe(false);
     expect(radio('mac').disabled).toBe(false);
     expect(container.textContent).toContain('conversation moves with it and the terminal stays');
@@ -506,12 +496,12 @@ describe('review fixes: names, a pending switch, a failed load', () => {
     };
     act(() => root.render(createElement(Probe)));
     await flush();
-    expect(seen).toEqual({ data: null, error: '502 Bad Gateway' });
+    expect(seen).toMatchObject({ data: null, error: '502 Bad Gateway' });
     expect(noSwitchText(seen!.error)).toBe("Couldn't load the Claude accounts: 502 Bad Gateway");
     expect(noSwitchText(null)).toContain('Only one Claude account');
     fail = false;
     await act(async () => void window.dispatchEvent(new Event('focus')));
     await flush();
-    expect(seen).toEqual({ data: ACCOUNTS, error: null });
+    expect(seen).toMatchObject({ data: ACCOUNTS, error: null });
   });
 });

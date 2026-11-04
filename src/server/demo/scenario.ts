@@ -41,7 +41,8 @@ import type { AgentState } from '../../core/status/attention.js';
 import type { PullRequestInfo } from '../../core/pr/pr.js';
 import type { JiraIssue } from '../../core/jira/jira.js';
 import type { Task } from '../../core/tasks.js';
-import { demoSwitch } from './demo-accounts.js';
+import { DemoAccounts, demoSwitch, type DemoAccountUser } from './demo-accounts.js';
+import { accountOfLoginId } from '../../core/pty/account-login-id.js';
 
 /**
  * The demo world: a handful of sessions, their diffs, PRs, comments and
@@ -299,6 +300,8 @@ export class DemoScenario {
   readonly sessions = new Map<string, DemoSession>();
   /** `<session id>:<stage key>` you looked at (the PR watch's pr_watch_seen). */
   private readonly stageSeen = new Set<string>();
+  /** The Accounts page's made-up Claude accounts (demo-accounts.ts). */
+  readonly accounts = new DemoAccounts();
   /** The Repos page's pretend ~/repos; the projects New worktree offers come from it. */
   readonly repos = createDemoRepos(() => [...this.sessions.values()].filter((x) => !x.archivedAt).map((x) => x.target));
   private readonly listeners = new Set<(e: DemoEvent) => void>();
@@ -788,6 +791,13 @@ export class DemoScenario {
 
   /** The user typed a line into a session's terminal. */
   input(id: string, line: string): void {
+    const login = accountOfLoginId(id);
+    if (login !== null) {
+      const r = this.accounts.loginInput(login, line);
+      this.emitTerminal(id, r.output);
+      if (r.changed) this.emit('accounts-changed');
+      return;
+    }
     if (id === 'assistant') {
       const text = line.trim();
       if (!text) return;
@@ -855,6 +865,8 @@ export class DemoScenario {
   }
 
   screen(id: string): string {
+    const login = accountOfLoginId(id);
+    if (login !== null) return this.accounts.loginScreen(login);
     if (id === 'assistant') return this.assistantLines.join('\r\n') + '\r\n> ';
     return (this.sessions.get(id)?.transcript ?? []).join('\r\n') + '\r\n';
   }
@@ -1470,12 +1482,22 @@ export class DemoScenario {
   switchAccount(id: string, to: string): ReturnType<typeof demoSwitch> | null {
     const s = this.sessions.get(id);
     if (!s) return null;
-    const r = demoSwitch({ account: s.account, archived: !!s.archivedAt }, to);
+    const r = demoSwitch({ account: s.account, archived: !!s.archivedAt }, to, this.accounts.list());
     if (r.ok) {
       s.account = to === 'default' ? undefined : to;
       this.changed();
     }
     return r;
+  }
+
+  /** Every session as the accounts see it (who is on which). */
+  accountUsers(): DemoAccountUser[] {
+    return [...this.sessions.values()].map((s) => ({ account: s.account, archived: !!s.archivedAt, label: `${s.target} · ${s.branch}` }));
+  }
+
+  /** An account change happened (the Accounts page): its listeners refresh. */
+  accountsChanged(): void {
+    this.emit('accounts-changed');
   }
 
   remove(id: string): boolean {

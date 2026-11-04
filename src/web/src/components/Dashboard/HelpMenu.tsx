@@ -14,6 +14,8 @@ export interface HelpMenuProps {
   note?: string | null;
   onWhatsNew?: () => void;
   onShortcuts?: () => void;
+  /** The Accounts page (Claude logins). */
+  onAccounts?: () => void;
   /** The desktop app has an update downloaded: restart onto it. */
   onRestart?: () => void;
   /** The app and the work web its window shows are different versions (updates.ts versionMismatch). */
@@ -56,6 +58,7 @@ export function HelpMenu({
   note,
   onWhatsNew,
   onShortcuts,
+  onAccounts,
   onRestart,
   mismatch,
   agents,
@@ -164,6 +167,11 @@ export function HelpMenu({
               <input type="checkbox" checked={taskbarFlash.on} onChange={(e) => taskbarFlash.set(e.target.checked)} />
               <span>Flash the taskbar when a session needs you</span>
             </label>
+          )}
+          {onAccounts && (
+            <button type="button" className="wd-row-menu-item" onClick={pick(onAccounts)}>
+              Claude accounts <kbd>g a</kbd>
+            </button>
           )}
           {onShortcuts && (
             <button type="button" className="wd-row-menu-item" onClick={pick(onShortcuts)}>

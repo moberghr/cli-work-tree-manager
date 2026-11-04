@@ -1,5 +1,5 @@
 import type { AttentionLike } from './status/attention.js';
-import type { AgentUsage } from './usage/usage.js';
+import type { AgentUsage, UsageAccount } from './usage/usage.js';
 
 /**
  * Wire types shared by the server (core) and the browser SPA — ONE
@@ -1453,6 +1453,12 @@ export interface AccountWire {
   isDefault: boolean;
   /** Logged in; null: unknown (the keychain on macOS). */
   loggedIn: boolean | null;
+  /** The live sessions on it ("target · branch"); absent from an older server. */
+  liveSessions?: string[];
+  /** The archived sessions on it (their Restore would need it); absent from an older server. */
+  archivedSessions?: string[];
+  /** Its last usage reading as recorded (windows not aged: the page ages them); null: none yet. Absent from an older server. */
+  usage?: UsageAccount | null;
 }
 
 /** GET /api/accounts. */
@@ -1460,6 +1466,32 @@ export interface AccountsWire {
   accounts: AccountWire[];
   /** The name new sessions use. */
   default: string;
+  /** Accounts can be added, removed and logged in to from the dashboard (the agent's accounts are managed by work, and
+   *  this server acts: not the dev server). Absent from an older server: the page then only lists them. */
+  canManage?: boolean;
+  /** Why they can't (the dev server's, or the agent's), when `canManage` is false. */
+  manageNote?: string;
+}
+
+/** POST /api/accounts {name, folder?}: the account recorded, its folder made. */
+export interface AccountAddWire {
+  ok: true;
+  name: string;
+  dir: string;
+}
+
+/** POST /api/accounts/:name/login: its login terminal runs in the PTY host under `id` (`/ws/sessions/<id>/terminal`). */
+export interface AccountLoginWire {
+  ok: true;
+  id: string;
+}
+
+/** A refused account change (400 / 409): the reason, and for a removal the sessions on it — `kind: 'archived'` can be
+ *  forced (`?force=1`), `live` never. */
+export interface AccountRefusalWire {
+  error: string;
+  sessions?: string[];
+  kind?: 'live' | 'archived';
 }
 
 /** POST /api/sessions/:id/account {to}: `switched` (its Claude restarted on it), `queued` (when its turn ends), `recorded` (not running: its next start). */

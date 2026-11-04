@@ -6,9 +6,10 @@ import { callWorkWeb } from '../core/platform/web-discovery.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
 import { createAccountSwitcher } from '../core/sessions/account-switch.js';
 import { defaultAccountSwitchDeps } from '../core/sessions/account-switch-deps.js';
-import { removeAgentAccount, sessionsOnAccount } from '../core/sessions/account-users.js';
+import { removeAgentAccount } from '../core/sessions/account-users.js';
+import { accountOverview, addAgentAccount, setDefaultAgentAccount } from '../core/sessions/account-admin.js';
 import { listHostPtys } from '../core/pty/pty-pool.js';
-import { agedWindow, type UsageAccount } from '../core/usage/usage.js';
+import { agedWindow, usageText } from '../core/usage/usage.js';
 import type { AccountSwitchWire } from '../core/api-types.js';
 import { sessionFromArgs } from './shared/session-arg.js';
 
@@ -32,23 +33,8 @@ function accountsOrFail(): { name: string; accounts: AgentAccounts } | null {
   return null;
 }
 
-/** How long ago, in a few words. */
-export function ageText(ms: number): string {
-  const min = Math.round(ms / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min} min ago`;
-  const h = Math.round(min / 60);
-  if (h < 48) return `${h} h ago`;
-  return `${Math.round(h / 24)} days ago`;
-}
-
-/** An account's last usage reading in a line ("5-hour limit 42% · Weekly limit 18% · read 3 min ago"); a window past its reset reads 0. */
-export function usageText(reading: UsageAccount | undefined, now = Date.now()): string {
-  if (!reading || reading.windows.length === 0) return 'no usage reading yet';
-  const windows = reading.windows.map((w) => `${w.label} ${Math.round(agedWindow(w, now).usedPercent)}%`);
-  const at = Date.parse(reading.at);
-  return [...windows, Number.isFinite(at) ? `read ${ageText(now - at)}` : ''].filter(Boolean).join(' · ');
-}
+// The usage line is core's (the dashboard's Accounts page says the same); kept exported here for older callers.
+export { ageText, usageText } from '../core/usage/usage.js';
 
 function list(json: boolean): void {
   const found = accountsOrFail();
@@ -56,28 +42,26 @@ function list(json: boolean): void {
   const { accounts } = found;
   const now = Date.now();
   const readings = agentFor(loadConfig()).usage?.read() ?? [];
-  const rows = accounts.list().map((a) => {
-    const reading = readings.find((r) => r.account === a.name);
-    return {
-      name: a.name,
-      folder: a.dir,
-      default: a.isDefault,
-      loggedIn: a.loggedIn,
-      liveSessions: sessionsOnAccount(a.name, accounts).live.length,
-      usage: reading
-        ? {
-            at: reading.at,
-            ageMs: Math.max(0, now - Date.parse(reading.at)) || 0,
-            windows: reading.windows.map((w) => ({
-              id: w.id,
-              label: w.label,
-              usedPercent: agedWindow(w, now).usedPercent,
-              resetsAt: w.resetsAt,
-            })),
-          }
-        : null,
-    };
-  });
+  const overview = accountOverview(accounts, readings);
+  const rows = overview.map((a) => ({
+    name: a.name,
+    folder: a.dir,
+    default: a.isDefault,
+    loggedIn: a.loggedIn,
+    liveSessions: a.live.length,
+    usage: a.usage
+      ? {
+          at: a.usage.at,
+          ageMs: Math.max(0, now - Date.parse(a.usage.at)) || 0,
+          windows: a.usage.windows.map((w) => ({
+            id: w.id,
+            label: w.label,
+            usedPercent: agedWindow(w, now).usedPercent,
+            resetsAt: w.resetsAt,
+          })),
+        }
+      : null,
+  }));
   if (json) {
     console.log(JSON.stringify(rows, null, 2));
     return;
@@ -87,10 +71,7 @@ function list(json: boolean): void {
     console.log(
       `${chalk.bold(r.name)}${r.default ? chalk.cyan(' (default)') : ''}  ${chalk.gray(r.folder)}  ${login}  ` +
         chalk.gray(`${r.liveSessions} live session${r.liveSessions === 1 ? '' : 's'}`) +
-        `  ${usageText(
-          readings.find((x) => x.account === r.name),
-          now,
-        )}`,
+        `  ${usageText(overview.find((x) => x.name === r.name)?.usage, now)}`,
     );
   }
 }
@@ -99,9 +80,8 @@ async function add(name: string | undefined, folder: string | undefined, login: 
   if (!name) return fail('Usage: work account add <name> [folder]');
   const found = accountsOrFail();
   if (!found) return;
-  const admin = found.accounts.admin;
-  if (!admin) return fail(`${found.name}'s accounts are not managed by work`);
-  const dir = await admin.add(name, folder);
+  const dir = await addAgentAccount(found.accounts, name, folder);
+  const admin = found.accounts.admin!;
   console.log(chalk.green(`Added account ${name}: ${dir}`));
   if (login) {
     console.log(chalk.gray(`Starting ${found.name} on it so you can log in: type /login, then exit when done.`));
@@ -113,12 +93,22 @@ async function add(name: string | undefined, folder: string | undefined, login: 
   console.log(skills.ok ? chalk.gray(skills.message) : chalk.yellow(skills.message));
 }
 
+/** Work's skills into the account's folder (the dashboard's Accounts page runs this in a child after a first login). */
+function skills(name: string | undefined): void {
+  if (!name) return fail('Usage: work account skills <name>');
+  const found = accountsOrFail();
+  if (!found) return;
+  if (!found.accounts.admin) return fail('its accounts are not managed by work');
+  const r = found.accounts.admin.installSkills(name);
+  if (r.ok) console.log(r.message);
+  else fail(r.message);
+}
+
 async function setDefault(name: string | undefined): Promise<void> {
   if (!name) return fail('Usage: work account default <name>');
   const found = accountsOrFail();
   if (!found) return;
-  if (!found.accounts.admin) return fail(`${found.name}'s accounts are not managed by work`);
-  await found.accounts.admin.setDefault(name);
+  await setDefaultAgentAccount(found.accounts, name);
   console.log(chalk.green(`New sessions use the ${name} account.`));
 }
 
@@ -169,12 +159,12 @@ async function switchSession(target: string | undefined, branch: string | undefi
 
 export const accountCommand: CommandModule = {
   command: 'account <action> [name] [folder]',
-  describe: "The agent's accounts (Claude Code logins): add, list, default, remove, switch",
+  describe: "The agent's accounts (Claude Code logins): add, list, default, remove, switch (also on the dashboard's Accounts page)",
   builder: (yargs) =>
     yargs
       .positional('action', {
         describe: 'What to do',
-        choices: ['add', 'list', 'default', 'remove', 'switch'] as const,
+        choices: ['add', 'list', 'default', 'remove', 'switch', 'skills'] as const,
         type: 'string',
         demandOption: true,
       })
@@ -213,6 +203,8 @@ export const accountCommand: CommandModule = {
           return await switchSession(name, argv.folder as string | undefined, argv.to as string | undefined);
         case 'remove':
           return await remove(name, argv.force === true);
+        case 'skills':
+          return skills(name);
       }
     } catch (e) {
       if (!(e instanceof AccountAdminError)) throw e;

@@ -152,6 +152,7 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
         { keys: 'g h', label: 'Time (hours per ticket)' },
         { keys: 'g v', label: 'Reviews (PRs prepared for you)' },
         { keys: 'g r', label: 'Repos & groups' },
+        { keys: 'g a', label: 'Claude accounts' },
         { keys: 'g c', label: 'Clean up' },
         { keys: 'g t', label: 'Tasks (open / close)' },
       ],

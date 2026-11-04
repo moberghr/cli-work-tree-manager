@@ -50,6 +50,7 @@ function violations(pred: (f: SourceFile, spec: string) => boolean): string[] {
 
 /** Core modules the browser SPA may import (bundled for the browser: shared wire types and pure logic). */
 const SPA_SHARED = new Set([
+  'src/core/sessions/account-names.js', // pure: an account name's rules (the Add account form)
   'src/core/comments/comment-types.js',
   'src/core/status/attention.js',
   'src/core/api-types.js',

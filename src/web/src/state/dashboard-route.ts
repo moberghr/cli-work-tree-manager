@@ -7,6 +7,7 @@
  *   `#/today`                         → Sessions · Today: what each session did (digest)
  *   `#/cleanup`                       → Clean up: worktrees that can go (from Sessions)
  *   `#/start`                         → Start: new worktree, Jira issues and PRs to start from
+ *   `#/accounts`                      → Claude accounts: add, log in, the default, remove
  *   `#/prs`, `#/jira`                 → (old) Start, which has both now
  *   `#/tasks`                         → (old) Sessions: Tasks is a panel in the top bar now
  *   `#/s/<sessionId>`                → Session detail (default: terminal sub-tab)
@@ -29,7 +30,8 @@
  * `/api/context` returning `{mode:'review'}` to pick `ReviewApp`.
  */
 
-export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'reviews' | 'time' | 'repos' | 'welcome';
+export type DashboardTab =
+  'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'reviews' | 'time' | 'repos' | 'accounts' | 'welcome';
 
 /** Pages that no longer exist, and where their links land now. */
 const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start' };
@@ -69,7 +71,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
   sessionSubTab: 'term',
 };
 
-const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|welcome|prs|jira|reviews|time|tasks)\/?$/;
+const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|accounts|welcome|prs|jira|reviews|time|tasks)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|timeline))?\/?$/;
 const REVIEW_RE = /^#\/reviews\/([^/]+)\/(\d+)(?:\/(story|comments)\/(\d+))?\/?$/;
 const REVIEW_FILES_RE = /^#\/reviews\/([^/]+)\/(\d+)\/files(?:\/([^/]+))?\/?$/;

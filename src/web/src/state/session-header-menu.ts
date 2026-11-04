@@ -42,9 +42,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
         { label: 'Reconnect terminal', hint: sessionKey('reconnect'), run: a.reconnectTerminal },
         { label: 'Open in terminal', hint: sessionKey('terminal'), run: a.openTerminal },
         { label: 'Ship (push, PR, merge)…', hint: sessionKey('ship'), run: a.ship },
-        ...(a.account && canSwitchAccount(session, true)
-          ? [{ label: 'Claude account…', hint: sessionKey('account'), run: a.account }]
-          : []),
+        ...(a.account && canSwitchAccount(session) ? [{ label: 'Claude account…', hint: sessionKey('account'), run: a.account }] : []),
         ...(a.addRepo && canAddRepo(session) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: a.addRepo }] : []),
       ];
   const devItem: MenuItem[] =

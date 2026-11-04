@@ -241,6 +241,24 @@ describe('ensurePty', () => {
     expect(ensureHost).not.toHaveBeenCalled();
   });
 
+  it("an account's login terminal: the agent's CLI fresh on that account, in work's own folder; stopped on ask; an unknown account refused", async () => {
+    const pool = await freshPool();
+    const work = path.resolve('/acc/work');
+    cfg.value = { claudeAccounts: { work } };
+    expect(await pool.startAccountLogin('work')).toBe('account-login:work');
+    const spawned = host.spawned.at(-1)!;
+    expect(spawned.id).toBe('account-login:work');
+    expect(spawned.spec).toMatchObject({
+      cwd: path.join(os.tmpdir(), 'account-login'),
+      fresh: true,
+      agentEnv: { CLAUDE_CONFIG_DIR: work },
+    });
+    expect(JSON.stringify(spawned.spec)).not.toMatch(/dangerously|skip-permissions/i);
+    await pool.stopAccountLogin('work');
+    expect(host.killed).toContain('account-login:work');
+    await expect(pool.startAccountLogin('nope')).rejects.toThrow('no account');
+  });
+
   it('starts the host on demand, spawns, and reports the session live', async () => {
     const pool = await freshPool();
     expect(await pool.ensurePty('single')).toBe('ws://host/single');

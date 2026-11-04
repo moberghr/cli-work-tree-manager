@@ -376,6 +376,46 @@ export async function cancelAccountSwitch(sessionId: string): Promise<void> {
   throw new Error(typeof body?.error === 'string' ? body.error : `${res.status} ${res.statusText}`);
 }
 
+// ---- the Accounts page (account-routes.ts) ----
+
+/** A refused account change: the reason, and for a removal the sessions on it (`archived` ones can be forced past). */
+export class AccountChangeError extends Error {
+  constructor(
+    message: string,
+    readonly sessions: string[] = [],
+    readonly kind?: 'live' | 'archived',
+  ) {
+    super(message);
+  }
+}
+
+async function accountCall<T>(method: 'POST' | 'DELETE', url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const b = (await res.json().catch(() => ({}))) as import('../../../core/api-types.js').AccountRefusalWire & T;
+  if (!res.ok) throw new AccountChangeError(b.error || `${res.status} ${res.statusText}`, b.sessions ?? [], b.kind);
+  return b;
+}
+
+const accountPath = (name: string) => `/api/accounts/${encodeURIComponent(name)}`;
+
+/** Record a new account (POST /api/accounts); its folder defaults to ~/.claude-<name>. */
+export const addAccount = (name: string, folder?: string) =>
+  accountCall<import('../../../core/api-types.js').AccountAddWire>('POST', '/api/accounts', { name, ...(folder ? { folder } : {}) });
+/** New sessions use this account. */
+export const makeDefaultAccount = (name: string) => accountCall<{ ok: true }>('POST', `${accountPath(name)}/default`);
+/** Forget an account (its folder stays); `force` past archived sessions on it. */
+export const removeAccount = (name: string, force = false) =>
+  accountCall<{ ok: true }>('DELETE', `${accountPath(name)}${force ? '?force=1' : ''}`);
+/** Start the account's login terminal in the PTY host; its id, for the terminal. */
+export const startAccountLogin = (name: string) =>
+  accountCall<import('../../../core/api-types.js').AccountLoginWire>('POST', `${accountPath(name)}/login`).then((r) => r.id);
+/** Stop it (work's skills then go into a new account's folder). */
+export const stopAccountLogin = (name: string) => accountCall<{ ok: true }>('DELETE', `${accountPath(name)}/login`).then(() => undefined);
+
 export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
   return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
 }

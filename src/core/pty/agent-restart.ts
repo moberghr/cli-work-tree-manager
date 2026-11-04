@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { isAccountLoginId } from './account-login-id.js';
 import { findOnPath } from '../platform/find-on-path.js';
 import type { PtyInfo } from './pty-host-protocol.js';
 import { LATER_TEXT, restartCountsText } from './restart-view.js';
@@ -63,7 +64,8 @@ export function installedAtCache(ttlMs = 60_000, look: (cmd: string) => number |
  */
 export function outdatedPtys(ptys: readonly PtyInfo[], toolInstalledAt: (tool: string) => number | null): PtyInfo[] {
   return ptys.filter((p) => {
-    if (p.exited || !p.tool) return false;
+    // An account's login terminal is the Accounts page's, for a moment: never restarted (it would resume an old login).
+    if (p.exited || !p.tool || isAccountLoginId(p.id)) return false;
     const at = toolInstalledAt(p.tool);
     const started = Date.parse(p.startedAt);
     return at !== null && Number.isFinite(started) && started < at;
