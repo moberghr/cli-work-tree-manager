@@ -6,13 +6,16 @@ import { DiffFile } from '../../../Diff/DiffFile.js';
 import { ResizeDivider, useResizableSize, type ResizeSpec } from '../../../Layout/ResizeDivider.js';
 import {
   nameParts,
+  plainProse,
   reviewProgress,
+  shortLabel,
   splitPath,
   testsLine,
   viewedCount,
   type ReviewEntry,
   type ReviewPage,
 } from '../../../../state/review-view.js';
+import { FileSummary, FolderPath, Prose } from './ReviewText.js';
 
 const TREE_SPEC: ResizeSpec = {
   storageKey: 'work-web:review-tree-width',
@@ -85,6 +88,7 @@ export function StoryPager({
             foldImports
             viewed={viewed.has(e.path)}
             onToggleViewed={(on) => onViewed(e.path, on)}
+            note={e.summary ? <FileSummary summary={e.summary} /> : undefined}
           />
         ) : (
           <p className="wd-start-note" id={anchor(e.path)}>
@@ -132,9 +136,12 @@ export function StoryPager({
                 className="wd-review-tree-head"
                 onClick={() => onGo(i)}
                 aria-current={i === at ? 'page' : undefined}
-                title={p.label}
+                title={plainProse(p.label)}
               >
-                <span className="wd-review-tree-num">{p.story ? i + 1 : '·'}</span> {p.label}
+                <span className="wd-review-tree-num">{p.story ? i + 1 : '·'}</span>{' '}
+                <span className={p.story ? 'wd-review-tree-label' : undefined}>
+                  <Prose text={p.label} />
+                </span>
                 {!p.story && <span className="wd-start-note"> · {p.code.length}</span>}
               </button>
               {i === at && (
@@ -147,7 +154,7 @@ export function StoryPager({
                           type="button"
                           className={`wd-review-tree-file${viewed.has(e.path) ? ' wd-review-tree-viewed' : ''}`}
                           onClick={() => goTo(e.path)}
-                          title={`${e.path} — ${e.why}`}
+                          title={e.summary ? `${e.path}\n\n${plainProse(e.summary)}` : `${e.path} — ${e.why}`}
                         >
                           <span className="wd-review-tree-name">
                             {viewed.has(e.path) ? '✓ ' : ''}
@@ -158,13 +165,17 @@ export function StoryPager({
                               </Fragment>
                             ))}
                           </span>
-                          <span className="wd-review-folder">
-                            <span className="wd-review-tree-stat">
-                              +{e.added} −{e.deleted}
-                            </span>
-                            {/* A zero-width space after each slash: a long folder wraps between its parts. */}
-                            {folder && ` · ${folder.replace(/\//g, '/\u200b')}`}
-                          </span>
+                          <FolderPath
+                            folder={folder}
+                            prefix={
+                              <>
+                                <span className="wd-review-tree-stat">
+                                  +{e.added} −{e.deleted}
+                                </span>
+                                {folder && ' · '}
+                              </>
+                            }
+                          />
                         </button>
                       </li>
                     );
@@ -178,28 +189,42 @@ export function StoryPager({
         <div className="wd-review-diff-pane" key={page.key}>
           <section className="wd-review-section">
             <div className="wd-review-section-head">
-              <h3>
-                {page.label}{' '}
-                {s && (
-                  <>
+              <h3 className={s ? 'wd-review-story-title' : undefined}>
+                <Prose text={page.label} />
+              </h3>
+              {s ? (
+                <>
+                  <p className="wd-review-story-badges">
                     <span className={`wd-review-risk wd-review-risk-${s.riskLevel}`}>risk {s.riskLevel}/5</span>
                     {s.flags.map((f) => (
                       <span key={f} className="wd-review-flag">
                         {FLAG_LABEL[f]}
                       </span>
                     ))}
-                    {s.by === 'ai' && <span className="wd-start-note"> (AI)</span>}
-                  </>
-                )}
-              </h3>
-              {s ? (
-                <>
-                  <p>
-                    <strong>Why together:</strong> {s.why}
+                    {s.by === 'ai' && <span className="wd-start-note"> · written by the AI step</span>}
                   </p>
-                  <p>
-                    <strong>Why ranked here:</strong> {s.risk}
-                  </p>
+                  <div className="wd-review-story-text">
+                    {s.what && (
+                      <section aria-label="What it does">
+                        <h4>What it does</h4>
+                        <p>
+                          <Prose text={s.what} />
+                        </p>
+                      </section>
+                    )}
+                    <section aria-label="Why these files belong together">
+                      <h4>Why these files belong together</h4>
+                      <p>
+                        <Prose text={s.why} />
+                      </p>
+                    </section>
+                    <section aria-label="Why it’s ranked here">
+                      <h4>Why it’s ranked here</h4>
+                      <p>
+                        <Prose text={s.risk} />
+                      </p>
+                    </section>
+                  </div>
                   {s.gap && <p className="wd-review-warn">{s.gap}</p>}
                 </>
               ) : (
@@ -230,7 +255,7 @@ export function StoryPager({
                     const { name, folder } = splitPath(e.path);
                     return (
                       <li key={e.path} title={e.path}>
-                        🧪 {name} <span className="wd-review-folder">{folder}</span> <span className="wd-start-note">· {e.why}</span>
+                        🧪 {name} <FolderPath folder={folder} /> <span className="wd-start-note">· {e.why}</span>
                       </li>
                     );
                   })}
@@ -257,7 +282,7 @@ export function StoryPager({
             {at < pages.length - 1 && (
               <p className="wd-review-next">
                 <button type="button" className="wd-btn-secondary" onClick={() => onGo(at + 1)}>
-                  Next: {pages[at + 1].label} →
+                  Next: {shortLabel(plainProse(pages[at + 1].label))} →
                 </button>
               </p>
             )}

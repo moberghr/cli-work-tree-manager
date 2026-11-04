@@ -1461,6 +1461,11 @@ export interface ReviewFileWire {
    * ranges. Absent on a review prepared before they were recorded: then nothing is checked.
    */
   lines?: Array<[number, number]>;
+  /**
+   * What changed in it and why it matters, in a few sentences (the AI step's, for a schema, API, logic or wiring file).
+   * Absent: none given, a review without the AI step, or one from before.
+   */
+  summary?: string;
 }
 
 /** A draft that couldn't stay on the review (its line isn't in the diff any more, or never was), kept so its text isn't lost. */

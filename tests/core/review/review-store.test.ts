@@ -31,6 +31,16 @@ describe('prepared reviews in state.db', () => {
     expect(r.summary).toBeTruthy();
     expect(isReview({ ...r, summary: undefined })).toBe(true);
     expect(isReview({ ...r, summary: 42 })).toBe(false);
+    // A story's "what" and a file's summary: text or absent (a review from before has neither); they round-trip.
+    expect(r.stories[0].what).toBeTruthy();
+    expect(r.files.some((f) => f.summary)).toBe(true);
+    expect(readReview('api', 231)?.files.find((f) => f.summary)?.summary).toBe(r.files.find((f) => f.summary)?.summary);
+    const old = { ...r, stories: r.stories.map(({ what: _w, ...s }) => s), files: r.files.map(({ summary: _s, ...f }) => f) };
+    expect(isReview(old)).toBe(true);
+    expect(isReview({ ...r, stories: [{ ...r.stories[0], what: 42 }] })).toBe(false);
+    expect(isReview({ ...r, stories: [null] })).toBe(false);
+    expect(isReview({ ...r, files: [{ ...r.files[0], summary: ['x'] }] })).toBe(false);
+    expect(isReview({ ...r, files: ['x'] })).toBe(false);
     expect(isReview({ ...r, inDoubt: { at: 'now' } })).toBe(false);
     expect(isReview({ ...r, inDoubt: { at: 'now', event: 'comment', drafts: [], summary: null, error: 'e' } })).toBe(true);
     // Fix it myself's batches: shape-checked, each comment too; a fork is `true` or absent.

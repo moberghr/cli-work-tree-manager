@@ -23,6 +23,8 @@ export interface ReviewEntry {
   /** Why it's where it is: the rule that put it in its kind, or "tests …" for a story's test. */
   why: string;
   role: 'code' | 'test';
+  /** What changed in it and why it matters (the AI step's; absent: none). */
+  summary?: string;
 }
 
 /** One page of the story pager: a story, or a kind of change no story took. */
@@ -54,6 +56,7 @@ export function reviewPages(r: PrReviewWire): ReviewPage[] {
     status: f.status,
     why: why ?? f.why,
     role,
+    ...(f.summary ? { summary: f.summary } : {}),
   });
   const covering = new Set<string>();
   const pages: ReviewPage[] = r.stories.map((s, i) => {
@@ -136,17 +139,25 @@ export interface StoryCard {
   /** 1-based: "Story 2". */
   number: number;
   title: string;
+  /** What it does, whole (the card's tooltip), and its first sentence (shown); absent for a story without one. */
+  what?: string;
+  lead?: string;
   riskLevel: number;
   flags: StoryFlag[];
   codeFiles: number;
   comments: number;
-  tests: { state: 'covered' | 'gap' | 'unit-only'; text: string };
+  /**
+   * How its tests stand: "30 tests", and — when some of its code files are among the files no test touches (the
+   * Untested list) — "1 file untested", so the card never contradicts that list.
+   */
+  tests: { state: 'covered' | 'gap' | 'unit-only'; text: string; untested: string | null };
 }
 
-/** The overview's story cards: number, title, risk, flags, files, comments, and how its tests stand. */
+/** The overview's story cards: number, title, what it does, risk, flags, files, comments, and how its tests stand. */
 export function storyCards(r: PrReviewWire, pages: ReviewPage[]): StoryCard[] {
   const drafts = pendingDrafts(r);
   const kindOf = new Map(r.files.map((f) => [f.path, f.kind]));
+  const untested = new Set(r.tests.gaps);
   return pages.flatMap((p, i) => {
     const s = p.story;
     if (!s) return [];
@@ -160,11 +171,13 @@ export function storyCards(r: PrReviewWire, pages: ReviewPage[]): StoryCard[] {
         ? 'unit-only'
         : 'covered';
     const n = cases.length || p.tests.length;
+    const gaps = state === 'gap' ? 0 : p.code.filter((e) => untested.has(e.path)).length;
     return [
       {
         page: i,
         number: i + 1,
         title: s.title,
+        ...(s.what ? { what: s.what, lead: gist(s.what, 280) } : {}),
         riskLevel: s.riskLevel,
         flags: s.flags,
         codeFiles: p.code.length,
@@ -172,6 +185,7 @@ export function storyCards(r: PrReviewWire, pages: ReviewPage[]): StoryCard[] {
         tests: {
           state,
           text: state === 'gap' ? 'no tests' : state === 'unit-only' ? `${n} unit tests only` : `${n} test${n === 1 ? '' : 's'}`,
+          untested: gaps ? `${gaps} file${gaps === 1 ? '' : 's'} untested` : null,
         },
       },
     ];
@@ -238,6 +252,40 @@ export function splitPath(path: string): { name: string; folder: string } {
 export function nameParts(name: string): string[] {
   return name.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[._-])/).filter(Boolean);
 }
+
+/**
+ * A folder in the places it may wrap — after each `/`, never inside a folder's name: "src/|Payfac.Services.Admin/|
+ * Handlers". The views draw a break opportunity between the parts and let no word break (`.wd-review-folder`).
+ */
+export function folderParts(folder: string): string[] {
+  return folder.split(/(?<=\/)/).filter(Boolean);
+}
+
+/**
+ * The AI step's prose in parts: what it put between backticks is code (`CreateBankAccount`), drawn as such, the rest
+ * plain text — never Markdown beyond that. A backtick without its pair stays as it is.
+ */
+export function proseParts(text: string): Array<{ text: string; code?: true }> {
+  const out: Array<{ text: string; code?: true }> = [];
+  const re = /`([^`\n]+)`/g;
+  let at = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index > at) out.push({ text: text.slice(at, m.index) });
+    out.push({ text: m[1], code: true });
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+}
+
+/** The AI step's prose as plain text (a tooltip): the backticks around code dropped. */
+export const plainProse = (text: string) =>
+  proseParts(text)
+    .map((p) => p.text)
+    .join('');
+
+/** A page's label short enough for a button ("Next: …"): its first sentence, cut at a word. */
+export const shortLabel = (label: string, max = 90) => gist(label, max);
 
 /**
  * The code around a comment: its file cut to the hunk lines within `radius` lines of the commented one (both sides of

@@ -152,6 +152,7 @@ export function buildReview(
   const now = (opts.now ?? new Date()).toISOString();
   const wireFiles = kinds.map((k): ReviewFileWire => {
     const f = byPath.get(k.path)!;
+    const summary = aiStep === 'done' && PROMPT_KINDS.has(k.kind) ? plan.fileSummaries[k.path] : undefined;
     return {
       path: k.path,
       ...(f.oldPath && f.oldPath !== f.path ? { oldPath: f.oldPath } : {}),
@@ -162,6 +163,7 @@ export function buildReview(
       why: k.why,
       by: k.by,
       lines: rightLines(f),
+      ...(summary ? { summary } : {}),
     };
   });
   // A note on a line the diff doesn't show has no row to read or delete it on, and the host refuses the whole review
@@ -252,8 +254,16 @@ export function describeReview(r: PrReviewWire): string {
       (r.tests.unitOnlyForSchema ? ' The schema changes with unit tests only.' : ''),
     ...r.stories.map(
       (s, i) =>
-        `Story ${i + 1} (risk ${s.riskLevel}/5${s.flags.length ? `; ${s.flags.map((f) => FLAG_LABEL[f]).join(', ')}` : ''}): <<< ${asData(s.title, 160)} — ${asData(s.why, 400)} — ${asData(s.risk, 400)} >>>`,
+        `Story ${i + 1} (risk ${s.riskLevel}/5${s.flags.length ? `; ${s.flags.map((f) => FLAG_LABEL[f]).join(', ')}` : ''}): <<< ${asData(s.title, 200)}${
+          s.what ? ` What it does: ${asData(s.what, 1500)}` : ''
+        } Why together: ${asData(s.why, 600)} Why ranked here: ${asData(s.risk, 600)} >>>`,
     ),
+    ...(r.files.some((f) => f.summary)
+      ? [
+          'What changed in each file (the AI step):',
+          ...r.files.filter((f) => f.summary).map((f) => `- <<< ${asData(f.path, 160)}: ${asData(f.summary!, 600)} >>>`),
+        ]
+      : []),
     r.drafts.length
       ? `${r.drafts.filter((d) => d.state === 'draft').length} draft comment(s) wait for the user's Post; you never post them.`
       : '',

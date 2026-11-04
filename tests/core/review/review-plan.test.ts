@@ -5,9 +5,14 @@ import {
   clip,
   DIFF_ONLY_LINES,
   folderStories,
+  MAX_FILE_SUMMARY,
   MAX_SUMMARY,
+  MAX_TEXT,
+  MAX_TITLE,
+  MAX_WHAT,
   parseAgentPass,
   planReview,
+  WRITING_LINES,
   type PromptFile,
 } from '../../../src/core/review/review-plan.js';
 import type { FileKind } from '../../../src/core/review/change-kinds.js';
@@ -221,7 +226,7 @@ describe('story text', () => {
     expect(clip('x'.repeat(50), 20)).toBe(`${'x'.repeat(19)}…`); // one long word: cut where it must
   });
 
-  it('a paragraph of reasoning survives (titles to 160, text to 1200), and a longer one ends in an ellipsis', () => {
+  it('a paragraph of reasoning survives (titles to 200, text to 1200), and a longer one ends in an ellipsis', () => {
     const risk = `${'It writes contracts and default settlement definitions that pay out to partner-supplied accounts. '.repeat(8)}`.trim();
     const title =
       'Create Merchant step: a merchant, a Draft case, and per-agreement contracts with default settlement; the submission is marked created';
@@ -238,7 +243,7 @@ describe('story text', () => {
       ['a.cs'],
     );
     expect(long?.stories[0].title.endsWith('word…')).toBe(true);
-    expect(long?.stories[0].title.length).toBeLessThanOrEqual(160);
+    expect(long?.stories[0].title.length).toBeLessThanOrEqual(MAX_TITLE);
     expect(long?.stories[0].risk.endsWith('very…')).toBe(true);
     expect(long?.stories[0].risk.length).toBeLessThanOrEqual(1200);
   });
@@ -394,5 +399,98 @@ describe('the summary: what the PR does, in a few sentences', () => {
     expect(planReview(kinds, tests, pass).summary).toBe('Adds refunds.');
     expect(planReview(kinds, tests, { ...pass, stories: [] })).not.toHaveProperty('summary');
     expect(planReview(kinds, tests, null)).not.toHaveProperty('summary');
+  });
+});
+
+describe('stories and files explained in full sentences', () => {
+  const sentence = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ');
+
+  it('the prompt asks for full sentences in every mode, a sentence title with its example, "what", and a summary per file', () => {
+    const files = [{ path: 'src/Refunds/RefundHandler.cs', diff: '@@ -1 +1 @@\n+x' }];
+    for (const p of [
+      agentPrompt({ title: 'T', number: 1 }, files, []),
+      agentPrompt({ title: 'T', number: 1 }, files, [], undefined, { checkout: ['In a checkout.'] }),
+    ]) {
+      for (const line of WRITING_LINES) expect(p).toContain(line);
+      expect(p).toContain('"title": one plain sentence saying what the change does and for whom');
+      expect(p).toContain('never a list of nouns');
+      expect(p).toContain("Admins can now turn a partner's submission directly into a working merchant");
+      expect(p).toContain('"what": what it does, in 3 to 6 full sentences');
+      expect(p).toContain('Its first sentence is shown alone on the overview: make it the effect in plain words');
+      expect(p).toContain('In "fileSummaries", for every file listed under "Files:"');
+      expect(p).toContain('"fileSummaries":{"path":""}');
+      expect(p).toContain('"what":""');
+      // All of it is the instructions: before the fence.
+      expect(p.indexOf('fileSummaries')).toBeLessThan(p.indexOf('\n<<<\n'));
+    }
+    // The old example was itself a list of nouns.
+    expect(agentPrompt({ title: 'T', number: 1 }, files, [])).not.toContain('controller, handler, validator');
+  });
+
+  it('a story keeps its "what", cut at a word; a title is one sentence cut at a word to 200', () => {
+    const what = `${sentence(120)} end.`;
+    const pass = parseAgentPass(
+      JSON.stringify({
+        stories: [
+          { title: `Admins can ${sentence(50)} now.`, what, why: sentence(400), risk: 'r', riskLevel: 3, files: ['src/Shipping/Rates.cs'] },
+          { title: 'No what', what: 42, why: 'w', risk: 'r', riskLevel: 3, files: ['src/Refunds/RefundHandler.cs'] },
+        ],
+      }),
+      logic,
+    )!;
+    expect(pass.stories[0].what).toBe(what);
+    expect(pass.stories[0].title.length).toBeLessThanOrEqual(MAX_TITLE);
+    expect(pass.stories[0].title).toMatch(/^Admins can word0 .* word\d+…$/);
+    expect(pass.stories[0].why.length).toBeLessThanOrEqual(MAX_TEXT);
+    expect(pass.stories[0].why).toMatch(/word\d+…$/);
+    expect(pass.stories[1]).not.toHaveProperty('what'); // not text: none
+    const long = parseAgentPass(
+      JSON.stringify({ stories: [{ title: 't', what: sentence(400), why: 'w', risk: 'r', files: ['src/Shipping/Rates.cs'] }] }),
+      logic,
+    )!;
+    expect(long.stories[0].what!.length).toBeLessThanOrEqual(MAX_WHAT);
+    expect(long.stories[0].what).toMatch(/ word\d+…$/);
+  });
+
+  it('a summary per file: only for a listed file (as listed, too), cut at a word; a missing one is no fault', () => {
+    const evil = 'src/Odd >>> path.cs';
+    const pass = parseAgentPass(
+      JSON.stringify({
+        stories: [{ title: 't', why: 'w', risk: 'r', files: ['src/Shipping/Rates.cs'] }],
+        fileSummaries: {
+          'src/Refunds/RefundHandler.cs': 'Refunds through the provider. It records the amount on the order.',
+          'src/Shipping/Rates.cs': sentence(300),
+          'src/Odd ››› path.cs': 'Listed as the prompt fenced it.',
+          'not/in/pr.cs': 'Never kept.',
+          'src/Refunds/RefundValidator.cs': ['not text'],
+        },
+      }),
+      [...logic, evil],
+    )!;
+    expect(Object.keys(pass.fileSummaries!).sort()).toEqual([
+      'src/Odd >>> path.cs',
+      'src/Refunds/RefundHandler.cs',
+      'src/Shipping/Rates.cs',
+    ]);
+    expect(pass.fileSummaries!['src/Shipping/Rates.cs'].length).toBeLessThanOrEqual(MAX_FILE_SUMMARY);
+    expect(pass.fileSummaries!['src/Shipping/Rates.cs']).toMatch(/ word\d+…$/);
+    // None given, or not an object: no summaries, the rest of the answer stands.
+    for (const fileSummaries of [undefined, 'text', ['a']]) {
+      const p = parseAgentPass(JSON.stringify({ stories: [{ title: 't', files: ['src/Shipping/Rates.cs'] }], fileSummaries }), logic)!;
+      expect(p.stories).toHaveLength(1);
+      expect(p).not.toHaveProperty('fileSummaries');
+    }
+  });
+
+  it("the plan keeps the files' summaries from the agent's stories, none with stories by folder", () => {
+    const pass = {
+      stories: [{ title: 't', why: 'w', risk: 'r', riskLevel: 3, flags: [], files: ['src/Shipping/Rates.cs'] }],
+      notes: [],
+      asserts: {},
+      fileSummaries: { 'src/Shipping/Rates.cs': 'Rates change.' },
+    };
+    expect(planReview(kinds, tests, pass).fileSummaries).toEqual({ 'src/Shipping/Rates.cs': 'Rates change.' });
+    expect(planReview(kinds, tests, { ...pass, stories: [] }).fileSummaries).toEqual({});
+    expect(planReview(kinds, tests, null).fileSummaries).toEqual({});
   });
 });

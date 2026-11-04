@@ -30,10 +30,14 @@ export function isReview(v: unknown): v is PrReviewWire {
     !!r.size &&
     typeof r.size.files === 'number' &&
     Array.isArray(r.files) &&
+    r.files.every((f) => !!f && typeof f === 'object' && (f.summary === undefined || typeof f.summary === 'string')) &&
     !!r.tests &&
     Array.isArray(r.tests.list) &&
     Array.isArray(r.tests.gaps) &&
     Array.isArray(r.stories) &&
+    r.stories.every(
+      (s) => !!s && typeof s === 'object' && typeof s.title === 'string' && (s.what === undefined || typeof s.what === 'string'),
+    ) &&
     Array.isArray(r.drafts) &&
     Array.isArray(r.unstoried) &&
     (r.summary === undefined || typeof r.summary === 'string') &&

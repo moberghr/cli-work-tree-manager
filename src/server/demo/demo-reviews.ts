@@ -146,22 +146,37 @@ const DEMO_ANSWER = JSON.stringify({
     'Adds partial refunds to paid orders: a POST endpoint, a handler that refunds through the payment provider and records the amount on the order, and a validator for the amount. A migration adds the column, and prices now round half away from zero.',
   stories: [
     {
-      title: 'Refunds an order: handler and validator',
-      why: 'the handler moves the money and the validator guards what reaches it',
-      risk: 'moves money; refunds can exceed what was paid — nothing checks the total',
+      title: 'Support staff can now refund part of a paid order, and the refunded amount is recorded on the order.',
+      what: 'A refund request for an order is sent to the payment provider for the requested amount, and the amount is then added to the order’s new Refunded total. The validator only accepts a positive amount. Nothing compares the amount with what the customer paid, so a refund can exceed the order total. Existing orders start with a Refunded total of 0, and no existing caller changes.',
+      why: 'The handler moves the money and the validator decides which requests reach it: one cannot be reviewed without the other.',
+      risk: 'It moves real money through the payment provider. Two refunds of the same order at once both read the old Refunded total, and nothing stops a refund larger than what was paid.',
       riskLevel: 5,
       flags: ['data-loss', 'concurrency'],
       files: ['src/Shop.Orders/Refunds/RefundHandler.cs', 'src/Shop.Orders/Refunds/RefundValidator.cs'],
     },
     {
-      title: 'Rounding half away from zero',
-      why: 'one line, but every price goes through it',
-      risk: 'changes totals by a cent on .5 amounts, everywhere',
+      title: 'Prices that end in half a cent now round away from zero instead of to the nearest even cent.',
+      what: 'Rounding.Cents now passes MidpointRounding.AwayFromZero, so 2.345 becomes 2.35 where it used to become 2.34. Every price, total and refund goes through this method, so amounts can move by one cent wherever a half cent appears. Invoices already issued keep their stored amounts; new ones may differ from an old calculation of the same order.',
+      why: 'It is a one-line change on its own, but every amount the shop computes passes through it.',
+      risk: 'A one-cent difference on .5 amounts shows up everywhere at once, including in totals other systems compare against.',
       riskLevel: 3,
       flags: ['public-contract'],
       files: ['src/Shop.Orders/Pricing/Rounding.cs'],
     },
   ],
+  fileSummaries: {
+    'src/Shop.Orders/Refunds/RefundHandler.cs':
+      'New handler that loads the order, asks the payment provider to refund the amount, and adds it to the order’s Refunded total before saving. It does not check the order exists or that the amount fits within what was paid.',
+    'src/Shop.Orders/Refunds/RefundValidator.cs':
+      'New validator for refund requests: the amount must be greater than zero. It is the only check a request passes before money moves.',
+    'src/Shop.Orders/Pricing/Rounding.cs':
+      'Cents now rounds half a cent away from zero (MidpointRounding.AwayFromZero) instead of to even. Every amount the shop computes passes through it.',
+    'src/Shop.Api/Controllers/RefundsController.cs':
+      'New endpoint POST /orders/{orderId}/refunds that hands the request to the refund handler and returns the new refunded total. It is a new public route for API clients.',
+    'src/Shop.Data/Migrations/20261102_AddRefunds.cs':
+      'Adds a non-null Refunded column to the Orders table with a default of 0, so existing orders read as not refunded.',
+    'src/Shop.Api/Program.cs': 'Registers the refund handler for dependency injection, so the new controller can be constructed.',
+  },
   notes: [
     {
       path: 'src/Shop.Orders/Refunds/RefundHandler.cs',

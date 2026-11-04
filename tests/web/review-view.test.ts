@@ -7,12 +7,16 @@ import {
   gist,
   groupReviews,
   inShort,
+  folderParts,
   nameParts,
   notWorthReading,
   pageOf,
+  plainProse,
+  proseParts,
   pendingDrafts,
   reviewPages,
   reviewProgress,
+  shortLabel,
   shortWhere,
   splitPath,
   storyCards,
@@ -32,8 +36,12 @@ describe("the story pager's pages", () => {
   it('the stories first (riskiest first, only their code), then each kind of change no story took; generated and mechanical folded', () => {
     const pages = reviewPages(r);
     expect(pages.map((p) => [p.label, p.folded, p.code.map((e) => name(e.path))])).toEqual([
-      ['Refunds an order: handler and validator', false, ['RefundHandler.cs', 'RefundValidator.cs']],
-      ['Rounding half away from zero', false, ['Rounding.cs']],
+      [
+        'Support staff can now refund part of a paid order, and the refunded amount is recorded on the order.',
+        false,
+        ['RefundHandler.cs', 'RefundValidator.cs'],
+      ],
+      ['Prices that end in half a cent now round away from zero instead of to the nearest even cent.', false, ['Rounding.cs']],
       ['Schema', false, ['20261102_AddRefunds.cs']],
       ['API surface', false, ['RefundsController.cs']],
       ['Wiring', false, ['Program.cs']],
@@ -90,41 +98,59 @@ describe("the story pager's pages", () => {
 describe('the overview', () => {
   const r = demoReview(new Date('2026-11-02T10:00:00Z'));
 
-  it('story cards: number, title, risk, flags, files, comments, and how its tests stand', () => {
-    expect(storyCards(r, reviewPages(r))).toEqual([
+  it('story cards: number, title, what it does (its first sentence shown), risk, flags, files, comments, and how its tests stand', () => {
+    const cards = storyCards(r, reviewPages(r));
+    expect(cards.map(({ what: _w, ...c }) => c)).toEqual([
       {
         page: 0,
         number: 1,
-        title: 'Refunds an order: handler and validator',
+        title: 'Support staff can now refund part of a paid order, and the refunded amount is recorded on the order.',
+        lead: 'A refund request for an order is sent to the payment provider for the requested amount, and the amount is then added to the order’s new Refunded total.',
         riskLevel: 5,
         flags: ['data-loss', 'concurrency'],
         codeFiles: 2,
         comments: 2,
-        tests: { state: 'covered', text: '2 tests' },
+        // Its validator is on the Untested list: the card says so beside the tests that cover the handler.
+        tests: { state: 'covered', text: '2 tests', untested: '1 file untested' },
       },
       {
         page: 1,
         number: 2,
-        title: 'Rounding half away from zero',
+        title: 'Prices that end in half a cent now round away from zero instead of to the nearest even cent.',
+        lead: 'Rounding.Cents now passes MidpointRounding.AwayFromZero, so 2.345 becomes 2.35 where it used to become 2.34.',
         riskLevel: 3,
         flags: ['public-contract', 'no-tests'],
         codeFiles: 1,
         comments: 0,
-        tests: { state: 'gap', text: 'no tests' },
+        tests: { state: 'gap', text: 'no tests', untested: null },
       },
     ]);
+    expect(cards[0].what).toBe(r.stories[0].what);
+    expect(r.tests.gaps).toContain('src/Shop.Orders/Refunds/RefundValidator.cs');
+    // A story from before (no "what"): no lead; every file tested: nothing untested said.
+    const old = { ...r, stories: r.stories.map(({ what: _w, ...s }) => s), tests: { ...r.tests, gaps: [] } };
+    const first = storyCards(old, reviewPages(old))[0];
+    expect(first).not.toHaveProperty('lead');
+    expect(first.tests).toEqual({ state: 'covered', text: '2 tests', untested: null });
   });
 
   it('a story with a schema change and only unit tests says "unit tests only"', () => {
     const schema = 'src/Shop.Data/Migrations/20261102_AddRefunds.cs';
     const withSchema: PrReviewWire = { ...r, stories: [{ ...r.stories[0], files: [...r.stories[0].files, schema] }, r.stories[1]] };
-    expect(storyCards(withSchema, reviewPages(withSchema))[0].tests).toEqual({ state: 'unit-only', text: '2 unit tests only' });
+    expect(storyCards(withSchema, reviewPages(withSchema))[0].tests).toEqual({
+      state: 'unit-only',
+      text: '2 unit tests only',
+      untested: '2 files untested',
+    });
   });
 
   it('in short: the AI step’s summary, else the story titles as bullets', () => {
     expect(inShort(r)).toEqual({ summary: expect.stringContaining('Adds partial refunds') });
     expect(inShort({ ...r, summary: undefined })).toEqual({
-      bullets: ['Refunds an order: handler and validator', 'Rounding half away from zero'],
+      bullets: [
+        'Support staff can now refund part of a paid order, and the refunded amount is recorded on the order.',
+        'Prices that end in half a cent now round away from zero instead of to the nearest even cent.',
+      ],
     });
   });
 
@@ -292,5 +318,36 @@ describe('a long file name in the tree', () => {
     ]);
     expect(nameParts('use-deferred_diff.ts')).toEqual(['use-', 'deferred_', 'diff.', 'ts']);
     expect(nameParts('README')).toEqual(['README']);
+  });
+
+  it('a folder wraps only after a slash, never inside a name; the parts put back are the folder', () => {
+    const folder = 'src/Payfac.Services.Admin/Handlers/Onboarding';
+    expect(folderParts(folder)).toEqual(['src/', 'Payfac.Services.Admin/', 'Handlers/', 'Onboarding']);
+    expect(folderParts(folder).join('')).toBe(folder);
+    expect(folderParts('')).toEqual([]);
+    expect(folderParts('one')).toEqual(['one']);
+  });
+
+  it('the AI step’s prose: what is between backticks is code, the rest plain text; a lone backtick stays', () => {
+    expect(proseParts('Calls `CreateBankAccount` and `StageMerchant`.')).toEqual([
+      { text: 'Calls ' },
+      { text: 'CreateBankAccount', code: true },
+      { text: ' and ' },
+      { text: 'StageMerchant', code: true },
+      { text: '.' },
+    ]);
+    expect(proseParts('No code here.')).toEqual([{ text: 'No code here.' }]);
+    expect(proseParts('A lone ` backtick')).toEqual([{ text: 'A lone ` backtick' }]);
+    expect(plainProse('Calls `CreateBankAccount` once.')).toBe('Calls CreateBankAccount once.');
+  });
+
+  it("a story's sentence on a button: its first sentence, cut at a word", () => {
+    expect(shortLabel('Schema')).toBe('Schema');
+    const label = shortLabel(
+      'Support staff can now refund part of a paid order, and the refunded amount is recorded on the order and more.',
+      60,
+    );
+    expect(label.length).toBeLessThanOrEqual(60);
+    expect(label).toBe('Support staff can now refund part of a paid order, and the…');
   });
 });

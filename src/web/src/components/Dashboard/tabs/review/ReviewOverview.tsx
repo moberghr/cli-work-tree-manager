@@ -6,12 +6,14 @@ import {
   inShort,
   notWorthReading,
   pageOf,
+  plainProse,
   shortWhere,
   splitPath,
   storyCards,
   type ReviewPage,
 } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
+import { FolderPath, Prose } from './ReviewText.js';
 
 /**
  * A review's overview — where it opens: what the PR does in short, the draft
@@ -51,11 +53,15 @@ export function ReviewOverview({
       <section className="wd-review-short" aria-label="In short">
         <h3>In short</h3>
         {'summary' in short ? (
-          <p>{short.summary}</p>
+          <p>
+            <Prose text={short.summary} />
+          </p>
         ) : short.bullets.length ? (
           <ul>
             {short.bullets.map((b, i) => (
-              <li key={i}>{b}</li>
+              <li key={i}>
+                <Prose text={b} />
+              </li>
             ))}
           </ul>
         ) : (
@@ -96,10 +102,22 @@ export function ReviewOverview({
           <ol className="wd-review-cards">
             {cards.map((c) => (
               <li key={c.page}>
-                <button type="button" className="wd-review-card" onClick={() => onStory(c.page)} title={c.title}>
+                <button
+                  type="button"
+                  className="wd-review-card"
+                  onClick={() => onStory(c.page)}
+                  title={plainProse(c.what ? `${c.title}\n\n${c.what}` : c.title)}
+                >
                   <span className="wd-review-card-num">{c.number}</span>
                   <span className="wd-review-card-body">
-                    <span className="wd-review-card-title">{c.title}</span>
+                    <span className="wd-review-card-title">
+                      <Prose text={c.title} />
+                    </span>
+                    {c.lead && (
+                      <span className="wd-review-card-lead">
+                        <Prose text={c.lead} />
+                      </span>
+                    )}
                     <span className="wd-review-card-meta">
                       <span className={`wd-review-risk wd-review-risk-${c.riskLevel}`}>risk {c.riskLevel}/5</span>
                       {c.flags.map((f) => (
@@ -115,6 +133,7 @@ export function ReviewOverview({
                         {c.tests.state === 'covered' ? '✓ ' : ''}
                         {c.tests.text}
                       </span>
+                      {c.tests.untested && <span className="wd-review-tests-gap"> · {c.tests.untested}</span>}
                     </span>
                   </span>
                 </button>
@@ -153,7 +172,7 @@ export function ReviewOverview({
                   <button type="button" className="wd-link-button" disabled={page < 0} onClick={() => onStory(page)} title={g}>
                     {name}
                   </button>{' '}
-                  <span className="wd-review-folder">{folder}</span>
+                  <FolderPath folder={folder} />
                 </li>
               );
             })}

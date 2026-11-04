@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { resolveHighlightLang } from '../../utils/highlight.js';
 import { STATUS_LETTER } from '../../utils/status.js';
@@ -30,6 +30,8 @@ interface Props {
   onToggleViewed?: (next: boolean) => void;
   /** A new file's leading import lines folded into one row (the Reviews tab). */
   foldImports?: boolean;
+  /** Shown under the header, above the code, while the file is open (the Reviews tab: what changed here). */
+  note?: ReactNode;
 }
 
 /** Lines (added + deleted) past which we don't auto-render the diff
@@ -40,7 +42,7 @@ interface Props {
  *  the genuine pathology. */
 const AUTO_COLLAPSE_LINES = 500;
 
-export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, foldImports }: Props) {
+export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, foldImports, note }: Props) {
   // Split (side-by-side) vs unified (inline) layout — a global, persisted
   // preference. Drives the table's column layout here; DiffHunk and GapRegion
   // read the same mode to emit matching rows.
@@ -271,6 +273,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, f
           </label>
         )}
       </header>
+      {note && !collapsed && <div className="wd-file-note">{note}</div>}
       {fileCommentsOn && <FileCommentSection repo={repo!} file={file.path} />}
       {!collapsed &&
         (hasPreview && viewMode !== 'diff' ? (

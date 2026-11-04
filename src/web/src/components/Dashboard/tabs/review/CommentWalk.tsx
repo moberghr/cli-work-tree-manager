@@ -4,6 +4,7 @@ import type { ParsedFile } from '../../../../../../core/diff/diff-parse.js';
 import { DiffFile } from '../../../Diff/DiffFile.js';
 import { commentContext, gist, pageOf, shortWhere, splitPath, type ReviewPage } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
+import { FileSummary, FolderPath, Prose } from './ReviewText.js';
 
 /**
  * The draft comments one at a time, in the review's order: each with the code
@@ -38,6 +39,7 @@ export function CommentWalk({
   const file = useMemo(() => (d ? files?.find((f) => f.path === d.path) : undefined), [d, files]);
   const around = useMemo(() => (file && d ? commentContext(file, d.line) : null), [file, d]);
   const page = d ? pageOf(pages, d.path) : -1;
+  const summary = d ? r.files.find((f) => f.path === d.path)?.summary : undefined;
   return (
     <div className="wd-review-walk">
       <div className="wd-review-pagerbar" role="navigation" aria-label="Comments">
@@ -57,7 +59,7 @@ export function CommentWalk({
         {d && (
           <>
             <span className="wd-review-walk-where" title={d.path}>
-              {shortWhere(d)} <span className="wd-review-folder">{splitPath(d.path).folder}</span>
+              {shortWhere(d)} <FolderPath folder={splitPath(d.path).folder} />
             </span>
             <label className="wd-review-walk-looked">
               <input type="checkbox" checked={looked.has(d.id)} onChange={(e) => onLooked(d.id, e.target.checked)} /> Looked at
@@ -72,12 +74,24 @@ export function CommentWalk({
       </div>
       <div className="wd-review-walk-pane">
         {!d && <p className="wd-start-note">No draft comments on this review: add one on any line of a story&apos;s diff.</p>}
-        {d && page >= 0 && <p className="wd-start-note wd-review-walk-story">In {pages[page].label}</p>}
+        {d && page >= 0 && (
+          <p className="wd-start-note wd-review-walk-story">
+            In <Prose text={pages[page].label} />
+          </p>
+        )}
         {d &&
           (around ? (
-            <DiffFile key={d.id} file={around} anchor={`review-walk-${d.id}`} review repo={r.repo} />
+            <DiffFile
+              key={d.id}
+              file={around}
+              anchor={`review-walk-${d.id}`}
+              review
+              repo={r.repo}
+              note={summary ? <FileSummary summary={summary} /> : undefined}
+            />
           ) : (
             <div className="wd-review-walk-plain">
+              {summary && <FileSummary summary={summary} />}
               <p className="wd-start-note">
                 {files === null ? 'Loading the diff…' : "This line's code isn't in the diff: the comment on its own."}
               </p>

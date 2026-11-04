@@ -134,10 +134,16 @@ describe('the overview', () => {
     ]);
     expect(text('.wd-review-attention h3')).toContain('2 of 2 to look at');
     const cards = [...container.querySelectorAll('.wd-review-card')].map((c) => c.textContent);
-    expect(cards[0]).toContain('1Refunds an order: handler and validator');
+    expect(cards[0]).toContain('1Support staff can now refund part of a paid order, and the refunded amount is recorded on the order.');
     expect(cards[0]).toContain('risk 5/5');
     expect(cards[0]).toContain('can lose data');
-    expect(cards[0]).toContain('2 files · 2 comments · ✓ 2 tests');
+    // Its first sentence of what it does under the title; the whole on hover. Its untested validator said beside the tests.
+    expect(cards[0]).toContain('A refund request for an order is sent to the payment provider');
+    expect(cards[0]).not.toContain('Existing orders start with a Refunded total of 0');
+    expect(container.querySelector<HTMLButtonElement>('.wd-review-card')!.title).toContain(
+      'Existing orders start with a Refunded total of 0',
+    );
+    expect(cards[0]).toContain('2 files · 2 comments · ✓ 2 tests · 1 file untested');
     expect(cards[1]).toContain('1 file · no tests');
     expect(text('.wd-review-gaps')).toContain('Rounding.cs');
     // No diff on the overview.
@@ -153,8 +159,8 @@ describe('the overview', () => {
     api.fetchReview.mockResolvedValue({ ...review, summary: undefined });
     await render();
     expect([...container.querySelectorAll('.wd-review-short li')].map((li) => li.textContent)).toEqual([
-      'Refunds an order: handler and validator',
-      'Rounding half away from zero',
+      'Support staff can now refund part of a paid order, and the refunded amount is recorded on the order.',
+      'Prices that end in half a cent now round away from zero instead of to the nearest even cent.',
     ]);
   });
 
@@ -170,7 +176,7 @@ describe('the overview', () => {
     await flush();
     // Still looked at when it comes back (read from the browser's storage).
     expect(text('.wd-review-attention h3')).toContain('1 of 2 to look at');
-    await act(async () => button('Rounding half away from zero').click());
+    await act(async () => button('Prices that end in half a cent now round away from zero instead of to the nearest even cent.').click());
     expect(routes.at(-1)).toEqual({ ...OVERVIEW, mode: 'story', at: 1 });
   });
 
@@ -190,15 +196,25 @@ describe('one story at a time', () => {
     await render({ start: { ...OVERVIEW, mode: 'story', at: 0 } });
     expect(text('.wd-review-pager-pos')).toBe('Story 1 of 2');
     const head = text('.wd-review-section-head');
-    expect(head).toContain('Why together: the handler moves the money');
-    expect(head).toContain('Why ranked here: moves money');
+    // Its sentence, then what it does, why together and why ranked here: each a heading and a paragraph.
+    expect(text('.wd-review-section-head h3')).toBe(review.stories[0].title);
+    const parts = [...container.querySelectorAll('.wd-review-story-text section')].map((sec) => [
+      sec.querySelector('h4')!.textContent,
+      sec.querySelector('p')!.textContent,
+    ]);
+    expect(parts).toEqual([
+      ['What it does', review.stories[0].what],
+      ['Why these files belong together', review.stories[0].why],
+      ['Why it’s ranked here', review.stories[0].risk],
+    ]);
+    expect(head).toContain('risk 5/5');
     const shown = [...container.querySelectorAll('.wd-review-diff-pane .wd-file')].map((f) => f.getAttribute('data-path'));
     expect(shown).toEqual(['src/Shop.Orders/Refunds/RefundHandler.cs', 'src/Shop.Orders/Refunds/RefundValidator.cs']);
     // The tree: every page; the open one's code files, the name whole and the folder apart.
     const tree = container.querySelector('.wd-review-tree')!;
     expect([...tree.querySelectorAll('.wd-review-tree-head')].map((b) => b.textContent)).toEqual([
-      '1 Refunds an order: handler and validator',
-      '2 Rounding half away from zero',
+      '1 Support staff can now refund part of a paid order, and the refunded amount is recorded on the order.',
+      '2 Prices that end in half a cent now round away from zero instead of to the nearest even cent.',
       '· Schema · 1',
       '· API surface · 1',
       '· Wiring · 1',
@@ -210,7 +226,20 @@ describe('one story at a time', () => {
       'RefundHandler.cs',
       'RefundValidator.cs',
     ]);
-    expect(tree.querySelector('.wd-review-tree-file .wd-review-folder')!.textContent).toBe('+11 −0 · src/\u200bShop.Orders/\u200bRefunds');
+    // The folder wraps only after a slash: a break opportunity there, none inside a name.
+    const folder = tree.querySelector('.wd-review-tree-file .wd-review-folder')!;
+    expect(folder.textContent).toBe('+11 −0 · src/Shop.Orders/Refunds');
+    expect(folder.innerHTML).toContain('src/<wbr>Shop.Orders/<wbr>Refunds');
+    // A file's tooltip: its path and what changed in it.
+    const handler = review.files.find((f) => f.path.endsWith('RefundHandler.cs'))!;
+    expect(tree.querySelector<HTMLButtonElement>('.wd-review-tree-file')!.title).toBe(`${handler.path}\n\n${handler.summary}`);
+    // Each file: what changed here, under its header and above its code; it folds to its heading.
+    const first = container.querySelector('.wd-review-diff-pane .wd-file')!;
+    const note = first.querySelector('.wd-file-header + .wd-file-note .wd-review-file-summary')!;
+    expect(note.querySelector('summary')!.textContent).toBe('What changed here');
+    expect(note.textContent).toContain('New handler that loads the order');
+    expect(note.hasAttribute('open')).toBe(true);
+    expect(first.lastElementChild!.contains(note)).toBe(false); // the code comes after it
     // Tests: one line, unfolding to the test files and their diffs.
     const tests = button('2 tests in 1 file cover this');
     expect(tests.textContent).toBe('▸ 2 tests in 1 file cover this · 2 added');
@@ -219,13 +248,42 @@ describe('one story at a time', () => {
     expect(container.querySelector('.wd-review-story-testfiles .wd-file')!.getAttribute('data-path')).toContain('RefundHandlerTests.cs');
   });
 
+  it('code the AI step names between backticks is drawn as code; the tooltips have it plain', async () => {
+    const handler = 'src/Shop.Orders/Refunds/RefundHandler.cs';
+    api.fetchReview.mockResolvedValue({
+      ...review,
+      stories: [{ ...review.stories[0], what: 'It calls `IPayments.Refund` first. Then it saves.' }, review.stories[1]],
+      files: review.files.map((f) => (f.path === handler ? { ...f, summary: 'Adds `RefundHandler`.' } : f)),
+    });
+    await render({ start: { ...OVERVIEW, mode: 'story', at: 0 } });
+    expect([...container.querySelectorAll('.wd-review-story-text code')].map((c) => c.textContent)).toEqual(['IPayments.Refund']);
+    expect(text('.wd-review-story-text')).not.toContain('`');
+    expect(container.querySelector('.wd-file-note code')!.textContent).toBe('RefundHandler');
+    expect(container.querySelector<HTMLButtonElement>('.wd-review-tree-file')!.title).toBe(`${handler}\n\nAdds RefundHandler.`);
+  });
+
+  it('a review from before (no "what", no file summaries): the reasons alone, no note over the code', async () => {
+    api.fetchReview.mockResolvedValue({
+      ...review,
+      stories: review.stories.map(({ what: _w, ...s }) => s),
+      files: review.files.map(({ summary: _s, ...f }) => f),
+    });
+    await render({ start: { ...OVERVIEW, mode: 'story', at: 0 } });
+    expect([...container.querySelectorAll('.wd-review-story-text h4')].map((h) => h.textContent)).toEqual([
+      'Why these files belong together',
+      'Why it’s ranked here',
+    ]);
+    expect(container.querySelector('.wd-file-note')).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('.wd-review-tree-file')!.title).toContain(' — ');
+  });
+
   it('a Viewed tick counts toward the story and the review (per browser); → goes to the next story, then the kinds of change', async () => {
     await render({ start: { ...OVERVIEW, mode: 'story', at: 0 } });
     expect(text('.wd-review-progress')).toContain('0/2 viewed here · 0/7 in all');
     act(() => container.querySelector<HTMLInputElement>('.wd-viewed-checkbox')!.click());
     expect(text('.wd-review-progress')).toContain('1/2 viewed here · 1/7 in all');
     expect(localStorage.getItem('work-web:review-viewed:api#231@a1b2c3d')).toContain('RefundHandler.cs');
-    await act(async () => button('Next: Rounding half away from zero').click());
+    await act(async () => button('Next: Prices that end in half a cent now round away from zero instead of to the nearest even…').click());
     await flush();
     expect(text('.wd-review-pager-pos')).toBe('Story 2 of 2');
     expect(text('.wd-review-section-head')).toContain('No test of this PR covers it');
@@ -260,6 +318,9 @@ describe('the comments walk', () => {
     expect(text('.wd-review-pager-pos')).toBe('1 of 2');
     const pane = container.querySelector('.wd-review-walk-pane')!;
     expect(pane.querySelector('.wd-file')!.getAttribute('data-path')).toBe('src/Shop.Orders/Refunds/RefundHandler.cs');
+    // The file's "What changed here" under its header, before the code around the comment.
+    expect(pane.querySelector('.wd-file-header + .wd-file-note summary')!.textContent).toBe('What changed here');
+    expect(text('.wd-review-walk-pane .wd-file-note')).toContain('New handler that loads the order');
     expect(pane.textContent).toContain('Two refunds at once both read the old');
     const draft = pane.querySelector('.wd-status-draft')!;
     expect([...draft.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Delete']);

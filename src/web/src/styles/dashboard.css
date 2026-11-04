@@ -5748,7 +5748,8 @@ a.wd-pr-chip:hover {
   grid-template-rows: minmax(0, 1fr);
 }
 .wd-review-tree {
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px;
   font-size: 13px;
 }
@@ -5801,11 +5802,23 @@ a.wd-pr-chip:hover {
 .wd-review-tree-file .wd-review-folder {
   display: block;
 }
+/* A folder wraps only after a slash (FolderPath's <wbr>), never inside a folder's name. */
 .wd-review-folder {
   color: var(--muted);
   font-size: 11px;
   opacity: 0.85;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+/* A story's sentence in the tree: three lines at most, the whole on hover. */
+.wd-review-tree-label {
+  display: -webkit-inline-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: normal;
+  vertical-align: top;
+  max-width: calc(100% - 24px);
 }
 .wd-review-tree-num {
   display: inline-block;
@@ -5842,6 +5855,69 @@ a.wd-pr-chip:hover {
   margin: 4px 0;
   max-width: 110ch;
   line-height: 1.45;
+}
+/* A story's page: its sentence, its badges, then its reasoning as paragraphs a line of ~80 characters wide. */
+.wd-review-section-head h3.wd-review-story-title {
+  font-size: 17px;
+  line-height: 1.35;
+  max-width: 80ch;
+  overflow-wrap: normal;
+}
+.wd-review-section-head p.wd-review-story-badges {
+  margin: 0 0 10px;
+}
+.wd-review-story-badges .wd-review-flag:first-of-type {
+  margin-left: 8px;
+}
+.wd-review-story-text {
+  max-width: 80ch;
+  overflow-wrap: normal;
+}
+.wd-review-story-text section + section {
+  margin-top: 10px;
+}
+.wd-review-story-text h4 {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wd-review-section-head .wd-review-story-text p {
+  margin: 0;
+  max-width: 80ch;
+  font-size: 14px;
+  line-height: 1.55;
+}
+/* A file's "What changed here", under its header, above its code. */
+.wd-file-note {
+  padding: 6px 12px 8px;
+  border-bottom: 1px solid var(--border, #8884);
+}
+/* What the AI step put between backticks: code, inline. */
+.wd-review-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--hover);
+  overflow-wrap: anywhere;
+}
+.wd-review-file-summary > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.wd-review-file-summary p {
+  margin: 4px 0 0;
+  max-width: 80ch;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.wd-review-walk-plain .wd-review-file-summary {
+  margin-bottom: 8px;
 }
 .wd-review-story-tests {
   margin-top: 6px;
@@ -6052,8 +6128,18 @@ a.wd-pr-chip:hover {
 }
 .wd-review-card-title {
   font-weight: 600;
+  line-height: 1.35;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wd-review-card-lead {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

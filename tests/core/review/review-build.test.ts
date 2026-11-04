@@ -176,6 +176,31 @@ describe('a big PR read right', () => {
     expect(r.stories.map((s) => s.title)).toEqual(['Create Merchant step', 'Submission shape']);
   });
 
+  it("each code file's \"what changed here\" goes on its wire file; never a test's or a generated one's, nor without the AI step", () => {
+    const answer = JSON.stringify({
+      stories: [
+        { title: 'Sales can create a merchant from a submission.', what: 'It does.', why: 'w', risk: 'r', riskLevel: 4, files: [HANDLER] },
+      ],
+      fileSummaries: {
+        [HANDLER]: 'Creates the merchant and its contracts from the submission.',
+        [MIGRATION]: 'Adds the agreements table.',
+        [UNIT_TEST]: 'A test is not asked about.',
+        [RESX]: 'Translations are not asked about.',
+      },
+    });
+    const r = buildReview(meta, files, extras, answer);
+    const summaries = Object.fromEntries(r.files.filter((f) => f.summary).map((f) => [f.path, f.summary]));
+    expect(summaries).toEqual({
+      [HANDLER]: 'Creates the merchant and its contracts from the submission.',
+      [MIGRATION]: 'Adds the agreements table.',
+    });
+    expect(r.stories[0].what).toBe('It does.');
+    // An answer with no story (stories by folder) or no AI step: no file says what changed in it.
+    const noStory = JSON.stringify({ stories: [], fileSummaries: { [HANDLER]: 'x' } });
+    expect(buildReview(meta, files, extras, noStory).files.some((f) => f.summary)).toBe(false);
+    expect(buildReview(meta, files, extras, undefined).files.some((f) => f.summary)).toBe(false);
+  });
+
   it('tests: the Postgres ones are integration, so no "unit tests only" warning; removed tests cover nothing; the validator is reached through the handler tests', () => {
     const r = buildReview(
       meta,
