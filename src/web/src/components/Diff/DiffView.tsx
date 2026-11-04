@@ -34,7 +34,9 @@ import { useLookedFor } from '../../hooks/use-looked.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { fileSignature, newestCheckpoint } from '../../state/diff-seen.js';
 import {
-  historyItems,
+  allHistoryItems,
+  branchGroups,
+  branchSelection,
   lastTurn,
   linesRef,
   liveLabel,
@@ -64,6 +66,8 @@ interface Props {
   /** The diff fills the window (the session page hides its header, tabs and the rail around it); Esc leaves. */
   fullScreen?: boolean;
   onFullScreen?: (on: boolean) => void;
+  /** Show another branch the session worked on (the header's Branches line): all its commits, once per `seq`. */
+  showBranch?: { name: string; repo: string; seq: number } | null;
 }
 
 /**
@@ -92,7 +96,7 @@ function MaybeExpand({
   );
 }
 
-export function DiffView({ session, startOnLastTurn = false, fullScreen = false, onFullScreen }: Props) {
+export function DiffView({ session, startOnLastTurn = false, fullScreen = false, onFullScreen, showBranch = null }: Props) {
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
   // The diff's page of its own (the one wd opens), set up when the tab opens, so the link is plain by the time it's clicked.
   const [pageUrl, setPageUrl] = useState<string | null>(null);
@@ -192,8 +196,30 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const isGroup = session.paths.length > 1;
   // Every repo's commits, for what a pick means (a commit of another repo
   // stays picked when you switch tabs); the tab's own, for the list.
-  const allItems = useMemo(() => historyItems(entries, commits, null), [entries, commits]);
-  const items = useMemo(() => historyItems(entries, commits, isGroup ? activeRepoName : null), [entries, commits, isGroup, activeRepoName]);
+  // The checked-out branch's history, then the other branches' commits (session-branches.ts), each under its own.
+  const allItems = useMemo(() => allHistoryItems(entries, commits, null), [entries, commits]);
+  const items = useMemo(
+    () => allHistoryItems(entries, commits, isGroup ? activeRepoName : null),
+    [entries, commits, isGroup, activeRepoName],
+  );
+  const groups = useMemo(() => branchGroups(commits, isGroup ? activeRepoName : null), [commits, isGroup, activeRepoName]);
+  const otherOn = isGroup ? session.onOtherBranch?.find((o) => o.repo === activeRepoName) : session.onOtherBranch?.[0];
+  const currentBranch = otherOn ? otherOn.branch : session.branch;
+  // Asked to show a branch (the header's Branches line): all its commits, once its commits are listed.
+  const shownBranch = useRef(0);
+  useEffect(() => {
+    if (!showBranch || shownBranch.current === showBranch.seq) return;
+    const sel = branchSelection(allItems, showBranch.name);
+    if (!sel) return;
+    shownBranch.current = showBranch.seq;
+    opened.current = session.id; // what was asked for wins over "since you looked" opening by itself
+    if (isGroup && showBranch.repo) {
+      pickedRepo.current = showBranch.repo;
+      setActiveRepoName(showBranch.repo);
+    }
+    setSelection(sel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask (seq), whatever session the tab shows
+  }, [showBranch, allItems, isGroup]);
   const turnShortcut = useMemo(() => lastTurn(allItems), [allItems]);
   const lookedShortcut = useMemo(
     () => sinceLooked(allItems, entries, seenAtOpen?.checkpointId, seenAtOpen?.ts),
@@ -462,6 +488,9 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
           sinceLooked={lookedShortcut}
           looks={lookEntries}
           commitsOf={isGroup ? activeRepoName : null}
+          groups={groups}
+          branches={session.branches}
+          current={currentBranch}
         />
       </div>
       <div className="wd-web-difftoolbar-info">

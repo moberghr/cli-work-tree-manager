@@ -2,7 +2,7 @@ import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../.
 import type { LastReplyWire, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
 import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
 export type { DiffPoint } from '../../../core/diff/diff-points.js';
-export type { SessionCommit } from '../../../core/api-types.js';
+export type { SessionBranchWire, SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import { archiveQuestion } from '../state/archive-view.js';
@@ -164,6 +164,8 @@ export interface SessionSummary {
   blockedBy?: import('../../../core/api-types.js').BlockerWire[];
   /** It was stacked on a session that merged and is archived: it should move onto main. */
   stackParentMerged?: { id: string; branch: string };
+  /** Every branch it worked on, when more than one (session-branches.ts): the header's Branches line. */
+  branches?: import('../../../core/api-types.js').SessionBranchWire[];
   /** Repos checked out on another branch than `branch` (null = detached). */
   onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
   titleIsYours?: boolean;
@@ -545,6 +547,9 @@ export interface CheckpointEntry {
   /** Per-repo commit sha (null when the repo had no HEAD at capture
    *  time — diffs treat that side as the empty tree). */
   repos: Record<string, string | null>;
+  /** Per repo, the branch checked out when it was taken (absent on turns from before): a change from the turn
+   *  before is a branch switch. */
+  branches?: Record<string, string | null>;
 }
 
 export function fetchCheckpoints(hash: string): Promise<CheckpointEntry[]> {

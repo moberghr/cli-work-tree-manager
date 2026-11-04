@@ -6,6 +6,10 @@ import { loadHistory, getSessionsForTarget, prunePersistedStaleEntries, type Wor
 import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
 import { getStatus, getUnpushedCommits, isBranchMerged, getCurrentBranch } from '../core/git/git.js';
 import { timeAgo, shortDateTime } from '../core/platform/format.js';
+import { sessionBranchesNow } from '../core/stacks/branch-facts.js';
+import { createCiStore } from '../core/pr/pr-watch-store.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
+import { branchLine } from '../core/sessions/branch-view.js';
 
 export const statusCommand: CommandModule = {
   command: 'status [target] [branch]',
@@ -60,8 +64,16 @@ export const statusCommand: CommandModule = {
     console.log(chalk.cyan('==============='));
     console.log('');
 
+    const checks = new Map(createCiStore().load());
     for (const session of sessions) {
       printSessionStatus(session);
+      // Every branch it worked on, when more than one (session-branches.ts).
+      const branches = await sessionBranchesNow(session, checks.get(sessionIdFor(session))).catch(() => null);
+      if (branches?.length) {
+        console.log(chalk.gray('  Branches:'));
+        for (const b of branches) console.log(`    ${b.repo === session.target ? '' : `${b.repo}: `}${branchLine(b)}`);
+        console.log('');
+      }
     }
   },
 };

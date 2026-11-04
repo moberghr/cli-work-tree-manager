@@ -18,11 +18,12 @@ import type {
   SessionWire,
   BlockerWire,
   PrStageWire,
+  SessionBranchWire,
 } from '../api-types.js';
 import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/session-archive.js';
 import { isArchiving, isRestoring } from '../archive/archiving.js';
 import { sessionTitle } from '../conversations/session-title.js';
-import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
+import { prStageOf, stageRepos, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 import { isLeftover } from '../worktree/leftover.js';
 import { recordedRepos, sessionRepos } from './session-repos.js';
 import { DEFAULT_ACCOUNT, getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
@@ -70,6 +71,9 @@ export interface SessionWireOptions {
     s: WorktreeSession,
     lastActivity: number,
   ) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
+  /** Every branch it worked on, with what's known of each (branch-facts.ts `createSessionBranches`); null when
+   *  it stayed on one. */
+  branchesFor?: (id: string, s: WorktreeSession) => SessionBranchWire[] | null;
   /** Where it sits in a stack (stack-sessions.ts). */
   stackFor?: (id: string) => {
     parent: { id: string; branch: string; title?: string } | null;
@@ -157,6 +161,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   if (stack?.parent) wire.stackedOn = stack.parent;
   if (stack?.children) wire.stackedChildren = stack.children;
   if (stack?.merged) wire.stackParentMerged = stack.merged;
+  const branches = s.archivedAt ? null : (opts.branchesFor?.(id, s) ?? null);
+  if (branches?.length) wire.branches = branches;
   if (opts.hasNote?.(id)) wire.hasNote = true;
   if (isArchiving(id)) wire.archiving = true;
   if (!s.archivedAt && isAsleep(readStatus(id)?.stoppedAt, wire.ptyStatus === 'running', wire.lastActivity ?? 0)) wire.asleep = true;
@@ -247,10 +253,14 @@ export const stageSeenKey = (stageKey: string) => `stage:${stageKey}`;
  * for a stage that would bring it back to the Inbox (one lookup, not one per row).
  */
 export function prStageWire(
-  ci: { repos: Array<{ name: string; pr: StagePr | null }> } | null | undefined,
+  ci:
+    | { repos: Array<{ name: string; pr: StagePr | null; branch?: string; otherPrs?: Array<{ branch: string; pr: StagePr }> }> }
+    | null
+    | undefined,
   seen: (key: string) => boolean,
 ): PrStageWire | null {
-  const stage = prStageOf(ci?.repos ?? []);
+  // The newest open PR across the branches it worked on (stageRepos), not only the checked-out branch's.
+  const stage = prStageOf(stageRepos(ci?.repos ?? []));
   if (!stage) return null;
   return STAGE_WANTS_YOU.has(stage.kind) && seen(stageSeenKey(stage.key)) ? { ...stage, seen: true } : stage;
 }

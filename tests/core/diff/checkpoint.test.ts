@@ -112,6 +112,16 @@ describe('takeCheckpoint', () => {
     expect(entry!.repos.repoA).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  it('records the branch each repo had checked out, so a turn across a branch switch can be told', async () => {
+    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], repoA).stdout.trim();
+    const first = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
+    expect(first!.branches).toEqual({ repoA: branch });
+    git(['checkout', '-q', '-b', 'fix/next'], repoA);
+    writeFile(repoA, 'next.txt', 'n\n');
+    const second = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
+    expect(second!.branches).toEqual({ repoA: 'fix/next' });
+  });
+
   it('persists to ~/.work/diffs/<hash>.checkpoints.json', async () => {
     await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     const manifest = loadManifest('hashA');

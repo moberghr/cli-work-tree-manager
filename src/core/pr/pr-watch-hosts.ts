@@ -3,7 +3,9 @@ import { defaultHost, hostById, hostForRepo, originHostname } from '../hosts/ind
 import type { GitHost } from '../hosts/types.js';
 import type { ReviewFeedback } from './review-types.js';
 import type { PrWatchDeps } from './pr-watch.js';
-import type { AskGh } from './ship.js';
+import type { AskGh, PreflightOptions } from './ship.js';
+import type { ShipPreflight } from '../api-types.js';
+import { BRANCH_WATCH_MS, otherBranchesToWatch, wasPushed, type SessionBranches } from '../sessions/session-branches.js';
 
 /**
  * What the PR watch asks a git host, each repo of its own (pr-watch.ts is pure
@@ -72,4 +74,30 @@ export function prWatchHostDeps(run: CommandRunner): Required<Pick<PrWatchDeps, 
  */
 export function watchAskGh(resting: ((host: string | undefined) => boolean) | undefined, knowsPr: (repoName: string) => boolean): AskGh {
   return (r) => !resting?.(r.host) && (r.hasUpstream || knowsPr(r.name));
+}
+
+/**
+ * The other branches the PR watch looks at per repo (session-branches.ts: recent ones, at most a few), and which
+ * of them it asks their host about: none on a host resting, of the rest a branch pushed now or once (origin's copy
+ * deleted after its PR merged), or one whose PR it already knows.
+ */
+export function watchBranchOptions(
+  rec: SessionBranches | null,
+  now: number,
+  resting: ((host: string | undefined) => boolean) | undefined,
+  knowsPr: (repoName: string, branch: string) => boolean,
+): Required<Pick<PreflightOptions, 'branches' | 'askBranch'>> {
+  return {
+    branches: (repo, current) => otherBranchesToWatch(rec, repo.name, current, now, BRANCH_WATCH_MS),
+    askBranch: (repo, b) => !resting?.(repo.host) && (b.pushed || wasPushed(rec, repo.name, b.name) || knowsPr(repo.name, b.name)),
+  };
+}
+
+/** What a preflight found of the other branches, to keep in the record (deleted, merged, pushed once). */
+export function branchFactsOf(
+  pre: ShipPreflight,
+): Array<{ repo: string; name: string; exists: boolean; merged: boolean; pushed: boolean }> {
+  return pre.repos.flatMap((r) =>
+    (r.otherBranches ?? []).map((b) => ({ repo: r.name, name: b.name, exists: b.exists, merged: b.merged, pushed: b.pushed })),
+  );
 }

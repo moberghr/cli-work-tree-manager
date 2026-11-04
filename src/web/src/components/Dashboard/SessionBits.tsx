@@ -164,6 +164,7 @@ import { formatTokens } from '../../utils/tokens.js';
 /** Where a conversation's fill level starts to matter (shared with the PR watch's notes). */
 export { CONTEXT_WARN, CONTEXT_FULL } from '../../state/session-display.js';
 import { CONTEXT_FULL, CONTEXT_WARN } from '../../state/session-display.js';
+import { branchLabel, branchNote, branchTitle, branchUnpushed, headerBranches } from '../../state/branches.js';
 
 /**
  * "Context 62%" with a small bar: how full the session's Claude
@@ -382,5 +383,52 @@ export function AccountChip({ session, onOpen }: { session: SessionSummary; onOp
       )}
       {pending && <span className="wd-account-pending"> {pendingText(pending)}</span>}
     </span>
+  );
+}
+
+/**
+ * "Branches: fix/a (checked out) 1 commit · not pushed · fix/b 1 commit · not pushed · feat/x PR #3592 merged":
+ * every branch the session worked on, when more than one (session-branches.ts) — Claude often moves on to a new
+ * branch in the same worktree once a PR merges, and the earlier work must not look gone. A click shows that
+ * branch's changes in the Diff tab.
+ */
+export function BranchesLine({ session, onShow }: { session: SessionSummary; onShow?: (repo: string, name: string) => void }) {
+  const list = headerBranches(session);
+  if (list.length < 2) return null;
+  return (
+    <div className="wd-branches-line" aria-label="Branches it worked on">
+      <span className="wd-branches-label">Branches:</span>
+      {list.map((b) => {
+        const note = branchNote(b, false);
+        return (
+          <span
+            key={`${b.repo}\u0000${b.name}`}
+            className={'wd-branch' + (b.current ? ' wd-branch-current' : '') + (branchUnpushed(b) ? ' wd-branch-unpushed' : '')}
+            title={branchTitle(b)}
+          >
+            {onShow && !b.current ? (
+              <button type="button" className="wd-overlap-link" onClick={() => onShow(b.repo, b.name)}>
+                {branchLabel(b, session.isGroup)}
+              </button>
+            ) : (
+              <span className="wd-branch-name">{branchLabel(b, session.isGroup)}</span>
+            )}
+            {b.current && <span className="wd-branch-tag"> (checked out)</span>}
+            {note && <span className="wd-branch-note"> {note}</span>}
+            {b.pr && (
+              <a
+                className={`wd-pr-chip wd-pr-stage${toneClass(b.pr.kind)}`}
+                href={b.pr.url}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open #${b.pr.number}: ${stagePhrase(b.pr.kind)}`}
+              >
+                #{b.pr.number} · {stagePhrase(b.pr.kind)}
+              </a>
+            )}
+          </span>
+        );
+      })}
+    </div>
   );
 }

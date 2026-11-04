@@ -4,12 +4,13 @@ import { findOverlaps } from '../../core/diff/overlap.js';
 import { firstFreeBranch } from '../../core/worktree/branch-name.js';
 import { addedRepoNote, addRepoRefusal } from '../../core/worktree/add-repo-rules.js';
 import { createDemoRepos } from './demo-repos.js';
-import { prStageOf, STAGE_WANTS_YOU } from '../../core/pr/pr-stage.js';
+import { prStageOf, stageOfPr, stageRepos, STAGE_WANTS_YOU } from '../../core/pr/pr-stage.js';
 import { mergedParent, stackChildCounts, stackParents } from '../../core/stacks/stack.js';
 import { buildDigest } from '../../core/conversations/digest.js';
 import { cleanupVerdict } from '../../core/cleanup/cleanup-verdict.js';
 import { createPresence, type Presence } from '../presence.js';
 import { ciFixMessage } from '../../core/pr/pr-watch.js';
+import { workElsewhere } from '../../core/pr/branch-work.js';
 import type {
   BranchCheck,
   ChecksState,
@@ -31,6 +32,7 @@ import type {
   CleanupCandidate,
   CleanupState,
   SessionCommit,
+  SessionBranchWire,
   ArchivedBy,
   AddRepoWire,
 } from '../../core/api-types.js';
@@ -64,6 +66,21 @@ interface DemoRepo {
   pr: ShipPr | null;
   /** Unresolved review threads on the PR (simulated). */
   openThreads?: number;
+  /** The branch checked out now, when Claude moved on from the session's own (session-branches.ts); `pr` is its PR. */
+  checkedOut?: string;
+  /** The other branches this repo worked on (the session's own included, once it moved on). */
+  others?: DemoBranch[];
+}
+
+/** Another branch a demo repo worked on, as session-branches.ts records it and the PR watch sees it. */
+interface DemoBranch {
+  name: string;
+  from?: string;
+  published: boolean;
+  pr: ShipPr | null;
+  /** Its own commits (not on the checked-out branch nor main), each with its diff. */
+  commits: Array<{ subject: string; minutesAgo: number; diff: string }>;
+  lastSeenMinutesAgo: number;
 }
 
 interface DemoSession {
@@ -220,6 +237,16 @@ const CHECKOUT_FRONTEND = diffNew('src/checkout/CheckoutSteps.tsx', [
   "  return step === 'address' ? <Address onNext={() => setStep('payment')} /> : <Payment />;",
   '}',
 ]);
+
+const WEBHOOK_2XX = diffEdit(
+  'src/webhooks/probe.ts',
+  12,
+  ['  return res.status < 500;'],
+  ['  // Only a 2xx says it is back: a 4xx is the endpoint refusing us.', '  return res.status >= 200 && res.status < 300;'],
+  ['export function recovered(res: Response): boolean {'],
+);
+
+const FLAKY_CULTURE = diffNew('test/setup.ts', ["process.env.LANG = 'C';", "process.env.TZ = 'UTC';"]);
 
 const DEPS = diffEdit(
   'package.json',
@@ -507,6 +534,66 @@ export class DemoScenario {
       55,
     );
     this.add('web', 'spike/dark-mode', [{ name: 'web' }], null, claudeScreen('', []), 60 * 24 * 40);
+    // Its PR merged, and Claude moved on in the same worktree: a new branch with a new PR (open, in review), and
+    // another one made from main with a commit not pushed yet. The header lists all three (session-branches.ts).
+    this.add(
+      'api',
+      'fix/webhook-retries',
+      [
+        {
+          name: 'api',
+          uncommitted: WEBHOOK_2XX,
+          sinceBranch: WEBHOOK_2XX,
+          published: true,
+          checkedOut: 'fix/webhook-2xx',
+          pr: {
+            number: 221,
+            url: 'https://github.com/example/api/pull/221',
+            state: 'OPEN',
+            isDraft: false,
+            mergeStateStatus: 'BLOCKED',
+            checks: 'pass',
+            headSha: 'w3bh00k2xx01',
+            reviewDecision: 'REVIEW_REQUIRED',
+          },
+          others: [
+            {
+              name: 'fix/flaky-culture',
+              from: 'origin/main',
+              published: false,
+              pr: null,
+              commits: [{ subject: 'Run every test under the invariant culture', minutesAgo: 70, diff: FLAKY_CULTURE }],
+              lastSeenMinutesAgo: 65,
+            },
+            {
+              name: 'fix/webhook-retries',
+              published: true,
+              pr: {
+                number: 198,
+                url: 'https://github.com/example/api/pull/198',
+                state: 'MERGED',
+                isDraft: false,
+                mergeStateStatus: 'CLEAN',
+                checks: 'pass',
+                headSha: 'w3bh00kr3try',
+                mergedAt: this.iso(60 * 5),
+              },
+              commits: [],
+              lastSeenMinutesAgo: 60 * 4,
+            },
+          ],
+        },
+      ],
+      { state: 'idle', seen: true, summary: 'Opened PR #221: a webhook recovers only on a 2xx probe.', minutesAgo: 35 },
+      claudeScreen('Make a webhook recover only on a 2xx probe', [
+        '● Bash(git checkout -b fix/webhook-2xx origin/main)',
+        '● Update(src/webhooks/probe.ts)',
+        '● Bash(gh pr create --fill)',
+        '',
+        '● Opened PR #221: a webhook recovers only on a 2xx probe.',
+      ]),
+      40,
+    );
     // A fork of the invoice export, stacked on it (and two commits behind it).
     this.add(
       'api',
@@ -865,13 +952,74 @@ export class DemoScenario {
         : null,
       ...(this.reviewThreads(s) > 0 ? { openReviewThreads: this.reviewThreads(s) } : {}),
       ...this.stage(s),
+      ...this.branchesOf(s),
     };
+  }
+
+  /** The branch a repo has checked out (the session's own unless it moved on). */
+  private checkedOutOf(s: DemoSession, r: DemoRepo): string {
+    return r.checkedOut ?? s.branch;
+  }
+
+  /**
+   * Every branch it worked on, as work web says it (session-branches.ts, branch-facts.ts): only when a repo was
+   * on more than one; and the repos checked out on another branch than the session's (`onOtherBranch`).
+   */
+  private branchesOf(s: DemoSession): Pick<SessionWire, 'branches' | 'onOtherBranch'> {
+    if (s.archivedAt || !s.repos.some((r) => r.others?.length)) return {};
+    const repoName = (r: DemoRepo) => (s.isGroup ? r.name : s.target);
+    const pr = (p: ShipPr | null) => (p ? { pr: { number: p.number, url: p.url, state: p.state, kind: stageOfPr(p) } } : {});
+    const branches: SessionBranchWire[] = s.repos.flatMap((r) => [
+      {
+        repo: repoName(r),
+        name: this.checkedOutOf(s, r),
+        current: true,
+        firstSeen: this.iso(60),
+        lastSeen: this.iso(1),
+        exists: true,
+        pushed: r.published,
+        commits: Math.max(1, this.commitList(s, r).length),
+        unpushed: r.published ? 0 : Math.max(1, this.commitList(s, r).length),
+        merged: r.pr?.state === 'MERGED',
+        ...pr(r.pr),
+      },
+      ...(r.others ?? []).map((b) => ({
+        repo: repoName(r),
+        name: b.name,
+        current: false,
+        firstSeen: this.iso(b.lastSeenMinutesAgo + 60),
+        lastSeen: this.iso(b.lastSeenMinutesAgo),
+        ...(b.from ? { from: b.from } : {}),
+        exists: true,
+        pushed: b.published,
+        commits: b.commits.length,
+        unpushed: b.published ? 0 : b.commits.length,
+        merged: b.pr?.state === 'MERGED',
+        ...pr(b.pr),
+      })),
+    ]);
+    const moved = s.repos.filter((r) => this.checkedOutOf(s, r) !== s.branch);
+    return {
+      branches: branches.sort((a, b) => Number(b.current) - Number(a.current) || Date.parse(b.lastSeen) - Date.parse(a.lastSeen)),
+      ...(moved.length ? { onOtherBranch: moved.map((r) => ({ repo: repoName(r), branch: this.checkedOutOf(s, r) })) } : {}),
+    };
+  }
+
+  /** A repo's other branches' PRs, newest first (the PR watch's `otherPrs`). */
+  private otherPrs(r: DemoRepo): Array<{ branch: string; pr: ShipPr }> {
+    return (r.others ?? [])
+      .filter((b): b is DemoBranch & { pr: ShipPr } => !!b.pr)
+      .map((b) => ({ branch: b.name, pr: b.pr }))
+      .sort((a, b) => b.pr.number - a.pr.number);
   }
 
   /** Where its PR stands, as the PR watch would say (pr-stage.ts), seen once you looked at it there. */
   private stage(s: DemoSession): { prStage?: PrStageWire } {
     if (s.archivedAt) return {};
-    const stage = prStageOf(s.repos.map((r) => ({ name: s.isGroup ? r.name : s.target, pr: r.pr })));
+    // The newest open PR across the branches it worked on (stageRepos), as work web reads it.
+    const stage = prStageOf(
+      stageRepos(s.repos.map((r) => ({ name: s.isGroup ? r.name : s.target, pr: r.pr, otherPrs: this.otherPrs(r) }))),
+    );
     if (!stage) return {};
     return { prStage: STAGE_WANTS_YOU.has(stage.kind) && this.stageSeen.has(`${s.id}:${stage.key}`) ? { ...stage, seen: true } : stage };
   }
@@ -926,7 +1074,13 @@ export class DemoScenario {
    * turn 2 wrote that last file. Sessions with nothing uncommitted have
    * only the baseline (so "Last turn" is disabled there).
    */
-  checkpoints(id: string): Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }> | null {
+  checkpoints(id: string): Array<{
+    id: number;
+    ts: string;
+    label?: string;
+    repos: Record<string, string | null>;
+    branches?: Record<string, string | null>;
+  }> | null {
     const s = this.sessions.get(id);
     if (!s) return null;
     const repos = Object.fromEntries(s.repos.map((r) => [r.name, null]));
@@ -939,7 +1093,10 @@ export class DemoScenario {
       entries.push({ id: 1, ts: at(25), label: 'Implemented the change', repos });
       entries.push({ id: 2, ts: at(5), label: 'Addressed review feedback', repos });
     }
-    return entries;
+    // Each turn's checked-out branches: a session that moved on to another branch did so in its last turn
+    // (the picker marks it "branch switched").
+    const branchesAt = (moved: boolean) => Object.fromEntries(s.repos.map((r) => [r.name, moved ? this.checkedOutOf(s, r) : s.branch]));
+    return entries.map((e, i) => ({ ...e, branches: branchesAt(i === entries.length - 1 && i > 0) }));
   }
 
   /**
@@ -963,7 +1120,25 @@ export class DemoScenario {
   commits(id: string): SessionCommit[] | null {
     const s = this.sessions.get(id);
     if (!s) return null;
-    return s.repos.flatMap((r) => this.commitList(s, r).map(({ files: _files, ...c }) => c)).reverse();
+    return [
+      ...s.repos.flatMap((r) => this.commitList(s, r).map(({ files: _files, ...c }) => c)).reverse(),
+      // The other branches' own commits, each marked with its branch (session-history.ts).
+      ...s.repos.flatMap((r) => this.otherCommits(s, r).map(({ files: _files, ...c }) => c)),
+    ];
+  }
+
+  /** The other branches' commits of a repo, newest first, with their files. */
+  private otherCommits(s: DemoSession, r: DemoRepo): Array<SessionCommit & { files: ParsedFile[] }> {
+    return (r.others ?? []).flatMap((b) =>
+      b.commits.map((c) => ({
+        repo: r.name,
+        sha: demoSha(`${s.id}:${r.name}:${b.name}:${c.subject}`),
+        subject: c.subject,
+        at: this.iso(c.minutesAgo),
+        branch: b.name,
+        files: parseGitDiff(c.diff),
+      })),
+    );
   }
 
   /** A range between two points (diff-points.ts), as the real server answers it: a commit's range is its repo's alone. */
@@ -977,6 +1152,16 @@ export class DemoScenario {
     if (!repoName) return this.rangeDiff(id, cpOf(from, 0), cpOf(to, 0));
     const r = s.repos.find((x) => x.name === repoName);
     if (!r) return null;
+    // A commit of another branch it worked on: that commit alone.
+    const sha = from.kind === 'commit' || from.kind === 'parent' ? from.sha : to.kind === 'commit' || to.kind === 'parent' ? to.sha : '';
+    const other = this.otherCommits(s, r).find((c) => c.sha === sha);
+    if (other)
+      return {
+        sessionId: id,
+        base: 'range',
+        resolvedBase: 'range',
+        repos: [{ name: r.name, root: `~/worktrees/${s.target}/${r.name}`, files: other.files, resolvedBase: 'range' }],
+      };
     const list = this.commitList(s, r);
     const at = (p: DiffPoint) => list.findIndex((c) => (p.kind === 'commit' || p.kind === 'parent') && c.sha === p.sha);
     const start = from.kind === 'parent' ? at(from) : from.kind === 'commit' ? at(from) + 1 : list.length;
@@ -1163,6 +1348,8 @@ export class DemoScenario {
       repos: s.repos.map((r) => ({
         name: r.name,
         pr: r.pr ? { author: 'you', ...r.pr } : r.pr,
+        branch: this.checkedOutOf(s, r),
+        ...(this.otherPrs(r).length ? { otherPrs: this.otherPrs(r).map((o) => ({ ...o, pr: { author: 'you', ...o.pr } })) } : {}),
         done: r.pr?.state === 'MERGED',
         ...(r.pr?.state === 'OPEN' && r.openThreads ? { openThreads: r.openThreads } : {}),
       })),
@@ -1423,7 +1610,7 @@ export class DemoScenario {
     return {
       name: s.isGroup ? r.name : s.target,
       path: `~/worktrees/${s.target}/${r.name}`,
-      branch: s.branch,
+      branch: this.checkedOutOf(s, r),
       localSha: r.pr?.headSha ?? 'a1b2c3d4e5f6',
       dirtyFiles,
       hasUpstream: r.published,
@@ -1435,6 +1622,19 @@ export class DemoScenario {
       doneReason: done ? (r.pr ? 'merged' : 'untouched') : undefined,
       mergeBlockers: blockers,
       commitsVsBase: commits,
+      ...(r.others?.length
+        ? {
+            otherBranches: r.others.map((b) => ({
+              name: b.name,
+              exists: true,
+              pushed: b.published,
+              commits: b.commits.length,
+              unpushed: b.published ? 0 : b.commits.length,
+              merged: b.pr?.state === 'MERGED',
+              pr: b.pr,
+            })),
+          }
+        : {}),
     };
   }
 
@@ -1504,7 +1704,8 @@ export class DemoScenario {
       r.pr = { ...r.pr!, state: 'MERGED' };
       return { repo: sel.name, ok: true, merged: true, message: `PR #${r.pr.number} merged (${method})`, url: r.pr.url };
     });
-    const allDone = s.repos.every((r) => this.repoState(s, r).done);
+    // Not while another branch it worked on has work not pushed or a PR open (branch-work.ts), as work web says.
+    const allDone = s.repos.every((r) => this.repoState(s, r).done) && workElsewhere(this.preflight(id)!).length === 0;
     if (allDone) {
       s.archivedAt = new Date(this.now()).toISOString();
       s.archivedBy = 'shipped';

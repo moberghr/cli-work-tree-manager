@@ -21,6 +21,7 @@ import {
   ClaudesChip,
   ContextChip,
   OtherBranchChip,
+  BranchesLine,
   OverlapChip,
   StackChip,
   PrChips,
@@ -105,6 +106,8 @@ export function SessionDetail({
   const [prFor, setPrFor] = useState<string | null>(null);
   // The diff filling the window; another session opens as usual.
   const [diffFull, setDiffFull] = useState(false);
+  // A branch the header's Branches line asked the Diff tab to show (once per ask: seq).
+  const [branchAsk, setBranchAsk] = useState<{ name: string; repo: string; seq: number; sessionId: string } | null>(null);
   // Left (another session, or another of its tabs): full screen is over, and doesn't come back by itself.
   useEffect(() => setDiffFull(false), [session.id, subTab]);
   // Ctrl+T, as Visual Studio's: search the session's code from any of its tabs (a terminal too: the capture
@@ -149,6 +152,10 @@ export function SessionDetail({
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
         onShowTerminal={() => onSelectSubTab('term')}
         onShowTimeline={() => onSelectSubTab('timeline')}
+        onShowBranch={(repo, name) => {
+          setBranchAsk((a) => ({ name, repo, seq: (a?.seq ?? 0) + 1, sessionId: session.id }));
+          onSelectSubTab('diff');
+        }}
       />
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
@@ -173,7 +180,13 @@ export function SessionDetail({
       </nav>
       <div className={'wd-session-subtab-body' + (subTab === 'diff' && diffFull ? ' wd-diff-full' : '')}>
         {subTab === 'diff' && (
-          <DiffView session={session} startOnLastTurn={startOnLastTurn} fullScreen={diffFull} onFullScreen={setDiffFull} />
+          <DiffView
+            session={session}
+            startOnLastTurn={startOnLastTurn}
+            fullScreen={diffFull}
+            onFullScreen={setDiffFull}
+            showBranch={branchAsk?.sessionId === session.id ? branchAsk : null}
+          />
         )}
         {subTab === 'term' &&
           (onTermSlot ? (
@@ -227,6 +240,8 @@ interface HeaderProps {
   onShowTerminal?: () => void;
   /** Show its timeline (⋯ → Timeline). */
   onShowTimeline?: () => void;
+  /** Show another branch it worked on in the Diff tab (the Branches line). */
+  onShowBranch?: (repo: string, name: string) => void;
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
@@ -241,6 +256,7 @@ function SessionHeader({
   onOpenPr,
   onShowTerminal,
   onShowTimeline,
+  onShowBranch,
 }: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -413,6 +429,7 @@ function SessionHeader({
         <DevChip dev={dev} />
         {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}
       </div>
+      <BranchesLine session={session} onShow={onShowBranch} />
       <CatchUpPanel catchUp={catchUp} />
       {notesOpen && <SessionNotes session={session} onClose={() => setNotesOpen(false)} />}
       {needs && <NeedsYouBar text={needs} onOpen={onOpenPr} />}

@@ -55,6 +55,7 @@ const SPA_SHARED = new Set([
   'src/core/api-types.js',
   'src/core/diff/diff-parse.js',
   'src/core/sessions/saved-prompts.js',
+  'src/core/sessions/branch-view.js', // pure: a session's branches in words (Ship's dialog)
   'src/core/conversations/digest-view.js',
   'src/core/sessions/session-view.js',
   'src/core/rail/session-order.js',

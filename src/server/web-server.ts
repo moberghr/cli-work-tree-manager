@@ -7,6 +7,15 @@ import { retargetChildrenOf, syncStacksAfterTurn } from '../core/stacks/stack-sy
 import { logSwallowed } from '../core/platform/best-effort.js';
 import { shownState } from '../core/status/turn-activity.js';
 import { BehindCache } from '../core/stacks/behind-main.js';
+import { createSessionBranches } from '../core/stacks/branch-facts.js';
+import {
+  allSessionBranches,
+  BRANCH_WATCH_MS,
+  otherBranchesToWatch,
+  readSessionBranches,
+  repoNameOf,
+} from '../core/sessions/session-branches.js';
+import { checkedOutBranch } from '../core/git/git-head.js';
 import { mountUpdateRoutes } from './routes/update-routes.js';
 import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
 import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
@@ -66,7 +75,7 @@ import { devPresence } from './presence.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { VERSION } from '../version.js';
 import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire, withRestoring } from '../core/sessions/session-wire.js';
-import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
+import { createStageTracker, prStageOf, stageRepos } from '../core/pr/pr-stage.js';
 import { createSeenStores } from '../core/pr/pr-watch-store.js';
 import { createDigestSource } from '../core/conversations/digest-source.js';
 import { report } from '../core/platform/report.js';
@@ -351,6 +360,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const worktreeQueue = keyedQueue();
   const makeWorktree: CreateWorktree = oneAtATime((req, config) => createInChild(getWorkBin())(req, config), worktreeQueue);
   const behindCache = new BehindCache({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
+  // Every branch a session worked on, with what each holds: looked at in the background (branch-facts.ts).
+  const sessionBranches = createSessionBranches({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
   const diffStats = new DiffStatCache({
     onChange: () => {
       if (diffStatBroadcast) return;
@@ -392,6 +403,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       const snoozes = allSnoozes();
       const noted = sessionsWithNotes();
       const blocks = allBlocks();
+      const branchRecords = allSessionBranches();
       const live = new Set(history.filter((x) => !x.archivedAt).map((x) => sessionIdFor(x)));
       // Stacked sessions (stack.ts): behind and Update measure against the parent.
       const stacks = sessionStacks(history, loadConfig());
@@ -422,6 +434,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
                 shadowed: (id) => shadow.has(id),
                 reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
                 prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
+                branchesFor: (id, s) => sessionBranches.wire(s, branchRecords.get(id), prWatch.state(id)),
                 replyDraftsFor: (id) => drafts.get(id) ?? 0,
                 hasNote: (id) => noted.has(id),
                 accountPendingFor: (id) => accountLink.pendingFor(id),
@@ -462,6 +475,18 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // scope exists — the manifest on disk survives restarts, the in-memory
   // registration doesn't — and hide scopes from the SPA.
   let scopeApi: ReturnType<typeof mountScopeRoutes> | null = null;
+  // A session's other recent branches, for its commit list (session-history.ts).
+  const otherBranchRefs = (session: WorktreeSession) => {
+    const rec = readSessionBranches(sessionIdFor(session));
+    const now = Date.now();
+    return session.paths.flatMap((p) => {
+      const repo = repoNameOf(session, p);
+      return otherBranchesToWatch(rec, repo, checkedOutBranch(p), now, BRANCH_WATCH_MS).map((name) => {
+        const from = rec?.branches.find((b) => b.repo === repo && b.name === name)?.from;
+        return { path: p, name, ...(from ? { from } : {}) };
+      });
+    });
+  };
   const sessionScope = (session: WorktreeSession) =>
     bestEffort(
       `checkpoint scope for ${session.target}:${session.branch}`,
@@ -477,8 +502,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     const session = findSession(c.req.param('id'));
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const hash = scopeHashForPaths(session.paths);
-    // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read).
-    const commits = bestEffort('list the session commits', () => sessionCommits(session), []);
+    // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read) —
+    // and those of the other branches it worked on (session-branches.ts), under each.
+    const commits = bestEffort('list the session commits', () => sessionCommits(session, otherBranchRefs(session)), []);
     return c.json({ scopeHash: hash, entries: loadManifest(hash).entries, commits } satisfies SessionHistoryWire);
   });
 
@@ -547,7 +573,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       const n = reviewThreadsOf(prWatch.state(id));
       const threadsMoved = n !== (threadsShown.get(id) ?? 0);
       threadsShown.set(id, n);
-      const stage = prStageOf(prWatch.state(id)?.repos ?? []);
+      const stage = prStageOf(stageRepos(prWatch.state(id)?.repos ?? []));
       const news = stageNewsFor(id, stage);
       if (threadsMoved || news !== 'none') broadcast('sessions-changed', { ts: Date.now() });
       // The real work web notifies; the dev server would say it twice.
@@ -841,6 +867,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     config: loadConfig,
     invalidate: (sid: string) => {
       behindCache.invalidate(sid);
+      sessionBranches.invalidate(sid);
       diffStats.invalidate(sid);
     },
     startRun: () => activity.start('stacks', 'Updating stacked sessions'),
@@ -931,6 +958,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     broadcast,
     changed: (id) => {
       behindCache.invalidate(id);
+      sessionBranches.invalidate(id);
       diffStats.invalidate(id);
     },
   });
@@ -990,6 +1018,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       : {}),
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
+      sessionBranches.invalidate(id); // a turn may have committed, pushed or made a branch
       accountLink.turnEnded(id); // a restart, or a switch of account, that waited for this turn to end
       timeKeeper?.soon(); // today's hours, after this turn
       if (jobs) void syncStacksAfter(id);
@@ -1021,6 +1050,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     invalidate: (id) => {
       diffStats.invalidate(id);
       behindCache.invalidate(id);
+      sessionBranches.invalidate(id);
     },
     note: noteThroughComments(app),
   });

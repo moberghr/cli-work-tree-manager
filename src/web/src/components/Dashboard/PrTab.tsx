@@ -193,7 +193,8 @@ function PrSectionView({
   // Folded by what's in it (open or wanting you: unfolded) until you click — so
   // one whose draft loads after the first look still opens; then it's yours.
   const [chosen, setChosen] = useState<boolean | null>(null);
-  const unfolded = chosen ?? (open || wants > 0);
+  // An earlier PR a newer one of its repo followed (the session moved on to a new branch) starts folded too.
+  const unfolded = chosen ?? ((open && !s.earlier) || wants > 0);
   return (
     <section className={'wd-pr-section' + (wants ? ' wd-pr-section-wants' : '')} aria-label={`Pull request ${prName(s, isGroup)}`}>
       <div className="wd-pr-section-head">
@@ -201,6 +202,11 @@ function PrSectionView({
           {unfolded ? '▾' : '▸'}
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
+        {s.earlier && (
+          <span className="wd-pr-earlier" title="An earlier pull request of this session: it moved on to a newer branch and PR since.">
+            earlier{s.branch ? ` · ${s.branch}` : ''}
+          </span>
+        )}
         {s.title && <span className="wd-pr-title">{s.title}</span>}
         {s.author && !s.mine && (
           <span className="wd-pr-author" title={`Opened on ${hostName(s.host)} by @${s.author}`}>

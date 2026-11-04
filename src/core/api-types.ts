@@ -297,13 +297,53 @@ export interface SessionCommit {
   subject: string;
   /** Committer date, ISO: commits and turns are listed in time order. */
   at: string;
+  /** Another branch the session worked on (session-branches.ts): its commits since its base, listed under it.
+   *  Absent: the checked-out branch's. */
+  branch?: string;
 }
 
 /** GET /api/sessions/:id/checkpoints: its turns, and (additive) its commits since the branch's base. */
 export interface SessionHistoryWire {
   scopeHash: string;
-  entries: Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }>;
+  /** `branches`: each repo's checked-out branch when the turn was taken (by repo root; absent on turns from before) —
+   *  a turn whose branch differs from the one before it crossed a switch. */
+  entries: Array<{
+    id: number;
+    ts: string;
+    label?: string;
+    repos: Record<string, string | null>;
+    branches?: Record<string, string | null>;
+  }>;
   commits?: SessionCommit[];
+}
+
+/**
+ * One branch a session's repo has been on (session-branches.ts), with what the background look found
+ * (branch-facts.ts) and its PR (the PR watch's last check). The session header's Branches line, the Diff
+ * picker's groups, `work sessions --json`.
+ */
+export interface SessionBranchWire {
+  /** The repo as the session names it (a group's folder, a single repo's target). */
+  repo: string;
+  name: string;
+  /** Checked out in that repo now. */
+  current: boolean;
+  firstSeen: string;
+  lastSeen: string;
+  /** What it was made from (`origin/dev`), when the reflog said. */
+  from?: string;
+  /** The facts: absent until the background look has been. */
+  exists?: boolean;
+  /** `origin/<name>` exists. */
+  pushed?: boolean;
+  /** Commits on it its base (origin/HEAD) doesn't have; null: unknown. */
+  commits?: number | null;
+  /** Commits on it origin doesn't have (all of them when it was never pushed); null: unknown. */
+  unpushed?: number | null;
+  /** Its work is in main (its commits, or its PR merged). */
+  merged?: boolean;
+  /** Its newest PR, as the PR watch last saw it. */
+  pr?: { number: number; url: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; kind: import('./pr/pr-stage.js').PrStageKind };
 }
 
 // ---- New worktree: is the branch new? (branch-check.ts) -------------------
@@ -513,6 +553,9 @@ export interface SessionWire {
   target: string;
   /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;
+  /** Every branch it worked on (session-branches.ts), the checked-out ones first: present only when some repo
+   *  has been on more than one (merged ones deleted a while ago left out). Absent from a server before this. */
+  branches?: SessionBranchWire[];
   /** Repos whose checkout is on another branch now (Claude switched, or you did); null = detached HEAD. */
   /** `noGit`: its folder has no git left in it (a removal that stopped halfway): `work tree` makes it again. */
   onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
@@ -887,6 +930,24 @@ export interface RepoShipState {
   ghError?: string;
   /** Commits the remote's default branch doesn't have (null = unknown). */
   commitsVsBase?: number | null;
+  /** The other branches this repo worked on (session-branches.ts), as they stand: a session isn't done
+   *  while one has work that isn't pushed or a PR still open (`workElsewhere`). Absent: none recorded. */
+  otherBranches?: OtherBranchState[];
+}
+
+/** Another branch a repo of the session worked on: the facts (branch-facts.ts) and its PR. */
+export interface OtherBranchState {
+  name: string;
+  exists: boolean;
+  /** Its tip, when it exists: a merged PR at it leaves nothing unpushed, its origin branch deleted or not. */
+  sha?: string | null;
+  pushed: boolean;
+  commits: number | null;
+  unpushed: number | null;
+  merged: boolean;
+  pr: ShipPr | null;
+  /** The host couldn't say (its PR unknown: never read as none). */
+  ghError?: string;
 }
 
 export interface ShipPreflight {
@@ -985,6 +1046,11 @@ export interface SessionCi {
     /** Who you are on its host and server (a GitHub Enterprise login isn't github.com's). Absent: unknown, or an older server. */
     viewer?: string;
     pr: ShipPr | null;
+    /** The branch `pr` is for: the one checked out (absent from a check before this). */
+    branch?: string;
+    /** PRs of the other branches this repo worked on (session-branches.ts), newest first: the stage
+     *  prefers the newest open one across them (pr-stage.ts `stageRepos`). */
+    otherPrs?: Array<{ branch: string; pr: ShipPr }>;
     done: boolean;
     /** Unresolved review threads waiting on the author (open PRs). */
     openThreads?: number;

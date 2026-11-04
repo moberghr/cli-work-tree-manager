@@ -39,6 +39,7 @@ import path from 'node:path';
 import spawn from '../platform/spawn.js';
 import { atomicWriteFile, ensureFile, withFileLock } from '../platform/fs-safe.js';
 import { runGitAsync, writeTempTreeAsync } from './git-tree-snapshot.js';
+import { checkedOutBranch } from '../git/git-head.js';
 
 export interface CheckpointEntry {
   /** Monotonic per-scope sequence id, starting at 0 for the initial
@@ -54,6 +55,15 @@ export interface CheckpointEntry {
    *  commits), the value is null — diff ranges that touch it on the
    *  "from" side fall back to the empty tree. */
   repos: Record<string, string | null>;
+  /** Per repo (keyed as `repos`), the branch checked out when it was taken (null: detached). A turn whose
+   *  branch differs from the one before it crossed a branch switch: its diff is the switch, not a revert.
+   *  Absent on entries from before. */
+  branches?: Record<string, string | null>;
+}
+
+/** Each repo's checked-out branch now (HEAD files, no git). */
+export function branchesOf(repos: ScopeRepo[]): Record<string, string | null> {
+  return Object.fromEntries(repos.map((r) => [r.name, checkedOutBranch(r.root)]));
 }
 
 export interface CheckpointManifest {
@@ -257,6 +267,7 @@ export async function takeCheckpoint(
       id: nextId,
       ts: new Date().toISOString(),
       repos: captured,
+      branches: branchesOf(repos),
     };
     const label = opts.label ?? (isFirst ? 'Initial' : undefined);
     if (label) entry.label = label;
@@ -345,6 +356,7 @@ export async function updateCheckpoint(scopeHash: string, repos: ScopeRepo[], id
     }
 
     entry.repos = captured;
+    entry.branches = branchesOf(repos);
     entry.ts = new Date().toISOString();
     delete entry.label; // content changed → re-summarise
     atomicWriteFile(file, JSON.stringify(manifest, null, 2));
@@ -401,6 +413,7 @@ export async function resetBaseline(scopeHash: string, repos: ScopeRepo[]): Prom
       ts: new Date().toISOString(),
       label: 'Initial',
       repos: captured,
+      branches: branchesOf(repos),
     };
     const manifest: CheckpointManifest = {
       version: 1,

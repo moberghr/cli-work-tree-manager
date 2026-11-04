@@ -10,6 +10,7 @@ import {
   type ShipResult,
 } from '../../api/client.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { otherBranchFact } from '../../../../core/sessions/branch-view.js';
 
 interface Props {
   session: SessionSummary;
@@ -353,6 +354,20 @@ function RepoState({
           {r.ghError && <li className="wd-ship-bad">{r.ghError}</li>}
         </ul>
       )}
+      {r.otherBranches?.length ? (
+        // The other branches it worked on (Ship acts on the checked-out one): what's left on them keeps it from being done.
+        <ul className="wd-ship-facts wd-ship-other-branches" aria-label={`Other branches of ${r.name}`}>
+          {r.otherBranches.map((b) => (
+            <li
+              key={b.name}
+              className={(b.exists && b.unpushed) || b.pr?.state === 'OPEN' ? 'wd-ship-bad' : ''}
+              title="Another branch this session worked on: Ship acts on the one checked out, and the session isn't done while this one has work not pushed or a PR open."
+            >
+              also {otherBranchFact(b)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {r.mergeBlockers.length > 0 && (
         <ul className="wd-ship-blockers" aria-label={`Why ${r.name} can't merge`}>
           {r.mergeBlockers.map((b) => (

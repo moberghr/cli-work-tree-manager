@@ -479,6 +479,17 @@
   text-transform: uppercase;
   padding: 8px 8px 2px;
 }
+/* An other branch's section (its commits), and what's known of it: "1 commit · not pushed". */
+.wd-history-branch-note {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+/* A turn that crossed a branch switch: its diff is the switch, not Claude's change. */
+.wd-history-switch {
+  color: var(--warn-fg);
+  font-style: italic;
+}
 .wd-history-row-look .wd-history-tag {
   min-width: 9em;
 }

@@ -1854,6 +1854,41 @@ a.wd-pr-chip:hover {
   min-width: 0;
 }
 
+/* "Branches: fix/a (checked out) 1 commit · not pushed  feat/x #3592 · merged" (BranchesLine): every branch it worked on. */
+.wd-branches-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 0 24px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+}
+.wd-branches-label {
+  font-weight: 600;
+}
+.wd-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wd-branch-current .wd-branch-name {
+  color: var(--fg);
+  font-weight: 600;
+}
+.wd-branch-unpushed .wd-branch-note {
+  color: var(--warn-fg);
+}
+
+/* The PR tab: an earlier PR, folded under the newer one the session moved on to. */
+.wd-pr-earlier {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 /* "Needs you: 1 reply to post · CI failing on #212 [Review]" (NeedsYouBar). */
 .wd-needs-you {
   display: flex;

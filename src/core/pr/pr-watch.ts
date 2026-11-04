@@ -13,6 +13,7 @@ import {
   openThreadsOf,
 } from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from '../platform/activity.js';
+import { otherPrsOf, workElsewhere } from './branch-work.js';
 import { DEFAULT_TRUSTED_BOTS, MAX_THREAD_BODY, subAgentHint } from './pr-review.js';
 
 /** What waking a session's Claude did: started it; it was already running (it has the note);
@@ -244,6 +245,10 @@ export function autoArchiveVerdict(
   // anything: never archive on a guess.
   const unread = pre.repos.filter((r) => (!r.pr && r.ghError) || r.gitError);
   if (unread.length) return { archive: false, why: `couldn't read ${unread.map((r) => r.name).join(', ')}` };
+  // Work on another branch the session moved on to (commits not pushed, a PR open) is the session's too:
+  // archiving it would hide that work (session-branches.ts).
+  const elsewhere = workElsewhere(pre);
+  if (elsewhere.length) return { archive: false, why: `work on other branches: ${elsewhere.join('; ')}` };
   // A merged repo isn't done while there is work beyond the merge (repoDone):
   // say which, rather than "not merged" about a merged PR.
   // Every repo that holds it, each with its reason: one merged with work left in it must not hide another not merged at all.
@@ -577,6 +582,8 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         ...(r.host ? { host: r.host } : {}),
         ...(viewers.get(r.name) ? { viewer: viewers.get(r.name)! } : {}),
         pr: r.pr,
+        ...(r.branch && r.branch !== 'HEAD' ? { branch: r.branch } : {}),
+        ...(otherPrsOf(r).length ? { otherPrs: otherPrsOf(r) } : {}),
         done: r.done,
         ...(threads.has(r.name) ? { openThreads: threads.get(r.name)! } : {}),
         ...(threadList.get(r.name)?.length ? { threads: threadList.get(r.name)! } : {}),

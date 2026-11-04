@@ -57,6 +57,15 @@ function isOpenThread(t: unknown): boolean {
 }
 
 /** A stored check as the watch wrote it (the fields its readers rely on, its open threads' too); anything else is dropped. */
+/** A stored PR: what the stage and the pills read of it. */
+const isStoredPr = (pr: unknown): boolean =>
+  isObject(pr) &&
+  typeof pr.number === 'number' &&
+  typeof pr.url === 'string' &&
+  typeof pr.state === 'string' &&
+  PR_STATES.has(pr.state) &&
+  typeof pr.headSha === 'string';
+
 export function isSessionCi(v: unknown): v is SessionCi {
   if (!isObject(v) || typeof v.checkedAt !== 'string' || !Array.isArray(v.repos)) return false;
   return v.repos.every(
@@ -64,13 +73,10 @@ export function isSessionCi(v: unknown): v is SessionCi {
       isObject(r) &&
       typeof r.name === 'string' &&
       typeof r.done === 'boolean' &&
-      (r.pr === null ||
-        (isObject(r.pr) &&
-          typeof r.pr.number === 'number' &&
-          typeof r.pr.url === 'string' &&
-          typeof r.pr.state === 'string' &&
-          PR_STATES.has(r.pr.state) &&
-          typeof r.pr.headSha === 'string')) &&
+      (r.pr === null || isStoredPr(r.pr)) &&
+      (r.branch === undefined || typeof r.branch === 'string') &&
+      (r.otherPrs === undefined ||
+        (Array.isArray(r.otherPrs) && r.otherPrs.every((o) => isObject(o) && typeof o.branch === 'string' && isStoredPr(o.pr)))) &&
       (r.openThreads === undefined || typeof r.openThreads === 'number') &&
       (r.viewer === undefined || typeof r.viewer === 'string') &&
       (r.threads === undefined || (Array.isArray(r.threads) && r.threads.every(isOpenThread))),

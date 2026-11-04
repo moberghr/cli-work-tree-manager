@@ -13,6 +13,7 @@ import { isOwnCheckout, ownCheckoutNote } from '../core/worktree/own-checkout.js
 import { loadConfig } from '../core/platform/config.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
+import { recordCheckedOutBranches } from '../core/sessions/session-branches.js';
 import { bestEffort, bestEffortAsync, logSwallowed } from '../core/platform/best-effort.js';
 import { assistantContextDay, assistantContextMonth, assistantContextReview, readAssistantContext } from '../core/agents/assistant.js';
 import { agentById, type AgentAdapter, type TurnEdge } from '../core/agents/index.js';
@@ -226,6 +227,14 @@ export interface TurnHookIo {
   post: (route: string, cwd: string) => Promise<void>;
   /** The own-checkout note for a folder (tests); default: from the session and config. */
   ownCheckoutNote?: (cwd: string) => string | null;
+  /** Record the branches the session's repos have checked out (tests); default: session-branches.ts. */
+  recordBranches?: (cwd: string) => void;
+}
+
+/** The turn-end step: the branch each repo of the cwd's session is on now, recorded (HEAD files, no git). */
+export function recordBranchesFor(cwd: string): void {
+  const session = findSessionForCwd(cwd);
+  if (session) recordCheckedOutBranches(session);
 }
 
 /** The note for a turn starting in a repo's own checkout (the session for that folder), or null. */
@@ -266,6 +275,9 @@ export async function runTurnHook(
     const session = findSessionForCwd(cwd);
     if (session) bestEffort(`resolve addressed comments for ${session.target}:${session.branch}`, () => resolveAddressed(session));
   }
+  // Every branch the session works on, recorded as it goes (session-branches.ts): Claude may have made a new
+  // one this turn (a PR merged, the next fix on a branch of its own). Before the status nudge, so its refresh shows it.
+  if (!start) bestEffort(`record the branches of ${cwd}`, () => (io.recordBranches ?? recordBranchesFor)(cwd));
   await Promise.all([
     io.post(start ? 'api/checkpoint/seal' : 'api/checkpoint', cwd),
     handedOn

@@ -2,11 +2,18 @@ import path from 'node:path';
 import { defaultRunner, type CommandRunner } from '../platform/command-runner.js';
 import type { WorktreeSession } from '../sessions/history.js';
 import { DEFAULT_HOST, hostForRepo } from '../hosts/index.js';
-import type { MergeMethod, MergeSelection, RepoShipState, ShipPr, ShipPreflight, ShipResult } from '../api-types.js';
+import type { MergeMethod, MergeSelection, OtherBranchState, RepoShipState, ShipPr, ShipPreflight, ShipResult } from '../api-types.js';
+import { branchFacts, repoBase } from '../stacks/branch-facts.js';
+import { BRANCH_WATCH_MS, otherBranchesToWatch, readSessionBranches, wasPushed } from '../sessions/session-branches.js';
+import { sessionIdFor } from '../sessions/session-id.js';
+import { workElsewhere } from './branch-work.js';
+
+export { workElsewhere } from './branch-work.js';
 
 export { defaultRunner, type CommandRunner, type RunResult } from '../platform/command-runner.js';
 export type {
   ChecksState,
+  OtherBranchState,
   MergeMethod,
   MergeSelection,
   RepoShipState,
@@ -43,7 +50,7 @@ export function shipRepos(session: WorktreeSession): Array<{ name: string; path:
   }));
 }
 
-type RepoFacts = Omit<RepoShipState, 'mergeBlockers' | 'done' | 'doneReason'>;
+type RepoFacts = Omit<RepoShipState, 'mergeBlockers' | 'done' | 'doneReason' | 'otherBranches'>;
 
 /**
  * The checked-out commit is in its merged PR: the PR's head, or behind it on
@@ -129,7 +136,60 @@ function oneLineErr(s: string): string {
  *  branches that were never pushed and have no PR it knows of). */
 export type AskGh = (repo: { name: string; hasUpstream: boolean; commitsVsBase: number | null; host?: string }) => boolean;
 
-async function inspectRepo(repo: { name: string; path: string }, run: CommandRunner, askGh?: AskGh): Promise<RepoShipState> {
+/** Whether to ask the host about another branch's PR (default: it was pushed — a branch never pushed has none). */
+export type AskBranch = (repo: { name: string; host?: string }, branch: { name: string; pushed: boolean }) => boolean;
+
+export interface PreflightOptions {
+  askGh?: AskGh;
+  /** A repo's other branches to look at (session-branches.ts); default: the session's record, recent ones. */
+  branches?: (repo: { name: string; path: string }, current: string) => string[];
+  askBranch?: AskBranch;
+}
+
+/** The session's recorded branches other than the one checked out, recent ones, per repo (the preflight's default). */
+export function recordedOtherBranches(
+  session: WorktreeSession,
+  now = Date.now(),
+): { names: (repo: { name: string; path: string }, current: string) => string[]; askBranch: AskBranch } {
+  const rec = readSessionBranches(sessionIdFor(session));
+  return {
+    names: (repo, current) => otherBranchesToWatch(rec, repo.name, current, now, BRANCH_WATCH_MS),
+    // Pushed now, or once (origin's copy deleted after its PR merged): it may have a PR.
+    askBranch: (repo, b) => b.pushed || wasPushed(rec, repo.name, b.name),
+  };
+}
+
+/** The facts and PR of each of a repo's other branches. */
+async function inspectOtherBranches(
+  repo: { name: string; path: string },
+  names: string[],
+  run: CommandRunner,
+  host: ReturnType<typeof hostForRepo>['host'],
+  askBranch: AskBranch,
+): Promise<OtherBranchState[]> {
+  if (!names.length) return [];
+  const base = await repoBase(repo.path, run);
+  const out: OtherBranchState[] = [];
+  for (const name of names) {
+    const f = await branchFacts(repo.path, name, run, base);
+    let pr: ShipPr | null = null;
+    let ghError: string | undefined;
+    if (askBranch({ name: repo.name, ...(host.id === DEFAULT_HOST ? {} : { host: host.id }) }, { name, pushed: f.pushed })) {
+      const found = await host.prForBranch(run, repo.path, name);
+      if (found.kind === 'pr') pr = found.pr;
+      else if (found.kind === 'error') ghError = found.error;
+    }
+    out.push({ name, ...f, merged: f.merged || pr?.state === 'MERGED', pr, ...(ghError ? { ghError } : {}) });
+  }
+  return out;
+}
+
+async function inspectRepo(
+  repo: { name: string; path: string },
+  run: CommandRunner,
+  askGh?: AskGh,
+  others?: { names: (current: string) => string[]; askBranch: AskBranch },
+): Promise<RepoShipState> {
   const git = (...args: string[]) => run('git', args, repo.path);
   const branch = (await git('rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim();
   const localSha = (await git('rev-parse', 'HEAD')).stdout.trim();
@@ -203,15 +263,29 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
     ...(gitError ? { gitError } : {}),
   };
   const { done, reason } = repoDone(facts);
-  return { ...facts, done, doneReason: reason, mergeBlockers: mergeBlockers(facts) };
+  // A detached HEAD is on no branch: every recorded one is another.
+  const names = others && branch ? others.names(branch === 'HEAD' ? '' : branch) : [];
+  const otherBranches = names.length ? await inspectOtherBranches(repo, names, run, host, others!.askBranch) : [];
+  return {
+    ...facts,
+    done,
+    doneReason: reason,
+    mergeBlockers: mergeBlockers(facts),
+    ...(otherBranches.length ? { otherBranches } : {}),
+  };
 }
 
 export async function shipPreflight(
   session: WorktreeSession,
   run: CommandRunner = defaultRunner,
-  opts: { askGh?: AskGh } = {},
+  opts: PreflightOptions = {},
 ): Promise<ShipPreflight> {
-  const repos = await Promise.all(shipRepos(session).map((r) => inspectRepo(r, run, opts.askGh)));
+  const recorded = opts.branches && opts.askBranch ? null : recordedOtherBranches(session);
+  const branches = opts.branches ?? recorded!.names;
+  const askBranch = opts.askBranch ?? recorded?.askBranch ?? ((_repo, b) => b.pushed);
+  const repos = await Promise.all(
+    shipRepos(session).map((r) => inspectRepo(r, run, opts.askGh, { names: (current) => branches(r, current), askBranch })),
+  );
   return { repos };
 }
 
@@ -356,6 +430,7 @@ export async function mergeSelected(
       results.push({ repo: sel.name, ok: false, message: 'not merged: stopped after an earlier failure' });
     }
   }
-  const allDone = repos.every((r) => r.done || mergedNow.has(r.name));
+  // Work on another branch it worked on (commits not pushed, a PR open) keeps it from being done.
+  const allDone = repos.every((r) => r.done || mergedNow.has(r.name)) && workElsewhere({ repos }).length === 0;
   return { results, mergedAny: mergedNow.size > 0, allDone };
 }

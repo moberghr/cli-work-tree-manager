@@ -5,6 +5,7 @@ import { atomicWriteFile } from '../platform/fs-safe.js';
 import type { AssistantView, SessionWire } from '../api-types.js';
 import { DISPLAY_LABEL, displayStatus } from '../sessions/session-view.js';
 import type { AgentAdapter, AllowRule, WorkHook } from './types.js';
+import { branchesText } from '../sessions/branch-view.js';
 
 /**
  * The dashboard assistant (Ctrl+K): a persistent agent session in the PTY
@@ -156,6 +157,7 @@ export function describeView(view: AssistantView, session: SessionWire | null, n
         ? [`  Changes the same files as: ${session.overlaps.map((o) => `${o.target} · ${o.branch}`).join(', ')}.`]
         : []),
       ...(session.context ? [`  Its conversation is ${Math.round((session.context.used / session.context.window) * 100)}% full.`] : []),
+      ...(session.branches?.length ? [`  It has worked on more than one branch: ${branchesText(session.branches, session.isGroup)}.`] : []),
       ...(session.archivedAt ? ['  It is archived.'] : []),
       `  Worktree: ${session.paths.join(', ')}`,
     );

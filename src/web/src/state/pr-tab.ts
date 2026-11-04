@@ -1,5 +1,6 @@
 import type { FailingCheck, OpenReviewThread, PrReply, SessionCi, ThreadCode } from '../../../core/api-types.js';
-import { prsBeyondStage, stageOfPr, stagePhrase, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
+import { prsBeyondStage, stageOfPr, stagePhrase, stageRepos, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
+import type { ShipPr } from '../../../core/api-types.js';
 import { owedToYou } from '../../../core/status/attention.js';
 import type { PrInfo } from '../api/panes.js';
 
@@ -30,6 +31,10 @@ export interface PrSection {
   mergedAt?: string;
   /** Only the dashboard's PR list knows it (a second PR from the branch): less is known about it. */
   fromListOnly: boolean;
+  /** The branch it's from, when the PR watch said (the session may have worked on several: session-branches.ts). */
+  branch?: string;
+  /** An earlier PR of its repo: the session moved on to a newer one (stageRepos), and this one folds under it. */
+  earlier?: true;
 }
 
 const LISTED_CHECKS: Record<PrInfo['checksStatus'], PrSection['checks']> = {
@@ -60,34 +65,36 @@ function kindOfListed(p: PrInfo): PrStageKind {
   });
 }
 
-/** Most wanting first: what wants you, then open ones, then merged and closed. */
-const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPEN' ? 1 : 2);
+/** Most wanting first: what wants you, then open ones, then merged and closed, then earlier PRs a newer one followed. */
+const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPEN' ? 1 : s.earlier ? 3 : 2);
 
 export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] {
-  const watched: PrSection[] = (ci?.repos ?? []).flatMap((r) =>
-    r.pr
-      ? [
-          {
-            key: r.pr.url,
-            repo: r.name,
-            number: r.pr.number,
-            url: r.pr.url,
-            ...(r.host ? { host: r.host } : {}),
-            ...fromList(
-              r.pr,
-              listed.find((p) => p.url === r.pr!.url),
-              r.viewer ?? ci?.viewer,
-            ),
-            state: r.pr.state,
-            kind: stageOfPr(r.pr),
-            checks: r.pr.checks,
-            failing: r.pr.failing ?? [],
-            ...(r.pr.mergedAt ? { mergedAt: r.pr.mergedAt } : {}),
-            fromListOnly: false,
-          },
-        ]
-      : [],
-  );
+  // Per repo, the PR its stage reads (the newest open one across the branches it worked on), then its earlier
+  // ones — a PR that merged before the session moved on to a new branch and a new PR.
+  const watched: PrSection[] = stageRepos(ci?.repos ?? []).flatMap((r, i) => {
+    const repo = ci!.repos[i];
+    const section = (pr: ShipPr, branch: string | undefined, earlier: boolean): PrSection => ({
+      key: pr.url,
+      repo: r.name,
+      number: pr.number,
+      url: pr.url,
+      ...(repo.host ? { host: repo.host } : {}),
+      ...fromList(
+        pr,
+        listed.find((p) => p.url === pr.url),
+        repo.viewer ?? ci?.viewer,
+      ),
+      state: pr.state,
+      kind: stageOfPr(pr),
+      checks: pr.checks,
+      failing: pr.failing ?? [],
+      ...(pr.mergedAt ? { mergedAt: pr.mergedAt } : {}),
+      fromListOnly: false,
+      ...(branch ? { branch } : {}),
+      ...(earlier ? { earlier: true as const } : {}),
+    });
+    return r.pr ? [section(r.pr, r.branch, false), ...r.earlier.map((e) => section(e.pr, e.branch, true))] : [];
+  });
   const others: PrSection[] = prsBeyondStage({ prs: watched }, listed).map((p) => ({
     key: p.url,
     repo: p.repoAlias,

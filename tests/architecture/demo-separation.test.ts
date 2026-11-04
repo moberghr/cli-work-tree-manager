@@ -63,6 +63,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/worktree/add-repo-rules.ts', // pure: which repo adds are refused, and the note to Claude
       'src/core/worktree/code-symbols.ts', // pure: declarations by pattern, matching names (the Code tab's search)
       'src/core/pr/pr-stage.ts', // pure: where a PR stands
+      'src/core/pr/branch-work.ts', // pure: the work left on a session's other branches
       'src/core/pr/pr-ref.ts', // pure: a PR's link or number, and its session's first prompt
       'src/core/updates/updates.ts', // pure: versions, release notes, what to offer
       'src/core/diff/diff-points.ts', // pure: the points a diff range runs between
