@@ -151,6 +151,7 @@ describe('a big PR read right', () => {
 
   it("the AI's notes: on a changed line of a file it read in the checkout, a draft; off its lines, set aside", () => {
     const answer = JSON.stringify({
+      summary: 'Sales creates the merchant from a partner submission.',
       stories: [
         { title: 'Create Merchant step', why: 'w', risk: 'highest: money path', riskLevel: 4, flags: [], files: [HANDLER, BIG] },
         { title: 'Submission shape', why: 'w', risk: 'breaking contract', riskLevel: 4, flags: [], files: [VALIDATOR, ENTITY, MIGRATION] },
@@ -167,6 +168,10 @@ describe('a big PR read right', () => {
       [MIGRATION, 3],
     ]);
     expect(r.dropped?.map((d) => [d.path, d.line])).toEqual([[BIG, 5000]]);
+    // Its summary is the review's "In short"; an answer that names no story has none (stories by folder then).
+    expect(r.summary).toBe('Sales creates the merchant from a partner submission.');
+    expect(buildReview(meta, files, extras, JSON.stringify({ summary: 'S', stories: [] }))).not.toHaveProperty('summary');
+    expect(buildReview(meta, files, extras, undefined)).not.toHaveProperty('summary');
     // Same risk: the AI's own order stands (it ranked Create Merchant first), not the one with more files.
     expect(r.stories.map((s) => s.title)).toEqual(['Create Merchant step', 'Submission shape']);
   });

@@ -27,6 +27,10 @@ describe('prepared reviews in state.db', () => {
     expect(allReviews().map((x) => x.number)).toEqual([231]);
     expect(isReview({ ...r, status: 'bogus' })).toBe(false);
     expect(isReview({ ...r, dropped: 'x' })).toBe(false);
+    // The AI step's summary: text or absent (a review from before has none).
+    expect(r.summary).toBeTruthy();
+    expect(isReview({ ...r, summary: undefined })).toBe(true);
+    expect(isReview({ ...r, summary: 42 })).toBe(false);
     expect(isReview({ ...r, inDoubt: { at: 'now' } })).toBe(false);
     expect(isReview({ ...r, inDoubt: { at: 'now', event: 'comment', drafts: [], summary: null, error: 'e' } })).toBe(true);
     // Fix it myself's batches: shape-checked, each comment too; a fork is `true` or absent.

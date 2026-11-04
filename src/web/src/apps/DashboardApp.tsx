@@ -84,8 +84,10 @@ import {
   toHash,
   type DashboardRoute,
   type DashboardTab,
+  type ReviewRoute,
   type SessionSubTab,
 } from '../state/dashboard-route.js';
+import { readRailFolded, writeRailFolded } from '../state/review-prefs.js';
 import { dashboardDialogOpen, modalOpen as aModalIsOpen } from '../state/modal-open.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
@@ -191,6 +193,16 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [timeMonth, setTimeMonth] = useState<string | null>(null);
   // The Reviews tab's PR on screen: told to the Ctrl+K assistant with the view.
   const [reviewShown, setReviewShown] = useState<{ repo: string; number: number } | null>(null);
+  // The session rail folded on the Reviews tab (per browser): a review wants the room.
+  const [reviewsRailFolded, setReviewsRailFolded] = useState(readRailFolded);
+  const toggleReviewsRail = useCallback(
+    () =>
+      setReviewsRailFolded((f) => {
+        writeRailFolded(!f);
+        return !f;
+      }),
+    [],
+  );
   const toggleAssistant = useCallback(() => {
     setAssistantMounted(true);
     setAssistantOpen((o) => !o);
@@ -913,6 +925,12 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       case 'reviews':
         body = (
           <ReviewsTab
+            route={route.review ?? null}
+            onRoute={(review: ReviewRoute | null) =>
+              navigate({ tab: 'reviews', sessionId: null, sessionSubTab: 'term', ...(review ? { review } : {}) })
+            }
+            railFolded={reviewsRailFolded}
+            onToggleRail={toggleReviewsRail}
             onShown={setReviewShown}
             onAsk={() => {
               setAssistantMounted(true);
@@ -954,6 +972,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       <DashboardLayout
         dev={dev}
         route={route}
+        railFolded={route.tab === 'reviews' && !route.sessionId && reviewsRailFolded}
         sessions={sessions}
         onSelectTab={goTab}
         onSelectSession={hopTo}

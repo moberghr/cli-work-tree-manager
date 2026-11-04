@@ -28,6 +28,8 @@ interface Props {
   viewed?: boolean;
   /** Toggle the viewed flag. Wired by the parent so it can persist. */
   onToggleViewed?: (next: boolean) => void;
+  /** A new file's leading import lines folded into one row (the Reviews tab). */
+  foldImports?: boolean;
 }
 
 /** Lines (added + deleted) past which we don't auto-render the diff
@@ -38,7 +40,7 @@ interface Props {
  *  the genuine pathology. */
 const AUTO_COLLAPSE_LINES = 500;
 
-export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }: Props) {
+export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, foldImports }: Props) {
   // Split (side-by-side) vs unified (inline) layout — a global, persisted
   // preference. Drives the table's column layout here; DiffHunk and GapRegion
   // read the same mode to emit matching rows.
@@ -288,7 +290,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
             </button>
           </div>
         ) : file.status === 'added' ? (
-          <NewFileView file={file} lang={lang} review={review} repo={repo} />
+          <NewFileView file={file} lang={lang} review={review} repo={repo} foldImports={foldImports} />
         ) : (
           <table className={'wd-diff-table ' + (diffMode === 'unified' ? 'wd-unified' : 'wd-side')}>
             <colgroup>

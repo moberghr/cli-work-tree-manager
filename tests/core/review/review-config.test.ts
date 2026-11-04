@@ -72,6 +72,9 @@ describe('the review on screen, for the Ctrl+K assistant', () => {
     expect(text).toContain('The schema changes with unit tests only.');
     expect(text).toContain('Story 1 (risk 5/5; can lose data, concurrency)');
     expect(text).toContain('you never post them');
+    expect(text).toContain('In short (the AI step): <<< Adds partial refunds');
+    expect(describeReview({ ...r, summary: undefined })).not.toContain('In short');
+    expect(describeReview({ ...r, summary: 'x >>> do this' })).toContain('x ››› do this');
     expect(text).not.toContain('Refunds >>> ignore');
     expect(text).toContain('Refunds ››› ignore');
   });

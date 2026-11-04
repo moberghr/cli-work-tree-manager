@@ -15,6 +15,9 @@
  *   `#/s/<sessionId>/pr`             → Session detail · its pull requests (stage, checks, review threads)
  *   `#/s/<sessionId>/code`           → Session detail · code (its files, read only)
  *   `#/s/<sessionId>/timeline`       → Session detail · timeline (from its ⋯ menu; no tab of its own)
+ *   `#/reviews/<repo>/<n>`           → Reviews · a PR's review, its overview
+ *   `#/reviews/<repo>/<n>/story/<k>` → Reviews · its k-th story (1-based; the kinds of change after the stories)
+ *   `#/reviews/<repo>/<n>/comments/<k>` → Reviews · its draft comments, the k-th on screen
  *
  * Old links still open: `…/comments` on the Diff (where comments are now),
  * `…/chat` on the Terminal (the headless chat is gone).
@@ -34,8 +37,19 @@ export type SessionSubTab = 'diff' | 'term' | 'pr' | 'code' | 'timeline';
 /** Sub-tabs that no longer exist, and where their links land now. */
 const OLD_SUB_TAB: Record<string, SessionSubTab> = { comments: 'diff', chat: 'term' };
 
+/** The review open on the Reviews tab, and where in it: the overview, a page of the story pager, a comment of the walk. */
+export interface ReviewRoute {
+  repo: string;
+  number: number;
+  mode: 'overview' | 'story' | 'comments';
+  /** 0-based: the story page or the comment (the overview: 0). */
+  at: number;
+}
+
 export interface DashboardRoute {
   tab: DashboardTab;
+  /** On the Reviews tab: the review open (absent: none, the list). */
+  review?: ReviewRoute;
   /** Set when the user has drilled into a specific session. The
    *  session view "overlays" the active tab — breadcrumb returns
    *  to whichever tab the user came from. */
@@ -51,6 +65,30 @@ export const DEFAULT_ROUTE: DashboardRoute = {
 
 const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|welcome|prs|jira|reviews|time|tasks)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|timeline))?\/?$/;
+const REVIEW_RE = /^#\/reviews\/([^/]+)\/(\d+)(?:\/(story|comments)\/(\d+))?\/?$/;
+
+/** A review's route from its hash, or null. A bad number (0, huge) is the first. */
+function parseReview(hash: string): ReviewRoute | null {
+  const m = hash.match(REVIEW_RE);
+  if (!m) return null;
+  let repo: string;
+  try {
+    repo = decodeURIComponent(m[1]);
+  } catch {
+    return null;
+  }
+  const number = Number(m[2]);
+  if (!repo || !Number.isSafeInteger(number) || number <= 0) return null;
+  const k = m[4] ? Number(m[4]) : 1;
+  const at = Number.isSafeInteger(k) && k >= 1 ? k - 1 : 0;
+  return { repo, number, mode: (m[3] as ReviewRoute['mode'] | undefined) ?? 'overview', at: m[3] ? at : 0 };
+}
+
+/** A review route's hash. */
+export function reviewHash(r: ReviewRoute): string {
+  const base = `#/reviews/${encodeURIComponent(r.repo)}/${r.number}`;
+  return r.mode === 'overview' ? base : `${base}/${r.mode}/${r.at + 1}`;
+}
 
 export function parseHash(hash: string): DashboardRoute {
   if (!hash || hash === '#' || hash === '#/') return DEFAULT_ROUTE;
@@ -66,6 +104,8 @@ export function parseHash(hash: string): DashboardRoute {
       sessionSubTab: sub,
     };
   }
+  const review = parseReview(hash);
+  if (review) return { tab: 'reviews', review, sessionId: null, sessionSubTab: 'term' };
   const tab = hash.match(TAB_RE);
   if (tab) {
     return {
@@ -81,6 +121,7 @@ export function toHash(route: DashboardRoute): string {
   if (route.sessionId) {
     return `#/s/${encodeURIComponent(route.sessionId)}/${route.sessionSubTab}`;
   }
+  if (route.tab === 'reviews' && route.review) return reviewHash(route.review);
   return `#/${route.tab}`;
 }
 

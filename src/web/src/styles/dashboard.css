@@ -5528,8 +5528,8 @@ a.wd-pr-chip:hover {
 .wd-account-pending {
   color: var(--accent, inherit);
 }
-/* Reviews (#64): the list by repo (resizable) beside one review — a header, a tests strip, then the
-   review's tree beside its diff (resizable), and the submit bar. */
+/* Reviews (#64): the list by repo — the page while no review is open, folded away (Reviews ▾) while one is —
+   beside one review: a compact header with Overview · Stories · Comments, the mode's body, and the submit bar. */
 .wd-reviews {
   display: grid;
   grid-template-columns: var(--reviews-list-width, 300px) 4px minmax(0, 1fr);
@@ -5537,6 +5537,20 @@ a.wd-pr-chip:hover {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+.wd-reviews-nolist {
+  grid-template-columns: minmax(0, 1fr);
+}
+.wd-reviews-listonly {
+  grid-template-columns: minmax(320px, 560px) minmax(0, 1fr);
+}
+.wd-reviews-pick {
+  padding: 24px;
+}
+/* The session rail folded on the Reviews tab (its ⇤ button). */
+.wd-dash-rail-folded > .wd-dash-rail,
+.wd-dash-rail-folded > .wd-resize-divider {
+  display: none;
 }
 .wd-reviews-list {
   overflow: auto;
@@ -5655,12 +5669,59 @@ a.wd-pr-chip:hover {
   height: 100%;
 }
 .wd-review-header {
-  padding: 12px 16px 8px;
+  padding: 8px 16px 0;
   border-bottom: 1px solid var(--border, #8884);
 }
-.wd-review-header h2 {
-  margin: 0 0 4px;
-  font-size: 18px;
+.wd-review-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wd-review-crumbs h2 {
+  margin: 0;
+  font-size: 17px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-review-railbtn,
+.wd-review-listbtn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.wd-review-listbtn-on {
+  background: var(--current);
+}
+.wd-review-metaline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.wd-review-metaline p {
+  margin: 4px 0;
+}
+.wd-review-modes {
+  display: flex;
+  align-items: center;
+  margin: 6px 0 8px;
+}
+.wd-review-modes .wd-seg {
+  padding: 3px 14px;
+}
+.wd-review-keys {
+  margin-left: 12px;
+  font-size: 12px;
+}
+.wd-review-mode-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .wd-review-repo {
   font-weight: 400;
@@ -5669,7 +5730,7 @@ a.wd-pr-chip:hover {
 .wd-review-actions {
   display: flex;
   gap: 8px;
-  margin: 6px 0;
+  margin: 4px 0;
 }
 .wd-review-tests-strip {
   font-size: 13px;
@@ -5683,7 +5744,7 @@ a.wd-pr-chip:hover {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--review-tree-width, 300px) 4px minmax(0, 1fr);
+  grid-template-columns: var(--review-tree-width, 260px) 4px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
 .wd-review-tree {
@@ -5712,17 +5773,52 @@ a.wd-pr-chip:hover {
   margin: 0 0 2px 14px;
 }
 .wd-review-tree-file {
+  display: block;
   background: none;
   border: none;
-  color: var(--link, #0969da);
+  color: inherit;
   font: inherit;
   cursor: pointer;
   text-align: left;
-  padding: 1px 0 1px 14px;
+  padding: 3px 4px 3px 22px;
   width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+.wd-review-tree-file:hover {
+  background: var(--hover);
+}
+.wd-review-tree-name {
+  color: var(--accent);
+}
+.wd-review-tree-viewed .wd-review-tree-name {
+  color: var(--muted);
+}
+.wd-review-tree-stat {
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-review-tree-file .wd-review-folder {
+  display: block;
+}
+.wd-review-folder {
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+.wd-review-tree-num {
+  display: inline-block;
+  min-width: 18px;
+  text-align: center;
+  font-size: 11px;
+  border-radius: 9px;
+  background: var(--hover);
+  margin-right: 2px;
+}
+.wd-review-tree-current > .wd-review-tree-head {
+  background: var(--current);
+  border-radius: 4px;
 }
 .wd-review-diff-pane {
   overflow: auto;
@@ -5733,17 +5829,270 @@ a.wd-pr-chip:hover {
   margin: 0 0 16px;
 }
 .wd-review-section-head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg, #fff);
-  padding: 8px 0 6px;
+  padding: 10px 0 8px;
   border-bottom: 1px solid var(--border, #8884);
-  margin-bottom: 6px;
-  /* A story's reasoning can run to a paragraph: it scrolls in the head rather than covering the diff. */
-  max-height: 40vh;
-  overflow-y: auto;
+  margin-bottom: 10px;
   overflow-wrap: anywhere;
+}
+.wd-review-section-head h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.wd-review-section-head p {
+  margin: 4px 0;
+  max-width: 110ch;
+  line-height: 1.45;
+}
+.wd-review-story-tests {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.wd-review-story-testfiles {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+}
+.wd-review-story-testfiles ul,
+.wd-review-folded-files ul,
+.wd-review-noise ul,
+.wd-review-gaps ul,
+.wd-review-attention ul,
+.wd-review-cards,
+.wd-review-walk-list {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+}
+.wd-review-folded-files li,
+.wd-review-story-testfiles li,
+.wd-review-noise li,
+.wd-review-gaps li {
+  padding: 2px 0;
+}
+.wd-review-next {
+  margin: 16px 0 24px;
+}
+/* The pager's bar and the comment walk's: ← position →, progress, a way back. */
+.wd-review-pagerbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border, #8884);
+  background: var(--header-bg);
+  flex-wrap: wrap;
+}
+.wd-review-pager-pos {
+  min-width: 110px;
+  text-align: center;
+}
+.wd-review-progress {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wd-review-progress-bar {
+  display: inline-block;
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.wd-review-progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--add-fg);
+}
+.wd-review-pager,
+.wd-review-walk {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wd-review-walk-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 16px 16px;
+}
+.wd-review-walk-where {
+  font-weight: 600;
+}
+.wd-review-walk-looked {
+  font-size: 12px;
+  margin-left: auto;
+}
+.wd-review-walk-story {
+  margin: 0 0 6px;
+}
+.wd-review-walk-body {
+  white-space: pre-wrap;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.wd-review-walk-list {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  font-size: 13px;
+}
+.wd-review-walk-list li {
+  padding: 2px 0;
+}
+.wd-review-walk-current {
+  font-weight: 600;
+}
+/* The overview: in short, what needs you beside the stories, then what nothing tests and what is not worth reading. */
+.wd-review-overview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 20px 20px;
+}
+.wd-review-overview h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.wd-review-short {
+  margin-bottom: 16px;
+}
+.wd-review-short p,
+.wd-review-short ul {
+  margin: 0;
+  max-width: 110ch;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.wd-review-overview-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.wd-review-attention li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+}
+.wd-review-attention li input {
+  margin-top: 6px;
+}
+.wd-review-attention-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.wd-review-attention-item:hover {
+  border-color: var(--border);
+  background: var(--hover);
+}
+.wd-review-where {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+.wd-review-gist {
+  font-size: 13px;
+}
+.wd-review-looked {
+  opacity: 0.55;
+}
+.wd-review-cards li + li {
+  margin-top: 6px;
+}
+.wd-review-card {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.wd-review-card:hover {
+  background: var(--hover);
+}
+.wd-review-card-num {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--hover);
+  text-align: center;
+  font-size: 12px;
+  line-height: 22px;
+  font-weight: 600;
+}
+.wd-review-card-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wd-review-card-title {
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wd-review-card-facts {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-review-tests-covered {
+  color: var(--add-fg);
+}
+.wd-review-tests-gap,
+.wd-review-tests-unit-only {
+  color: var(--warn-fg);
+}
+.wd-review-risk-5 {
+  color: var(--del-fg);
+  font-weight: 600;
+  opacity: 1;
+}
+.wd-review-risk-4 {
+  color: var(--warn-fg);
+  font-weight: 600;
+  opacity: 1;
+}
+.wd-review-also {
+  margin-top: 8px;
+}
+.wd-review-gaps,
+.wd-review-noise,
+.wd-review-overview .wd-review-tests-strip {
+  margin-top: 16px;
+}
+.wd-review-overview .wd-review-tests {
+  margin-top: 6px;
+}
+/* A new file's leading import lines, folded into one row. */
+.wd-import-fold .wd-content {
+  font-size: 12px;
+  padding: 2px 8px;
 }
 .wd-review-file {
   margin-bottom: 10px;
@@ -5799,7 +6148,11 @@ a.wd-pr-chip:hover {
   margin-left: 22px;
 }
 @media (max-width: 760px) {
+  .wd-review-overview-cols {
+    grid-template-columns: 1fr;
+  }
   .wd-reviews,
+  .wd-reviews-listonly,
   .wd-review-body {
     grid-template-columns: 1fr;
     grid-template-rows: auto;

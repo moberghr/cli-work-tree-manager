@@ -68,6 +68,21 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   delete: { key: 'Delete', shift: true, label: 'Delete…' },
 };
 
+/** What a key does on an open review (the Reviews tab). */
+export type ReviewAction = 'prev' | 'next' | 'overview' | 'stories' | 'comments';
+
+/**
+ * An open review's keys (the Reviews tab, no session open). Not `c` for the comments: `c` is New worktree everywhere,
+ * so it is `m` (comMents).
+ */
+export const REVIEW_KEYS: Record<ReviewAction, KeyDef> = {
+  prev: { key: '[', label: 'Previous story / comment' },
+  next: { key: ']', label: 'Next story / comment' },
+  overview: { key: 'o', label: 'The overview' },
+  stories: { key: 's', label: 'The stories, one at a time' },
+  comments: { key: 'm', label: 'Walk through the comments' },
+};
+
 /** The parts of a key event the handlers read. */
 export interface KeyLike {
   key: string;
@@ -84,6 +99,14 @@ export function sessionActionFor(e: KeyLike): SessionAction | null {
   for (const [action, def] of Object.entries(SESSION_KEYS) as Array<[SessionAction, KeyDef]>) {
     if (def.key === key && !!def.shift === !!e.shiftKey) return action;
   }
+  return null;
+}
+
+/** An open review's action for a key, or null. */
+export function reviewActionFor(e: KeyLike): ReviewAction | null {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  for (const [action, def] of Object.entries(REVIEW_KEYS) as Array<[ReviewAction, KeyDef]>) if (def.key === key) return action;
   return null;
 }
 
@@ -144,6 +167,10 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
     {
       title: 'The diff',
       rows: [{ keys: '] / [', label: 'Next / previous comment' }],
+    },
+    {
+      title: 'An open review',
+      rows: Object.values(REVIEW_KEYS).map((d) => ({ keys: keyText(d), label: d.label })),
     },
   ];
 }

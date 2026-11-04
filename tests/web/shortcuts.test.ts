@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   keyText,
+  REVIEW_KEYS,
+  reviewActionFor,
   runSessionKey,
   SESSION_KEYS,
   sessionActionFor,
@@ -126,5 +128,29 @@ describe('runSessionKey', () => {
       'copy-reply',
       'dev',
     ]);
+  });
+});
+
+describe('an open review’s keys', () => {
+  it('[ ] o s m; Shift, Ctrl, Alt and ⌘ are never ours', () => {
+    expect(reviewActionFor({ key: ']' })).toBe('next');
+    expect(reviewActionFor({ key: '[' })).toBe('prev');
+    expect(reviewActionFor({ key: 'o' })).toBe('overview');
+    expect(reviewActionFor({ key: 's' })).toBe('stories');
+    expect(reviewActionFor({ key: 'm' })).toBe('comments');
+    expect(reviewActionFor({ key: 'M', shiftKey: true })).toBeNull();
+    expect(reviewActionFor({ key: 'o', ctrlKey: true })).toBeNull();
+    expect(reviewActionFor({ key: 'x' })).toBeNull();
+  });
+
+  it('none takes a key the dashboard uses on every page (c is New worktree, so the comments are m), and each is listed in ?', () => {
+    const anywhere = new Set(['c', 'n', 'j', 'k', 'g', '/', '?']);
+    const keys = Object.values(REVIEW_KEYS).map((d) => d.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const k of keys) expect(anywhere.has(k), k).toBe(false);
+    const listed = shortcutGroups()
+      .find((g) => g.title === 'An open review')!
+      .rows.map((r) => r.keys);
+    expect(listed).toEqual(['[', ']', 'o', 's', 'm']);
   });
 });

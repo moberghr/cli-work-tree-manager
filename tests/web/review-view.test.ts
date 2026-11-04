@@ -1,33 +1,226 @@
 import { describe, expect, it } from 'vitest';
-import { fixingLines, fixMyselfBlocked, groupReviews, pendingDrafts, reviewSections } from '../../src/web/src/state/review-view.js';
-import { demoReview } from '../../src/server/demo/demo-reviews.js';
+import {
+  commentContext,
+  commentWalk,
+  fixingLines,
+  fixMyselfBlocked,
+  gist,
+  groupReviews,
+  inShort,
+  nameParts,
+  notWorthReading,
+  pageOf,
+  pendingDrafts,
+  reviewPages,
+  reviewProgress,
+  shortWhere,
+  splitPath,
+  storyCards,
+  testsLine,
+  viewedCount,
+} from '../../src/web/src/state/review-view.js';
+import { demoReview, demoReviewFiles } from '../../src/server/demo/demo-reviews.js';
 import { summaryOf } from '../../src/core/review/review-build.js';
+import { parseGitDiff } from '../../src/core/diff/diff-parse.js';
+import type { PrReviewWire } from '../../src/core/api-types.js';
 
-describe("the review's order (the tree and the diff alike)", () => {
+const name = (p: string) => p.split('/').pop();
+
+describe("the story pager's pages", () => {
   const r = demoReview(new Date('2026-11-02T10:00:00Z'));
 
-  it('stories first, riskiest first, each with the test files that cover it under its code; then every other file by kind', () => {
-    const sections = reviewSections(r);
-    expect(sections.map((s) => [s.label, s.folded, s.entries.map((e) => `${e.role}:${e.path.split('/').pop()}`)])).toEqual([
-      [
-        'Refunds an order: handler and validator',
-        false,
-        ['code:RefundHandler.cs', 'code:RefundValidator.cs', 'test:RefundHandlerTests.cs'],
-      ],
-      ['Rounding half away from zero', false, ['code:Rounding.cs']],
-      ['Schema', false, ['code:20261102_AddRefunds.cs']],
-      ['API surface', false, ['code:RefundsController.cs']],
-      ['Wiring', false, ['code:Program.cs']],
-      ['Dependencies, build & CI', false, ['code:Shop.Orders.csproj']],
-      ['Mechanical', true, ['code:OrderService.cs']],
-      ['Generated', true, ['code:20261102_AddRefunds.Designer.cs', 'code:ShopDbModelSnapshot.cs', 'code:package-lock.json']],
+  it('the stories first (riskiest first, only their code), then each kind of change no story took; generated and mechanical folded', () => {
+    const pages = reviewPages(r);
+    expect(pages.map((p) => [p.label, p.folded, p.code.map((e) => name(e.path))])).toEqual([
+      ['Refunds an order: handler and validator', false, ['RefundHandler.cs', 'RefundValidator.cs']],
+      ['Rounding half away from zero', false, ['Rounding.cs']],
+      ['Schema', false, ['20261102_AddRefunds.cs']],
+      ['API surface', false, ['RefundsController.cs']],
+      ['Wiring', false, ['Program.cs']],
+      ['Dependencies, build & CI', false, ['Shop.Orders.csproj']],
+      ['Mechanical', true, ['OrderService.cs']],
+      ['Generated', true, ['20261102_AddRefunds.Designer.cs', 'ShopDbModelSnapshot.cs', 'package-lock.json']],
     ]);
-    // A story's test says what it tests; every file is in exactly one section.
-    expect(sections[0].entries[2].why).toBe('tests RefundHandler.cs');
-    expect(sections.flatMap((s) => s.entries.map((e) => e.path)).sort()).toEqual(r.files.map((f) => f.path).sort());
+    // Every file is read somewhere: as code of one page, or as a story's test.
+    const read = new Set(pages.flatMap((p) => [...p.code, ...p.tests].map((e) => e.path)));
+    expect([...read].sort()).toEqual(r.files.map((f) => f.path).sort());
   });
 
-  it('the drafts still to go out', () => {
+  it("a story's tests fold into one line: how many cover it, added, changed; none said so", () => {
+    const [refunds, rounding] = reviewPages(r);
+    expect(refunds.tests.map((e) => [name(e.path), e.why])).toEqual([['RefundHandlerTests.cs', 'tests RefundHandler.cs']]);
+    expect(testsLine(refunds)).toBe('2 tests in 1 file cover this · 2 added');
+    expect(testsLine(rounding)).toBe('No test of this PR covers it');
+  });
+
+  it('a test file covering two stories is under both (its cases counted once each); a test covering none is the Tests page', () => {
+    const two: PrReviewWire = {
+      ...r,
+      tests: {
+        ...r.tests,
+        covers: {
+          ...r.tests.covers,
+          'tests/Shop.Orders.Tests/RefundHandlerTests.cs': [r.stories[0].files[0], 'src/Shop.Orders/Pricing/Rounding.cs'],
+        },
+      },
+    };
+    const pages = reviewPages(two);
+    expect(pages[0].tests).toHaveLength(1);
+    expect(pages[1].tests).toHaveLength(1);
+    expect(pages.some((p) => p.kind === 'tests')).toBe(false);
+    const none = reviewPages({ ...r, tests: { ...r.tests, covers: {} } });
+    expect(none.find((p) => p.kind === 'tests')!.code.map((e) => name(e.path))).toEqual(['RefundHandlerTests.cs']);
+  });
+
+  it('where a file is read: its page (code first, else a story test), -1 for none', () => {
+    const pages = reviewPages(r);
+    expect(pageOf(pages, 'src/Shop.Orders/Pricing/Rounding.cs')).toBe(1);
+    expect(pageOf(pages, 'tests/Shop.Orders.Tests/RefundHandlerTests.cs')).toBe(0);
+    expect(pageOf(pages, 'nope.cs')).toBe(-1);
+  });
+
+  it('progress: files ticked viewed of a page, and of the whole review leaving the folded kinds out', () => {
+    const pages = reviewPages(r);
+    const viewed = new Set(['src/Shop.Orders/Refunds/RefundHandler.cs', 'web/package-lock.json']);
+    expect(viewedCount(pages[0].code, viewed)).toEqual({ viewed: 1, total: 2 });
+    expect(reviewProgress(pages, viewed)).toEqual({ viewed: 1, total: 7 });
+  });
+});
+
+describe('the overview', () => {
+  const r = demoReview(new Date('2026-11-02T10:00:00Z'));
+
+  it('story cards: number, title, risk, flags, files, comments, and how its tests stand', () => {
+    expect(storyCards(r, reviewPages(r))).toEqual([
+      {
+        page: 0,
+        number: 1,
+        title: 'Refunds an order: handler and validator',
+        riskLevel: 5,
+        flags: ['data-loss', 'concurrency'],
+        codeFiles: 2,
+        comments: 2,
+        tests: { state: 'covered', text: '2 tests' },
+      },
+      {
+        page: 1,
+        number: 2,
+        title: 'Rounding half away from zero',
+        riskLevel: 3,
+        flags: ['public-contract', 'no-tests'],
+        codeFiles: 1,
+        comments: 0,
+        tests: { state: 'gap', text: 'no tests' },
+      },
+    ]);
+  });
+
+  it('a story with a schema change and only unit tests says "unit tests only"', () => {
+    const schema = 'src/Shop.Data/Migrations/20261102_AddRefunds.cs';
+    const withSchema: PrReviewWire = { ...r, stories: [{ ...r.stories[0], files: [...r.stories[0].files, schema] }, r.stories[1]] };
+    expect(storyCards(withSchema, reviewPages(withSchema))[0].tests).toEqual({ state: 'unit-only', text: '2 unit tests only' });
+  });
+
+  it('in short: the AI step’s summary, else the story titles as bullets', () => {
+    expect(inShort(r)).toEqual({ summary: expect.stringContaining('Adds partial refunds') });
+    expect(inShort({ ...r, summary: undefined })).toEqual({
+      bullets: ['Refunds an order: handler and validator', 'Rounding half away from zero'],
+    });
+  });
+
+  it('not worth reading: generated, translations and mechanical counted apart, with the files', () => {
+    expect(notWorthReading(r)!.line).toBe('3 generated · 1 mechanical');
+    const resx = {
+      ...r.files[0],
+      path: 'src/Res/Translations.resx',
+      kind: 'mechanical' as const,
+      why: 'resources or translations',
+    };
+    const out = notWorthReading({ ...r, files: [...r.files, resx, { ...resx, path: 'src/Res/Translations.is.resx' }] })!;
+    expect(out.line).toBe('3 generated · 2 translations · 1 mechanical');
+    expect(out.files.map((f) => name(f.path))).toEqual([
+      '20261102_AddRefunds.Designer.cs',
+      'ShopDbModelSnapshot.cs',
+      'package-lock.json',
+      'Translations.resx',
+      'Translations.is.resx',
+      'OrderService.cs',
+    ]);
+    expect(notWorthReading({ ...r, files: r.files.filter((f) => f.kind !== 'generated' && f.kind !== 'mechanical') })).toBeNull();
+  });
+
+  it("a comment's gist is its first sentence, cut at a word; where it is, short", () => {
+    expect(gist('Two refunds at once both read the old `Refunded`. Guard it.')).toBe('Two refunds at once both read the old `Refunded`.');
+    expect(gist('no full stop at all')).toBe('no full stop at all');
+    expect(gist('word '.repeat(60), 40)).toMatch(/^(word ){6}word…$/);
+    expect(shortWhere({ path: 'src/a/B.cs', line: 7 })).toBe('B.cs:7');
+    expect(splitPath('src/a/B.cs')).toEqual({ name: 'B.cs', folder: 'src/a' });
+    expect(splitPath('B.cs')).toEqual({ name: 'B.cs', folder: '' });
+  });
+});
+
+describe('the comments walk', () => {
+  const r = demoReview(new Date('2026-11-02T10:00:00Z'));
+
+  it("in the review's order: the page the file is read on, then its place there, then the line; posted ones left out", () => {
+    const pages = reviewPages(r);
+    const mixed: PrReviewWire = {
+      ...r,
+      drafts: [
+        { id: 'u1', path: 'src/Shop.Api/Controllers/RefundsController.cs', line: 5, body: 'api', state: 'draft', by: 'you' },
+        { id: 'u2', path: 'src/Shop.Orders/Refunds/RefundValidator.cs', line: 2, body: 'validator', state: 'draft', by: 'you' },
+        ...r.drafts.slice().reverse(),
+        { id: 'p1', path: 'src/Shop.Orders/Refunds/RefundHandler.cs', line: 1, body: 'gone out', state: 'posted' },
+      ],
+    };
+    expect(commentWalk(mixed, pages).map((d) => d.id)).toEqual(['d1', 'd2', 'u2', 'u1']);
+  });
+
+  it('the code around a comment: the hunk lines within the radius, both sides, numbered as in the file', () => {
+    const [file] = parseGitDiff(
+      [
+        'diff --git a/x.cs b/x.cs',
+        'index 1..2 100644',
+        '--- a/x.cs',
+        '+++ b/x.cs',
+        '@@ -10,8 +10,8 @@ class X',
+        ' a',
+        ' b',
+        ' c',
+        '-old d',
+        '+new d',
+        ' e',
+        ' f',
+        ' g',
+        ' h',
+      ].join('\n'),
+    );
+    const ctx = commentContext(file, 13, 2)!;
+    expect(ctx.hunks).toHaveLength(1);
+    expect(ctx.hunks[0].lines.map((l) => `${l.kind}:${l.content}`)).toEqual([
+      'context:c',
+      'delete:old d',
+      'add:new d',
+      'context:e',
+      'context:f',
+    ]);
+    expect(ctx.hunks[0]).toMatchObject({ oldStart: 12, newStart: 12, oldLines: 4, newLines: 4, context: 'class X' });
+    expect([ctx.added, ctx.deleted]).toEqual([1, 1]);
+    expect(commentContext(file, 99)).toBeNull();
+  });
+
+  it("a new file's comment gets its lines around it", () => {
+    const handler = demoReviewFiles().find((f) => f.path.endsWith('RefundHandler.cs'))!;
+    const ctx = commentContext(handler, 6, 7)!;
+    expect(ctx.hunks[0].lines[0].newNum).toBe(1);
+    expect(ctx.hunks[0].lines.at(-1)!.newNum).toBe(11);
+    expect(ctx.status).toBe('added');
+  });
+});
+
+describe('the drafts still to go out', () => {
+  const r = demoReview(new Date('2026-11-02T10:00:00Z'));
+  it('only the drafts', () => {
     expect(
       pendingDrafts({ ...r, drafts: r.drafts.map((d, i) => (i === 0 ? { ...d, state: 'posted' as const } : d)) }).map((d) => d.id),
     ).toEqual(['d2']);
@@ -83,5 +276,21 @@ describe('Fix it myself, as the tab shows it', () => {
       { sessionId: 's1', text: '3 comments being fixed in Refunds' },
       { sessionId: 's2', text: '1 comment being fixed in feat/refunds' },
     ]);
+  });
+});
+
+describe('a long file name in the tree', () => {
+  it('wraps between words, never mid-word; the parts make the name', () => {
+    expect(nameParts('CreateMerchantFromPartnerSubmissionCommand.cs')).toEqual([
+      'Create',
+      'Merchant',
+      'From',
+      'Partner',
+      'Submission',
+      'Command.',
+      'cs',
+    ]);
+    expect(nameParts('use-deferred_diff.ts')).toEqual(['use-', 'deferred_', 'diff.', 'ts']);
+    expect(nameParts('README')).toEqual(['README']);
   });
 });

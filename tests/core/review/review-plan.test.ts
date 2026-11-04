@@ -5,6 +5,7 @@ import {
   clip,
   DIFF_ONLY_LINES,
   folderStories,
+  MAX_SUMMARY,
   parseAgentPass,
   planReview,
   type PromptFile,
@@ -364,5 +365,34 @@ describe('planReview', () => {
     ]);
     expect(plan.stories[0].why).toContain('no AI step');
     expect(folderStories(['README.cs'])[0].title).toBe('Top-level files');
+  });
+});
+
+describe('the summary: what the PR does, in a few sentences', () => {
+  const story = { title: 'Adds refunds', why: 'w', risk: 'r', riskLevel: 3, flags: [], files: ['src/Refunds/RefundHandler.cs'] };
+
+  it('asked first in the prompt, with the field in the JSON asked for', () => {
+    const prompt = agentPrompt({ title: 'T', number: 1 }, [], []);
+    expect(prompt).toContain('First, in "summary"');
+    expect(prompt).toContain('{"summary":"","stories":');
+    expect(prompt.indexOf('"summary"')).toBeLessThan(prompt.indexOf('\n<<<\n'));
+  });
+
+  it('read as text, cut at a word to 600 characters; missing, empty or not text: none', () => {
+    const read = (summary: unknown) => parseAgentPass(JSON.stringify({ summary, stories: [story] }), logic);
+    expect(read('Adds refunds to paid orders.')!.summary).toBe('Adds refunds to paid orders.');
+    const long = read('word '.repeat(200))!.summary!;
+    expect(long.length).toBeLessThanOrEqual(MAX_SUMMARY);
+    expect(long.endsWith('word…')).toBe(true);
+    expect(read('   ')).not.toHaveProperty('summary');
+    expect(read(['a'])).not.toHaveProperty('summary');
+    expect(parseAgentPass(JSON.stringify({ stories: [story] }), logic)).not.toHaveProperty('summary');
+  });
+
+  it("the plan keeps it from the agent's pass, never with stories by folder", () => {
+    const pass = { summary: 'Adds refunds.', stories: [story], notes: [], asserts: {} };
+    expect(planReview(kinds, tests, pass).summary).toBe('Adds refunds.');
+    expect(planReview(kinds, tests, { ...pass, stories: [] })).not.toHaveProperty('summary');
+    expect(planReview(kinds, tests, null)).not.toHaveProperty('summary');
   });
 });

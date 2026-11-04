@@ -49,6 +49,10 @@ const DIFF = [
   hunk(
     'src/Shop.Api/Controllers/RefundsController.cs',
     [
+      '+using System;',
+      '+using Microsoft.AspNetCore.Mvc;',
+      '+using Shop.Orders.Refunds;',
+      '+',
       '+[ApiController]',
       '+[Route("orders/{orderId}/refunds")]',
       '+public class RefundsController(IRefundHandler refunds) : ControllerBase',
@@ -138,6 +142,8 @@ const DIFF = [
 ].join('\n');
 
 const DEMO_ANSWER = JSON.stringify({
+  summary:
+    'Adds partial refunds to paid orders: a POST endpoint, a handler that refunds through the payment provider and records the amount on the order, and a validator for the amount. A migration adds the column, and prices now round half away from zero.',
   stories: [
     {
       title: 'Refunds an order: handler and validator',

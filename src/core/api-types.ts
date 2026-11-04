@@ -1572,6 +1572,8 @@ export interface PrReviewWire {
     covers: Record<string, string[]>;
     unitOnlyForSchema: boolean;
   };
+  /** What the PR does in two or three sentences (the AI step's; absent: none ran, or a review from before). */
+  summary?: string;
   stories: import('./review/review-plan.js').Story[];
   /** Logic files no story names (never hidden). */
   unstoried: string[];

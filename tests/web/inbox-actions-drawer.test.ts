@@ -189,3 +189,31 @@ describe('narrow-layout session drawer', () => {
     expect(body().className).not.toContain('wd-dash-rail-open');
   });
 });
+
+describe('the session rail folded (the Reviews tab)', () => {
+  it('folded: the body says so, and the stylesheet hides the rail and its divider', async () => {
+    const draw = (railFolded: boolean) =>
+      act(() =>
+        root.render(
+          createElement(DashboardLayout, {
+            route: { tab: 'reviews', sessionId: null, sessionSubTab: 'term' },
+            railFolded,
+            sessions: [s({ id: 'feat/a' })],
+            onSelectTab: () => {},
+            onSelectSession: () => {},
+            onHome: () => {},
+            onNewWorktree: () => {},
+            children: createElement('div', null, 'main'),
+          }),
+        ),
+      );
+    draw(true);
+    expect(container.querySelector('.wd-dash-body')!.className).toContain('wd-dash-rail-folded');
+    draw(false);
+    expect(container.querySelector('.wd-dash-body')!.className).not.toContain('wd-dash-rail-folded');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const css = fs.readFileSync(path.join(__dirname, '../../src/web/src/styles/dashboard.css'), 'utf8');
+    expect(css).toMatch(/\.wd-dash-rail-folded > \.wd-dash-rail,\s*\.wd-dash-rail-folded > \.wd-resize-divider \{\s*display: none;/);
+  });
+});

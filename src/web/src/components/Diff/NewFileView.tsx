@@ -1,9 +1,10 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { addedLines } from '../../utils/intraline.js';
 import { highlightBlock } from '../../utils/highlight.js';
 import { selectCommentsForLine, useReviewOptional } from '../../state/ReviewProvider.js';
 import { SidePanel, type SideContent } from '../Review/CommentLineRow.js';
+import { leadingImports } from '../../state/import-fold.js';
 
 interface Props {
   file: ParsedFile;
@@ -13,6 +14,8 @@ interface Props {
   review?: boolean;
   /** Required when review is true — used to scope comments and the composer. */
   repo?: string;
+  /** Fold the block of import lines it starts with into one row (a review: nobody reads them). */
+  foldImports?: boolean;
 }
 
 /**
@@ -28,8 +31,18 @@ interface Props {
  * as the side-by-side view — clicking a line number opens the composer on the
  * `right` side, and threads render inline below their line.
  */
-export function NewFileView({ file, lang, review = false, repo }: Props) {
+export function NewFileView({ file, lang, review = false, repo, foldImports = false }: Props) {
   const rows = useMemo(() => addedLines(file.hunks), [file.hunks]);
+  const reviewCtx = useReviewOptional();
+  const [importsOpen, setImportsOpen] = useState(false);
+  const block = useMemo(() => (foldImports ? leadingImports(rows.map((r) => r.content)) : null), [foldImports, rows]);
+  // A comment on one of its lines keeps the block open: a folded comment would be one nobody reads.
+  const commented =
+    !!block &&
+    !!reviewCtx?.comments.some(
+      (c) => c.file === file.path && c.line >= rows[block.first].newNum && c.line <= rows[block.last].newNum && (!repo || c.repo === repo),
+    );
+  const fold = block && !commented && !importsOpen ? block : null;
   const html = useMemo(
     () =>
       lang
@@ -47,12 +60,25 @@ export function NewFileView({ file, lang, review = false, repo }: Props) {
         <col />
       </colgroup>
       <tbody>
-        {rows.map((r, i) => (
-          <Fragment key={r.newNum}>
-            <NewFileRow line={r.newNum} content={r.content} html={html?.[i] ?? null} review={review} repo={repo} file={file.path} />
-            {review && repo && <NewFileCommentRow repo={repo} file={file.path} line={r.newNum} content={r.content} />}
-          </Fragment>
-        ))}
+        {rows.map((r, i) =>
+          fold && i >= fold.first && i <= fold.last ? (
+            i === fold.first ? (
+              <tr key="imports" className="wd-row wd-import-fold">
+                <td className="wd-ln" />
+                <td className="wd-content">
+                  <button type="button" className="wd-link-button" onClick={() => setImportsOpen(true)} aria-expanded={false}>
+                    {fold.count} import lines ▸
+                  </button>
+                </td>
+              </tr>
+            ) : null
+          ) : (
+            <Fragment key={r.newNum}>
+              <NewFileRow line={r.newNum} content={r.content} html={html?.[i] ?? null} review={review} repo={repo} file={file.path} />
+              {review && repo && <NewFileCommentRow repo={repo} file={file.path} line={r.newNum} content={r.content} />}
+            </Fragment>
+          ),
+        )}
       </tbody>
     </table>
   );

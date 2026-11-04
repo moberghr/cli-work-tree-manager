@@ -157,3 +157,64 @@ describe('NewFileView (added files render full-width)', () => {
     expect(composer!.querySelector('textarea')).not.toBeNull();
   });
 });
+
+describe('a new file’s import lines, folded (the Reviews tab)', () => {
+  const lines = ['using A;', 'using B.C;', 'using D;', '', 'class X {}'];
+  const usings = () =>
+    addedFile({
+      path: 'src/X.cs',
+      added: lines.length,
+      hunks: [
+        {
+          oldStart: 0,
+          oldLines: 0,
+          newStart: 1,
+          newLines: lines.length,
+          context: '',
+          lines: lines.map((content, i) => ({ kind: 'add' as const, content, oldNum: null, newNum: i + 1 })),
+        },
+      ],
+    });
+
+  it('one "N import lines ▸" row in place of the block, which opens on a click; off unless asked', () => {
+    act(() => root.render(createElement(DiffFile, { file: usings(), anchor: 'a', foldImports: true })));
+    const fold = container.querySelector<HTMLButtonElement>('.wd-import-fold button')!;
+    expect(fold.textContent).toBe('3 import lines ▸');
+    expect([...container.querySelectorAll('.wd-newfile .wd-ln-new')].map((td) => td.textContent)).toEqual(['4', '5']);
+    act(() => fold.click());
+    expect(container.querySelector('.wd-import-fold')).toBeNull();
+    expect(container.querySelectorAll('.wd-newfile .wd-ln-new')).toHaveLength(5);
+    act(() => root.render(createElement(DiffFile, { file: usings(), anchor: 'b' })));
+    expect(container.querySelector('.wd-import-fold')).toBeNull();
+  });
+
+  it('a comment on one of its lines keeps the block open', async () => {
+    const withComment: ReviewApi = {
+      ...stubReviewApi(),
+      fetch: async () => [
+        {
+          id: 'c1',
+          repo: 'r',
+          file: 'src/X.cs',
+          line: 2,
+          side: 'right',
+          body: 'why B?',
+          createdAt: 'x',
+          author: 'claude',
+          status: 'draft',
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(
+        createElement(ReviewProvider, {
+          api: withComment,
+          children: createElement(DiffFile, { file: usings(), anchor: 'a', review: true, repo: 'r', foldImports: true }),
+        }),
+      );
+    });
+    await act(async () => new Promise((r) => setTimeout(r, 0)));
+    expect(container.querySelector('.wd-import-fold')).toBeNull();
+    expect(container.textContent).toContain('why B?');
+  });
+});

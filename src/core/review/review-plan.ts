@@ -61,6 +61,8 @@ export interface DraftComment {
 }
 
 export interface AgentPass {
+  /** What the PR does, in two or three sentences for a reviewer who hasn't read it (absent: the agent gave none). */
+  summary?: string;
   stories: Array<{ title: string; why: string; risk: string; riskLevel: number; flags: StoryFlag[]; files: string[] }>;
   notes: Array<{ path: string; line: number; body: string }>;
   /** A test's name → what it actually asserts, in a line ("only that nothing throws"). */
@@ -68,6 +70,8 @@ export interface AgentPass {
 }
 
 const MAX_TITLE = 160;
+/** The summary's length at most (cut at a word). */
+export const MAX_SUMMARY = 600;
 const MAX_TEXT = 1200;
 const MAX_NOTE = 2000;
 const MAX_STORIES = 20;
@@ -176,6 +180,7 @@ export function agentPrompt(
     `This is pull request #${pr.number}.`,
     ...(opts.checkout ? [...opts.checkout, ...CHECKOUT_LINES] : DIFF_ONLY_LINES),
     '',
+    'First, in "summary", say what the pull request does for a reviewer who has not read it yet: two or three short plain sentences, under 400 characters, the gist rather than every detail.',
     'Group the hand-written changes listed under "Files:" into stories: hunks across files that do one thing together ("Adds the refund endpoint: controller, handler, validator"). Every listed logic file belongs in a story. Order them riskiest first.',
     'For each story give: a title, why the hunks belong together, why it is ranked where it is (risk), a risk level 1-5, and flags from this list only: ' +
       FLAGS.join(', ') +
@@ -186,7 +191,7 @@ export function agentPrompt(
       : '',
     '',
     'Answer with JSON only, no prose:',
-    '{"stories":[{"title":"","why":"","risk":"","riskLevel":3,"flags":[],"files":["path"]}],"notes":[{"path":"","line":1,"body":""}],"asserts":{"testName":""}}',
+    '{"summary":"","stories":[{"title":"","why":"","risk":"","riskLevel":3,"flags":[],"files":["path"]}],"notes":[{"path":"","line":1,"body":""}],"asserts":{"testName":""}}',
     '',
     '<<<',
     `Title: ${asData(pr.title, 200)}`,
@@ -226,7 +231,7 @@ export function parseAgentPass(answer: string | null, files: string[], tests: st
     return null;
   }
   if (!raw || typeof raw !== 'object') return null;
-  const o = raw as { stories?: unknown; notes?: unknown; asserts?: unknown };
+  const o = raw as { summary?: unknown; stories?: unknown; notes?: unknown; asserts?: unknown };
   if (!Array.isArray(o.stories)) return null;
   const known = new Set(files);
   const flags = new Set<string>(FLAGS);
@@ -267,7 +272,8 @@ export function parseAgentPass(answer: string | null, files: string[], tests: st
       const name = wanted.get(k);
       if (name && str(v, 200)) asserts[name] = str(v, 200);
     }
-  return { stories, notes, asserts };
+  const summary = str(o.summary, MAX_SUMMARY);
+  return { ...(summary ? { summary } : {}), stories, notes, asserts };
 }
 
 /** Stories when there's no agent pass: the Logic files by folder, in a fixed middle rank. */
@@ -288,6 +294,8 @@ export function folderStories(logicFiles: string[]): AgentPass['stories'] {
 }
 
 export interface ReviewPlan {
+  /** The agent's few sentences on what the PR does (absent: none, or no agent pass). */
+  summary?: string;
   groups: Array<{ kind: ChangeKind; folded: boolean; files: FileKind[] }>;
   stories: Story[];
   /** Logic files no story names: listed on their own so nothing is hidden. */
@@ -323,6 +331,7 @@ export function planReview(kinds: FileKind[], tests: TestBreakdown, pass: AgentP
     .map((x) => x.story);
   const storied = new Set(stories.flatMap((s) => s.files));
   return {
+    ...(pass?.summary && by === 'ai' ? { summary: pass.summary } : {}),
     groups: groupByKind(kinds).map((g) => ({ kind: g.kind, folded: FOLDED_KINDS.has(g.kind), files: g.files })),
     stories,
     unstoried: logic.filter((f) => !storied.has(f)),
