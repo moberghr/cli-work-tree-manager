@@ -318,3 +318,144 @@ describe('who you are on GitHub Enterprise (#63 re-review: one login for github.
     expect(asked).toEqual(['/gh-a', '/ghe']);
   });
 });
+
+describe("a PR's existing discussion, read only (#64)", () => {
+  let tmp: string;
+  let dir: string;
+  beforeAll(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-discussion-'));
+    dir = path.join(tmp, 'api');
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:acme/api.git\n');
+  });
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  beforeEach(() => clearGithubServers());
+
+  const answer = {
+    data: {
+      repository: {
+        pullRequest: {
+          updatedAt: '2026-11-02T09:00:00Z',
+          reviewThreads: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              {
+                id: 'PRRT_1',
+                isResolved: false,
+                isOutdated: false,
+                path: 'src/Refund.cs',
+                line: 12,
+                originalLine: 10,
+                diffSide: 'RIGHT',
+                comments: {
+                  totalCount: 2,
+                  nodes: [
+                    {
+                      author: { login: 'ivo' },
+                      authorAssociation: 'MEMBER',
+                      body: 'Lock it?',
+                      url: 'u1',
+                      createdAt: '2026-11-01T10:00:00Z',
+                    },
+                    { author: null, authorAssociation: 'NONE', body: 'ok', url: 'u2', createdAt: '2026-11-01T11:00:00Z' },
+                  ],
+                },
+              },
+              {
+                id: 'PRRT_2',
+                isResolved: true,
+                isOutdated: true,
+                path: 'src/Old.cs',
+                line: null,
+                originalLine: 4,
+                diffSide: 'LEFT',
+                comments: {
+                  totalCount: 1,
+                  nodes: [{ author: { login: 'app/copilot' }, body: 'x'.repeat(5000), url: 'u3', createdAt: '' }],
+                },
+              },
+              { id: 'PRRT_3', comments: { nodes: [] } },
+              null,
+            ],
+          },
+          reviews: {
+            pageInfo: { hasPreviousPage: false },
+            nodes: [
+              {
+                state: 'APPROVED',
+                author: { login: 'ana' },
+                authorAssociation: 'OWNER',
+                body: '',
+                url: 'v1',
+                submittedAt: '2026-11-02T08:00:00Z',
+              },
+              { state: 'PENDING', author: { login: 'me' }, body: 'my draft' },
+              { state: 'CHANGES_REQUESTED', author: { login: 'bo' }, body: 'Not yet.', url: 'v2', submittedAt: '2026-11-01T08:00:00Z' },
+            ],
+          },
+          comments: {
+            pageInfo: { hasPreviousPage: true },
+            nodes: [
+              { author: { login: 'lea' }, authorAssociation: 'MEMBER', body: 'Friday?', url: 'c1', createdAt: '2026-11-01T12:00:00Z' },
+            ],
+          },
+        },
+      },
+    },
+  };
+
+  it('one GraphQL read (a query, never a mutation): threads with side, place, outdated and resolved; verdicts but not a pending review; conversation comments; updatedAt; more when a list stopped', async () => {
+    const { run, calls } = recorder(() => ({ stdout: JSON.stringify(answer) }));
+    const r = await github.discussion(run, dir, 7);
+    expect(r.ok).toBe(true);
+    const d = r.ok ? r.discussion : null;
+    expect(d?.updatedAt).toBe('2026-11-02T09:00:00Z');
+    expect(d?.more).toBe(true);
+    expect(d?.threads).toHaveLength(2);
+    expect(d?.threads[0]).toEqual({
+      id: 'PRRT_1',
+      path: 'src/Refund.cs',
+      line: 12,
+      originalLine: 10,
+      side: 'right',
+      outdated: false,
+      resolved: false,
+      url: 'u1',
+      comments: [
+        { author: 'ivo', association: 'MEMBER', body: 'Lock it?', at: '2026-11-01T10:00:00Z', url: 'u1' },
+        { author: 'ghost', association: 'NONE', body: 'ok', at: '2026-11-01T11:00:00Z', url: 'u2' },
+      ],
+    });
+    expect(d?.threads[1]).toMatchObject({ line: null, originalLine: 4, side: 'left', outdated: true, resolved: true });
+    expect(d?.threads[1].comments[0].author).toBe('copilot');
+    expect(d?.threads[1].comments[0].body).toContain('(cut: the rest is on the host)');
+    expect(d?.reviews.map((x) => [x.author, x.state])).toEqual([
+      ['ana', 'approved'],
+      ['bo', 'changes-requested'],
+    ]);
+    expect(d?.comments).toEqual([{ author: 'lea', association: 'MEMBER', body: 'Friday?', at: '2026-11-01T12:00:00Z', url: 'c1' }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].cmd).toBe('gh');
+    expect(calls[0].args.slice(0, 2)).toEqual(['api', 'graphql']);
+    const query = calls[0].args.find((a) => a.startsWith('query='))!;
+    expect(query).toMatch(/^query=query\(/);
+    expect(query).not.toMatch(/mutation/i);
+  });
+
+  it("gh's refusal comes back in its own words (the queue reads the API limit from them); an answer that isn't one is an error", async () => {
+    const limited = await github.discussion(recorder(() => ({ code: 1, stderr: 'warning\nAPI rate limit already exceeded' })).run, dir, 7);
+    expect(limited).toEqual({ ok: false, error: 'API rate limit already exceeded' });
+    expect(github.rateLimited(limited.ok ? '' : limited.error)).toBe(true);
+    expect((await github.discussion(recorder(() => ({ stdout: '{"data":{}}' })).run, dir, 7)).ok).toBe(false);
+    expect(await github.discussion(recorder(() => ({ code: 127 })).run, dir, 7)).toEqual({ ok: false, error: 'GitHub CLI (gh) not found' });
+  });
+
+  it('openPrs carries updatedAt (what decides when a discussion is read again)', async () => {
+    const { run, calls } = recorder(() => ({
+      stdout: JSON.stringify([{ number: 7, headRefOid: 'a', updatedAt: '2026-11-02T09:00:00Z' }]),
+    }));
+    const r = await github.openPrs(run, '/repo');
+    expect(r.ok && r.prs[0].updatedAt).toBe('2026-11-02T09:00:00Z');
+    expect(calls[0].args.at(-1)).toContain('updatedAt');
+  });
+});

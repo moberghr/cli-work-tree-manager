@@ -5,6 +5,7 @@ import { highlightBlock } from '../../utils/highlight.js';
 import { selectCommentsForLine, useReviewOptional } from '../../state/ReviewProvider.js';
 import { SidePanel, type SideContent } from '../Review/CommentLineRow.js';
 import { leadingImports } from '../../state/import-fold.js';
+import { hostThreadsAt, useHostThreads } from '../../state/HostThreads.js';
 
 interface Props {
   file: ParsedFile;
@@ -34,14 +35,16 @@ interface Props {
 export function NewFileView({ file, lang, review = false, repo, foldImports = false }: Props) {
   const rows = useMemo(() => addedLines(file.hunks), [file.hunks]);
   const reviewCtx = useReviewOptional();
+  const host = useHostThreads();
   const [importsOpen, setImportsOpen] = useState(false);
   const block = useMemo(() => (foldImports ? leadingImports(rows.map((r) => r.content)) : null), [foldImports, rows]);
   // A comment on one of its lines keeps the block open: a folded comment would be one nobody reads.
   const commented =
     !!block &&
-    !!reviewCtx?.comments.some(
+    (!!reviewCtx?.comments.some(
       (c) => c.file === file.path && c.line >= rows[block.first].newNum && c.line <= rows[block.last].newNum && (!repo || c.repo === repo),
-    );
+    ) ||
+      rows.slice(block.first, block.last + 1).some((r) => hostThreadsAt(host, file.path, 'right', r.newNum).length > 0));
   const fold = block && !commented && !importsOpen ? block : null;
   const html = useMemo(
     () =>
@@ -134,10 +137,12 @@ function NewFileRow({
  */
 function NewFileCommentRow({ repo, file, line, content }: { repo: string; file: string; line: number; content: string }) {
   const reviewCtx = useReviewOptional();
+  const host = useHostThreads();
   if (!reviewCtx) return null;
 
   const side: SideContent = {
     comments: selectCommentsForLine(reviewCtx.comments, repo, file, line, 'right'),
+    hostThreads: hostThreadsAt(host, file, 'right', line),
     composerOpen:
       reviewCtx.openComposer !== null &&
       reviewCtx.openComposer.repo === repo &&
@@ -149,7 +154,7 @@ function NewFileCommentRow({ repo, file, line, content }: { repo: string; file: 
     side: 'right',
   };
 
-  if (side.comments.length === 0 && !side.composerOpen) return null;
+  if (side.comments.length === 0 && !side.hostThreads?.length && !side.composerOpen) return null;
 
   return (
     <tr className="wd-comment-row">

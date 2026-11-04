@@ -415,3 +415,76 @@ export function fixingLines(r: PrReviewWire, nameOf: (id: string) => string | nu
     text: `${f.comments.length} comment${f.comments.length === 1 ? '' : 's'} being fixed in ${nameOf(f.sessionId) ?? f.branch}`,
   }));
 }
+
+/** A node of the Files view's tree: a folder (its single-folder chain joined, `src/Shop.Orders`) or a file. */
+export type FileNode =
+  { kind: 'folder'; name: string; path: string; children: FileNode[] } | { kind: 'file'; name: string; path: string; file: ReviewFileWire };
+
+/**
+ * The Files view (GitHub's "Files changed"): every file of the PR as a folder tree — folders first, then files, each
+ * by name ignoring case; a folder holding only one folder joined with it — and the files in that tree's order, which
+ * is the order their diffs are read in.
+ */
+export function filesTree(files: ReviewFileWire[]): { nodes: FileNode[]; order: string[] } {
+  type Dir = { dirs: Map<string, Dir>; files: ReviewFileWire[] };
+  const root: Dir = { dirs: new Map(), files: [] };
+  for (const f of files) {
+    const parts = f.path.split('/');
+    let at = root;
+    for (const p of parts.slice(0, -1)) {
+      if (!at.dirs.has(p)) at.dirs.set(p, { dirs: new Map(), files: [] });
+      at = at.dirs.get(p)!;
+    }
+    at.files.push(f);
+  }
+  const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }) || (a < b ? -1 : a > b ? 1 : 0);
+  const order: string[] = [];
+  const walk = (dir: Dir, prefix: string): FileNode[] => {
+    const folders = [...dir.dirs.keys()].sort(byName).map((name): FileNode => {
+      let sub = dir.dirs.get(name)!;
+      let label = name;
+      // A folder that holds only one folder (and no file) reads as one: `src/Shop.Orders`.
+      while (sub.files.length === 0 && sub.dirs.size === 1) {
+        const [only, next] = [...sub.dirs][0];
+        label = `${label}/${only}`;
+        sub = next;
+      }
+      const path = prefix ? `${prefix}/${label}` : label;
+      return { kind: 'folder', name: label, path, children: walk(sub, path) };
+    });
+    const leaves = [...dir.files]
+      .sort((a, b) => byName(splitPath(a.path).name, splitPath(b.path).name))
+      .map((f): FileNode => ({ kind: 'file', name: splitPath(f.path).name, path: f.path, file: f }));
+    return [...folders, ...leaves];
+  };
+  const nodes = walk(root, '');
+  // The diffs are read in the tree's order: folders first at each level.
+  const visit = (ns: FileNode[]) => ns.forEach((n) => (n.kind === 'file' ? order.push(n.path) : visit(n.children)));
+  visit(nodes);
+  return { nodes, order };
+}
+
+/** The Files view's diffs folded until asked (as GitHub folds generated files): generated files. */
+export const foldedInFiles = (f: Pick<ReviewFileWire, 'kind'>) => f.kind === 'generated';
+
+/** "12 / 48 viewed": every file of the PR, ticked in the Files view or the stories (the same ticks). */
+export function filesViewed(r: PrReviewWire, viewed: ReadonlySet<string>): { viewed: number; total: number } {
+  return { viewed: r.files.filter((f) => viewed.has(f.path)).length, total: r.files.length };
+}
+
+/**
+ * Someone's Markdown comment (a PR's discussion on its host) on one line: HTML comments and tags, headings' `#`,
+ * emphasis, quote marks, list bullets and tables' rows dropped — what it says, not how it's marked up — then its gist.
+ */
+export function mdGist(body: string, max = 140): string {
+  const text = body
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .split('\n')
+    .filter((l) => !/^\s*\|/.test(l))
+    .map((l) => l.replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/, ''))
+    .join(' ')
+    .replace(/\*\*|__|~~/g, '')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  return gist(text, max);
+}

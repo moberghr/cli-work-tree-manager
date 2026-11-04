@@ -449,6 +449,10 @@ export function fetchReview(repo: string, n: number): Promise<PrReviewWire> {
 export function fetchReviewDiff(repo: string, n: number): Promise<{ files: ParsedFile[] }> {
   return getJson(`${reviewPath(repo, n)}/diff`);
 }
+/** The review was opened: its PR's discussion read again from the host (when due; the review as it stands otherwise). */
+export function refreshReviewDiscussion(repo: string, n: number): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/discussion`, {});
+}
 /** Prepare it now (your click: whatever its size or the day's count). */
 export function prepareReview(repo: string, n: number): Promise<PrReviewWire> {
   return postJson(reviewPath(repo, n), {});

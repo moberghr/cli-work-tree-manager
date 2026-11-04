@@ -92,6 +92,13 @@ function harness(
   const rows = new Map<string, PrReviewWire>();
   const store: ReviewStore = {
     read: (r, n) => rows.get(reviewKey(r, n)) ?? null,
+    update: (r, n, change) => {
+      const was = rows.get(reviewKey(r, n));
+      if (!was) return null;
+      const next = change(was);
+      rows.set(reviewKey(r, n), next);
+      return next;
+    },
     upsert: (r, n, change) => {
       const next = change(rows.get(reviewKey(r, n)) ?? null);
       rows.set(reviewKey(r, n), next);
@@ -114,6 +121,7 @@ function harness(
     ...github,
     openPrs: async () => ({ ok: true, prs: open, ...(more ? { more } : {}) }),
     viewer: async () => (opts.viewer === undefined ? 'me' : opts.viewer),
+    discussion: async () => ({ ok: true, discussion: { threads: [], reviews: [], comments: [] } }),
     ...opts.host,
   };
   const prepare = vi.fn(async (_path: string, _host: GitHost, p: { number: number }): Promise<{ ok: true } & PreparedPr> =>
@@ -525,5 +533,127 @@ describe('the AI step in a temporary checkout of the PR', () => {
     expect(sweepTrees).toHaveBeenCalledTimes(1);
     expect(h.notes()).toContain('action: removed 1 temporary PR checkout a stopped run left: api-3-abc');
     expect(h.notes()).toContain("warn: couldn't remove 1 temporary PR checkout: web-4-def");
+  });
+});
+
+describe("the PR's existing discussion (#64)", () => {
+  const talk = (updatedAt?: string) => ({
+    ...(updatedAt ? { updatedAt } : {}),
+    threads: [
+      {
+        id: 'T1',
+        path: 'src/Orders/Refund.cs',
+        line: 3,
+        side: 'right' as const,
+        outdated: false,
+        resolved: false,
+        comments: [{ author: 'ivo', association: 'MEMBER', body: 'Lock the row here.', at: '2026-11-01T10:00:00Z' }],
+      },
+    ],
+    reviews: [{ author: 'ana', state: 'approved' as const, body: '', at: '2026-11-01T11:00:00Z' }],
+    comments: [],
+  });
+
+  it('is read when the review is prepared, given to the AI step fenced as data, and stored with the review', async () => {
+    const discussion = vi.fn(async () => ({ ok: true as const, discussion: talk('2026-11-01T12:00:00Z') }));
+    const prompts: string[] = [];
+    const h = harness({
+      host: { discussion },
+      agent: async (p) => {
+        prompts.push(p);
+        return null;
+      },
+    });
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(1);
+    const r = h.rows.get(reviewKey('api', 7))!;
+    expect(r.discussion).toMatchObject({
+      updatedAt: '2026-11-01T12:00:00Z',
+      at: new Date('2026-11-02T10:00:00').toISOString(),
+      threads: [{ id: 'T1' }],
+    });
+    const p = prompts[0];
+    expect(p).toContain('Do not add a note that makes a point a reviewer already made');
+    const data = p.slice(p.indexOf('<<<'), p.lastIndexOf('>>>'));
+    expect(data).toContain('Discussion:');
+    expect(data).toContain('Lock the row here.');
+    expect(p.slice(0, p.indexOf('<<<'))).not.toContain('Lock the row here.');
+  });
+
+  it("is read again only when the PR moved on the host (its list's updatedAt), not on every sweep", async () => {
+    const discussion = vi.fn(async () => ({ ok: true as const, discussion: talk() }));
+    const h = harness({ host: { discussion }, prs: [pr(7, { updatedAt: '2026-11-01T12:00:00Z' })] });
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(1);
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(1);
+    h.setOpen([pr(7, { updatedAt: '2026-11-02T09:00:00Z' })]);
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(2);
+    expect(h.rows.get(reviewKey('api', 7))!.discussion?.updatedAt).toBe('2026-11-02T09:00:00Z');
+    // Prepared once: a moved PR reads its discussion, never prepares again for the same head.
+    expect(h.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it('a host that can say nothing of updatedAt: read again once it is half an hour old', async () => {
+    const discussion = vi.fn(async () => ({ ok: true as const, discussion: talk() }));
+    const h = harness({ host: { discussion } });
+    await h.queue.sweep();
+    h.setNow(new Date('2026-11-02T10:20:00'));
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(1);
+    h.setNow(new Date('2026-11-02T10:31:00'));
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(2);
+  });
+
+  it("the host's API limit: the last read stays, and the host is asked for none for 10 minutes", async () => {
+    let limited = false;
+    const discussion = vi.fn(async () =>
+      limited ? { ok: false as const, error: 'API rate limit already exceeded' } : { ok: true as const, discussion: talk() },
+    );
+    const h = harness({ host: { discussion } });
+    await h.queue.sweep();
+    limited = true;
+    h.setNow(new Date('2026-11-02T11:00:00'));
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(2);
+    expect(h.rows.get(reviewKey('api', 7))!.discussion?.threads).toHaveLength(1);
+    expect(h.notes().some((n) => n.startsWith('warn:') && n.includes('resting 10 min'))).toBe(true);
+    // Resting: not asked, even on open.
+    expect((await h.queue.refreshDiscussion('api', 7)).ok).toBe(true);
+    h.setNow(new Date('2026-11-02T11:05:00'));
+    await h.queue.sweep();
+    expect(discussion).toHaveBeenCalledTimes(2);
+    limited = false;
+    h.setNow(new Date('2026-11-02T11:11:00'));
+    await h.queue.refreshDiscussion('api', 7);
+    expect(discussion).toHaveBeenCalledTimes(3);
+  });
+
+  it('on open: read again at most once a minute; the review as it stands otherwise', async () => {
+    const discussion = vi.fn(async () => ({ ok: true as const, discussion: talk() }));
+    const h = harness({ host: { discussion } });
+    await h.queue.sweep();
+    const r = await h.queue.refreshDiscussion('api', 7);
+    expect(r.ok && r.review.discussion?.threads).toHaveLength(1);
+    expect(discussion).toHaveBeenCalledTimes(1);
+    h.setNow(new Date('2026-11-02T10:02:00'));
+    await h.queue.refreshDiscussion('api', 7);
+    expect(discussion).toHaveBeenCalledTimes(2);
+    expect(await h.queue.refreshDiscussion('api', 99)).toEqual({ ok: false, error: 'no review of api #99' });
+  });
+
+  it('a read that fails at prepare time keeps the last one (carried forward), and says so', async () => {
+    let fail = false;
+    const discussion = vi.fn(async () => (fail ? { ok: false as const, error: 'gh: 502' } : { ok: true as const, discussion: talk() }));
+    const h = harness({ host: { discussion } });
+    await h.queue.sweep();
+    fail = true;
+    h.setOpen([pr(7, { headSha: 'sha7b' })]);
+    await h.queue.sweep();
+    expect(h.prepare).toHaveBeenCalledTimes(2);
+    expect(h.rows.get(reviewKey('api', 7))!.discussion?.threads).toHaveLength(1);
+    expect(h.notes().some((n) => n.includes("couldn't read its discussion (gh: 502); the last read stays"))).toBe(true);
   });
 });

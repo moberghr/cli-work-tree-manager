@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PrReviewWire } from '../../../../../../core/api-types.js';
+import type { PrDiscussionThreadWire, PrReviewWire } from '../../../../../../core/api-types.js';
+import { openThreadsByFile } from '../../../../../../core/review/review-discussion.js';
+import { DiscussionAside } from './Discussion.js';
 import type { ParsedFile } from '../../../../../../core/diff/diff-parse.js';
 import { FLAG_LABEL } from '../../../../../../core/review/review-plan.js';
 import { DiffFile } from '../../../Diff/DiffFile.js';
@@ -52,6 +54,7 @@ export function StoryPager({
   onViewed,
   onGo,
   onOverview,
+  aside = [],
 }: {
   review: PrReviewWire;
   pages: ReviewPage[];
@@ -61,6 +64,8 @@ export function StoryPager({
   onViewed: (path: string, on: boolean) => void;
   onGo: (at: number) => void;
   onOverview: () => void;
+  /** The PR's threads not on a line of the diff: this page's files' are listed above its diffs. */
+  aside?: PrDiscussionThreadWire[];
 }) {
   const page = pages[at];
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -69,6 +74,7 @@ export function StoryPager({
   const [testsOpen, setTestsOpen] = useState<string | null>(null);
   const [shown, setShown] = useState<string | null>(null);
   const comments = useMemo(() => commentsByFile(r), [r]);
+  const threads = useMemo(() => openThreadsByFile(r.discussion), [r.discussion]);
   const paneRef = useRef<HTMLDivElement>(null);
   const [onScreen, setOnScreen] = useState<string | null>(null);
   const frame = useRef(0);
@@ -198,6 +204,7 @@ export function StoryPager({
                         path={e.path}
                         file={{ status: e.status, added: e.added, deleted: e.deleted, ...(e.oldPath ? { oldPath: e.oldPath } : {}) }}
                         comments={comments.get(e.path) ?? 0}
+                        threads={threads.get(e.path) ?? 0}
                         viewed={viewed.has(e.path)}
                         current={onScreen === e.path}
                         folder={false}
@@ -277,6 +284,11 @@ export function StoryPager({
                 </div>
               )}
             </div>
+            {(() => {
+              const here = new Set([...page.code, ...page.tests].map((e) => e.path));
+              const mine = aside.filter((t) => t.path && here.has(t.path));
+              return mine.length ? <DiscussionAside threads={mine} {...(r.host ? { host: r.host } : {})} /> : null;
+            })()}
             {s && testsOpen === page.key && (
               <div className="wd-review-story-testfiles">
                 <ul>

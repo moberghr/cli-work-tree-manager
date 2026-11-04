@@ -12,6 +12,8 @@ function setup(over: Partial<ReviewRouteDeps> = {}, shared?: Map<string, PrRevie
   const deps: ReviewRouteDeps = {
     runNow: async (repo, n) =>
       rows.has(`${repo}#${n}`) ? { ok: true, review: rows.get(`${repo}#${n}`)! } : { ok: false, error: 'not open' },
+    refreshDiscussion: async (repo, n) =>
+      rows.has(`${repo}#${n}`) ? { ok: true, review: rows.get(`${repo}#${n}`)! } : { ok: false, error: 'no review' },
     read: (repo, n) => rows.get(`${repo}#${n}`) ?? null,
     all: () => [...rows.values()],
     update: (repo, n, change) => {
@@ -46,6 +48,26 @@ function setup(over: Partial<ReviewRouteDeps> = {}, shared?: Map<string, PrRevie
 }
 
 describe('review routes', () => {
+  it('POST …/discussion reads the discussion again (the queue says when): told only when it changed; an unknown PR is 404', async () => {
+    const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
+    const refreshDiscussion = vi.fn(async (repo: string, n: number) => {
+      const r = rows.get(`${repo}#${n}`)!;
+      const next: PrReviewWire = { ...r, discussion: { ...r.discussion!, at: '2026-11-02T11:00:00.000Z' } };
+      rows.set(`${repo}#${n}`, next);
+      return { ok: true as const, review: next };
+    });
+    const { req, broadcast } = setup({ refreshDiscussion }, rows);
+    const res = await req('POST', '/api/reviews/api/231/discussion');
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as PrReviewWire).discussion?.at).toBe('2026-11-02T11:00:00.000Z');
+    expect(broadcast).toHaveBeenCalledWith('reviews-changed', { repo: 'api', number: 231 });
+    broadcast.mockClear();
+    refreshDiscussion.mockImplementationOnce(async () => ({ ok: true as const, review: rows.get('api#231')! }));
+    await req('POST', '/api/reviews/api/231/discussion');
+    expect(broadcast).not.toHaveBeenCalled();
+    expect((await req('POST', '/api/reviews/api/999/discussion')).status).toBe(404);
+  });
+
   it('lists reviews with their counts, and serves one; an unknown PR is 404', async () => {
     const { req } = setup();
     const list = (await (await req('GET', '/api/reviews')).json()) as ReviewsWire;

@@ -227,7 +227,7 @@ describe('drafts: add, remove, carry over', () => {
     expect(next.drafts.map((d) => [d.id, d.body])).toEqual([
       ['d1', 'old AI, posted'],
       ['u1', 'mine'],
-      ['d3', expect.stringContaining('Two refunds at once')],
+      ['d3', expect.stringContaining('two refunds at once')],
       ['d4', 'Nothing stops refunding more than the order total.'],
     ]);
     expect(next.lastDraft).toBe(4);

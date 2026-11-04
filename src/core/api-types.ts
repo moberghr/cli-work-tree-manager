@@ -1532,6 +1532,60 @@ export interface ReviewDraftWire {
   by?: 'ai' | 'you';
 }
 
+/** One comment of a PR's existing discussion on its host: someone else's words (or yours), read only. */
+export interface PrDiscussionCommentWire {
+  author: string;
+  /** How the host relates them to the repo (GitHub's authorAssociation: OWNER, MEMBER, CONTRIBUTOR…); absent: it doesn't say. */
+  association?: string;
+  /** Markdown, as written (cut at `MAX_DISCUSSION_BODY`). */
+  body: string;
+  /** When (ISO); '' when the host doesn't say. */
+  at: string;
+  /** Its link on the host. */
+  url?: string;
+}
+
+/** A review thread already on the PR (the host's), on a line of a file — read only here. */
+export interface PrDiscussionThreadWire {
+  /** The host's id. */
+  id: string;
+  path: string | null;
+  /** The line it's on now (null: outdated, its line gone, or a thread on the whole file). */
+  line: number | null;
+  /** The line it was written on (an outdated one's place, said beside it). */
+  originalLine?: number | null;
+  /** The side of the diff: the new code (right) or the old (left). */
+  side: 'right' | 'left';
+  /** The code moved on under it since: its line may be gone. */
+  outdated: boolean;
+  resolved: boolean;
+  /** Its first comment's link on the host. */
+  url?: string;
+  comments: PrDiscussionCommentWire[];
+}
+
+/** A review someone submitted on the PR: their verdict. */
+export interface PrDiscussionReviewWire extends PrDiscussionCommentWire {
+  state: 'approved' | 'changes-requested' | 'commented' | 'dismissed';
+}
+
+/**
+ * The PR's discussion as its host has it (#64): the review threads on its lines, the submitted reviews, the
+ * conversation comments. Read when the review is prepared, refreshed when the PR moves (`updatedAt`) or on open;
+ * shown read only, given to the AI step as data. work never answers or resolves anything here.
+ */
+export interface PrDiscussionWire {
+  /** When it was read (ISO). */
+  at: string;
+  /** The PR's `updatedAt` on the host when it was read (absent: the host's list doesn't say — Azure DevOps). */
+  updatedAt?: string;
+  threads: PrDiscussionThreadWire[];
+  reviews: PrDiscussionReviewWire[];
+  comments: PrDiscussionCommentWire[];
+  /** The host's lists stopped at their limits: there is more on the host. */
+  more?: true;
+}
+
 /** How a submitted review is cast. */
 export type ReviewEvent = 'comment' | 'approve' | 'request-changes';
 
@@ -1613,6 +1667,8 @@ export interface PrReviewWire {
   fixingMyself?: ReviewFixWire[];
   /** Fix it myself making its session: a submit, and a second Fix it myself, wait (stale after `FIX_CLAIM_STALE_MS`). */
   fixing?: ReviewFixingWire;
+  /** What's already discussed on the PR (its host's threads, reviews and comments); absent: not read yet, or from before. */
+  discussion?: PrDiscussionWire;
 }
 
 /** Draft comments you took off a review to fix yourself, in a session on the PR's branch. */

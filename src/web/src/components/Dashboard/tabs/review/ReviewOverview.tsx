@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
+import type { PrDiscussionThreadWire, PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
+import { AlreadyDiscussed } from './Discussion.js';
 import { FLAG_LABEL } from '../../../../../../core/review/review-plan.js';
 import {
   commentsByFile,
@@ -30,6 +31,8 @@ export function ReviewOverview({
   onStory,
   onComment,
   onClearDropped,
+  aside = [],
+  onFiles = () => undefined,
 }: {
   review: PrReviewWire;
   pages: ReviewPage[];
@@ -39,6 +42,10 @@ export function ReviewOverview({
   onStory: (page: number) => void;
   onComment: (at: number) => void;
   onClearDropped: () => void;
+  /** The PR's threads not on a line of the diff (outdated, or elsewhere). */
+  aside?: PrDiscussionThreadWire[];
+  /** Opens the Files view. */
+  onFiles?: () => void;
 }) {
   const [testsOpen, setTestsOpen] = useState(false);
   const [noiseOpen, setNoiseOpen] = useState(false);
@@ -70,6 +77,7 @@ export function ReviewOverview({
           <p className="wd-start-note">No summary: no AI step ran for this review.</p>
         )}
       </section>
+      <AlreadyDiscussed discussion={r.discussion} aside={aside} onFiles={onFiles} {...(r.host ? { host: r.host } : {})} />
       <div className="wd-review-overview-cols">
         <section className="wd-review-attention" aria-label="Needs your attention">
           <h3>

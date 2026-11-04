@@ -1,12 +1,13 @@
 import type { CommandRunner } from '../platform/command-runner.js';
 import type { GitHost, HostResult, OpenPr } from '../hosts/types.js';
-import type { PrReviewWire, ReviewMode, ReviewStatus } from '../api-types.js';
+import type { PrDiscussionWire, PrReviewWire, ReviewMode, ReviewStatus } from '../api-types.js';
 import type { ActivityLog } from '../platform/activity.js';
 import type { KindRule } from './change-kinds.js';
 import type { PreparedPr } from './review-source.js';
 import type { ReviewTreeAt } from './review-tree.js';
 import { buildReview, kindsOf, reviewPrompt, type ReviewMeta } from './review-build.js';
 import { carryForward, isStaleRunning, preparedOn } from './review-submit.js';
+import { DISCUSSION_OPEN_MIN_MS, discussionDue } from './review-discussion.js';
 
 /**
  * The review queue (#64): which open PRs get a review prepared, and when.
@@ -30,6 +31,13 @@ import { carryForward, isStaleRunning, preparedOn } from './review-submit.js';
  * - Reviews of PRs no longer open go, with their fetched code — only from a
  *   complete list (one at its limit drops nothing).
  * - A review left `running` (work web stopped meanwhile) is prepared again.
+ * - The PR's existing discussion (its host's threads, reviews, comments) is
+ *   read with each preparation — the AI step is given it — and again when the
+ *   PR moves on the host (its list's `updatedAt`), when its host can't say and
+ *   it's half an hour old, and when the review is opened (at most once a
+ *   minute: `refreshDiscussion`). At most `DISCUSSIONS_PER_SWEEP` a sweep. A
+ *   host that refuses for its API limit is asked for none for 10 minutes
+ *   (the last read stays).
  * Each decision is noted in the Activity panel with its reason.
  */
 
@@ -41,6 +49,8 @@ export interface ReviewProject {
 
 export interface ReviewStore {
   read(repo: string, number: number): PrReviewWire | null;
+  /** Change a stored review in one transaction; null when there is none (nothing written). */
+  update(repo: string, number: number, change: (r: PrReviewWire) => PrReviewWire): PrReviewWire | null;
   /** Read and write one review in one transaction: `change` gets what is stored (null: none). */
   upsert(repo: string, number: number, change: (was: PrReviewWire | null) => PrReviewWire): PrReviewWire;
   all(): PrReviewWire[];
@@ -83,7 +93,17 @@ export interface ReviewQueue {
   sweep(): Promise<void>;
   /** Prepare this PR now (the user's click): whatever its size, whatever the day's count. */
   runNow(repo: string, number: number): Promise<HostResult<{ review: PrReviewWire }>>;
+  /**
+   * Read the PR's discussion again (the review was opened): not when it was read in the last minute, nor while its
+   * host rests after its API limit — then the review as it stands. An error only when there's no such review.
+   */
+  refreshDiscussion(repo: string, number: number): Promise<HostResult<{ review: PrReviewWire }>>;
 }
+
+/** How long a host that refused for its API limit is asked for no discussion. */
+export const DISCUSSION_REST_MS = 10 * 60_000;
+/** The most discussions a sweep reads again (each is one call to the host). */
+export const DISCUSSIONS_PER_SWEEP = 10;
 
 /** A review not prepared yet: what is known of the PR, and where it stands. Pure. */
 export function placeholder(meta: ReviewMeta, status: ReviewStatus, why: string | null, now: Date, size?: OpenPr): PrReviewWire {
@@ -209,6 +229,35 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     return p;
   };
   const key = (repo: string, n: number) => `${repo}#${n}`;
+  /** Hosts resting after their API limit (id → until when, ms): asked for no discussion meanwhile. */
+  const restingUntil = new Map<string, number>();
+  const resting = (host: GitHost) => (restingUntil.get(host.id) ?? 0) > now().getTime();
+
+  /**
+   * The PR's discussion as its host has it now: null (with why) when it can't be read — its host rests, or the read
+   * failed (a refusal for the API limit rests the host). `updatedAt`: the host list's, when the read itself says none.
+   */
+  async function readDiscussion(
+    project: ReviewProject,
+    host: GitHost,
+    number: number,
+    updatedAt: string | undefined,
+  ): Promise<{ discussion: PrDiscussionWire | null; why?: string }> {
+    if (resting(host)) return { discussion: null, why: `${host.name}'s API limit is spent; resting` };
+    const got = await host.discussion(deps.run, project.path, number).catch((err: Error) => ({ ok: false as const, error: err.message }));
+    if (!got.ok) {
+      if (host.rateLimited(got.error)) {
+        restingUntil.set(host.id, now().getTime() + DISCUSSION_REST_MS);
+        return {
+          discussion: null,
+          why: `${host.name} says its API limit is spent (${got.error}): resting ${DISCUSSION_REST_MS / 60_000} min`,
+        };
+      }
+      return { discussion: null, why: got.error };
+    }
+    const when = got.discussion.updatedAt ?? updatedAt;
+    return { discussion: { ...got.discussion, ...(when ? { updatedAt: when } : {}), at: now().toISOString() } };
+  }
 
   const setStatus = (meta: ReviewMeta, status: ReviewStatus, why: string | null, opts: Parameters<typeof withStatus>[5] = {}) =>
     deps.store.upsert(meta.repo, meta.number, (was) => withStatus(was, meta, status, why, now(), opts));
@@ -223,10 +272,12 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     at: ReviewMeta,
     prepared: PreparedPr,
     rules: KindRule[] | undefined,
+    discussion: PrDiscussionWire | undefined,
   ): Promise<{ answer: string | null | undefined; how?: string }> {
     if (!deps.agent) return { answer: undefined };
     const kinds = kindsOf(prepared.files, prepared.extras, rules);
-    const prompt = reviewPrompt(at, prepared.files, kinds);
+    const said = discussion ? { discussion } : {};
+    const prompt = reviewPrompt(at, prepared.files, kinds, said);
     if (!prompt) return { answer: undefined };
     let fellBack = 'the agent has no read-only mode';
     const lines = deps.checkoutLines?.() ?? null;
@@ -234,7 +285,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       const inTree = await deps
         .agentInCheckout(
           { repoPath: project.path, alias: project.alias, number: at.number, headSha: at.headSha },
-          reviewPrompt(at, prepared.files, kinds, { checkout: lines }) ?? prompt,
+          reviewPrompt(at, prepared.files, kinds, { checkout: lines, ...said }) ?? prompt,
         )
         .catch((err: Error): { answer: null; why: string; skipped?: boolean } => ({ answer: null, why: err.message }));
       // Its note (a checkout that wouldn't go) is kept for Activity, answer or not.
@@ -248,7 +299,13 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
   }
 
   /** Prepare one PR. `auto`: the sweep's (the size limit applies to the fetched diff too); your click ignores it. */
-  async function prepareOne(project: ReviewProject, meta: ReviewMeta, size: OpenPr | undefined, auto: boolean): Promise<Prepared> {
+  async function prepareOne(
+    project: ReviewProject,
+    meta: ReviewMeta,
+    size: OpenPr | undefined,
+    auto: boolean,
+    note?: (text: string, level?: 'info' | 'action' | 'warn') => void,
+  ): Promise<Prepared> {
     const k = key(meta.repo, meta.number);
     active.add(k);
     try {
@@ -276,7 +333,15 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       const rules = deps.rules?.();
       // The fetched head (a push since the list moved it); the listed one stays what the next sweep compares.
       const at = { ...meta, headSha: prepared.headSha || meta.headSha };
-      const { answer, how } = await aiStep(project, at, prepared, rules);
+      // What's already said on the PR, for the AI step and the tab; when it can't be read, the last read stays.
+      const read = await readDiscussion(project, host, meta.number, size?.updatedAt);
+      const discussion = read.discussion ?? deps.store.read(meta.repo, meta.number)?.discussion;
+      if (!read.discussion)
+        note?.(
+          `${meta.repo} #${meta.number}: couldn't read its discussion (${read.why}); ${discussion ? 'the last read stays' : 'none shown'}`,
+          'warn',
+        );
+      const { answer, how } = await aiStep(project, at, prepared, rules, discussion);
       const fresh: PrReviewWire = {
         ...buildReview(at, prepared.files, prepared.extras, answer, {
           rules,
@@ -286,6 +351,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
         listedHead: meta.headSha,
         mergeBase: prepared.mergeBase,
         preparedAt: now().toISOString(),
+        ...(read.discussion ? { discussion: read.discussion } : {}),
       };
       // Read and written in one transaction: a draft you add meanwhile is carried over, never overwritten.
       const review = deps.store.upsert(meta.repo, meta.number, (was) => carryForward(was, fresh, now()));
@@ -310,6 +376,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     const open = new Set<string>();
     const paths = new Map<string, string>();
     const todo: Array<{ project: ReviewProject; meta: ReviewMeta; pr: OpenPr }> = [];
+    const talk: Array<{ project: ReviewProject; host: GitHost; pr: OpenPr }> = [];
     try {
       if (!treesSwept && deps.sweepTrees) {
         treesSwept = true;
@@ -346,7 +413,11 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
         if (left.length) note(`${project.alias}: left out ${left.map((l) => `#${l.pr.number} (${l.why})`).join(', ')}`);
         for (const pr of take) {
           const was = deps.store.read(project.alias, pr.number);
-          if (upToDate(was, pr, now(), active.has(key(project.alias, pr.number)))) continue;
+          if (upToDate(was, pr, now(), active.has(key(project.alias, pr.number)))) {
+            // Prepared for this head: only its discussion may be read again (the PR moved, or it's old).
+            if (was?.status === 'ready' && discussionDue(was.discussion, pr.updatedAt, now())) talk.push({ project, host, pr });
+            continue;
+          }
           const meta = metaOf(project.alias, host, pr);
           const lines = pr.additions + pr.deletions;
           if (lines > maxLines) {
@@ -378,7 +449,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
           note(`${t.project.alias} #${t.pr.number}: today's cap of ${maxPerDay} reached; waits`);
           continue;
         }
-        const r = await oneAtATime(() => prepareOne(t.project, t.meta, t.pr, true));
+        const r = await oneAtATime(() => prepareOne(t.project, t.meta, t.pr, true, note));
         if (r.ok)
           note(
             `${t.project.alias} #${t.pr.number}: prepared — ${plural(r.review.stories.length, 'story', 'stories')}, ${plural(r.review.tests.gaps.length, 'untested change')}${r.review.why ? ` (${r.review.why})` : ''}${r.how ? `; ${r.how}` : ''}`,
@@ -387,8 +458,21 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
         else if ('held' in r) note(`${t.project.alias} #${t.pr.number}: ${r.error}`);
         else note(`${t.project.alias} #${t.pr.number}: couldn't prepare it (${r.error})`, 'warn');
       }
+      let read = 0;
+      for (const t of talk.slice(0, DISCUSSIONS_PER_SWEEP)) {
+        const got = await readDiscussion(t.project, t.host, t.pr.number, t.pr.updatedAt);
+        if (!got.discussion) {
+          note(`${t.project.alias} #${t.pr.number}: couldn't read its discussion again (${got.why}); the last read stays`, 'warn');
+          continue;
+        }
+        const discussion = got.discussion;
+        if (deps.store.update(t.project.alias, t.pr.number, (r) => ({ ...r, discussion }))) read++;
+      }
+      if (talk.length > DISCUSSIONS_PER_SWEEP)
+        note(`${talk.length - DISCUSSIONS_PER_SWEEP} more discussions to read again: the next sweep`);
+      if (read) note(`read the discussion of ${plural(read, 'PR')} again (moved on the host, or half an hour old)`);
       deps.changed();
-      run?.done(todo.length ? `${plural(todo.length, 'PR')} looked at` : 'nothing new');
+      run?.done(todo.length ? `${plural(todo.length, 'PR')} looked at` : read ? `${plural(read, 'discussion')} read again` : 'nothing new');
     } catch (err) {
       run?.fail((err as Error).message);
     }
@@ -411,10 +495,29 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       const pr = list.prs.find((p) => p.number === number);
       if (!pr) return { ok: false, error: `#${number} isn't an open pull request of ${repo}` };
       const run = deps.activity?.start('reviews', `Preparing the review of ${repo} #${number}`);
-      const r = await oneAtATime(() => prepareOne(project, metaOf(repo, host, pr), pr, false));
+      const note = (text: string, level: 'info' | 'action' | 'warn' = 'info') => run?.note(text, { level });
+      const r = await oneAtATime(() => prepareOne(project, metaOf(repo, host, pr), pr, false, note));
       if (r.ok) run?.done(`prepared${r.how ? `; ${r.how}` : ''}`);
       else run?.fail(r.error);
       return r.ok ? { ok: true, review: r.review } : { ok: false, error: r.error };
+    },
+    async refreshDiscussion(repo, number) {
+      const was = deps.store.read(repo, number);
+      if (!was) return { ok: false, error: `no review of ${repo} #${number}` };
+      const project = deps.projects().find((p) => p.alias === repo);
+      if (!project || was.status !== 'ready') return { ok: true, review: was };
+      const age = was.discussion ? now().getTime() - Date.parse(was.discussion.at) : Infinity;
+      if (age >= 0 && age < DISCUSSION_OPEN_MIN_MS) return { ok: true, review: was };
+      const host = deps.hostOf(project.path);
+      const got = await readDiscussion(project, host, number, undefined);
+      if (!got.discussion) {
+        deps.activity?.start('reviews', `Reading the discussion of ${repo} #${number}`).fail(got.why ?? "couldn't read it");
+        return { ok: true, review: was };
+      }
+      const discussion = got.discussion;
+      const next = deps.store.update(repo, number, (r) => ({ ...r, discussion }));
+      if (next) deps.changed();
+      return { ok: true, review: next ?? was };
     },
   };
 }

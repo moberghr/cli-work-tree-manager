@@ -90,6 +90,25 @@ export function CommentCount({ n }: { n: number }) {
   );
 }
 
+/** How many open threads a file already has on the PR's host: a pill apart from the drafts' (an outline, no fill). */
+export function ThreadCount({ n }: { n: number }) {
+  if (!n) return null;
+  const words = `${n} open thread${n === 1 ? '' : 's'} already on the PR`;
+  return (
+    <span className="wd-review-filethreads" title={words} aria-label={words}>
+      <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden>
+        <path
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          d="M1.75 2.75c0-.55.45-1 1-1h10.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1H7.8l-2.8 2.5v-2.5H2.75c-.55 0-1-.45-1-1Z"
+        />
+      </svg>
+      {n}
+    </span>
+  );
+}
+
 /** "[M] RefundHandler.cs:6" — where a comment is: the change badge, the name bold, the line in monospace. */
 export function FileWhere({ path, line, status }: { path: string; line: number; status?: string }) {
   return (
@@ -112,6 +131,7 @@ export function FileRow({
   path,
   file,
   comments = 0,
+  threads = 0,
   viewed = false,
   current = false,
   folder: withFolder = true,
@@ -126,6 +146,8 @@ export function FileRow({
   path: string;
   file?: { status: string; added: number; deleted: number; oldPath?: string };
   comments?: number;
+  /** Open threads already on the PR's host for it. */
+  threads?: number;
   viewed?: boolean;
   current?: boolean;
   /** Its folder on a line under the name (default); false: none (the path is in the tooltip). */
@@ -143,8 +165,9 @@ export function FileRow({
     .filter(Boolean)
     .join(' ');
   const counts = file && <LineCounts added={file.added} deleted={file.deleted} bar={bar} />;
-  const facts = (comments > 0 || viewed || (!withFolder && file)) && (
+  const facts = (comments > 0 || threads > 0 || viewed || (!withFolder && file)) && (
     <span className="wd-review-filerow-facts">
+      <ThreadCount n={threads} />
       <CommentCount n={comments} />
       {viewed && (
         <span className="wd-review-fileviewed" title="Viewed" aria-label="Viewed">

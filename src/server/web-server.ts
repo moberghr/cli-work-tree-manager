@@ -709,6 +709,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountReviewRoutes(app, {
     ...reviewIo,
     runNow: (repo, n) => reviewQueue.runNow(repo, n),
+    refreshDiscussion: (repo, n) => reviewQueue.refreshDiscussion(repo, n),
     broadcast,
     // Fix it myself: a session on the PR's branch, made as New worktree makes one, or the live one told by a note.
     fixMyself: realFixIo({ create: makeWorktree, note: noteThroughComments(app), activity }),

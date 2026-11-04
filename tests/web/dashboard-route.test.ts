@@ -150,6 +150,19 @@ describe('a review on the Reviews tab', () => {
     expect(parseHash('#/reviews/api/231/comments/10/').review).toEqual({ repo: 'api', number: 231, mode: 'comments', at: 9 });
   });
 
+  it('the Files view, with a file to scroll to (its path encoded whole: slashes too)', () => {
+    expect(parseHash('#/reviews/api/231/files').review).toEqual({ repo: 'api', number: 231, mode: 'files', at: 0 });
+    const route = {
+      tab: 'reviews' as const,
+      review: { repo: 'api', number: 231, mode: 'files' as const, at: 0, file: 'src/Shop Api/Program.cs' },
+      sessionId: null,
+      sessionSubTab: 'term' as const,
+    };
+    expect(toHash(route)).toBe('#/reviews/api/231/files/src%2FShop%20Api%2FProgram.cs');
+    expect(parseHash(toHash(route))).toEqual(route);
+    expect(parseHash('#/reviews/api/231/files/%E0%A4%A')).toEqual(DEFAULT_ROUTE);
+  });
+
   it('a repo with odd characters round-trips; a bad position is the first; garbage is no review', () => {
     const route = {
       tab: 'reviews' as const,

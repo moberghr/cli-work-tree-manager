@@ -377,6 +377,8 @@ export function carryForward(was: PrReviewWire | null, fresh: PrReviewWire, now:
     ...(was.submitting ? { submitting: was.submitting } : {}),
     ...(was.fixingMyself?.length ? { fixingMyself: was.fixingMyself } : {}),
     ...(was.fixing ? { fixing: was.fixing } : {}),
+    // The discussion read with this preparation; none read (the host couldn't say, or rested): the last one stays.
+    ...(fresh.discussion ? { discussion: fresh.discussion } : was.discussion ? { discussion: was.discussion } : {}),
   };
 }
 

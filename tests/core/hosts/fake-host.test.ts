@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { GitHost } from '../../../src/core/hosts/types.js';
+import type { GitHost, PrDiscussion } from '../../../src/core/hosts/types.js';
+import { createReviewQueue } from '../../../src/core/review/review-queue.js';
+import { parseGitDiff } from '../../../src/core/diff/diff-parse.js';
+import type { PrReviewWire } from '../../../src/core/api-types.js';
 import { hostForOrigin, hostForRepo, hostOfThread, originHostname, registerHost } from '../../../src/core/hosts/index.js';
 import { commandsFor, hostName } from '../../../src/core/hosts/commands.js';
 import type { PullRequestInfo } from '../../../src/core/pr/pr-types.js';
@@ -56,6 +59,9 @@ interface FakeState {
   limited: boolean;
   /** Who you are on it; null: it can't say (signed out). */
   viewer: string | null;
+  /** The PR's discussion as it answers it, and how many times it was asked. */
+  discussion: PrDiscussion;
+  discussionAsked: number;
 }
 
 function fakeHost(id: string, name: string, domain: string, cli: string): { host: GitHost; state: FakeState } {
@@ -70,6 +76,8 @@ function fakeHost(id: string, name: string, domain: string, cli: string): { host
     prStates: new Map(),
     limited: false,
     viewer: 'me',
+    discussion: { threads: [], reviews: [], comments: [] },
+    discussionAsked: 0,
   };
   const linkRe = new RegExp(`^https://${domain.replace(/\./g, '\\.')}/([\\w-]+/[\\w-]+)/pr/(\\d+)$`);
   const host: GitHost = {
@@ -113,6 +121,10 @@ function fakeHost(id: string, name: string, domain: string, cli: string): { host
     openPrs: async () => ({ ok: true, prs: [] }),
     submitReview: async () => ({ ok: true }),
     reviewFeedback: async () => state.feedback,
+    discussion: async () => {
+      state.discussionAsked++;
+      return state.limited ? { ok: false, error: `${name} says: slow down` } : { ok: true, discussion: state.discussion };
+    },
     threads: {
       isId: (t) => new RegExp(`^${id.toUpperCase()}-\\d+$`).test(t),
       now: async (_run, _cwd, t) => {
@@ -695,5 +707,98 @@ describe('Start from a PR, and what its session is told', () => {
       `c3\t${at}\tnoreply@github.com\tMerge`,
     ].join('\n');
     expect(commitsWrittenOn(log, day).map((c) => c.sha)).toEqual(['a1']);
+  });
+
+  it("the Reviews queue reads a Fakehub PR's discussion through Fakehub, gives it to the AI step, and rests on Fakehub's own words for its limit", async () => {
+    fake.state.limited = false;
+    fake.state.discussionAsked = 0;
+    fake.state.discussion = {
+      threads: [
+        {
+          id: 'FAKE-1',
+          path: 'a.cs',
+          line: 1,
+          side: 'right',
+          outdated: false,
+          resolved: false,
+          comments: [{ author: 'ana', body: 'Use a constant here.', at: '2026-11-01T10:00:00Z' }],
+        },
+      ],
+      reviews: [],
+      comments: [],
+    };
+    const rows = new Map<string, PrReviewWire>();
+    const prompts: string[] = [];
+    let now = new Date('2026-11-02T10:00:00Z');
+    const host: GitHost = {
+      ...fake.host,
+      openPrs: async () => ({
+        ok: true,
+        prs: [
+          {
+            number: 5,
+            title: 'Add a',
+            url: 'https://code.fake.example/team/api/pr/5',
+            branch: 'feat/a',
+            headSha: 'h5',
+            base: 'main',
+            author: 'ana',
+            isDraft: false,
+            additions: 1,
+            deletions: 0,
+            requested: [],
+          },
+        ],
+      }),
+    };
+    const queue = createReviewQueue({
+      projects: () => [{ alias: 'api', path: '/repos/api', mode: 'all' }],
+      hostOf: () => host,
+      run: async () => ({ code: 0, stdout: '', stderr: '' }),
+      prepare: async () => ({
+        ok: true,
+        files: parseGitDiff('diff --git a/a.cs b/a.cs\n--- a/a.cs\n+++ b/a.cs\n@@ -1 +1 @@\n-x\n+y\n'),
+        extras: { whitespaceOnly: new Set(), generated: new Set() },
+        mergeBase: 'mb',
+        headSha: 'h5',
+      }),
+      agent: async (p) => {
+        prompts.push(p);
+        return null;
+      },
+      store: {
+        read: (r, n) => rows.get(`${r}#${n}`) ?? null,
+        update: (r, n, change) => {
+          const was = rows.get(`${r}#${n}`);
+          if (!was) return null;
+          rows.set(`${r}#${n}`, change(was));
+          return rows.get(`${r}#${n}`)!;
+        },
+        upsert: (r, n, change) => {
+          rows.set(`${r}#${n}`, change(rows.get(`${r}#${n}`) ?? null));
+          return rows.get(`${r}#${n}`)!;
+        },
+        all: () => [...rows.values()],
+        keepOnly: () => [],
+      },
+      limits: () => ({ maxPerDay: null, maxLines: 3000 }),
+      changed: () => undefined,
+      now: () => now,
+    });
+    await queue.sweep();
+    expect(fake.state.discussionAsked).toBe(1);
+    expect(rows.get('api#5')?.discussion?.threads[0].id).toBe('FAKE-1');
+    expect(prompts[0]).toContain('Use a constant here.');
+    expect(prompts[0]).not.toMatch(NO_GITHUB);
+    // Fakehub's words for its limit rest it: the last read stays, and it's not asked again for 10 minutes.
+    fake.state.limited = true;
+    now = new Date('2026-11-02T11:00:00Z');
+    expect((await queue.refreshDiscussion('api', 5)).ok).toBe(true);
+    expect(fake.state.discussionAsked).toBe(2);
+    now = new Date('2026-11-02T11:05:00Z');
+    await queue.refreshDiscussion('api', 5);
+    expect(fake.state.discussionAsked).toBe(2);
+    expect(rows.get('api#5')?.discussion?.threads).toHaveLength(1);
+    fake.state.limited = false;
   });
 });

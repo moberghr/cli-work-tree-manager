@@ -19,6 +19,10 @@ function serve(submit: ReviewRouteDeps['submit'], fixMyself?: ReviewRouteDeps['f
   const app = new Hono();
   mountReviewRoutes(app, {
     runNow: async () => ({ ok: false, error: 'x' }),
+    refreshDiscussion: async (repo, n) => {
+      const r = rows.get(`${repo}#${n}`);
+      return r ? { ok: true, review: r } : { ok: false, error: 'no review' };
+    },
     read: (repo, n) => rows.get(`${repo}#${n}`) ?? null,
     all: () => [...rows.values()],
     update: (repo, n, change) => {

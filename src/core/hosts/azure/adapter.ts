@@ -18,6 +18,7 @@ import {
   type AzureRepo,
 } from './origin.js';
 import {
+  discussionOf,
   feedbackOf,
   openPrOf,
   pickPr,
@@ -437,6 +438,17 @@ export const azure: GitHost = {
         };
     }
     return { ok: true, url: prWebUrl(r, number) };
+  },
+
+  // Read only: the PR's threads and its reviewers' votes (two GETs through `az devops invoke`).
+  async discussion(run, cwd, number) {
+    const r = repoAt(cwd);
+    if (!r) return { ok: false, error: "this repo's origin isn't an Azure DevOps one" };
+    const threads = await invoke<{ value?: AzThread[] }>(run, cwd, r, 'pullRequestThreads', { pullRequestId: number });
+    if (!threads.ok) return { ok: false, error: threads.error };
+    const pr = await invoke<AzPr>(run, cwd, r, 'pullRequests', { pullRequestId: number });
+    if (!pr.ok) return { ok: false, error: pr.error };
+    return { ok: true, discussion: discussionOf(r, number, threads.value?.value ?? [], pr.value ?? null) };
   },
 
   async reviewFeedback(run, cwd, number) {

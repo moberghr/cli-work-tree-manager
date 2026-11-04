@@ -138,6 +138,7 @@ describe('an open review’s keys', () => {
     expect(reviewActionFor({ key: 'o' })).toBe('overview');
     expect(reviewActionFor({ key: 's' })).toBe('stories');
     expect(reviewActionFor({ key: 'm' })).toBe('comments');
+    expect(reviewActionFor({ key: 'f' })).toBe('files');
     expect(reviewActionFor({ key: 'M', shiftKey: true })).toBeNull();
     expect(reviewActionFor({ key: 'o', ctrlKey: true })).toBeNull();
     expect(reviewActionFor({ key: 'x' })).toBeNull();
@@ -151,6 +152,6 @@ describe('an open review’s keys', () => {
     const listed = shortcutGroups()
       .find((g) => g.title === 'An open review')!
       .rows.map((r) => r.keys);
-    expect(listed).toEqual(['[', ']', 'o', 's', 'm']);
+    expect(listed).toEqual(['[', ']', 'o', 's', 'm', 'f']);
   });
 });

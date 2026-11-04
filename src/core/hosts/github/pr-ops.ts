@@ -251,7 +251,7 @@ export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<Ho
       '--limit',
       String(OPEN_PR_LIMIT),
       '--json',
-      'number,title,url,headRefName,headRefOid,baseRefName,author,isDraft,additions,deletions,reviewRequests,isCrossRepository',
+      'number,title,url,headRefName,headRefOid,baseRefName,author,isDraft,additions,deletions,reviewRequests,isCrossRepository,updatedAt',
     ],
     cwd,
   );
@@ -283,6 +283,7 @@ export async function githubOpenPrs(run: CommandRunner, cwd: string): Promise<Ho
         deletions: typeof o.deletions === 'number' ? o.deletions : 0,
         requested: Array.isArray(o.reviewRequests) ? o.reviewRequests.map(login).filter(Boolean) : [],
         ...(o.isCrossRepository === true ? { fork: true as const } : {}),
+        ...(typeof o.updatedAt === 'string' && o.updatedAt ? { updatedAt: o.updatedAt } : {}),
       },
     ];
   });

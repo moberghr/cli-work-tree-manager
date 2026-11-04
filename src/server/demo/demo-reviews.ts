@@ -2,7 +2,14 @@ import type { Hono } from 'hono';
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { buildReview, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
-import type { PrReviewWire, ReviewFixResultWire, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
+import type {
+  PrDiscussionWire,
+  PrReviewWire,
+  ReviewFixResultWire,
+  ReviewMode,
+  ReviewSettingsWire,
+  ReviewsWire,
+} from '../../core/api-types.js';
 import type { SubmitReviewResult } from '../../core/hosts/types.js';
 import { addDraft, clearDropped, removeDraft } from '../../core/review/review-submit.js';
 import { settlePrReview, shownReview, submitPrReview } from '../../core/review/review-submit-flow.js';
@@ -181,7 +188,7 @@ const DEMO_ANSWER = JSON.stringify({
     {
       path: 'src/Shop.Orders/Refunds/RefundHandler.cs',
       line: 6,
-      body: 'Two refunds at once both read the old `Refunded` — guard with a row version or a check in the update.',
+      body: 'Ivo’s open question about locking the row is still not answered by the code: two refunds at once both read the old `Refunded`. A row version, or a check in the update, would settle it.',
     },
     { path: 'src/Shop.Orders/Refunds/RefundHandler.cs', line: 7, body: 'Nothing stops refunding more than the order total.' },
     // A line the diff doesn't show: set aside with its text (the host would refuse the whole review for it).
@@ -197,6 +204,91 @@ const FILES: ParsedFile[] = parseGitDiff(DIFF);
 
 /** The demo PR's diff, parsed (its review's diff view; tests render it). */
 export const demoReviewFiles = (): ParsedFile[] => FILES;
+
+/**
+ * What's already discussed on the demo PR, as a host would answer (#64): an open thread on the handler with the
+ * author's reply, a resolved one on the validator, an outdated one whose line moved on, two verdicts and a comment.
+ */
+export function demoDiscussion(now = new Date()): PrDiscussionWire {
+  const ago = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
+  const url = (id: string) => `https://github.com/example/api/pull/231#discussion_${id}`;
+  return {
+    at: now.toISOString(),
+    updatedAt: ago(2),
+    threads: [
+      {
+        id: 'PRRT_demo1',
+        path: 'src/Shop.Orders/Refunds/RefundHandler.cs',
+        line: 6,
+        side: 'right',
+        outdated: false,
+        resolved: false,
+        url: url('r1'),
+        comments: [
+          {
+            author: 'ivo',
+            association: 'MEMBER',
+            body: 'Is `FindAsync` enough here, or should this lock the order row? Two support agents refunding the same order is not unusual.',
+            at: ago(20),
+            url: url('r1'),
+          },
+          {
+            author: 'marta',
+            association: 'CONTRIBUTOR',
+            body: 'Good point. I will look at a row version on Orders.',
+            at: ago(18),
+            url: url('r1b'),
+          },
+        ],
+      },
+      {
+        id: 'PRRT_demo2',
+        path: 'src/Shop.Orders/Refunds/RefundValidator.cs',
+        line: 3,
+        side: 'right',
+        outdated: false,
+        resolved: true,
+        url: url('r2'),
+        comments: [
+          { author: 'ana', association: 'OWNER', body: 'Should a refund of 0 be allowed?', at: ago(30), url: url('r2') },
+          { author: 'marta', association: 'CONTRIBUTOR', body: 'No: changed to `GreaterThan(0)`.', at: ago(26), url: url('r2b') },
+        ],
+      },
+      {
+        id: 'PRRT_demo3',
+        path: 'src/Shop.Orders/Pricing/Rounding.cs',
+        line: null,
+        originalLine: 3,
+        side: 'right',
+        outdated: true,
+        resolved: false,
+        url: url('r3'),
+        comments: [
+          {
+            author: 'ivo',
+            association: 'MEMBER',
+            body: 'Why banker’s rounding in the first place? The invoices round half up.',
+            at: ago(40),
+            url: url('r3'),
+          },
+        ],
+      },
+    ],
+    reviews: [
+      { author: 'ivo', association: 'MEMBER', state: 'commented', body: '', at: ago(20), url: url('v1') },
+      { author: 'ana', association: 'OWNER', state: 'approved', body: 'Fine once the row locking is sorted.', at: ago(25), url: url('v2') },
+    ],
+    comments: [
+      {
+        author: 'lea',
+        association: 'MEMBER',
+        body: 'Can this go in before Friday’s release? Support is waiting for it.',
+        at: ago(6),
+        url: 'https://github.com/example/api/pull/231#issuecomment-1',
+      },
+    ],
+  };
+}
 
 export function demoReview(now = new Date()): PrReviewWire {
   return {
@@ -218,12 +310,14 @@ export function demoReview(now = new Date()): PrReviewWire {
     ),
     mergeBase: 'base',
     preparedAt: now.toISOString(),
+    discussion: demoDiscussion(now),
   };
 }
 
 function waitingReview(now: Date): PrReviewWire {
+  const { discussion: _none, ...prepared } = demoReview(now);
   return {
-    ...demoReview(now),
+    ...prepared,
     number: 236,
     title: 'Upgrade to .NET 10',
     url: 'https://github.com/example/api/pull/236',
@@ -321,6 +415,11 @@ export function mountDemoReviews(
     reviews.set(k, r);
     broadcast('reviews-changed', { repo: r.repo, number: r.number });
     return c.json(r);
+  });
+  // The review was opened: a host would be asked again; the demo's discussion stands as it is.
+  app.post('/api/reviews/:repo/:number/discussion', (c) => {
+    const r = reviews.get(key(c.req.param('repo'), c.req.param('number')));
+    return r ? c.json(shownReview(store, r)) : c.json({ error: 'no review of that PR' }, 404);
   });
   app.post('/api/reviews/:repo/:number/drafts', async (c) => {
     const k = key(c.req.param('repo'), c.req.param('number'));

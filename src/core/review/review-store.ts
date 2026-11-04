@@ -1,5 +1,6 @@
 import { json, tx, withDb } from '../platform/db.js';
 import type { PrReviewWire, ReviewFixWire } from '../api-types.js';
+import { isDiscussion } from './review-discussion.js';
 
 /**
  * Prepared reviews, one per PR (`repo#number`), in state.db `pr_reviews`
@@ -50,6 +51,7 @@ export function isReview(v: unknown): v is PrReviewWire {
         Array.isArray(r.submitting.drafts))) &&
     (r.lastDraft === undefined || typeof r.lastDraft === 'number') &&
     (r.fork === undefined || r.fork === true) &&
+    (r.discussion === undefined || isDiscussion(r.discussion)) &&
     (r.fixingMyself === undefined || (Array.isArray(r.fixingMyself) && r.fixingMyself.every(isFix))) &&
     (r.fixing === undefined ||
       (!!r.fixing &&

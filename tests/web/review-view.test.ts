@@ -26,6 +26,10 @@ import {
   storyCards,
   testsLine,
   viewedCount,
+  filesTree,
+  filesViewed,
+  foldedInFiles,
+  mdGist,
 } from '../../src/web/src/state/review-view.js';
 import { demoReview, demoReviewFiles } from '../../src/server/demo/demo-reviews.js';
 import { summaryOf } from '../../src/core/review/review-build.js';
@@ -402,5 +406,32 @@ describe('a file row: what kind of change, how big, its comments', () => {
     expect(fileOnScreen(tops, 5000)).toBe('c');
     expect(fileOnScreen([{ path: 'a', top: 100 }], 0)).toBe('a');
     expect(fileOnScreen([], 0)).toBeNull();
+  });
+});
+
+describe("the Files view's tree (GitHub's Files changed)", () => {
+  it('folders first, then files, by name; a folder holding one folder joined with it; the diffs in the tree order', () => {
+    const f = (path: string, kind = 'logic') => ({ ...demoReview().files[0], path, kind }) as PrReviewWire['files'][number];
+    const { nodes, order } = filesTree([f('src/b/Z.cs'), f('README.md'), f('src/a/x/Y.cs'), f('src/b/a.cs'), f('src/c.cs')]);
+    const show = (ns: typeof nodes): unknown[] => ns.map((n) => (n.kind === 'folder' ? { [n.name]: show(n.children) } : n.name));
+    expect(show(nodes)).toEqual([{ src: [{ 'a/x': ['Y.cs'] }, { b: ['a.cs', 'Z.cs'] }, 'c.cs'] }, 'README.md']);
+    expect(order).toEqual(['src/a/x/Y.cs', 'src/b/a.cs', 'src/b/Z.cs', 'src/c.cs', 'README.md']);
+    expect(foldedInFiles({ kind: 'generated' })).toBe(true);
+    expect(foldedInFiles({ kind: 'mechanical' })).toBe(false);
+  });
+
+  it('viewed counts every file of the PR', () => {
+    const r = demoReview();
+    expect(filesViewed(r, new Set([r.files[0].path, 'not/in/it.cs']))).toEqual({ viewed: 1, total: r.files.length });
+  });
+});
+
+describe("someone's Markdown on one line (the PR's discussion)", () => {
+  it('drops HTML comments, headings, emphasis, tables and link targets; keeps what it says', () => {
+    expect(mdGist('<!-- ccr-overview-v2 -->\n\n### 🟡 Changes recommended\n\nAgreement-only edits can bypass checks. More.')).toBe(
+      '🟡 Changes recommended Agreement-only edits can bypass checks.',
+    );
+    expect(mdGist('**Available commands:**\n| Command | Description |\n|---|---|\n| `/deploy` | Deploy |')).toBe('Available commands:');
+    expect(mdGist('See [the docs](https://x/y) for `Foo`.')).toBe('See the docs for `Foo`.');
   });
 });

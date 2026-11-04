@@ -7,7 +7,8 @@
  */
 
 import type { ParsedFile } from '../diff/diff-parse.js';
-import type { PrReviewWire, ReviewFileWire, ReviewSummaryWire } from '../api-types.js';
+import type { PrDiscussionWire, PrReviewWire, ReviewFileWire, ReviewSummaryWire } from '../api-types.js';
+import { discussionCounts, discussionPromptLines, threadOrder } from './review-discussion.js';
 import { classifyFile, type FileKind, type KindRule } from './change-kinds.js';
 import { testBreakdown, type DiffFileLines } from './test-breakdown.js';
 import { agentPrompt, FLAG_LABEL, FLAGS, parseAgentPass, planReview, PROMPT_KINDS, type PromptFile } from './review-plan.js';
@@ -101,7 +102,12 @@ export const promptPaths = (kinds: FileKind[]): string[] => kinds.filter((k) => 
  * many of their diffs as fit, and the tests it touches (null: no Logic file, nothing to ask about).
  * `checkout`: the agent reads it in a checkout of the PR (review-tree.ts), and is told so.
  */
-export function reviewPrompt(meta: ReviewMeta, files: ParsedFile[], kinds: FileKind[], opts: { checkout?: string[] } = {}): string | null {
+export function reviewPrompt(
+  meta: ReviewMeta,
+  files: ParsedFile[],
+  kinds: FileKind[],
+  opts: { checkout?: string[]; discussion?: PrDiscussionWire } = {},
+): string | null {
   if (!kinds.some((k) => k.kind === 'logic')) return null;
   const kindMap = Object.fromEntries(kinds.map((k) => [k.path, k.kind]));
   const tests = testBreakdown(files.map(asLines), kindMap).tests.filter((t) => t.change !== 'removed');
@@ -117,7 +123,11 @@ export function reviewPrompt(meta: ReviewMeta, files: ParsedFile[], kinds: FileK
       deleted: f.deleted,
       lines: rightLines(f),
     }));
-  return agentPrompt({ title: meta.title, number: meta.number }, shown, tests, undefined, opts);
+  const discussion = discussionPromptLines(opts.discussion);
+  return agentPrompt({ title: meta.title, number: meta.number }, shown, tests, undefined, {
+    ...(opts.checkout ? { checkout: opts.checkout } : {}),
+    ...(discussion.length ? { discussion } : {}),
+  });
 }
 
 /**
@@ -267,10 +277,33 @@ export function describeReview(r: PrReviewWire): string {
     r.drafts.length
       ? `${r.drafts.filter((d) => d.state === 'draft').length} draft comment(s) wait for the user's Post; you never post them.`
       : '',
+    ...describeDiscussion(r.discussion),
     ...(r.fixingMyself ?? []).map(
       (f) =>
         `${f.comments.length} comment(s) taken off the review: the user is fixing them in a session instead of posting them (Fix it myself), on <<< ${asData(f.branch, 120)} >>>: <<< ${f.comments.map((c) => `${asData(c.path, 120)}:${c.line}`).join(', ')} >>>.`,
     ),
   ];
   return lines.filter(Boolean).join('\n');
+}
+
+/** The PR's existing discussion for the Ctrl+K assistant: counts and verdicts, then each thread — others' words, fenced. */
+function describeDiscussion(d: PrDiscussionWire | undefined): string[] {
+  if (!d) return [];
+  const c = discussionCounts(d);
+  if (!c.threads && !c.comments && !d.reviews.length) return ['Nothing is discussed on the PR on its host yet.'];
+  const names = (xs: string[]) => xs.map((x) => `@${asData(x, 60)}`).join(', ');
+  return [
+    `Already discussed on the PR (read ${d.at}; read only — work never answers or resolves these): ${c.threads} thread(s), ${c.open} open, ${c.resolved} resolved, ${c.outdated} outdated; ${c.comments} conversation comment(s).` +
+      (c.approved.length ? ` Approved by ${names(c.approved)}.` : '') +
+      (c.changes.length ? ` Changes requested by ${names(c.changes)}.` : ''),
+    ...threadOrder(d.threads)
+      .slice(0, 30)
+      .map(
+        (t) =>
+          `- ${t.resolved ? 'resolved' : 'open'}${t.outdated ? ', outdated' : ''} on <<< ${asData(t.path ?? 'the PR', 160)}${t.line !== null ? `:${t.line}` : ''} >>>: <<< ${t.comments
+            .slice(0, 4)
+            .map((x) => `@${asData(x.author, 60)}: ${asData(x.body, 400)}`)
+            .join(' / ')} >>>`,
+      ),
+  ];
 }

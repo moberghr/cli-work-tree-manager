@@ -69,7 +69,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
 };
 
 /** What a key does on an open review (the Reviews tab). */
-export type ReviewAction = 'prev' | 'next' | 'overview' | 'stories' | 'comments';
+export type ReviewAction = 'prev' | 'next' | 'overview' | 'stories' | 'comments' | 'files';
 
 /**
  * An open review's keys (the Reviews tab, no session open). Not `c` for the comments: `c` is New worktree everywhere,
@@ -81,6 +81,7 @@ export const REVIEW_KEYS: Record<ReviewAction, KeyDef> = {
   overview: { key: 'o', label: 'The overview' },
   stories: { key: 's', label: 'The stories, one at a time' },
   comments: { key: 'm', label: 'Walk through the comments' },
+  files: { key: 'f', label: 'Every file in one scroll (Files changed)' },
 };
 
 /** The parts of a key event the handlers read. */

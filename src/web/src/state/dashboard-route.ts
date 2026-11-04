@@ -18,6 +18,7 @@
  *   `#/reviews/<repo>/<n>`           → Reviews · a PR's review, its overview
  *   `#/reviews/<repo>/<n>/story/<k>` → Reviews · its k-th story (1-based; the kinds of change after the stories)
  *   `#/reviews/<repo>/<n>/comments/<k>` → Reviews · its draft comments, the k-th on screen
+ *   `#/reviews/<repo>/<n>/files[/<path>]` → Reviews · every file in one scroll (GitHub's Files changed), at a file
  *
  * Old links still open: `…/comments` on the Diff (where comments are now),
  * `…/chat` on the Terminal (the headless chat is gone).
@@ -37,13 +38,18 @@ export type SessionSubTab = 'diff' | 'term' | 'pr' | 'code' | 'timeline';
 /** Sub-tabs that no longer exist, and where their links land now. */
 const OLD_SUB_TAB: Record<string, SessionSubTab> = { comments: 'diff', chat: 'term' };
 
-/** The review open on the Reviews tab, and where in it: the overview, a page of the story pager, a comment of the walk. */
+/**
+ * The review open on the Reviews tab, and where in it: the overview, a page of the story pager, a comment of the walk,
+ * or every file in one scroll (at a file).
+ */
 export interface ReviewRoute {
   repo: string;
   number: number;
-  mode: 'overview' | 'story' | 'comments';
-  /** 0-based: the story page or the comment (the overview: 0). */
+  mode: 'overview' | 'story' | 'comments' | 'files';
+  /** 0-based: the story page or the comment (the overview and the files: 0). */
   at: number;
+  /** The Files view: the file scrolled to (absent: the top). */
+  file?: string;
 }
 
 export interface DashboardRoute {
@@ -66,9 +72,24 @@ export const DEFAULT_ROUTE: DashboardRoute = {
 const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|welcome|prs|jira|reviews|time|tasks)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|timeline))?\/?$/;
 const REVIEW_RE = /^#\/reviews\/([^/]+)\/(\d+)(?:\/(story|comments)\/(\d+))?\/?$/;
+const REVIEW_FILES_RE = /^#\/reviews\/([^/]+)\/(\d+)\/files(?:\/([^/]+))?\/?$/;
 
 /** A review's route from its hash, or null. A bad number (0, huge) is the first. */
 function parseReview(hash: string): ReviewRoute | null {
+  const f = hash.match(REVIEW_FILES_RE);
+  if (f) {
+    let repo: string;
+    let file: string | undefined;
+    try {
+      repo = decodeURIComponent(f[1]);
+      file = f[3] ? decodeURIComponent(f[3]) : undefined;
+    } catch {
+      return null;
+    }
+    const number = Number(f[2]);
+    if (!repo || !Number.isSafeInteger(number) || number <= 0) return null;
+    return { repo, number, mode: 'files', at: 0, ...(file ? { file } : {}) };
+  }
   const m = hash.match(REVIEW_RE);
   if (!m) return null;
   let repo: string;
@@ -87,6 +108,7 @@ function parseReview(hash: string): ReviewRoute | null {
 /** A review route's hash. */
 export function reviewHash(r: ReviewRoute): string {
   const base = `#/reviews/${encodeURIComponent(r.repo)}/${r.number}`;
+  if (r.mode === 'files') return r.file ? `${base}/files/${encodeURIComponent(r.file)}` : `${base}/files`;
   return r.mode === 'overview' ? base : `${base}/${r.mode}/${r.at + 1}`;
 }
 

@@ -94,7 +94,7 @@ export function realReviewQueueDeps(opts: { activity?: ActivityLog; changed: () 
       }),
     sweepTrees: () => sweepReviewTrees(defaultRunner, { olderThanMs: TREE_SWEEP_MIN_AGE_MS }),
     rules: () => rulesWith(config().reviews?.rules),
-    store: { read: readReview, upsert: upsertReview, all: allReviews, keepOnly },
+    store: { read: readReview, update: updateReview, upsert: upsertReview, all: allReviews, keepOnly },
     limits: () => reviewLimits(config()),
     changed: opts.changed,
     ...(opts.activity ? { activity: opts.activity } : {}),

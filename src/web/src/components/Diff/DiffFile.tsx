@@ -32,6 +32,8 @@ interface Props {
   foldImports?: boolean;
   /** Shown under the header, above the code, while the file is open (the Reviews tab: what changed here). */
   note?: ReactNode;
+  /** Not drawn until "Load diff", with this said instead (the Reviews tab's Files view: a generated file, as GitHub does). */
+  deferred?: string;
 }
 
 /** Lines (added + deleted) past which we don't auto-render the diff
@@ -42,7 +44,7 @@ interface Props {
  *  the genuine pathology. */
 const AUTO_COLLAPSE_LINES = 500;
 
-export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, foldImports, note }: Props) {
+export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, foldImports, note, deferred }: Props) {
   // Split (side-by-side) vs unified (inline) layout — a global, persisted
   // preference. Drives the table's column layout here; DiffHunk and GapRegion
   // read the same mode to emit matching rows.
@@ -77,7 +79,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, f
   // on scope switch which is the right reset point).
   const totalChanged = file.added + file.deleted;
   const isLarge = totalChanged >= AUTO_COLLAPSE_LINES;
-  const [expanded, setExpanded] = useState(!isLarge);
+  const [expanded, setExpanded] = useState(!isLarge && !deferred);
 
   // GitHub-style per-file fold. The chevron in the header collapses the
   // whole file body. A file starts folded when it carries no diff worth
@@ -285,8 +287,12 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, f
         ) : !expanded ? (
           <div className="wd-binary wd-large-file">
             <p>
-              Large file — {totalChanged.toLocaleString()} line
-              {totalChanged === 1 ? '' : 's'} changed. Not rendered by default.
+              {deferred ?? (
+                <>
+                  Large file — {totalChanged.toLocaleString()} line
+                  {totalChanged === 1 ? '' : 's'} changed. Not rendered by default.
+                </>
+              )}
             </p>
             <button type="button" className="wd-btn-secondary" onClick={() => setExpanded(true)}>
               Load diff

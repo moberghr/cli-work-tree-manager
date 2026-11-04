@@ -9,6 +9,7 @@ import {
   fetchReviews,
   fetchReviewSettings,
   prepareReview,
+  refreshReviewDiscussion,
   ReviewSubmitError,
   saveReviewMode,
   settleReviewInDoubt,
@@ -29,6 +30,9 @@ import { FixMyselfDialog } from '../FixMyselfDialog.js';
 import { ReviewOverview } from './review/ReviewOverview.js';
 import { StoryPager } from './review/StoryPager.js';
 import { CommentWalk } from './review/CommentWalk.js';
+import { FilesView } from './review/FilesView.js';
+import { HostThreadsProvider } from '../../../state/HostThreads.js';
+import { placeThreads } from '../../../../../core/review/review-discussion.js';
 
 /**
  * Reviews (#64, `g v`): the PRs with a review prepared, waiting or running,
@@ -40,6 +44,10 @@ import { CommentWalk } from './review/CommentWalk.js';
  * after them; **Comments** walks the drafts one at a time with the code
  * around each. The list folds away while a review is open (Reviews ▾ in its
  * header brings it back), and the session rail can be folded on this tab.
+ * **Files** is GitHub's "Files changed": every file in folder order, every
+ * diff in one scroll, the same Viewed ticks. The PR's existing discussion on
+ * its host (read again when the review opens) sits on its lines, read only,
+ * apart from the drafts; the threads that can't are listed with it.
  * Where you are is in the URL (#/reviews/<repo>/<n>/story/2). All drafts go
  * out as one review from the submit bar, in your name, on your click — or,
  * Fix it myself, leave it for a session on the PR's branch.
@@ -268,6 +276,10 @@ function ReviewView({
   }, [repo, number]);
   useEffect(load, [load]);
   useSse('/events', { events: { 'reviews-changed': load } });
+  // Opened: the PR's discussion is read again from its host (the server says when that's due: at most once a minute).
+  useEffect(() => {
+    refreshReviewDiscussion(repo, number).then(setR, () => undefined);
+  }, [repo, number]);
   useEffect(() => {
     if (r?.status !== 'ready') return;
     fetchReviewDiff(repo, number).then(
@@ -283,6 +295,9 @@ function ReviewView({
     setLooked(readMarks(marksKey('looked', { repo, number, headSha })));
   }, [repo, number, headSha]);
   const pages = useMemo(() => (r ? reviewPages(r) : []), [r]);
+  // The PR's threads on its host: on their lines in the diffs, or — outdated, or on a line the diff doesn't show — listed.
+  const placed = useMemo(() => placeThreads(r?.discussion, files ?? []), [r?.discussion, files]);
+  const hostThreads = useMemo(() => ({ inline: placed.inline, ...(r?.host ? { host: r.host } : {}) }), [placed, r?.host]);
   const walk = useMemo(() => (r ? commentWalk(r, pages) : []), [r, pages]);
   const api = useMemo(() => reviewDraftsApi(repo, number, setR), [repo, number]);
   // The drafts reload with the review (a sweep, the other window): the comment rows read them fresh.
@@ -290,7 +305,10 @@ function ReviewView({
   const mode = r?.status === 'ready' ? route.mode : 'overview';
   const storyAt = Math.max(0, Math.min(route.mode === 'story' ? route.at : 0, pages.length - 1));
   const commentAt = Math.max(0, Math.min(route.mode === 'comments' ? route.at : 0, walk.length - 1));
-  const goMode = useCallback((m: ReviewRoute['mode'], at = 0) => onRoute({ repo, number, mode: m, at }), [onRoute, repo, number]);
+  const goMode = useCallback(
+    (m: ReviewRoute['mode'], at = 0, file?: string) => onRoute({ repo, number, mode: m, at, ...(file ? { file } : {}) }),
+    [onRoute, repo, number],
+  );
 
   // The review's keys ([ ] o s m): only on a prepared review, never while typing or with a dialog up.
   useEffect(() => {
@@ -305,6 +323,7 @@ function ReviewView({
       if (action === 'overview') return goMode('overview');
       if (action === 'stories') return goMode('story', route.mode === 'story' ? storyAt : 0);
       if (action === 'comments') return goMode('comments', route.mode === 'comments' ? commentAt : 0);
+      if (action === 'files') return goMode('files', 0, route.mode === 'files' ? route.file : undefined);
       const step = action === 'next' ? 1 : -1;
       if (route.mode === 'comments') {
         const next = commentAt + step;
@@ -316,7 +335,7 @@ function ReviewView({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [r?.status, route.mode, storyAt, commentAt, walk.length, pages.length, goMode]);
+  }, [r?.status, route.mode, route.file, storyAt, commentAt, walk.length, pages.length, goMode]);
 
   if (error) return <p className="wd-modal-error">{error}</p>;
   if (!r) return <p className="wd-start-note">Loading…</p>;
@@ -349,6 +368,7 @@ function ReviewView({
     ['overview', 'Overview', 'o'],
     ['story', `Stories (${pages.filter((p) => p.story).length})`, 's'],
     ['comments', `Comments (${walk.length})`, 'm'],
+    ['files', `Files (${r.files.length})`, 'f'],
   ] as const;
 
   return (
@@ -479,46 +499,62 @@ function ReviewView({
 
       {ready && (
         <ReviewProvider key={draftsKey} api={api}>
-          <div className="wd-review-mode-body">
-            {mode === 'overview' && (
-              <ReviewOverview
-                review={r}
-                pages={pages}
-                walk={walk}
-                looked={looked}
-                onLooked={markLooked}
-                onStory={(p) => goMode('story', p)}
-                onComment={(i) => goMode('comments', i)}
-                onClearDropped={clearDropped}
-              />
-            )}
-            {mode === 'story' && (
-              <StoryPager
-                review={r}
-                pages={pages}
-                at={storyAt}
-                files={files}
-                viewed={viewed}
-                onViewed={markViewed}
-                onGo={(p) => goMode('story', p)}
-                onOverview={() => goMode('overview')}
-              />
-            )}
-            {mode === 'comments' && (
-              <CommentWalk
-                review={r}
-                walk={walk}
-                at={commentAt}
-                pages={pages}
-                files={files}
-                looked={looked}
-                onLooked={markLooked}
-                onGo={(i) => goMode('comments', i)}
-                onStory={(p) => goMode('story', p)}
-                onClearDropped={clearDropped}
-              />
-            )}
-          </div>
+          <HostThreadsProvider value={hostThreads}>
+            <div className="wd-review-mode-body">
+              {mode === 'overview' && (
+                <ReviewOverview
+                  review={r}
+                  pages={pages}
+                  walk={walk}
+                  looked={looked}
+                  onLooked={markLooked}
+                  onStory={(p) => goMode('story', p)}
+                  onComment={(i) => goMode('comments', i)}
+                  onClearDropped={clearDropped}
+                  aside={placed.aside}
+                  onFiles={() => goMode('files')}
+                />
+              )}
+              {mode === 'story' && (
+                <StoryPager
+                  review={r}
+                  pages={pages}
+                  at={storyAt}
+                  files={files}
+                  viewed={viewed}
+                  onViewed={markViewed}
+                  onGo={(p) => goMode('story', p)}
+                  onOverview={() => goMode('overview')}
+                  aside={placed.aside}
+                />
+              )}
+              {mode === 'comments' && (
+                <CommentWalk
+                  review={r}
+                  walk={walk}
+                  at={commentAt}
+                  pages={pages}
+                  files={files}
+                  looked={looked}
+                  onLooked={markLooked}
+                  onGo={(i) => goMode('comments', i)}
+                  onStory={(p) => goMode('story', p)}
+                  onClearDropped={clearDropped}
+                />
+              )}
+              {mode === 'files' && (
+                <FilesView
+                  review={r}
+                  files={files}
+                  viewed={viewed}
+                  onViewed={markViewed}
+                  {...(route.file ? { file: route.file } : {})}
+                  onFile={(path) => goMode('files', 0, path)}
+                  aside={placed.aside}
+                />
+              )}
+            </div>
+          </HostThreadsProvider>
         </ReviewProvider>
       )}
       {/* Outside the provider (remounted when the drafts change): a submit's error stays on screen. */}

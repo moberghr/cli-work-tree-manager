@@ -1,7 +1,15 @@
-import type { ChecksState, FailingCheck, ShipPr } from '../../api-types.js';
+import type {
+  ChecksState,
+  FailingCheck,
+  PrDiscussionCommentWire,
+  PrDiscussionReviewWire,
+  PrDiscussionThreadWire,
+  ShipPr,
+} from '../../api-types.js';
 import type { PullRequestInfo } from '../../pr/pr-types.js';
 import type { ReviewFeedback, ReviewThread } from '../../pr/review-types.js';
-import type { OpenPr, PrForStart } from '../types.js';
+import type { OpenPr, PrDiscussion, PrForStart } from '../types.js';
+import { discussionBody, MAX_THREAD_COMMENTS } from '../discussion.js';
 import { azureThreadId, azureWebUrl, type AzureRepo } from './origin.js';
 
 /**
@@ -55,7 +63,13 @@ export interface AzThread {
   id?: number;
   status?: string;
   isDeleted?: boolean;
-  threadContext?: { filePath?: string; rightFileStart?: { line?: number }; rightFileEnd?: { line?: number } } | null;
+  threadContext?: {
+    filePath?: string;
+    rightFileStart?: { line?: number };
+    rightFileEnd?: { line?: number };
+    leftFileStart?: { line?: number };
+    leftFileEnd?: { line?: number };
+  } | null;
   comments?: Array<{
     id?: number;
     author?: { uniqueName?: string; displayName?: string } | null;
@@ -243,4 +257,61 @@ export function feedbackOf(repo: AzureRepo, prNumber: number, threads: AzThread[
     });
   }
   return { viewer, threads: out, reviews: [], comments: [] };
+}
+
+/**
+ * A PR's discussion in work's host-neutral shape (#64): threads on a file's line are review threads (right side, or
+ * left when only the old side is named), threads on no file are conversation comments, and each reviewer's vote is
+ * their verdict (10 / 5 approved, −5 / −10 changes requested; 0 says nothing). Azure's own system notes (a vote cast,
+ * a push) are left out, as are deleted threads and comments. Azure DevOps has no "outdated" and no association.
+ */
+export function discussionOf(repo: AzureRepo, prNumber: number, threads: AzThread[], pr: AzPr | null): PrDiscussion {
+  const web = prWebUrl(repo, prNumber);
+  const out: PrDiscussionThreadWire[] = [];
+  const comments: PrDiscussionCommentWire[] = [];
+  let more = false;
+  for (const t of threads) {
+    if (typeof t.id !== 'number' || t.isDeleted) continue;
+    const people = (t.comments ?? []).filter((c) => !!c && !c.isDeleted && c.commentType !== 'system');
+    if (!people.length) continue;
+    const url = `${web}?discussionId=${t.id}`;
+    const said = people.map((c): PrDiscussionCommentWire => ({
+      author: c!.author?.uniqueName ?? c!.author?.displayName ?? 'unknown',
+      body: discussionBody(c!.content),
+      at: c!.publishedDate ?? '',
+      url,
+    }));
+    const ctx = t.threadContext;
+    if (!ctx?.filePath) {
+      comments.push(...said);
+      continue;
+    }
+    const right = ctx.rightFileEnd?.line ?? ctx.rightFileStart?.line ?? null;
+    const left = ctx.leftFileEnd?.line ?? ctx.leftFileStart?.line ?? null;
+    if (said.length > MAX_THREAD_COMMENTS) more = true;
+    out.push({
+      id: azureThreadId(repo, prNumber, t.id),
+      path: ctx.filePath.replace(/^\//, ''),
+      line: right ?? left,
+      side: right === null && left !== null ? 'left' : 'right',
+      outdated: false,
+      resolved: RESOLVED_THREAD.has(t.status ?? ''),
+      url,
+      comments: said.slice(0, MAX_THREAD_COMMENTS),
+    });
+  }
+  const reviews = (pr?.reviewers ?? []).flatMap((r): PrDiscussionReviewWire[] => {
+    const vote = r?.vote ?? 0;
+    if (!r || !vote) return [];
+    return [
+      {
+        author: r.uniqueName ?? r.displayName ?? 'unknown',
+        state: vote > 0 ? 'approved' : 'changes-requested',
+        body: '',
+        at: '',
+        url: web,
+      },
+    ];
+  });
+  return { threads: out, reviews, comments, ...(more ? { more: true as const } : {}) };
 }

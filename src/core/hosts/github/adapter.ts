@@ -13,7 +13,7 @@ import {
   githubPrState,
   githubSubmitReview,
 } from './pr-ops.js';
-import { githubReviewFeedback, githubViewer } from './review.js';
+import { githubDiscussion, githubReviewFeedback, githubViewer } from './review.js';
 import { GITHUB_THREAD_ID } from './origin.js';
 import { githubThreadLive, githubThreadNow, githubThreadReply, githubThreadResolve, githubThreadResolved } from './threads.js';
 
@@ -49,6 +49,7 @@ export const github: GitHost = {
   openPrs: githubOpenPrs,
   submitReview: githubSubmitReview,
   reviewFeedback: (run, cwd, n) => githubReviewFeedback(run, cwd, n),
+  discussion: (run, cwd, n) => githubDiscussion(run, cwd, n),
 
   threads: {
     isId: (id) => GITHUB_THREAD_ID.test(id),

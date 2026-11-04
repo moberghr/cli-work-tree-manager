@@ -23,6 +23,8 @@ import { isReviewMode } from '../../core/review/review-config.js';
 
 export interface ReviewRouteDeps extends SubmitFlowDeps {
   runNow: (repo: string, number: number) => Promise<{ ok: true; review: PrReviewWire } | { ok: false; error: string }>;
+  /** Read the PR's discussion on its host again (the review was opened; at most once a minute, never while the host rests). */
+  refreshDiscussion: (repo: string, number: number) => Promise<{ ok: true; review: PrReviewWire } | { ok: false; error: string }>;
   all: () => PrReviewWire[];
   limits: () => { maxPerDay: number | null; maxLines: number };
   today: () => number;
@@ -87,6 +89,18 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     const r = await deps.runNow(repo, n);
     changed(repo, n);
     return r.ok ? c.json(r.review) : c.json({ error: r.error }, 409);
+  });
+
+  // The review was opened: its PR's discussion read again from the host (a read; the queue says when it's due).
+  app.post('/api/reviews/:repo/:number/discussion', async (c) => {
+    const repo = c.req.param('repo');
+    const n = num(c.req.param('number'));
+    if (n === null || !deps.read(repo, n)) return c.json({ error: 'no review of that PR' }, 404);
+    const was = deps.read(repo, n)?.discussion?.at;
+    const r = await deps.refreshDiscussion(repo, n);
+    if (!r.ok) return c.json({ error: r.error }, 404);
+    if (r.review.discussion?.at !== was) changed(repo, n);
+    return c.json(shownReview(deps, r.review));
   });
 
   // Add a draft of your own on a line of the diff.

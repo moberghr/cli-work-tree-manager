@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
   settleReviewInDoubt: vi.fn(),
   clearReviewDropped: vi.fn(),
   fixReviewMyself: vi.fn(),
+  refreshReviewDiscussion: vi.fn(),
 }));
 vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/panes.js')>()),
@@ -76,6 +77,8 @@ beforeEach(() => {
   api.fetchReviews.mockResolvedValue({ reviews: [summaryOf(review), azurePr], today: 1, maxPerDay: null });
   api.fetchReview.mockResolvedValue(review);
   api.fetchReviewDiff.mockResolvedValue({ files: demoReviewFiles() });
+  // Opening a review reads its discussion again: here it answers the review as fetchReview does.
+  api.refreshReviewDiscussion.mockImplementation((repo: string, n: number) => api.fetchReview(repo, n));
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -129,7 +132,7 @@ describe('the overview', () => {
     expect(text('.wd-review-short')).toContain('Adds partial refunds to paid orders');
     const items = [...container.querySelectorAll('.wd-review-attention > ul > li')].map((li) => li.textContent);
     expect(items).toEqual([
-      'ARefundHandler.cs:6Two refunds at once both read the old `Refunded` — guard with a row version or a check in the update.',
+      'ARefundHandler.cs:6Ivo’s open question about locking the row is still not answered by the code: two refunds at once both read the old `Refunded`.',
       'ARefundHandler.cs:7Nothing stops refunding more than the order total.',
     ]);
     expect(text('.wd-review-attention h3')).toContain('2 of 2 to look at');
@@ -390,7 +393,7 @@ describe('the comments walk', () => {
     // The file's "What changed here" under its header, before the code around the comment.
     expect(pane.querySelector('.wd-file-header + .wd-file-note summary')!.textContent).toBe('What changed here');
     expect(text('.wd-review-walk-pane .wd-file-note')).toContain('New handler that loads the order');
-    expect(pane.textContent).toContain('Two refunds at once both read the old');
+    expect(pane.textContent).toContain('two refunds at once both read the old');
     const draft = pane.querySelector('.wd-status-draft')!;
     expect([...draft.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Delete']);
     // ~15 lines: the whole of this short new file, 11 lines.
@@ -653,5 +656,120 @@ describe('without a router (kept in the tab)', () => {
     await act(async () => button('Stories (2)').click());
     await flush();
     expect(text('.wd-review-pager-pos')).toBe('Story 1 of 2');
+  });
+});
+
+describe("the PR's existing discussion (read only)", () => {
+  it('opening a review reads it again from the host', async () => {
+    await render();
+    expect(api.refreshReviewDiscussion).toHaveBeenCalledWith('api', 231);
+  });
+
+  it('the overview: Already discussed — threads, open, verdicts, the conversation, and the outdated thread listed apart', async () => {
+    await render();
+    const sec = container.querySelector('[aria-label="Already discussed"]')!;
+    expect(sec.querySelector('.wd-review-discussed-line')!.textContent).toContain(
+      '3 threads, 2 open · 1 resolved · 1 outdated · 1 comment on the PR',
+    );
+    expect(sec.textContent).toContain('approved by @ana');
+    const list = [...sec.querySelectorAll('.wd-review-discussed-list li')].map((li) => li.textContent);
+    expect(list[0]).toContain('approved @ana Fine once the row locking is sorted.');
+    expect(list[1]).toContain('comment @lea Can this go in before Friday’s release?');
+    expect(sec.querySelectorAll('.wd-review-discussed-list a')[0].getAttribute('href')).toBe(
+      'https://github.com/example/api/pull/231#discussion_v2',
+    );
+    // Its outdated thread, which has no line in the diff: listed, marked.
+    const aside = sec.querySelector('.wd-host-aside')!;
+    expect(aside.querySelector('summary')!.textContent).toContain('1 thread on GitHub not on a line of this diff');
+    expect(aside.querySelector('.wd-host-where')!.textContent).toBe('Rounding.cs (was line 3)');
+    expect(aside.querySelector('.wd-host-outdated')!.textContent).toBe('outdated');
+    act(() => button('See them on their lines').click());
+    expect(routes.at(-1)).toMatchObject({ mode: 'files' });
+  });
+
+  it('a review from before (none read yet) says so', async () => {
+    api.fetchReview.mockResolvedValue({ ...review, discussion: undefined });
+    await render();
+    expect(text('[aria-label="Already discussed"]')).toContain('Not read from GitHub yet');
+  });
+
+  it('in a story: on its line, apart from the drafts — read only, its link to the host; a resolved one folded and dimmed', async () => {
+    await render({ start: { ...OVERVIEW, mode: 'story', at: 0 } });
+    const pane = container.querySelector('.wd-review-diff-pane')!;
+    const threads = [...pane.querySelectorAll('.wd-host-thread')];
+    expect(threads.map((t) => t.getAttribute('data-thread'))).toEqual(['PRRT_demo1', 'PRRT_demo2']);
+    const open = threads[0] as HTMLDetailsElement;
+    expect(open.open).toBe(true);
+    expect(open.textContent).toContain('on GitHub');
+    expect(open.textContent).toContain('@ivomember');
+    expect(open.textContent).toContain('Is FindAsync enough here');
+    expect(open.querySelector('a')!.textContent).toBe('Open on GitHub ↗');
+    expect(open.querySelectorAll('button')).toHaveLength(0);
+    // The host's thread sits with the AI's draft on the same line, the draft still the draft (Delete), the thread not.
+    const row = open.closest('.wd-comment-list')!;
+    expect(row.querySelector('.wd-status-draft')).not.toBeNull();
+    const resolved = threads[1] as HTMLDetailsElement;
+    expect(resolved.open).toBe(false);
+    expect(resolved.className).toContain('wd-host-thread-resolved');
+    expect(resolved.querySelector('summary')!.textContent).toContain('@ana: Should a refund of 0 be allowed?');
+    // The tree says which files have open threads on the host.
+    expect(text('.wd-review-tree-current .wd-review-filethreads')).toBe('1');
+  });
+
+  it('the comments walk shows the thread on the commented line too', async () => {
+    await render({ start: { ...OVERVIEW, mode: 'comments', at: 0 } });
+    expect(container.querySelector('.wd-review-walk-pane .wd-host-thread[data-thread="PRRT_demo1"]')).not.toBeNull();
+  });
+});
+
+describe('the Files view (GitHub’s Files changed)', () => {
+  it('every file in a folder tree and every diff in one scroll, in the tree’s order; generated ones folded until Load diff', async () => {
+    await render({ start: { ...OVERVIEW, mode: 'files' } });
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toBe(`Files (${review.files.length})`);
+    const dirs = [...container.querySelectorAll('.wd-review-ftree-dir')].map((d) => d.textContent);
+    expect(dirs).toContain('▾src');
+    expect(dirs).toContain('▾Shop.Orders');
+    const tree = [...container.querySelectorAll('.wd-review-ftree .wd-review-tree-name')].map((n) => n.textContent);
+    const diffs = [...container.querySelectorAll('.wd-review-files .wd-review-diff-pane .wd-file')].map((f) =>
+      f.getAttribute('data-path')!.split('/').pop(),
+    );
+    expect(diffs).toEqual(tree);
+    expect(diffs).toHaveLength(review.files.length);
+    // Folders first, then files, each by name.
+    expect(tree.indexOf('RefundsController.cs')).toBeLessThan(tree.indexOf('Program.cs'));
+    expect(text('.wd-review-files .wd-review-progress')).toContain(`0 / ${review.files.length} viewed`);
+    const generated = container.querySelector('.wd-file[data-path="src/Shop.Data/Migrations/20261102_AddRefunds.Designer.cs"]')!;
+    expect(generated.textContent).toContain('Generated file — not rendered by default');
+    act(() => [...generated.querySelectorAll('button')].find((b) => b.textContent === 'Load diff')!.click());
+    expect(generated.textContent).toContain('auto-generated');
+  });
+
+  it('the same Viewed ticks as the stories; a folder folds; a file picked goes in the URL; f opens the view', async () => {
+    await render({ start: { ...OVERVIEW, mode: 'files' } });
+    const handler = container.querySelector('.wd-file[data-path="src/Shop.Orders/Refunds/RefundHandler.cs"]')!;
+    // Its open thread on the host on its line, here too; the outdated one listed on top.
+    expect(handler.querySelector('.wd-host-thread[data-thread="PRRT_demo1"]')).not.toBeNull();
+    expect(text('.wd-review-files .wd-host-aside summary')).toContain('1 thread on GitHub not on a line of this diff');
+    act(() => handler.querySelector<HTMLInputElement>('.wd-viewed-checkbox')!.click());
+    expect(text('.wd-review-files .wd-review-progress')).toContain(`1 / ${review.files.length} viewed`);
+    const stored = Object.keys(localStorage).find((k) => k.includes('viewed'))!;
+    expect(localStorage.getItem(stored)).toContain('src/Shop.Orders/Refunds/RefundHandler.cs');
+    const before = container.querySelectorAll('.wd-review-ftree .wd-review-tree-name').length;
+    act(() =>
+      [...container.querySelectorAll<HTMLButtonElement>('.wd-review-ftree-dir')]
+        .find((d) => d.textContent === '▾tests/Shop.Orders.Tests')!
+        .click(),
+    );
+    expect(container.querySelectorAll('.wd-review-ftree .wd-review-tree-name').length).toBe(before - 1);
+    act(() =>
+      [...container.querySelectorAll<HTMLButtonElement>('.wd-review-ftree .wd-review-filerow')]
+        .find((b) => b.textContent?.includes('Program.cs'))!
+        .click(),
+    );
+    expect(routes.at(-1)).toEqual({ repo: 'api', number: 231, mode: 'files', at: 0, file: 'src/Shop.Api/Program.cs' });
+    await key('o');
+    expect(routes.at(-1)).toMatchObject({ mode: 'overview' });
+    await key('f');
+    expect(routes.at(-1)).toMatchObject({ mode: 'files' });
   });
 });

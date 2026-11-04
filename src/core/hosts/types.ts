@@ -1,6 +1,6 @@
 import type { CommandRunner } from '../platform/command-runner.js';
 import type { PullRequestInfo } from '../pr/pr-types.js';
-import type { MergeMethod, ShipPr } from '../api-types.js';
+import type { MergeMethod, PrDiscussionWire, ShipPr } from '../api-types.js';
 import type { ReviewFeedback } from '../pr/review-types.js';
 import type { PrCommands } from './command-types.js';
 
@@ -89,7 +89,12 @@ export interface OpenPr {
   requested: string[];
   /** From a fork: its branch isn't on origin (absent: not, or the host didn't say). */
   fork?: true;
+  /** When anything on it last changed (a push, a comment, a review); absent: the host's list doesn't say (Azure DevOps). */
+  updatedAt?: string;
 }
+
+/** A PR's discussion as a host reads it: work's host-neutral shape, without when it was read (the caller's). */
+export type PrDiscussion = Omit<PrDiscussionWire, 'at'>;
 
 export type HostResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -181,6 +186,12 @@ export interface GitHost {
       comments: Array<{ path: string; line: number; body: string }>;
     },
   ): Promise<SubmitReviewResult>;
+  /**
+   * A PR's existing discussion — its review threads on lines (with side, outdated, resolved and every comment), the
+   * submitted reviews and the conversation comments — read only, for the Reviews tab and its AI step (#64). An error
+   * says why (in the host's words: `rateLimited` reads them).
+   */
+  discussion(run: CommandRunner, cwd: string, number: number): Promise<HostResult<{ discussion: PrDiscussion }>>;
   /** A PR's review threads, reviews and comments, and who you are; null when it couldn't say. */
   reviewFeedback(run: CommandRunner, cwd: string, number: number): Promise<ReviewFeedback | null>;
 

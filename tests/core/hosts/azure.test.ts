@@ -213,6 +213,10 @@ const run: CommandRunner = async (cmd, args, cwd): Promise<RunResult> => {
     if (resource === 'pullRequestIterations') return ok({ value: az.iterations ?? [{ id: 1, sourceRefCommit: { commitId: api.head } }] });
     if (resource === 'repositories')
       return ok({ id: 'guid', name: 'api', ...(az.defaultBranch ? { defaultBranch: az.defaultBranch } : {}) });
+    if (resource === 'pullRequests' && method === 'GET') {
+      const id = args.find((x) => x.startsWith('pullRequestId='));
+      return ok(az.prs.find((p) => `pullRequestId=${p.pullRequestId}` === id) ?? {});
+    }
     if (resource === 'pullRequests' && method === 'POST') {
       az.posted.push({ resource, method, body: inFile });
       return ok({ pullRequestId: 12, status: 'active' });
@@ -768,4 +772,82 @@ describe('#65 review: what az answers, and what it fails to', () => {
     await watch.tick();
     expect(az.calls.length).toBeGreaterThan(calls);
   }, 60_000);
+});
+
+describe("a PR's existing discussion, read only (#64)", () => {
+  it('file threads on their side and line, general threads as comments, votes as verdicts; system notes and deleted ones left out; GETs only', async () => {
+    az.prs = [
+      prOf({
+        reviewers: [
+          { uniqueName: 'rev@acme.example', vote: 10 },
+          { uniqueName: 'bo@acme.example', vote: -5 },
+          { uniqueName: 'x@acme.example', vote: 0 },
+        ],
+      }),
+    ];
+    az.threads = [
+      {
+        id: 1,
+        status: 'active',
+        threadContext: { filePath: '/src/a.cs', rightFileStart: { line: 10 }, rightFileEnd: { line: 12 } },
+        comments: [
+          {
+            id: 1,
+            author: { uniqueName: 'rev@acme.example' },
+            content: 'Rename',
+            publishedDate: '2026-11-01T10:00:00Z',
+            commentType: 'text',
+          },
+          { id: 2, author: { displayName: 'Bo' }, content: 'gone', isDeleted: true },
+        ],
+      },
+      {
+        id: 2,
+        status: 'fixed',
+        threadContext: { filePath: '/src/old.cs', leftFileStart: { line: 4 } },
+        comments: [{ id: 1, author: { uniqueName: 'rev@acme.example' }, content: 'Why removed?', commentType: 'text' }],
+      },
+      {
+        id: 3,
+        status: 'active',
+        comments: [{ id: 1, author: { uniqueName: 'lea@acme.example' }, content: 'Friday?', commentType: 'text' }],
+      },
+      { id: 4, status: 'active', comments: [{ id: 1, content: 'rev voted 10', commentType: 'system' }] },
+      { id: 5, isDeleted: true, comments: [{ id: 1, content: 'x' }] },
+    ];
+    const r = await azure.discussion(run, api.path, 7);
+    expect(r.ok).toBe(true);
+    const d = r.ok ? r.discussion : null;
+    const web = 'https://dev.azure.com/acme/Shop/_git/api/pullrequest/7';
+    expect(d?.threads).toEqual([
+      {
+        id: azureThreadId(parseAzureOrigin(ORIGIN)!, 7, 1),
+        path: 'src/a.cs',
+        line: 12,
+        side: 'right',
+        outdated: false,
+        resolved: false,
+        url: `${web}?discussionId=1`,
+        comments: [{ author: 'rev@acme.example', body: 'Rename', at: '2026-11-01T10:00:00Z', url: `${web}?discussionId=1` }],
+      },
+      expect.objectContaining({ path: 'src/old.cs', line: 4, side: 'left', resolved: true }),
+    ]);
+    expect(d?.comments).toEqual([{ author: 'lea@acme.example', body: 'Friday?', at: '', url: `${web}?discussionId=3` }]);
+    expect(d?.reviews.map((x) => [x.author, x.state])).toEqual([
+      ['rev@acme.example', 'approved'],
+      ['bo@acme.example', 'changes-requested'],
+    ]);
+    expect(d?.updatedAt).toBeUndefined();
+    const invokes = az.calls.filter((c) => c[0] === 'devops');
+    expect(invokes.map((c) => c[c.indexOf('--http-method') + 1])).toEqual(['GET', 'GET']);
+    expect(az.posted).toEqual([]);
+  });
+
+  it("throttled: Azure DevOps' words come back, which the host reads as its API limit; not an Azure repo: said", async () => {
+    az.limited = true;
+    const r = await azure.discussion(run, api.path, 7);
+    expect(r.ok).toBe(false);
+    expect(azure.rateLimited(r.ok ? '' : r.error)).toBe(true);
+    expect(await azure.discussion(run, tmp, 7)).toEqual({ ok: false, error: "this repo's origin isn't an Azure DevOps one" });
+  });
 });

@@ -6478,3 +6478,187 @@ button.wd-review-filerow-current:hover:not(:disabled) {
     display: none;
   }
 }
+
+/* ---- Reviews: the PR's existing discussion on its host (read only, apart from the drafts) ---- */
+.wd-host-threads {
+  margin-bottom: 6px;
+}
+.wd-host-thread {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 4px;
+  background: var(--sidebar-bg);
+  font-size: 12px;
+}
+.wd-host-thread > summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  list-style: none;
+}
+.wd-host-thread > summary::-webkit-details-marker {
+  display: none;
+}
+.wd-host-thread-resolved {
+  opacity: 0.7;
+}
+.wd-host-thread-resolved:not([open]) {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.wd-host-thread-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.wd-host-badge {
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+.wd-host-where {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+.wd-host-open {
+  font-weight: 700;
+  color: var(--accent);
+}
+.wd-host-resolved {
+  font-weight: 700;
+  color: var(--add-fg);
+}
+.wd-host-outdated {
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--status-modified-bg);
+  color: var(--status-modified-fg);
+}
+.wd-host-gist {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+.wd-host-comment {
+  padding: 6px 0 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+.wd-host-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.wd-host-assoc {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+.wd-host-comment-body {
+  margin-top: 2px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.wd-host-comment-body p {
+  margin: 2px 0;
+}
+.wd-host-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.wd-host-aside {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+.wd-host-aside > summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.wd-review-discussed {
+  margin: 0 0 16px;
+}
+.wd-review-discussed-line {
+  margin: 4px 0;
+}
+.wd-review-discussed-list {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+}
+.wd-review-discussed-list li {
+  padding: 2px 0;
+}
+.wd-host-verdict {
+  display: inline-block;
+  min-width: 72px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.wd-host-verdict-approved,
+.wd-host-approved {
+  color: var(--add-fg);
+}
+.wd-host-verdict-changes-requested,
+.wd-host-changes {
+  color: var(--del-fg);
+}
+.wd-review-filethreads {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  height: 15px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+}
+.wd-review-ftree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wd-review-ftree-dir {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-size: 12px;
+}
+.wd-review-ftree-dir:hover {
+  background: var(--hover);
+}

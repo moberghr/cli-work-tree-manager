@@ -15,6 +15,8 @@ function realApp() {
   mountReviewRoutes(app, {
     runNow: async (repo, n) =>
       rows.has(`${repo}#${n}`) ? { ok: true, review: rows.get(`${repo}#${n}`)! } : { ok: false, error: 'not open' },
+    refreshDiscussion: async (repo, n) =>
+      rows.has(`${repo}#${n}`) ? { ok: true, review: rows.get(`${repo}#${n}`)! } : { ok: false, error: 'no review' },
     read: (repo, n) => rows.get(`${repo}#${n}`) ?? null,
     all: () => [...rows.values()],
     update: (repo, n, change) => {
@@ -66,6 +68,8 @@ const TABLE: Array<[string, string, unknown?]> = [
   ['GET', '/api/reviews/api/999'],
   ['GET', '/api/reviews/api/231/diff'],
   ['GET', '/api/reviews/web/1/diff'],
+  ['POST', '/api/reviews/api/231/discussion'],
+  ['POST', '/api/reviews/web/1/discussion'],
   ['POST', '/api/reviews/api/231/drafts', { path: H, line: 6, body: 'mine' }],
   ['POST', '/api/reviews/api/231/drafts', { path: H, line: 999, body: 'off the diff' }],
   ['POST', '/api/reviews/api/231/drafts', { path: 'nope.cs', line: 1, body: 'x' }],
