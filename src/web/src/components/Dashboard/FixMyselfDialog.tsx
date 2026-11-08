@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { PrReviewWire, ReviewFixResultWire } from '../../../../core/api-types.js';
 import { fixReviewMyself } from '../../api/panes.js';
 import { pendingDrafts } from '../../state/review-view.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 interface Props {
   review: PrReviewWire;
@@ -22,6 +23,7 @@ export function FixMyselfDialog({ review, onDone, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const close = () => !busy && onClose();
+  const backdrop = useBackdropClose(close);
   const toggle = (id: string) =>
     setTicked((t) => {
       const n = new Set(t);
@@ -50,7 +52,8 @@ export function FixMyselfDialog({ review, onDone, onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-label={`Fix it myself: #${review.number}`}
-      onClick={(e) => e.target === e.currentTarget && close()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => e.key === 'Escape' && close()}
     >
       <form className="wd-modal" onSubmit={submit}>
