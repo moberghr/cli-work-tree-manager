@@ -57,7 +57,8 @@ describe('arguments a Windows batch file may be given', () => {
 describe('a Python CLI behind a batch file is started without it', () => {
   it("reads az.cmd's Python and module", () => {
     const shim = pythonShimOf(AZ_CMD, 'C:\\Program Files\\Azure\\CLI2\\wbin\\az.cmd');
-    expect(shim).toEqual({ cmd: path.resolve('C:\\Program Files\\Azure\\CLI2\\wbin', '..\\python.exe'), pre: ['-IBm', 'azure.cli'] });
+    // A Windows path on any platform: the test runs on Linux CI too.
+    expect(shim).toEqual({ cmd: 'C:\\Program Files\\Azure\\CLI2\\python.exe', pre: ['-IBm', 'azure.cli'] });
     expect(pythonShimOf('@echo off\r\nnode "%~dp0\\cli.js" %*', 'C:\\x\\tool.cmd')).toBeNull();
   });
 
@@ -72,7 +73,7 @@ describe('a Python CLI behind a batch file is started without it', () => {
   it('on Windows: az.cmd becomes its Python with every argument as argv — a quote, a line break, a % stay text', () => {
     const args = ['repos', 'pr', 'list', '--source-branch', 'feat/x"&echo no&"', '--title', 'a\nb %PATH%'];
     expect(launchFor('az', args, io('C:\\az\\wbin\\az.cmd', AZ_CMD))).toEqual({
-      cmd: path.resolve('C:\\az\\wbin', '..\\python.exe'),
+      cmd: 'C:\\az\\python.exe',
       args: ['-IBm', 'azure.cli', ...args],
     });
   });
@@ -174,7 +175,15 @@ describe('a Node script behind a batch file (npm shims) is started without it', 
       cmd: 'C:\\npm\\node.exe',
       args: [script, ...args],
     });
-    expect(programFor('claude', io({ claude: 'C:\\npm\\claude.cmd' }, NPM_SHIM, [script]))?.pre).toEqual([script]);
+    const fromPath = programFor('claude', io({ claude: 'C:\\npm\\claude.cmd', node: 'C:\\node\\node.exe' }, NPM_SHIM, [script]));
+    expect(fromPath).toEqual({ file: 'C:\\node\\node.exe', pre: [script], batch: false });
+  });
+
+  it("with no node.exe beside the shim or on PATH, work's own node runs it — only a real node.exe", () => {
+    const viaOwn = { ...io({ claude: 'C:\\npm\\claude.cmd' }, NPM_SHIM, [script]), execPath: 'C:\\work\\node.exe' };
+    expect(programFor('claude', viaOwn)).toEqual({ file: 'C:\\work\\node.exe', pre: [script], batch: false });
+    const notExe = { ...io({ claude: 'C:\\npm\\claude.cmd' }, NPM_SHIM, [script]), execPath: '/usr/bin/node' };
+    expect(programFor('claude', notExe)).toEqual({ file: 'C:\\npm\\claude.cmd', pre: [], batch: true });
   });
 
   it('a shim whose script is gone stays a batch file', () => {

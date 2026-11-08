@@ -36,7 +36,7 @@ export function batchArgProblem(args: readonly string[]): string | null {
 export function pythonShimOf(text: string, batchPath: string): { cmd: string; pre: string[] } | null {
   const m = /^\s*"%~dp0\\?([^"%]*python(?:w)?\.exe)"\s+(-[A-Za-z]*m)\s+([A-Za-z_][\w.]*)\s+%\*\s*$/im.exec(text);
   if (!m) return null;
-  return { cmd: path.resolve(path.dirname(batchPath), m[1]), pre: [m[2], m[3]] };
+  return { cmd: path.win32.resolve(path.win32.dirname(batchPath), m[1]), pre: [m[2], m[3]] };
 }
 
 /**
