@@ -1,4 +1,5 @@
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
+import { scrollerOf } from '../utils/scroll.js';
 import { anchorFor, flattenTreeFiles, type TreeNode } from '../utils/tree.js';
 
 /** The files a right-click in the tree acts on: the file itself, or every file under the folder (as the tree shows it). */
@@ -27,15 +28,11 @@ export function viewedMenuItems(
   return items;
 }
 
-/** The nearest ancestor that scrolls (the diff pane), else the page, and where its visible part starts. */
-function scrollerOf(el: HTMLElement): { scrollBy: (x: number, y: number) => void; top: number } {
-  for (let p = el.parentElement; p; p = p.parentElement) {
-    const y = getComputedStyle(p).overflowY;
-    if ((y === 'auto' || y === 'scroll') && p.scrollHeight > p.clientHeight) {
-      return { scrollBy: (x, dy) => p.scrollBy(x, dy), top: p.getBoundingClientRect().top };
-    }
-  }
-  return { scrollBy: (x, dy) => window.scrollBy(x, dy), top: 0 };
+/** The pane that scrolls `el` (utils/scroll.ts), and where its visible part starts. */
+function paneOf(el: HTMLElement): { scrollBy: (x: number, y: number) => void; top: number } {
+  const p = scrollerOf(el);
+  if (p === document.scrollingElement || p === document.documentElement) return { scrollBy: (x, dy) => window.scrollBy(x, dy), top: 0 };
+  return { scrollBy: (x, dy) => p.scrollBy(x, dy), top: p.getBoundingClientRect().top };
 }
 
 /**
@@ -48,7 +45,7 @@ export function keepReadingPlace(mark: () => void): void {
   const articles = [...document.querySelectorAll<HTMLElement>('article.wd-file')];
   // The pane's own top, not the window's: in the dashboard the header and toolbar sit above it, and a file
   // ending under them isn't the one being read.
-  const scroller = articles[0] ? scrollerOf(articles[0]) : null;
+  const scroller = articles[0] ? paneOf(articles[0]) : null;
   const at = scroller ? articles.find((a) => a.getBoundingClientRect().bottom > scroller.top) : undefined;
   const before = at?.getBoundingClientRect().top;
   mark();

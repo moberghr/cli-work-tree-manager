@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import type { ParsedFile } from '../../api/client.js';
+import { revealInScroller } from '../../utils/scroll.js';
 import { STATUS_LETTER } from '../../utils/status.js';
 import { anchorFor, buildTree, type TreeNode } from '../../utils/tree.js';
 import { RowMenu } from '../Dashboard/RowMenu.js';
@@ -141,7 +142,7 @@ function TreeNodeView({
           // — smooth scrolling for hundreds of files feels laggy and the
           // user explicitly asked for jump behavior.
           history.replaceState(null, '', `#${anchor}`);
-          el.scrollIntoView({ block: 'start' });
+          revealInScroller(el);
         }}
         title={node.file.path}
         onContextMenu={onMenu && ((e) => onMenu(e, node))}

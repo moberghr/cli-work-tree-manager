@@ -18,6 +18,7 @@ import {
   type ReviewPage,
 } from '../../../../state/review-view.js';
 import { FileRow, FileSummary, Prose } from './ReviewText.js';
+import { revealInScroller } from '../../../../utils/scroll.js';
 
 const TREE_SPEC: ResizeSpec = {
   storageKey: 'work-web:review-tree-width',
@@ -123,7 +124,8 @@ export function StoryPager({
     picked.current = true;
     clearTimeout(settle.current);
     settle.current = setTimeout(() => (picked.current = false), 400);
-    document.getElementById(anchor(path))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const el = document.getElementById(anchor(path));
+    if (el) revealInScroller(el, { behavior: 'smooth' });
   };
   const diffsShown = !page.folded || shown === page.key;
   const s = page.story;
