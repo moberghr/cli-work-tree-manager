@@ -15,6 +15,7 @@ import {
 } from '../../../../state/review-view.js';
 import { FileRow, FileSummary, FolderPath } from './ReviewText.js';
 import { DiscussionAside } from './Discussion.js';
+import { revealInScroller } from '../../../../utils/scroll.js';
 
 const TREE_SPEC: ResizeSpec = {
   storageKey: 'work-web:review-files-tree-width',
@@ -100,7 +101,8 @@ export function FilesView({
       picked.current = true;
       clearTimeout(settle.current);
       settle.current = setTimeout(() => (picked.current = false), 400);
-      document.getElementById(anchor(path))?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+      const el = document.getElementById(anchor(path));
+      if (el) revealInScroller(el, { behavior: smooth ? 'smooth' : 'auto' });
     },
     [anchor],
   );
