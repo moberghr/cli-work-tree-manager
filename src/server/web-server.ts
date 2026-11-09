@@ -38,6 +38,8 @@ import { wireUsage } from './routes/usage-routes.js';
 import { buildUsage, realUsageDeps } from '../core/usage/usage-source.js';
 import { createUpdates, desktopUpdatePath, lookForUpdates } from '../core/updates/update-source.js';
 import { mountRepoRoutes } from './routes/repo-routes.js';
+import { mountSettingsRoutes } from './routes/settings-routes.js';
+import { configSettings } from '../core/settings/settings-admin.js';
 import { mountTimelineRoutes } from './routes/timeline-routes.js';
 import { allBlocks, blockedPrState, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from '../core/rail/session-blocks.js';
 import { mountBlockRoutes } from './routes/block-routes.js';
@@ -1075,6 +1077,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountDiffPageRoutes(app, { ensureScope: sessionScope });
   // The Repos page: the repos in your folders, and the groups.
   mountRepoRoutes(app, { broadcast, activity, workBin: getWorkBin });
+  // Work's settings and each repo's, over config.json.
+  mountSettingsRoutes(app, { broadcast, source: configSettings });
   mountSetupRoutes(app, { broadcast });
 
   // Updates and release notes (core/updates/): the release list a little

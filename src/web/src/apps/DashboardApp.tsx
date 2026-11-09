@@ -73,6 +73,7 @@ import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
 import { AccountDialog } from '../components/Dashboard/AccountDialog.js';
 import { accountAction, cancelledText, switchText } from '../state/accounts.js';
 import { AccountsTab } from '../components/Dashboard/tabs/AccountsTab.js';
+import { SettingsTab } from '../components/Dashboard/tabs/SettingsTab.js';
 import { addedRepoText, canAddRepo, withWarnings } from '../state/add-repo.js';
 import { SnoozeUntilDialog } from '../components/Dashboard/SnoozeUntilDialog.js';
 import { BlockedByDialog } from '../components/Dashboard/BlockedBy.js';
@@ -101,6 +102,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   time: 'Time',
   repos: 'Repos',
   accounts: 'Claude accounts',
+  settings: 'Settings',
   welcome: 'Welcome',
 };
 
@@ -632,6 +634,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           w: 'start',
           r: 'repos',
           a: 'accounts',
+          ',': 'settings',
           c: 'cleanup',
           j: 'jira',
           h: 'time',
@@ -965,10 +968,13 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         );
         break;
       case 'repos':
-        body = <ReposTab onBack={() => goTab('start')} />;
+        body = <ReposTab onBack={() => goTab('start')} settingsFor={route.repo} />;
         break;
       case 'accounts':
         body = <AccountsTab startAdding={addingAccount} onAddingShown={() => setAddingAccount(false)} />;
+        break;
+      case 'settings':
+        body = <SettingsTab />;
         break;
       case 'welcome':
         body = <WelcomeTab onNewWorktree={() => openNew(null)} onDone={() => goTab('start')} />;
@@ -1008,6 +1014,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             onWhatsNew={() => setWhatsNew({ focus: null })}
             onShortcuts={() => setHelpOpen(true)}
             onAccounts={() => goTab('accounts')}
+            onSettings={() => goTab('settings')}
             onRestart={() => void restartToUpdate()}
             agents={outdatedAgents.agents}
             onRestartAgents={outdatedAgents.restart}

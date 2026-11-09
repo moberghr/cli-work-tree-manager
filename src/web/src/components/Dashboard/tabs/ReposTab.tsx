@@ -12,6 +12,7 @@ import {
   setScanRoot,
 } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
+import { RepoSettings } from '../RepoSettings.js';
 
 type Filter = 'new' | 'enrolled' | 'ignored' | 'all';
 
@@ -65,9 +66,12 @@ interface Pending {
 export function ReposTab({
   api = httpRepos,
   onBack,
+  settingsFor,
 }: {
   api?: ReposApi;
   /** Back to Start (the page it's reached from). */ onBack?: () => void;
+  /** The repo whose settings are open (`#/repos/<alias>`), shown above the list. */
+  settingsFor?: string;
 }) {
   const [data, setData] = useState<ReposWire | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +176,7 @@ export function ReposTab({
           </span>
         </div>
       </header>
+      {settingsFor && <RepoSettings key={settingsFor} alias={settingsFor} />}
 
       <section className="wd-repos-roots">
         <span className="wd-tab-header-muted">Scanned:</span>
@@ -298,6 +303,15 @@ export function ReposTab({
                     >
                       Unignore
                     </button>
+                  )}
+                  {(r.status === 'enrolled' || r.status === 'missing') && r.alias && (
+                    <a
+                      className="wd-link-button"
+                      href={`#/repos/${encodeURIComponent(r.alias)}`}
+                      title="Which checks count on its PRs, its dev server command, its reviews"
+                    >
+                      Settings…
+                    </a>
                   )}
                   {(r.status === 'enrolled' || r.status === 'missing') && (
                     <button

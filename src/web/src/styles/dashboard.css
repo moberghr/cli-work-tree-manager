@@ -6804,3 +6804,136 @@ button.wd-review-filerow-current:hover:not(:disabled) {
 .wd-review-ftree-dir:hover {
   background: var(--hover);
 }
+
+/* ---- Settings (#/settings) and a repo's settings (#/repos/<alias>) ---- */
+.wd-tab-settings {
+  overflow-y: auto;
+}
+.wd-tab-settings > * {
+  flex-shrink: 0;
+}
+.wd-settings-intro,
+.wd-settings-section,
+.wd-settings-elsewhere,
+.wd-tab-settings > .wd-setting-error {
+  padding-left: 32px;
+  padding-right: 32px;
+  max-width: 980px;
+}
+.wd-settings-intro {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-settings-filter {
+  width: 220px;
+}
+.wd-settings-section h2 {
+  margin: 20px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.wd-settings-elsewhere {
+  margin: 24px 0 32px;
+  font-size: 12px;
+}
+/* label · control, the help under the control */
+.wd-setting {
+  display: grid;
+  grid-template-columns: minmax(180px, 300px) minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 2px;
+  padding: 8px 0;
+  align-items: start;
+}
+.wd-setting-label {
+  font-size: 13px;
+  padding-top: 4px;
+}
+.wd-setting-set .wd-setting-label {
+  font-weight: 600;
+}
+.wd-setting-control {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.wd-setting-help {
+  grid-column: 2;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 62ch;
+}
+.wd-setting-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wd-setting-input input[type='text'],
+.wd-setting-input select {
+  width: 280px;
+  max-width: 100%;
+}
+.wd-setting-input textarea {
+  width: 280px;
+  max-width: 100%;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.wd-setting-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-setting-saved {
+  color: var(--status-added-fg, var(--muted));
+}
+.wd-setting-error {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--status-deleted-fg);
+}
+.wd-repo-settings {
+  margin: 0 32px 16px;
+  max-width: 980px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.wd-repo-settings-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.wd-repo-settings-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.wd-repo-settings-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 12px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.wd-repo-settings-facts dt {
+  color: var(--muted);
+}
+.wd-repo-settings-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .wd-setting {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wd-setting-help {
+    grid-column: 1;
+  }
+}

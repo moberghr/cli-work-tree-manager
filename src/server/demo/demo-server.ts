@@ -56,6 +56,7 @@ import { mountDemoReviews, type DemoReviewSessions } from './demo-reviews.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
 import { DemoRepoError } from './demo-repos.js';
+import { createDemoSettings, mountDemoSettings } from './demo-settings.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -852,6 +853,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return repoAnswer(c, () => repoModel.saveGroup(b.name as string, members, b.creating === true));
   });
   app.delete('/api/groups/:name', (c) => repoAnswer(c, () => repoModel.deleteGroup(c.req.param('name'), c.req.query('force') === '1')));
+  // Settings: work's and each repo's, a pretend config.json in memory, by the real rules (demo-settings.ts).
+  mountDemoSettings(
+    app,
+    (event, data) => broadcast({ event, data }),
+    createDemoSettings((alias) => repoModel.inventory().repos.find((r) => r.alias === alias && r.status !== 'new')?.path ?? null),
+  );
   // Updates: the demo is current, with two releases' notes to read.
   const demoNotes: ReleaseNote[] = [
     {

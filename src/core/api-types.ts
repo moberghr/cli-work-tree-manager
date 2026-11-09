@@ -1860,3 +1860,25 @@ export interface ReviewSettingsWire {
   maxPerDay: number | null;
   maxLines: number;
 }
+
+// ---- settings (core/settings) ---------------------------------------------
+
+/** GET /api/settings: each setting of the Settings page written in config.json, by its path (settings-schema.ts
+ *  `SETTINGS`; the rest are their defaults). Nothing else of config.json is in it. */
+export interface SettingsWire {
+  values: Record<string, unknown>;
+  /** Where config.json is, for what isn't on the page. */
+  configPath: string;
+}
+
+/** GET /api/repos/:alias/settings: a repo's settings and what is known of it. */
+export interface RepoSettingsWire {
+  alias: string;
+  path: string;
+  origin: string | null;
+  /** Its host's name ("GitHub", "Azure DevOps"); null when it can't be told. */
+  host: string | null;
+  requiredChecks: string[] | null;
+  devCommand: string | null;
+  reviews: 'all' | 'asked' | 'off' | null;
+}

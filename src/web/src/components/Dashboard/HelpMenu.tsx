@@ -16,6 +16,8 @@ export interface HelpMenuProps {
   onShortcuts?: () => void;
   /** The Accounts page (Claude logins). */
   onAccounts?: () => void;
+  /** Work's settings (`#/settings`). */
+  onSettings?: () => void;
   /** The desktop app has an update downloaded: restart onto it. */
   onRestart?: () => void;
   /** The app and the work web its window shows are different versions (updates.ts versionMismatch). */
@@ -59,6 +61,7 @@ export function HelpMenu({
   onWhatsNew,
   onShortcuts,
   onAccounts,
+  onSettings,
   onRestart,
   mismatch,
   agents,
@@ -171,6 +174,11 @@ export function HelpMenu({
           {onAccounts && (
             <button type="button" className="wd-row-menu-item" onClick={pick(onAccounts)}>
               Claude accounts <kbd>g a</kbd>
+            </button>
+          )}
+          {onSettings && (
+            <button type="button" className="wd-row-menu-item" onClick={pick(onSettings)}>
+              Settings <kbd>g ,</kbd>
             </button>
           )}
           {onShortcuts && (

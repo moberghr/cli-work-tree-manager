@@ -8,6 +8,8 @@
  *   `#/cleanup`                       → Clean up: worktrees that can go (from Sessions)
  *   `#/start`                         → Start: new worktree, Jira issues and PRs to start from
  *   `#/accounts`                      → Claude accounts: add, log in, the default, remove
+ *   `#/settings`                      → Settings: work's settings (config.json), by section
+ *   `#/repos/<alias>`                 → Repos, with that repo's settings open
  *   `#/prs`, `#/jira`                 → (old) Start, which has both now
  *   `#/tasks`                         → (old) Sessions: Tasks is a panel in the top bar now
  *   `#/s/<sessionId>`                → Session detail (default: terminal sub-tab)
@@ -31,7 +33,7 @@
  */
 
 export type DashboardTab =
-  'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'reviews' | 'time' | 'repos' | 'accounts' | 'welcome';
+  'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'reviews' | 'time' | 'repos' | 'accounts' | 'settings' | 'welcome';
 
 /** Pages that no longer exist, and where their links land now. */
 const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start' };
@@ -58,6 +60,8 @@ export interface DashboardRoute {
   tab: DashboardTab;
   /** On the Reviews tab: the review open (absent: none, the list). */
   review?: ReviewRoute;
+  /** On the Repos tab: the repo whose settings are open (its alias). */
+  repo?: string;
   /** Set when the user has drilled into a specific session. The
    *  session view "overlays" the active tab — breadcrumb returns
    *  to whichever tab the user came from. */
@@ -71,7 +75,8 @@ export const DEFAULT_ROUTE: DashboardRoute = {
   sessionSubTab: 'term',
 };
 
-const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|accounts|welcome|prs|jira|reviews|time|tasks)\/?$/;
+const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|accounts|settings|welcome|prs|jira|reviews|time|tasks)\/?$/;
+const REPO_SETTINGS_RE = /^#\/repos\/([^/]+)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|timeline))?\/?$/;
 const REVIEW_RE = /^#\/reviews\/([^/]+)\/(\d+)(?:\/(story|comments)\/(\d+))?\/?$/;
 const REVIEW_FILES_RE = /^#\/reviews\/([^/]+)\/(\d+)\/files(?:\/([^/]+))?\/?$/;
@@ -130,6 +135,15 @@ export function parseHash(hash: string): DashboardRoute {
   }
   const review = parseReview(hash);
   if (review) return { tab: 'reviews', review, sessionId: null, sessionSubTab: 'term' };
+  const repo = hash.match(REPO_SETTINGS_RE);
+  if (repo) {
+    try {
+      const alias = decodeURIComponent(repo[1]);
+      if (alias) return { tab: 'repos', repo: alias, sessionId: null, sessionSubTab: 'term' };
+    } catch {
+      /* a bad escape: the list */
+    }
+  }
   const tab = hash.match(TAB_RE);
   if (tab) {
     return {
@@ -146,6 +160,7 @@ export function toHash(route: DashboardRoute): string {
     return `#/s/${encodeURIComponent(route.sessionId)}/${route.sessionSubTab}`;
   }
   if (route.tab === 'reviews' && route.review) return reviewHash(route.review);
+  if (route.tab === 'repos' && route.repo) return `#/repos/${encodeURIComponent(route.repo)}`;
   return `#/${route.tab}`;
 }
 

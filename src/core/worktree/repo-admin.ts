@@ -111,9 +111,10 @@ export function repoInventory(
 }
 
 /** config.json as JSON, edited under its lock and written atomically; unknown keys kept. */
-type RawConfig = Record<string, unknown> & { repos?: Record<string, string>; groups?: Record<string, string[]> };
+export type RawConfig = Record<string, unknown> & { repos?: Record<string, string>; groups?: Record<string, string[]> };
 
-async function editConfig<T>(fn: (raw: RawConfig) => T): Promise<T> {
+/** Exported for the settings (core/settings/settings-admin.ts): the same lock and write, one writer of config.json. */
+export async function editConfig<T>(fn: (raw: RawConfig) => T): Promise<T> {
   const file = getConfigPath();
   if (!fs.existsSync(file)) throw new RepoAdminError('No configuration yet: run `work init` first.');
   return withFileLock(file, () => {

@@ -526,3 +526,35 @@ export function fetchReviewSettings(): Promise<ReviewSettingsWire> {
 export function saveReviewMode(project: string, mode: 'all' | 'asked' | 'off'): Promise<ReviewSettingsWire> {
   return postJson('/api/reviews/settings', { project, mode }, 'PUT');
 }
+
+// ---- settings (core/settings) ----
+
+type SettingsWire = import('../../../core/api-types.js').SettingsWire;
+type RepoSettingsWire = import('../../../core/api-types.js').RepoSettingsWire;
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const out = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(out.error ?? `${res.status} ${res.statusText}`);
+  return out;
+}
+
+/** The settings written in config.json (the rest are their defaults). */
+export function fetchSettings(): Promise<SettingsWire> {
+  return getJson<SettingsWire>('/api/settings');
+}
+
+/** Change one setting (null: back to its default); the server's reason on a refusal. */
+export function saveSetting(path: string, value: unknown): Promise<SettingsWire> {
+  return putJson<SettingsWire>('/api/settings', { path, value });
+}
+
+/** A repo's settings and what is known of it. */
+export function fetchRepoSettings(alias: string): Promise<RepoSettingsWire> {
+  return getJson<RepoSettingsWire>(`/api/repos/${encodeURIComponent(alias)}/settings`);
+}
+
+/** Change one of a repo's settings (null: taken out); the server's reason on a refusal. */
+export function saveRepoSetting(alias: string, key: string, value: unknown): Promise<RepoSettingsWire> {
+  return putJson<RepoSettingsWire>(`/api/repos/${encodeURIComponent(alias)}/settings`, { key, value });
+}

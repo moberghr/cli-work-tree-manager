@@ -20,6 +20,8 @@ import { prsOfCheck } from './pr-watch.js';
 import { withRequiredChecks } from './required-checks.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { bestEffort } from '../platform/best-effort.js';
+import { loadConfig } from '../platform/config.js';
+import { sessionRepos } from '../sessions/session-repos.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 
 /**
@@ -249,8 +251,9 @@ export async function watchPreflight(
   const listed = io.listed ?? listedPrsIo(run, { ...(opts.resting ? { resting: opts.resting } : {}), previous });
   const found = await withListedPrs(pre, readSessionPrs(id), listed);
   // The listed ones (and those in other repos) count their checks as the session's repos do (required-checks.ts).
-  const ids = new Map(pre.repos.map((r) => [r.name, listed.repoIdOf(r.path)]));
-  const out = { ...found, pre: withRequiredChecks(found.pre, opts.requiredChecks, (name) => ids.get(name) ?? null) };
+  const aliases = new Map(sessionRepos(session, loadConfig()).map((r) => [r.path, r.alias]));
+  const keys = new Map(pre.repos.map((r) => [r.name, [aliases.get(r.path), listed.repoIdOf(r.path)]]));
+  const out = { ...found, pre: withRequiredChecks(found.pre, opts.requiredChecks, (name) => keys.get(name) ?? []) };
   if (out.sightings.length) bestEffort(`keep the PRs of ${id}`, () => noteSessionPrs(id, out.sightings));
   if (out.looks.length) bestEffort(`keep what the host said of ${id}'s PRs`, () => notePrLooks(id, out.looks));
   return out.pre;

@@ -9,6 +9,7 @@ import { sessionIdFor } from '../sessions/session-id.js';
 import { workElsewhere } from './branch-work.js';
 import { countedChecks, requiredChecksFor } from './required-checks.js';
 import { loadConfig } from '../platform/config.js';
+import { sessionRepos } from '../sessions/session-repos.js';
 
 export { workElsewhere } from './branch-work.js';
 
@@ -301,7 +302,10 @@ export async function shipPreflight(
   const branches = opts.branches ?? recorded!.names;
   const askBranch = opts.askBranch ?? recorded?.askBranch ?? ((_repo, b) => b.pushed);
   // Which failed checks count, per repo, where its host requires none (required-checks.ts).
-  const lists = opts.requiredChecks ?? loadConfig()?.prWatch?.requiredChecks;
+  const config = loadConfig();
+  const lists = opts.requiredChecks ?? config?.prWatch?.requiredChecks;
+  // A repo's list is keyed by its alias (a group session's folder is named after the repo's folder, not its alias).
+  const aliasAt = new Map(lists ? sessionRepos(session, config).map((r) => [r.path, r.alias]) : []);
   const repos = await Promise.all(
     shipRepos(session).map((r) =>
       inspectRepo(
@@ -309,7 +313,7 @@ export async function shipPreflight(
         run,
         opts.askGh,
         { names: (current) => branches(r, current), askBranch },
-        requiredChecksFor(lists, r.name, repoIdAt(r.path)),
+        requiredChecksFor(lists, aliasAt.get(r.path), r.name, repoIdAt(r.path)),
       ),
     ),
   );

@@ -265,7 +265,10 @@ function OptionalFailing({ checks }: { checks: NonNullable<PrSection['optionalFa
             f.name
           )}
         </span>
-      ))}
+      ))}{' '}
+      <a href="#/repos" title="Choose which checks count: Settings… on the repo's row">
+        (which checks count)
+      </a>
     </span>
   );
 }

@@ -42,13 +42,14 @@ export function countedChecks(pr: ShipPr, required: readonly string[] | null): S
 export function withRequiredChecks(
   pre: ShipPreflight,
   lists: Record<string, string[]> | undefined,
-  repoIdOf: (repoName: string) => string | null = () => null,
+  /** The other names a repo's list may be under: its alias, the host's `owner/name`. */
+  keysOf: (repoName: string) => Array<string | null | undefined> = () => [],
 ): ShipPreflight {
   if (!lists || !Object.keys(lists).length) return pre;
   return {
     ...pre,
     repos: pre.repos.map((r) => {
-      const req = requiredChecksFor(lists, r.name, repoIdOf(r.name) ?? undefined);
+      const req = requiredChecksFor(lists, ...keysOf(r.name).map((k) => k ?? undefined), r.name);
       if (!req) return r;
       return {
         ...r,
