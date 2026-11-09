@@ -89,8 +89,13 @@ const RANK: Record<PrStageKind, number> = {
  * A session's stage from its repos' PRs: the most pressing open one; `ready`
  * only when every open PR is. Merged when every PR merged; null with no PR.
  */
-export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | null }>): PrStage | null {
-  const withPr = repos.filter((r): r is { name: string; pr: StagePr } => !!r.pr);
+export function prStageOf(
+  repos: ReadonlyArray<{ name: string; pr: StagePr | null; also?: ReadonlyArray<{ pr: StagePr }> }>,
+): PrStage | null {
+  // A repo's other open PRs (stageRepos' `also`: other branches it worked on) count as its own.
+  const withPr = repos.flatMap((r) =>
+    r.pr ? [{ name: r.name, pr: r.pr }, ...(r.also ?? []).map((a) => ({ name: r.name, pr: a.pr }))] : [],
+  );
   if (!withPr.length) return null;
   const open = withPr.filter((r) => r.pr.state === 'OPEN');
   const shown = open.length ? open : withPr;
@@ -124,14 +129,21 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
 }
 
 /**
- * Per repo, the PR its stage reads, across the branches it worked on (session-branches.ts: Claude may have
- * moved on after a PR merged, to a new branch and a new PR): the newest open one; else the checked-out
- * branch's; else the newest of the others. `earlier`: the rest, newest first — the PR tab folds them under
- * it ("earlier: #3592 merged"), and they drop out of the stage's pills. Pure.
+ * Per repo, the PRs its stage reads, across the branches it worked on (session-branches.ts: Claude may have
+ * moved on after a PR merged, to a new branch and a new PR): `pr` the newest open one (else the checked-out
+ * branch's; else the newest of the others), `also` every other open one, newest first — a session that opened
+ * PRs from two branches of one repo shows both. `earlier`: the merged and closed rest, newest first — the PR
+ * tab folds them under it ("earlier: #3592 merged"), and they drop out of the stage's pills. Pure.
  */
 export function stageRepos<P extends StagePr>(
   repos: ReadonlyArray<{ name: string; pr: P | null; branch?: string; otherPrs?: ReadonlyArray<{ branch: string; pr: P }> }>,
-): Array<{ name: string; pr: P | null; branch?: string; earlier: Array<{ branch?: string; pr: P }> }> {
+): Array<{
+  name: string;
+  pr: P | null;
+  branch?: string;
+  also: Array<{ branch?: string; pr: P }>;
+  earlier: Array<{ branch?: string; pr: P }>;
+}> {
   return repos.map((r) => {
     const all: Array<{ branch?: string; pr: P }> = [
       ...(r.pr ? [{ ...(r.branch ? { branch: r.branch } : {}), pr: r.pr }] : []),
@@ -143,7 +155,8 @@ export function stageRepos<P extends StagePr>(
       name: r.name,
       pr: chosen?.pr ?? null,
       ...(chosen?.branch ? { branch: chosen.branch } : {}),
-      earlier: all.filter((x) => x !== chosen).sort((a, b) => b.pr.number - a.pr.number),
+      also: open.filter((x) => x !== chosen),
+      earlier: all.filter((x) => x !== chosen && x.pr.state !== 'OPEN').sort((a, b) => b.pr.number - a.pr.number),
     };
   });
 }

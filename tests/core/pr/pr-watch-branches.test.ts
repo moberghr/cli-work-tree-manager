@@ -104,6 +104,26 @@ describe('the PR watch across branches', () => {
     ).toBe('merged');
   });
 
+  it("two open PRs from two branches of one repo both show — the user's case (#3656 and #3657, #3592 merged)", async () => {
+    const open3656 = pr({ number: 3656, url: 'u/3656', reviewDecision: 'REVIEW_REQUIRED', headSha: 'probe' });
+    const open3657 = pr({ number: 3657, url: 'u/3657', checks: 'fail', headSha: 'culture' });
+    const h = harness({
+      repos: [
+        repo('fix/probe', open3656, [
+          other('fix/culture', { pr: open3657, sha: 'culture' }),
+          other('feat/webhooks', { pr: merged3592, merged: true, sha: 'webhook' }),
+        ]),
+      ],
+    });
+    const ci = await h.watch.refresh('s1');
+    const stage = prStageWire(ci, () => false)!;
+    expect(stage.prs.map((p) => p.number)).toEqual([3657, 3656]);
+    expect(stage.kind).toBe('checks_failing'); // the most pressing of them
+    const [api] = stageRepos(ci!.repos);
+    expect(api.also.map((a) => a.pr.number)).toEqual([3656]);
+    expect(api.earlier.map((e) => e.pr.number)).toEqual([3592]); // only merged and closed ones fold
+  });
+
   it("not archived while another branch has commits not pushed — the user's case", async () => {
     // Checked out: the start branch, its PR merged at its tip (done) — but fix/probe has a commit never pushed.
     const pre = {

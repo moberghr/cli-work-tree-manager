@@ -228,6 +228,28 @@ describe('PRs across branches', () => {
       [3592, 'MERGED', true, 'feat/webhooks'],
     ]);
   });
+  it('the PR tab: two open PRs from two branches of one repo are both sections, neither folded', () => {
+    const ci: SessionCi = {
+      checkedAt: at(0),
+      repos: [
+        {
+          name: 'api',
+          branch: 'fix/probe',
+          pr: pr(3656, 'OPEN'),
+          otherPrs: [
+            { branch: 'fix/culture', pr: pr(3657, 'OPEN') },
+            { branch: 'feat/webhooks', pr: pr(3592, 'MERGED') },
+          ],
+          done: false,
+        },
+      ],
+    };
+    expect(prSections(ci, []).map((s) => [s.number, s.state, s.earlier ?? false, s.branch])).toEqual([
+      [3657, 'OPEN', false, 'fix/culture'],
+      [3656, 'OPEN', false, 'fix/probe'],
+      [3592, 'MERGED', true, 'feat/webhooks'],
+    ]);
+  });
 
   it("the dashboard's PR list matches a PR on any branch the session worked on", () => {
     const listed = (branchName: string) => ({ branch: branchName, repoAlias: 'api', url: `l/${branchName}` }) as PrInfo;

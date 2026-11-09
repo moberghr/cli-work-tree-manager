@@ -93,7 +93,13 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
       ...(branch ? { branch } : {}),
       ...(earlier ? { earlier: true as const } : {}),
     });
-    return r.pr ? [section(r.pr, r.branch, false), ...r.earlier.map((e) => section(e.pr, e.branch, true))] : [];
+    return r.pr
+      ? [
+          section(r.pr, r.branch, false),
+          ...r.also.map((a) => section(a.pr, a.branch, false)),
+          ...r.earlier.map((e) => section(e.pr, e.branch, true)),
+        ]
+      : [];
   });
   const others: PrSection[] = prsBeyondStage({ prs: watched }, listed).map((p) => ({
     key: p.url,
