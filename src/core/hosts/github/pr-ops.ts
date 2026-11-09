@@ -53,6 +53,46 @@ export function checksFromRollup(rollup: CheckRollupItem[] | null | undefined): 
   return pending ? 'pending' : 'pass';
 }
 
+/**
+ * The rollup read for what blocks the merge: a failed check that isn't required (`required`: the names GitHub
+ * requires) doesn't make the PR's checks fail — GitHub merges it all the same — and is set apart in
+ * `optional` (a scanner whose service answered 504, say). The required ones and every check still running decide
+ * `checks`; a PR whose only failures are optional reads as passing. Pure.
+ */
+export function blockingChecks(
+  rollup: CheckRollupItem[] | null | undefined,
+  required: ReadonlySet<string>,
+): { checks: ChecksState; failing: FailingCheck[]; optional: FailingCheck[] } {
+  const nameOf = (c: CheckRollupItem) => c.name ?? c.context ?? 'check';
+  const failed = (c: CheckRollupItem) => FAILED.includes((c.conclusion ?? c.state ?? '').toUpperCase());
+  const all = rollup ?? [];
+  const optional = all.filter((c) => failed(c) && !required.has(nameOf(c)));
+  const counted = all.filter((c) => !optional.includes(c));
+  const checks = checksFromRollup(counted);
+  return {
+    checks: checks === 'none' && all.length ? 'pass' : checks,
+    failing: failingFromRollup(counted),
+    optional: failingFromRollup(optional),
+  };
+}
+
+/**
+ * The names of the checks GitHub requires before the PR merges (`gh pr checks --required`): an empty set when it
+ * requires none, null when gh couldn't say (every failure then counts: never hidden on a guess).
+ */
+async function requiredChecks(run: CommandRunner, cwd: string, which: string): Promise<Set<string> | null> {
+  const r = await run('gh', ['pr', 'checks', which, '--required', '--json', 'name'], cwd);
+  // gh exits non-zero while a check fails or runs (1, 8), with the list on stdout all the same.
+  try {
+    const list = JSON.parse(r.stdout) as unknown;
+    if (Array.isArray(list))
+      return new Set(list.map((c) => (c as { name?: unknown })?.name).filter((n): n is string => typeof n === 'string'));
+  } catch {
+    /* not a list: what it said instead */
+  }
+  return /no required checks reported/i.test(`${r.stderr}\n${r.stdout}`) ? new Set() : null;
+}
+
 /** First line of a CLI's error output. */
 export const oneLineErr = (s: string) => s.trim().split('\n')[0] ?? '';
 
@@ -67,15 +107,25 @@ export const reasonLine = (s: string) =>
     .find((l) => /rate limit/i.test(l)) ?? oneLineErr(s);
 
 /** `gh pr view <branch>`: the branch's PR as work's ShipPr, none, or why gh couldn't say. */
-export async function githubPrForBranch(run: CommandRunner, cwd: string, branch: string): Promise<PrLookup> {
+export function githubPrForBranch(run: CommandRunner, cwd: string, branch: string): Promise<PrLookup> {
+  return githubPrView(run, cwd, branch);
+}
+
+/** A PR by its link (`gh pr view <url>`, which names its repo itself): a session's listed PR, wherever it is. */
+export function githubPrForRef(run: CommandRunner, cwd: string, ref: { number: number; url: string }): Promise<PrLookup> {
+  return githubPrView(run, cwd, ref.url);
+}
+
+/** `gh pr view <branch | number | url>` as work's ShipPr, none, or why gh couldn't say. */
+async function githubPrView(run: CommandRunner, cwd: string, which: string): Promise<PrLookup> {
   const view = await run(
     'gh',
     [
       'pr',
       'view',
-      branch,
+      which,
       '--json',
-      'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup,reviewDecision,author,baseRefName',
+      'number,url,state,isDraft,mergeStateStatus,headRefOid,headRefName,mergedAt,updatedAt,statusCheckRollup,reviewDecision,author,baseRefName',
     ],
     cwd,
   );
@@ -88,6 +138,7 @@ export async function githubPrForBranch(run: CommandRunner, cwd: string, branch:
         isDraft: boolean;
         mergeStateStatus?: string;
         headRefOid: string;
+        headRefName?: string;
         mergedAt?: string | null;
         updatedAt?: string;
         statusCheckRollup?: CheckRollupItem[];
@@ -95,13 +146,26 @@ export async function githubPrForBranch(run: CommandRunner, cwd: string, branch:
         author?: { login?: string } | null;
         baseRefName?: string;
       };
+      // Failing checks: only the ones GitHub requires block the merge, and only those count (one more gh call, only then).
+      let failed = {
+        checks: checksFromRollup(j.statusCheckRollup),
+        failing: failingFromRollup(j.statusCheckRollup),
+        optional: [] as FailingCheck[],
+        byHost: false,
+      };
+      if (failed.checks === 'fail') {
+        // GitHub requires some: only those count. It requires none (or can't say): every one counts here, and the
+        // repo's list in config may say which do (pr/required-checks.ts).
+        const required = await requiredChecks(run, cwd, which);
+        if (required?.size) failed = { ...blockingChecks(j.statusCheckRollup, required), byHost: true };
+      }
       const pr: ShipPr = {
         number: j.number,
         url: j.url,
         state: j.state,
         isDraft: j.isDraft,
         mergeStateStatus: j.mergeStateStatus ?? 'UNKNOWN',
-        checks: checksFromRollup(j.statusCheckRollup),
+        checks: failed.checks,
         headSha: j.headRefOid,
         ...(j.mergedAt ? { mergedAt: j.mergedAt } : {}),
         ...(j.updatedAt ? { updatedAt: j.updatedAt } : {}),
@@ -109,7 +173,10 @@ export async function githubPrForBranch(run: CommandRunner, cwd: string, branch:
         // gh pr view names an app `app/dependabot`; the search API, `dependabot`.
         ...(j.author?.login ? { author: j.author.login.replace(/^app\//, '') } : {}),
         ...(j.baseRefName ? { baseBranch: j.baseRefName } : {}),
-        ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
+        ...(j.headRefName ? { headBranch: j.headRefName } : {}),
+        ...(failed.checks === 'fail' ? { failing: failed.failing } : {}),
+        ...(failed.optional.length ? { optionalFailing: failed.optional } : {}),
+        ...(failed.byHost ? { checksRequiredByHost: true } : {}),
       };
       return { kind: 'pr', pr };
     } catch {

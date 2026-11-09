@@ -7,6 +7,8 @@ import { branchFacts, repoBase } from '../stacks/branch-facts.js';
 import { BRANCH_WATCH_MS, otherBranchesToWatch, readSessionBranches, wasPushed } from '../sessions/session-branches.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { workElsewhere } from './branch-work.js';
+import { countedChecks, requiredChecksFor } from './required-checks.js';
+import { loadConfig } from '../platform/config.js';
 
 export { workElsewhere } from './branch-work.js';
 
@@ -144,6 +146,8 @@ export interface PreflightOptions {
   /** A repo's other branches to look at (session-branches.ts); default: the session's record, recent ones. */
   branches?: (repo: { name: string; path: string }, current: string) => string[];
   askBranch?: AskBranch;
+  /** The checks that count per repo where the host requires none (`prWatch.requiredChecks`); default: config's. */
+  requiredChecks?: Record<string, string[]>;
 }
 
 /** The session's recorded branches other than the one checked out, recent ones, per repo (the preflight's default). */
@@ -166,6 +170,7 @@ async function inspectOtherBranches(
   run: CommandRunner,
   host: ReturnType<typeof hostForRepo>['host'],
   askBranch: AskBranch,
+  required: string[] | null = null,
 ): Promise<OtherBranchState[]> {
   if (!names.length) return [];
   const base = await repoBase(repo.path, run);
@@ -176,7 +181,7 @@ async function inspectOtherBranches(
     let ghError: string | undefined;
     if (askBranch({ name: repo.name, ...(host.id === DEFAULT_HOST ? {} : { host: host.id }) }, { name, pushed: f.pushed })) {
       const found = await host.prForBranch(run, repo.path, name);
-      if (found.kind === 'pr') pr = found.pr;
+      if (found.kind === 'pr') pr = countedChecks(found.pr, required);
       else if (found.kind === 'error') ghError = found.error;
     }
     out.push({ name, ...f, merged: f.merged || pr?.state === 'MERGED', pr, ...(ghError ? { ghError } : {}) });
@@ -189,6 +194,7 @@ async function inspectRepo(
   run: CommandRunner,
   askGh?: AskGh,
   others?: { names: (current: string) => string[]; askBranch: AskBranch },
+  required: string[] | null = null,
 ): Promise<RepoShipState> {
   const git = (...args: string[]) => run('git', args, repo.path);
   const branch = (await git('rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim();
@@ -235,7 +241,7 @@ async function inspectRepo(
     ? !askGh({ name: repo.name, hasUpstream, commitsVsBase, ...(host.id === DEFAULT_HOST ? {} : { host: host.id }) })
     : false;
   const found = skipGh ? ({ kind: 'none' } as const) : await host.prForBranch(run, repo.path, branch);
-  if (found.kind === 'pr') pr = found.pr;
+  if (found.kind === 'pr') pr = countedChecks(found.pr, required);
   else if (found.kind === 'error') ghError = found.error;
 
   // Merged at another commit: is HEAD inside it? Exit 0 = yes, 1 = no; anything else (the
@@ -265,7 +271,7 @@ async function inspectRepo(
   const { done, reason } = repoDone(facts);
   // A detached HEAD is on no branch: every recorded one is another.
   const names = others && branch ? others.names(branch === 'HEAD' ? '' : branch) : [];
-  const otherBranches = names.length ? await inspectOtherBranches(repo, names, run, host, others!.askBranch) : [];
+  const otherBranches = names.length ? await inspectOtherBranches(repo, names, run, host, others!.askBranch, required) : [];
   return {
     ...facts,
     done,
@@ -273,6 +279,17 @@ async function inspectRepo(
     mergeBlockers: mergeBlockers(facts),
     ...(otherBranches.length ? { otherBranches } : {}),
   };
+}
+
+/** The host's name for the repo at this folder (`owner/name`): where a config list is keyed by it. */
+function repoIdAt(repoPath: string): string | undefined {
+  if (!repoPath) return undefined;
+  try {
+    const { host, origin } = hostForRepo(repoPath);
+    return (origin && host.repoId(origin)) || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function shipPreflight(
@@ -283,8 +300,18 @@ export async function shipPreflight(
   const recorded = opts.branches && opts.askBranch ? null : recordedOtherBranches(session);
   const branches = opts.branches ?? recorded!.names;
   const askBranch = opts.askBranch ?? recorded?.askBranch ?? ((_repo, b) => b.pushed);
+  // Which failed checks count, per repo, where its host requires none (required-checks.ts).
+  const lists = opts.requiredChecks ?? loadConfig()?.prWatch?.requiredChecks;
   const repos = await Promise.all(
-    shipRepos(session).map((r) => inspectRepo(r, run, opts.askGh, { names: (current) => branches(r, current), askBranch })),
+    shipRepos(session).map((r) =>
+      inspectRepo(
+        r,
+        run,
+        opts.askGh,
+        { names: (current) => branches(r, current), askBranch },
+        requiredChecksFor(lists, r.name, repoIdAt(r.path)),
+      ),
+    ),
   );
   return { repos };
 }

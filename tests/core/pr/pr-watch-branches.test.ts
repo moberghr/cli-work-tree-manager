@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { autoArchiveVerdict, createPrWatch, type PrWatchDeps } from '../../../src/core/pr/pr-watch.js';
-import { otherPrsOf, workElsewhere } from '../../../src/core/pr/branch-work.js';
+import { otherPrsOf, stageInputOf, workElsewhere } from '../../../src/core/pr/branch-work.js';
 import { prStageOf, stageRepos } from '../../../src/core/pr/pr-stage.js';
 import { prStageWire } from '../../../src/core/sessions/session-wire.js';
-import { branchFactsOf, watchBranchOptions } from '../../../src/core/pr/pr-watch-hosts.js';
+import { branchFactsOf, watchBranchOptions, watchPreflight, withListedPrs, type ListedPrsIo } from '../../../src/core/pr/pr-watch-hosts.js';
+import { noteSessionPrs, readSessionPrs, type SessionPrRecord, type SessionPrs } from '../../../src/core/pr/session-prs.js';
+import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import type { OtherBranchState, RepoShipState, ShipPr, ShipPreflight } from '../../../src/core/api-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 import type { SessionBranches } from '../../../src/core/sessions/session-branches.js';
@@ -206,5 +208,166 @@ describe('watchBranchOptions (what work web wires into the preflight)', () => {
     expect(branchFactsOf({ repos: [repo('main', null, [other('a', { exists: false, merged: true })])] })).toEqual([
       { repo: 'api', name: 'a', exists: false, merged: true, pushed: true },
     ]);
+  });
+});
+
+describe("every PR the session owns: other branches', listed ones, other repos' (session-prs.ts)", () => {
+  const open3656 = pr({ number: 3656, url: 'u/3656', headSha: 'probe', reviewDecision: 'REVIEW_REQUIRED' });
+  const failing3657 = pr({ number: 3657, url: 'u/3657', headSha: 'culture', checks: 'fail', failing: [{ name: 'Test' }] });
+
+  it("#3657's failing CI on a branch that isn't checked out is asked of its Claude, naming the branch and how to get there", async () => {
+    const h = harness({ repos: [repo('fix/probe', open3656, [other('fix/culture', { pr: failing3657, sha: 'culture' })])] });
+    await h.watch.tick();
+    const body = (h.deps.tell.mock.calls as unknown as Array<[string, string]>).map((c) => c[1]).join('\n');
+    expect(body).toContain('PR #3657 on fix/culture (not checked out: fix/probe is): Test');
+    expect(body).toContain('`git switch <its branch>`');
+    expect(body).toContain('run it again instead'); // a check failing outside the code needs no change
+  });
+
+  it('the checked-out branch needs no word about where it is', async () => {
+    const h = harness({ repos: [repo('fix/culture', failing3657, [])] });
+    await h.watch.tick();
+    const body = (h.deps.tell.mock.calls as unknown as Array<[string, string]>).map((c) => c[1]).join('\n');
+    expect(body).toContain('- PR #3657: Test');
+    expect(body).not.toContain('git switch');
+  });
+
+  it("a listed PR in a repo the session doesn't have: on the check, in the stage, its failing CI asked about", async () => {
+    const docs = pr({ number: 87, url: 'u/87', checks: 'fail', failing: [{ name: 'Build' }] });
+    const h = harness({ repos: [repo('fix/probe', open3656, [])], elsewhere: [{ repo: 'kvika/docs', pr: docs, branch: 'docs/webhooks' }] });
+    const ci = await h.watch.refresh('s1');
+    expect(ci?.elsewhere).toEqual([{ repo: 'kvika/docs', pr: docs, branch: 'docs/webhooks' }]);
+    expect(prStageWire(ci, () => false)?.prs.map((p) => [p.repo, p.number])).toEqual([
+      ['api', 3656], // the session's own repos first
+      ['kvika/docs', 87],
+    ]);
+    const body = (h.deps.tell.mock.calls as unknown as Array<[string, string]>).map((c) => c[1]).join('\n');
+    expect(body).toContain("PR #87 (kvika/docs) (not one of this session's repos; branch docs/webhooks): Build");
+    expect(body).toContain('work in your checkout of that repo');
+  });
+
+  it('someone else’s PR on another branch is only shown: its CI isn’t asked of Claude', async () => {
+    const theirs = pr({ number: 3657, url: 'u/3657', author: 'dana', checks: 'fail', failing: [{ name: 'Test' }] });
+    const h = harness({ repos: [repo('fix/probe', pr({ ...open3656, author: 'me' }), [other('fix/culture', { pr: theirs })])] });
+    (h.deps as PrWatchDeps).viewer = async () => 'me';
+    const watch = createPrWatch(h.deps);
+    await watch.tick();
+    expect(h.deps.tell).not.toHaveBeenCalled();
+  });
+
+  it('a listed PR still open keeps the session; one the host could not be asked about too', () => {
+    expect(workElsewhere({ repos: [repo('main', null, [], true, { listedPrs: [{ branch: 'fix/x', pr: open3656 }] })] })).toEqual([
+      'api: PR #3656 open (fix/x)',
+    ]);
+    expect(workElsewhere({ repos: [], elsewhere: [{ repo: 'kvika/docs', pr: open3656 }] })).toEqual(['kvika/docs: PR #3656 open']);
+    expect(workElsewhere({ repos: [], unknownPrs: ['api#3644: HTTP 502'] })).toEqual(['api#3644: HTTP 502 (its state unknown)']);
+  });
+
+  it('the stage reads repos outside the session as repos of their own, newest PR first', () => {
+    const a = pr({ number: 80, url: 'u/80', state: 'MERGED' });
+    const b = pr({ number: 87, url: 'u/87' });
+    const input = stageInputOf({
+      repos: [],
+      elsewhere: [
+        { repo: 'kvika/docs', pr: a },
+        { repo: 'kvika/docs', pr: b, branch: 'd' },
+      ],
+    });
+    expect(input).toEqual([{ name: 'kvika/docs', pr: b, branch: 'd', done: false, elsewhere: true, otherPrs: [{ branch: '', pr: a }] }]);
+  });
+});
+
+describe("the watch's preflight with the session's PR list (watchPreflight, withListedPrs)", () => {
+  const listed = (prs: Array<Partial<SessionPrRecord> & { url: string; number: number }>): SessionPrs => ({
+    prs: prs.map((p) => ({ repoId: 'kvika/straumur-backend', sources: ['agent'], firstSeen: '2026-11-01T00:00:00Z', ...p })),
+  });
+  const io = (over: Partial<ListedPrsIo> = {}): ListedPrsIo => ({
+    repoIdOf: () => 'kvika/straumur-backend',
+    hostOfUrl: () => undefined,
+    lookup: vi.fn(async (_cwd, _host, ref) => ({
+      kind: 'pr' as const,
+      pr: pr({ number: ref.number, url: ref.url, headBranch: 'fix/nullable' }),
+    })),
+    ...over,
+  });
+  const backend = (p: ShipPr | null = null, others: OtherBranchState[] = []) => ({ ...repo('fix/probe', p, others), path: '/wt/backend' });
+
+  it('#3644, on a branch never recorded, is looked up by its link and put on its repo; found ones are not asked again', async () => {
+    const lookups = io();
+    const out = await withListedPrs(
+      { repos: [backend(open3600)] },
+      listed([
+        { url: 'u/3600', number: 3600 },
+        { url: 'https://github.com/kvika/straumur-backend/pull/3644', number: 3644 },
+      ]),
+      lookups,
+    );
+    expect(out.pre.repos[0].listedPrs).toEqual([{ branch: 'fix/nullable', pr: expect.objectContaining({ number: 3644 }) }]);
+    expect(lookups.lookup).toHaveBeenCalledTimes(1); // #3600 came with the branch
+    expect(lookups.lookup).toHaveBeenCalledWith('/wt/backend', undefined, {
+      number: 3644,
+      url: 'https://github.com/kvika/straumur-backend/pull/3644',
+    });
+    expect(out.sightings).toEqual([{ url: 'u/3600', number: 3600, branch: 'fix/probe', source: 'branch' }]);
+    expect(out.looks.map((l) => l.pr.number)).toEqual([3644]);
+  });
+
+  it("a repo the session doesn't have: in elsewhere, asked in a neutral folder", async () => {
+    const lookups = io({ repoIdOf: () => 'kvika/straumur-backend' });
+    const out = await withListedPrs(
+      { repos: [backend()] },
+      listed([{ url: 'https://github.com/kvika/docs/pull/87', number: 87, repoId: 'kvika/docs' }]),
+      lookups,
+    );
+    expect(out.pre.elsewhere).toEqual([{ repo: 'kvika/docs', branch: 'fix/nullable', pr: expect.objectContaining({ number: 87 }) }]);
+    expect(lookups.lookup).toHaveBeenCalledWith(undefined, undefined, expect.anything());
+  });
+
+  it('a finished PR is its last look, never asked; a host that rests or fails keeps the last check, else it is unknown', async () => {
+    const merged = pr({ number: 3592, url: 'u/3592', state: 'MERGED' });
+    const lookups = io({
+      lookup: vi.fn(async () => ({ kind: 'error' as const, error: 'HTTP 502' })),
+      previous: (u) => (u === 'u/2' ? pr({ number: 2, url: 'u/2' }) : undefined),
+    });
+    const out = await withListedPrs(
+      { repos: [backend()] },
+      listed([
+        { url: 'u/3592', number: 3592, final: merged },
+        { url: 'u/2', number: 2 },
+        { url: 'u/3', number: 3 },
+      ]),
+      lookups,
+    );
+    expect(out.pre.repos[0].listedPrs?.map((l) => l.pr.number)).toEqual([3592, 2]);
+    expect(out.pre.unknownPrs).toEqual(['api#3: HTTP 502']);
+    expect(lookups.lookup).toHaveBeenCalledTimes(2);
+    const resting = io({ resting: () => true });
+    await withListedPrs({ repos: [backend()] }, listed([{ url: 'u/4', number: 4 }]), resting);
+    expect(resting.lookup).not.toHaveBeenCalled();
+  });
+
+  it('watchPreflight: the list read and written, the required-checks list applied to the listed PRs', async () => {
+    const s = { ...session, target: 'api', branch: 'feat/webhooks-wp' };
+    const id = sessionIdFor(s);
+    noteSessionPrs(id, [{ url: 'https://github.com/kvika/straumur-backend/pull/3644', number: 3644, source: 'agent' }]);
+    const failingLook = io({
+      lookup: async (_c, _h, ref) => ({
+        kind: 'pr',
+        pr: pr({ number: ref.number, url: ref.url, checks: 'fail', failing: [{ name: 'OWASP' }], state: 'CLOSED' }),
+      }),
+    });
+    const pre = await watchPreflight(
+      s,
+      async () => ({ code: 0, stdout: '', stderr: '' }),
+      { requiredChecks: { api: ['Test'] } },
+      { preflight: async () => ({ repos: [backend(open3600)] }), listed: failingLook },
+    );
+    expect(pre.repos[0].listedPrs?.[0].pr).toMatchObject({ number: 3644, checks: 'pass', optionalFailing: [{ name: 'OWASP' }] });
+    const rec = readSessionPrs(id);
+    expect(rec?.prs.map((p) => [p.number, p.sources])).toEqual([
+      [3644, ['agent']],
+      [3600, ['branch']],
+    ]);
+    expect(rec?.prs[0].final?.state).toBe('CLOSED'); // closed: asked no more
   });
 });

@@ -78,6 +78,7 @@ const SPA_SHARED = new Set([
   'src/core/pty/restart-view.js', // pure: how a restart of agents is said
   'src/core/worktree/repo-rules.js',
   'src/core/pr/pr-stage.js',
+  'src/core/pr/branch-work.js',
   'src/core/updates/updates.js',
   'src/core/pr/review-quote.js',
   'src/core/diff/diff-points.js',

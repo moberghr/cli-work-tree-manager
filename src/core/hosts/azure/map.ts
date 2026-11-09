@@ -99,16 +99,21 @@ export function reviewDecision(pr: AzPr): string {
 
 const isBuild = (p: AzPolicy) => /build/i.test(p.configuration?.type?.displayName ?? '');
 
-/** Build policies as checks, and the failing ones by name. */
-export function checksOf(policies: AzPolicy[]): { checks: ChecksState; failing: FailingCheck[] } {
+/**
+ * Build policies as checks, and the failing ones by name. A failed build that isn't blocking (an optional policy)
+ * doesn't stop the merge, so it doesn't make the checks fail: it is set apart in `optional`, as GitHub's checks that
+ * aren't required are (github/pr-ops.ts `blockingChecks`).
+ */
+export function checksOf(policies: AzPolicy[]): { checks: ChecksState; failing: FailingCheck[]; optional: FailingCheck[] } {
   const builds = policies.filter((p) => p.configuration?.isEnabled !== false && isBuild(p) && p.status !== 'notApplicable');
-  const failing = builds
-    .filter((p) => p.status === 'rejected' || p.status === 'broken')
-    .map((p) => ({ name: p.configuration?.settings?.displayName || p.configuration?.type?.displayName || 'build' }));
-  if (!builds.length) return { checks: 'none', failing: [] };
-  if (failing.length) return { checks: 'fail', failing };
-  if (builds.some((p) => p.status === 'queued' || p.status === 'running')) return { checks: 'pending', failing: [] };
-  return { checks: 'pass', failing: [] };
+  const failed = builds.filter((p) => p.status === 'rejected' || p.status === 'broken');
+  const nameOf = (p: AzPolicy) => ({ name: p.configuration?.settings?.displayName || p.configuration?.type?.displayName || 'build' });
+  const failing = failed.filter((p) => p.configuration?.isBlocking !== false).map(nameOf);
+  const optional = failed.filter((p) => p.configuration?.isBlocking === false).map(nameOf);
+  if (!builds.length) return { checks: 'none', failing: [], optional: [] };
+  if (failing.length) return { checks: 'fail', failing, optional };
+  if (builds.some((p) => p.status === 'queued' || p.status === 'running')) return { checks: 'pending', failing: [], optional };
+  return { checks: 'pass', failing: [], optional };
 }
 
 /** GitHub's mergeStateStatus from what Azure DevOps says: conflicts, draft, a blocking policy not met, a failed or
@@ -134,7 +139,7 @@ export function shipPrOf(repo: AzureRepo, pr: AzPr, policies: AzPolicy[]): ShipP
   const n = pr.pullRequestId;
   const head = pr.lastMergeSourceCommit?.commitId;
   if (typeof n !== 'number' || !head) return null;
-  const { checks, failing } = checksOf(policies);
+  const { checks, failing, optional } = checksOf(policies);
   const state = prState(pr.status);
   return {
     number: n,
@@ -152,6 +157,10 @@ export function shipPrOf(repo: AzureRepo, pr: AzPr, policies: AzPolicy[]): ShipP
     ...(pr.createdBy?.uniqueName ? { author: pr.createdBy.uniqueName } : {}),
     ...(pr.targetRefName ? { baseBranch: branch(pr.targetRefName) } : {}),
     ...(failing.length ? { failing } : {}),
+    ...(optional.length ? { optionalFailing: optional } : {}),
+    // A build policy is blocking or not: Azure DevOps always says which checks count.
+    ...(checks !== 'none' ? { checksRequiredByHost: true } : {}),
+    ...(pr.sourceRefName ? { headBranch: branch(pr.sourceRefName) } : {}),
   };
 }
 

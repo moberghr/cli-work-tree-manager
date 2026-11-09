@@ -154,6 +154,11 @@ export interface GitHost {
   viewer(run: CommandRunner, cwd: string): Promise<string | null>;
   /** The PR of a branch in the repo at `cwd`. */
   prForBranch(run: CommandRunner, cwd: string, branch: string): Promise<PrLookup>;
+  /**
+   * A PR by its number and link — one on a session's PR list (session-prs.ts), on whatever branch, in whatever repo.
+   * `cwd`: the repo's folder when the session has it, else a neutral one (a host that needs the repo says so: error).
+   */
+  prForRef(run: CommandRunner, cwd: string, ref: { number: number; url: string }): Promise<PrLookup>;
   /** A PR by number in a repo (`repoId`), to start a session on it. */
   prByNumber(run: CommandRunner, cwd: string, repoId: string, number: number): Promise<HostResult<{ pr: PrForStart }>>;
   /** Where a PR (by its link) stands: what a "blocked by" waits on. */

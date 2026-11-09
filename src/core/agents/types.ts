@@ -73,6 +73,22 @@ export interface AgentConversation {
   /** Background commands (a build, tests, a dev server) its conversation started since `sinceMs` — the agent
    *  process's start — and that haven't ended: stopping the agent would stop them (idle sleep keeps it awake). */
   backgroundCommands?(session: WorktreeSession, sinceMs: number): number;
+  /**
+   * The pull requests a stretch of its conversation file names as the session's own (made or worked on by it), in
+   * file order — Claude Code writes a line for each. `text`: whole lines of a conversation file; a line cut at either
+   * end is skipped. Absent: the agent doesn't say, and a session's PRs come from its branches alone.
+   */
+  prLinks?(text: string): ConversationPrLink[];
+}
+
+/** A pull request a conversation says the session made or worked on (`AgentConversation.prLinks`). */
+export interface ConversationPrLink {
+  url: string;
+  number: number;
+  /** The host's name for its repo (`owner/name`), as the agent wrote it; '' when it didn't. */
+  repo: string;
+  /** ISO, when the line says. */
+  at?: string;
 }
 
 /** Whose conversations a resume check looks in: a session's (its account), or the environment the agent will start with (`env` wins). */

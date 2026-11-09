@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 import { archiveSession } from '../../../src/core/archive/session-archive.js';
@@ -15,6 +16,7 @@ import {
   syncConversations,
 } from '../../../src/core/conversations/conversation-store.js';
 import type { TranscriptFile } from '../../../src/core/conversations/context-usage.js';
+import { readSessionPrs } from '../../../src/core/pr/session-prs.js';
 
 let tmp: string;
 let root: string;
@@ -240,5 +242,52 @@ describe('compressQuietCopies', () => {
     expect(await syncConversation(s, root, [source(src)])).toEqual({ files: 1, bytes: Buffer.byteLength(added) });
     expect(fs.existsSync(`${plain}.gz`)).toBe(false);
     expect(fs.readFileSync(plain, 'utf8')).toBe(fs.readFileSync(src, 'utf8'));
+  });
+});
+
+describe("the PRs a conversation names go on the session's list (session-prs.ts)", () => {
+  const prLink = (n: number, repo = 'kvika/straumur-backend') =>
+    line({
+      type: 'pr-link',
+      prNumber: n,
+      prUrl: `https://github.com/${repo}/pull/${n}`,
+      prRepository: repo,
+      timestamp: '2026-11-03T10:00:00Z',
+    });
+
+  it('the first sync reads the whole copy once (scanned); later ones only the new lines — a link split across chunks too', async () => {
+    const s = session('feat/pr-scan-webhooks');
+    const id = sessionIdFor(s);
+    const src = await kept(s, prompt('make a PR') + prLink(3592) + reply('done'));
+    expect(readSessionPrs(id)).toMatchObject({ prs: [{ number: 3592, sources: ['agent'] }] });
+    expect(readSessionPrs(id)?.scanned).toBeTruthy();
+    // The new lines, a few MB of other lines first so the link lands across the copy's 4 MB chunks.
+    const filler = reply('x'.repeat(4 * 1024 * 1024 - 300));
+    fs.appendFileSync(src, filler + prLink(3644) + prLink(87, 'kvika/straumur-documentation'));
+    const r = await syncConversation(s, root, [source(src)]);
+    expect(r.prs).toBe(2);
+    expect(readSessionPrs(id)?.prs.map((p) => p.number)).toEqual([3592, 3644, 87]);
+    // Nothing new: no PRs counted, nothing written.
+    expect((await syncConversation(s, root, [source(src)])).prs).toBeUndefined();
+  });
+
+  it('a session whose copy was made before the list began is read whole once, packed copies too', async () => {
+    const s = session('fix/pr-scan-before');
+    const id = sessionIdFor(s);
+    const dir = conversationDirFor(id, root);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'old.jsonl.gz'), zlib.gzipSync(prompt('x') + prLink(3644)));
+    const src = path.join(tmp, 'new.jsonl');
+    fs.writeFileSync(src, prompt('y'));
+    await syncConversation(s, root, [source(src)]);
+    expect(readSessionPrs(id)?.prs.map((p) => p.number)).toEqual([3644]);
+  });
+
+  it("an agent that doesn't say which PRs its conversation made: nothing is read for them", async () => {
+    const s = session('feat/pr-scan-quiet');
+    const src = path.join(tmp, 'q.jsonl');
+    fs.writeFileSync(src, prLink(1));
+    expect(await syncConversation(s, root, [source(src)], null)).toEqual({ files: 1, bytes: fs.statSync(src).size });
+    expect(readSessionPrs(sessionIdFor(s))).toBeNull();
   });
 });

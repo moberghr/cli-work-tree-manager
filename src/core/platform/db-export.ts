@@ -47,10 +47,19 @@ const TABLES = [
   'pr_watch_state',
   'pr_reviews',
   'session_branches',
+  'session_prs',
 ];
 
 /** Per-session tables of the newer features (session_id + data). */
-const NEWER_BY_SESSION = ['session_snooze', 'rail_place', 'session_notes', 'session_blocks', 'diff_seen', 'session_branches'];
+const NEWER_BY_SESSION = [
+  'session_snooze',
+  'rail_place',
+  'session_notes',
+  'session_blocks',
+  'diff_seen',
+  'session_branches',
+  'session_prs',
+];
 /** meta rows that are state, not counters. */
 const NEWER_META = ['ui:session-order', 'ui:rail-sections', 'jira-watch', 'time:issue-ids'];
 

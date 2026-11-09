@@ -162,3 +162,29 @@ describe('a PR only the list knows', () => {
     expect(one({ conflicting: true })).toBe('conflict');
   });
 });
+
+describe('the PR tab: every PR the session owns (session-prs.ts)', () => {
+  it("two open PRs of one repo say their branch; one in another repo says so; a failed check that isn't required shows quietly", () => {
+    const ci = {
+      checkedAt: 'x',
+      repos: [
+        {
+          name: 'api',
+          branch: 'fix/probe',
+          pr: shipPr(3656),
+          otherPrs: [{ branch: 'fix/culture', pr: shipPr(3657, { optionalFailing: [{ name: 'OWASP Security Review' }] }) }],
+          done: false,
+        },
+      ],
+      elsewhere: [{ repo: 'kvika/docs', branch: 'docs/x', pr: shipPr(87) }],
+    } as unknown as SessionCi;
+    const s = prSections(ci, []);
+    expect(s.map((x) => [x.repo, x.number, x.branchShown ?? false, x.elsewhere ?? false])).toEqual([
+      ['api', 3657, true, false],
+      ['api', 3656, true, false],
+      ['kvika/docs', 87, false, true],
+    ]);
+    expect(s[0].optionalFailing).toEqual([{ name: 'OWASP Security Review' }]);
+    expect(s[0].checks).toBe('pass');
+  });
+});

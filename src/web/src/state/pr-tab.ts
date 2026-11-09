@@ -2,6 +2,7 @@ import type { FailingCheck, OpenReviewThread, PrReply, SessionCi, ThreadCode } f
 import { prsBeyondStage, stageOfPr, stagePhrase, stageRepos, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
 import type { ShipPr } from '../../../core/api-types.js';
 import { owedToYou } from '../../../core/status/attention.js';
+import { stageInputOf } from '../../../core/pr/branch-work.js';
 import type { PrInfo } from '../api/panes.js';
 
 /**
@@ -28,11 +29,17 @@ export interface PrSection {
   kind: PrStageKind;
   checks: 'pass' | 'fail' | 'pending' | 'none';
   failing: FailingCheck[];
+  /** Checks that failed but aren't required: they don't stop the merge (shown quietly, never red). */
+  optionalFailing?: FailingCheck[];
   mergedAt?: string;
+  /** In a repo the session doesn't have (one of its listed PRs: Claude opened it there). */
+  elsewhere?: true;
   /** Only the dashboard's PR list knows it (a second PR from the branch): less is known about it. */
   fromListOnly: boolean;
   /** The branch it's from, when the PR watch said (the session may have worked on several: session-branches.ts). */
   branch?: string;
+  /** Its repo has more than one open PR here: the branch tells them apart (shown beside its number). */
+  branchShown?: true;
   /** An earlier PR of its repo: the session moved on to a newer one (stageRepos), and this one folds under it. */
   earlier?: true;
 }
@@ -71,8 +78,10 @@ const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPE
 export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] {
   // Per repo, the PR its stage reads (the newest open one across the branches it worked on), then its earlier
   // ones — a PR that merged before the session moved on to a new branch and a new PR.
-  const watched: PrSection[] = stageRepos(ci?.repos ?? []).flatMap((r, i) => {
-    const repo = ci!.repos[i];
+  const input = stageInputOf(ci);
+  const watched: PrSection[] = stageRepos(input).flatMap((r, i) => {
+    const repo = input[i];
+    const viewer = 'viewer' in repo ? repo.viewer : undefined;
     const section = (pr: ShipPr, branch: string | undefined, earlier: boolean): PrSection => ({
       key: pr.url,
       repo: r.name,
@@ -82,13 +91,15 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
       ...fromList(
         pr,
         listed.find((p) => p.url === pr.url),
-        repo.viewer ?? ci?.viewer,
+        viewer ?? ci?.viewer,
       ),
       state: pr.state,
       kind: stageOfPr(pr),
       checks: pr.checks,
       failing: pr.failing ?? [],
+      ...(pr.optionalFailing?.length ? { optionalFailing: pr.optionalFailing } : {}),
       ...(pr.mergedAt ? { mergedAt: pr.mergedAt } : {}),
+      ...('elsewhere' in repo && repo.elsewhere ? { elsewhere: true as const } : {}),
       fromListOnly: false,
       ...(branch ? { branch } : {}),
       ...(earlier ? { earlier: true as const } : {}),
@@ -116,7 +127,10 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
     failing: [],
     fromListOnly: true,
   }));
-  return [...watched, ...others];
+  // Two open PRs of one repo (from two branches): each says its branch.
+  const openIn = (repo: string) => watched.filter((w) => w.repo === repo && w.state === 'OPEN').length;
+  const named = watched.map((w) => (w.state === 'OPEN' && w.branch && openIn(w.repo) > 1 ? { ...w, branchShown: true as const } : w));
+  return [...named, ...others];
 }
 
 /** A thread or draft belongs to the section of its PR (number and repo; the number alone when no section has its repo). */

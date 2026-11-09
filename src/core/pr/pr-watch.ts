@@ -1,7 +1,7 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { howToLift, type LegacyUnsafe } from '../sessions/legacy-unsafe.js';
 import { commandsFor, hostName } from '../hosts/commands.js';
-import type { SessionCi, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
+import type { SessionCi, ShipPr, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
 import {
   newFeedback,
@@ -138,12 +138,41 @@ export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
 /** How long a PR's review threads, read while some were open, are believed: resolving one doesn't move the PR's updatedAt. */
 export const THREADS_RECHECK_MS = 10 * 60_000;
 
+/** Where a PR's branch is, for a note about it: the checked-out one needs no word; another branch or repo does. */
+export interface PrPlace {
+  /** Its own branch, when known. */
+  branch?: string;
+  /** The branch its repo has checked out now (absent: unknown, or the repo isn't the session's). */
+  onBranch?: string;
+  /** In a repo the session doesn't have (one of its listed PRs). */
+  elsewhere?: boolean;
+}
+
+/** " on fix/x (not checked out: …)", " (not one of this session's repos)", or ''. */
+export function placeOf(p: PrPlace): string {
+  if (p.elsewhere) return ` (not one of this session's repos${p.branch ? `; branch ${p.branch}` : ''})`;
+  if (p.onBranch && p.branch && p.branch !== p.onBranch) return ` on ${p.branch} (not checked out: ${p.onBranch} is)`;
+  return '';
+}
+
+/** What to do about a PR on a branch that isn't checked out, or in a repo the session doesn't have: once per note. */
+export function placeLines(items: PrPlace[]): string[] {
+  const out: string[] = [];
+  if (items.some((p) => !p.elsewhere && p.onBranch && p.branch && p.branch !== p.onBranch))
+    out.push(
+      "For a PR on a branch that isn't checked out: commit or stash what's in progress, `git switch <its branch>`, do the work and push there, then switch back to the branch you were on and restore what you stashed.",
+    );
+  if (items.some((p) => p.elsewhere))
+    out.push("For a PR in a repo this session doesn't have: work in your checkout of that repo, where you opened it.");
+  return out;
+}
+
 export function ciFixMessage(
-  failing: Array<{ repo: string; number: number; checks: string[]; host?: string }>,
+  failing: Array<{ repo: string; number: number; checks: string[]; host?: string } & PrPlace>,
   isGroup: boolean,
   contextShare?: number | null,
 ): string {
-  const lines = failing.map((f) => `- PR #${f.number}${isGroup ? ` (${f.repo})` : ''}: ${f.checks.join(', ')}`);
+  const lines = failing.map((f) => `- PR #${f.number}${isGroup || f.elsewhere ? ` (${f.repo})` : ''}${placeOf(f)}: ${f.checks.join(', ')}`);
   const hint = subAgentHint(contextShare);
   return [
     'CI is failing:',
@@ -152,6 +181,8 @@ export function ciFixMessage(
     `Look at the failures (${[...new Set(failing.map((f) => f.host))]
       .map((h) => `\`${commandsFor(h).checks('<n>')}\`, \`${commandsFor(h).failedLog}\``)
       .join('; ')}), fix them, and push.`,
+    'A check that failed for a reason outside the code — a service it calls timed out or answered 5xx, a runner died — needs no change: run it again instead.',
+    ...placeLines(failing),
     `If fixing one needs a decision from me — the check is right but the fix changes behaviour, or the check itself looks wrong — don't guess: start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
     ...(hint ? [hint] : []),
   ].join('\n');
@@ -163,13 +194,13 @@ export function ciFixMessage(
  * A conflict that takes a choice — both sides changed the same behaviour — is the user's, not a guess.
  */
 export function conflictMessage(
-  conflicts: Array<{ repo: string; number: number; base: string | null }>,
+  conflicts: Array<{ repo: string; number: number; base: string | null } & PrPlace>,
   isGroup: boolean,
   contextShare?: number | null,
 ): string {
   const lines = conflicts.map(
     (c) =>
-      `- PR #${c.number}${isGroup ? ` (${c.repo})` : ''} can't merge into ${c.base ?? 'its base branch'}: ${c.base ? `\`git merge origin/${c.base}\`` : 'merge its base branch from origin'}`,
+      `- PR #${c.number}${isGroup || c.elsewhere ? ` (${c.repo})` : ''}${placeOf(c)} can't merge into ${c.base ?? 'its base branch'}: ${c.base ? `\`git merge origin/${c.base}\`` : 'merge its base branch from origin'}`,
   );
   const hint = subAgentHint(contextShare);
   return [
@@ -177,6 +208,7 @@ export function conflictMessage(
     ...lines,
     '',
     `Bring ${conflicts.length === 1 ? 'the branch' : 'each branch'} up to date: \`git fetch origin\`${isGroup ? ' in that repo' : ''}, then the merge above — a merge, not a rebase, and never a force push (the branch is pushed). Resolve the conflicts keeping what both sides meant, check that it builds and its tests pass, commit the merge and push.`,
+    ...placeLines(conflicts),
     `If a conflict needs a decision from me — both sides changed the same behaviour and it isn't clear which should win — don't guess: \`git merge --abort\`, and start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
     ...(hint ? [hint] : []),
   ].join('\n');
@@ -337,6 +369,63 @@ export function watchable(
   return (Date.parse(s.lastAccessedAt) || 0) >= cutoff || io.lastWriteMs(s) >= cutoff;
 }
 
+/** A PR of the session with where it is: its repo (its folder when the session has it), its branch, the checked-out one. */
+export interface PlacedPr extends PrPlace {
+  repo: string;
+  host?: string;
+  /** The repo's folder; absent for a PR in a repo the session doesn't have. */
+  path?: string;
+  pr: ShipPr;
+}
+
+/** A PR's key among the session's: its repo and its link (one repo may hold yours and someone else's). */
+const prKey = (a: { repo: string; url?: string; pr?: { url: string } }): string => `${a.repo} ${a.pr?.url ?? a.url ?? ''}`;
+
+/** Only the place, for a note. */
+function placeFields(a: PrPlace): PrPlace {
+  return {
+    ...(a.branch ? { branch: a.branch } : {}),
+    ...(a.onBranch ? { onBranch: a.onBranch } : {}),
+    ...(a.elsewhere ? { elsewhere: true } : {}),
+  };
+}
+
+/**
+ * Every PR a preflight found for the session: each repo's checked-out branch's, its other branches' and listed ones
+ * (otherPrsOf), and those in repos it doesn't have (`elsewhere`). Pure.
+ */
+export function prsOfPreflight(pre: ShipPreflight): PlacedPr[] {
+  const out: PlacedPr[] = [];
+  for (const r of pre.repos) {
+    const on = r.branch && r.branch !== 'HEAD' ? r.branch : undefined;
+    const base = { repo: r.name, ...(r.host ? { host: r.host } : {}), path: r.path, ...(on ? { onBranch: on } : {}) };
+    if (r.pr) out.push({ ...base, pr: r.pr, ...(on ? { branch: on } : {}) });
+    for (const o of otherPrsOf(r)) {
+      const branch = o.branch || o.pr.headBranch;
+      out.push({ ...base, pr: o.pr, ...(branch ? { branch } : {}) });
+    }
+  }
+  for (const e of pre.elsewhere ?? [])
+    out.push({ repo: e.repo, ...(e.host ? { host: e.host } : {}), pr: e.pr, ...(e.branch ? { branch: e.branch } : {}), elsewhere: true });
+  return out;
+}
+
+/** The same from a check (SessionCi): what the CI and conflict notes, and Fix CI, read. Pure. */
+export function prsOfCheck(ci: SessionCi): PlacedPr[] {
+  const out: PlacedPr[] = [];
+  for (const r of ci.repos) {
+    const base = { repo: r.name, ...(r.host ? { host: r.host } : {}), ...(r.branch ? { onBranch: r.branch } : {}) };
+    if (r.pr) out.push({ ...base, pr: r.pr, ...(r.branch ? { branch: r.branch } : {}) });
+    for (const o of r.otherPrs ?? []) {
+      const branch = o.branch || o.pr.headBranch;
+      out.push({ ...base, pr: o.pr, ...(branch ? { branch } : {}) });
+    }
+  }
+  for (const e of ci.elsewhere ?? [])
+    out.push({ repo: e.repo, ...(e.host ? { host: e.host } : {}), pr: e.pr, ...(e.branch ? { branch: e.branch } : {}), elsewhere: true });
+  return out;
+}
+
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
   const states = new Map<string, SessionCi>(deps.saved ? savedChecks(deps.saved.load(), deps.sessions()) : []);
@@ -398,22 +487,32 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     return true;
   }
 
-  /** Its open PRs that can't merge into their base (GitHub's DIRTY, as the PR stage reads it). */
+  /** Its open PRs that can't merge into their base (GitHub's DIRTY, as the PR stage reads it) — on any branch, in any repo. */
   function conflictingOf(ci: SessionCi) {
-    return ci.repos
-      .filter((r) => r.pr?.state === 'OPEN' && r.pr.mergeStateStatus === 'DIRTY')
-      .map((r) => ({ repo: r.name, number: r.pr!.number, headSha: r.pr!.headSha, base: r.pr!.baseBranch ?? null }));
+    return prsOfCheck(ci)
+      .filter((a) => a.pr.state === 'OPEN' && a.pr.mergeStateStatus === 'DIRTY')
+      .map((a) => ({
+        repo: a.repo,
+        number: a.pr.number,
+        url: a.pr.url,
+        headSha: a.pr.headSha,
+        base: a.pr.baseBranch ?? null,
+        ...placeFields(a),
+      }));
   }
 
+  /** Its open PRs whose required checks fail — on any branch, in any repo. */
   function failingOf(ci: SessionCi) {
-    return ci.repos
-      .filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail')
-      .map((r) => ({
-        repo: r.name,
-        number: r.pr!.number,
-        headSha: r.pr!.headSha,
-        checks: (r.pr!.failing ?? []).map((f) => f.name),
-        ...(r.host ? { host: r.host } : {}),
+    return prsOfCheck(ci)
+      .filter((a) => a.pr.state === 'OPEN' && a.pr.checks === 'fail')
+      .map((a) => ({
+        repo: a.repo,
+        number: a.pr.number,
+        url: a.pr.url,
+        headSha: a.pr.headSha,
+        checks: (a.pr.failing ?? []).map((f) => f.name),
+        ...(a.host ? { host: a.host } : {}),
+        ...placeFields(a),
       }));
   }
 
@@ -462,9 +561,12 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     // Someone else's PR (a session working on it or reviewing it): its threads are for its
     // author, and its Claude was told to wait for what you want. Shown, never handed over.
     // Who you are, per repo: on its host and its origin's server (deps.viewer asks each once).
+    // Every PR of the session: the checked-out branch's, its other branches' and listed ones, those in other repos.
+    const all = prsOfPreflight(pre);
     const viewers = new Map<string, string | null>();
-    for (const r of pre.repos)
-      if (r.pr?.author) viewers.set(r.name, await (deps.viewer?.(r.host, r.path) ?? Promise.resolve(null)).catch(() => null));
+    for (const a of all)
+      if (a.pr.author && !viewers.has(a.repo))
+        viewers.set(a.repo, await (deps.viewer?.(a.host, a.path) ?? Promise.resolve(null)).catch(() => null));
     const viewer =
       pre.repos
         .filter((r) => !r.host)
@@ -472,24 +574,24 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         .find((v) => !!v) ??
       [...viewers.values()].find((v) => !!v) ??
       null;
+    // Per PR (its link): one repo may hold yours and someone else's.
     const theirs = new Set(
-      pre.repos
-        .filter((r) => {
-          const me = viewers.get(r.name);
-          return r.pr?.author && me && r.pr.author.toLowerCase() !== me.toLowerCase();
+      all
+        .filter((a) => {
+          const me = viewers.get(a.repo);
+          return a.pr.author && me && a.pr.author.toLowerCase() !== me.toLowerCase();
         })
-        .map((r) => r.name),
+        .map(prKey),
     );
     // Who you are on its host couldn't be told this time (signed out, offline): mine or theirs is unknown, so
     // nothing of it is handed over — its review threads, CI and conflicts wait for a check that can tell. The
     // review read below says who you are too (its own viewer): when it does, that settles it. Never read as
     // yours: someone else's would go to Claude.
-    const unsure = new Set(pre.repos.filter((r) => deps.viewer && r.pr?.author && !viewers.get(r.name)).map((r) => r.name));
-    const unknownOn = (repos: string[]) =>
-      [...new Set(repos.map((name) => hostName(pre.repos.find((r) => r.name === name)?.host)))].join(' / ');
+    const unsure = new Set(all.filter((a) => deps.viewer && a.pr.author && !viewers.get(a.repo)).map(prKey));
+    const unknownOn = (repos: string[]) => [...new Set(repos.map((name) => hostName(all.find((a) => a.repo === name)?.host)))].join(' / ');
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
-    const feedback: Array<{ repo: string; number: number; items: FeedbackItem[]; host?: string }> = [];
+    const feedback: Array<{ repo: string; number: number; items: FeedbackItem[]; host?: string } & PrPlace> = [];
     const feedbackSeen = staged(id);
     const threads = new Map<string, number>();
     const threadList = new Map<string, OpenReviewThread[]>();
@@ -498,13 +600,15 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const unsafeFromBefore = deps.runsUnsafe?.(id) ?? null;
     const deliverReviews = !unsafeFromBefore;
     if (deps.reviewFeedback && opts.reviewComments) {
-      for (const r of pre.repos) {
-        if (r.pr?.state !== 'OPEN' || theirs.has(r.name)) continue;
+      // Every open PR in the session's repos (a PR in another repo has no folder here to read its threads in).
+      for (const a of all) {
+        const r = a;
+        if (r.pr.state !== 'OPEN' || !r.path || theirs.has(prKey(r))) continue;
         // Nothing new can have been said on a PR that hasn't changed since
         // the last read (a comment or review moves its updatedAt). A resolve
         // doesn't move it, though: a read with open threads goes stale after
         // THREADS_RECHECK_MS, or a thread resolved on GitHub stays open here.
-        const key = `${id}:${r.name}`;
+        const key = `${id}:${r.repo}:${r.pr.number}`;
         const cached = feedbackCache.get(key);
         const fresh =
           cached &&
@@ -515,50 +619,56 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         const fb = fresh ? cached.fb : await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
         if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, at: now(), fb });
         if (!fb) {
-          // gh couldn't say this time: keep the last count for the same PR rather than drop to none.
-          const was = states.get(id)?.repos.find((p) => p.name === r.name);
-          if (was?.pr?.number === r.pr.number && was.openThreads !== undefined) threads.set(r.name, was.openThreads);
-          if (was?.pr?.number === r.pr.number && was.threads) threadList.set(r.name, was.threads);
+          // gh couldn't say this time: keep this PR's threads from the last check rather than drop to none.
+          const was =
+            states
+              .get(id)
+              ?.repos.find((p) => p.name === r.repo)
+              ?.threads?.filter((t) => t.prNumber === r.pr.number) ?? [];
+          if (was.length) {
+            threads.set(r.repo, (threads.get(r.repo) ?? 0) + was.length);
+            threadList.set(r.repo, [...(threadList.get(r.repo) ?? []), ...was]);
+          }
           // Who you are is unknown too (GitHub's read answers nothing without a viewer): its threads stay held.
-          if (act && deliverReviews && unsure.has(r.name))
+          if (act && deliverReviews && unsure.has(prKey(r)))
             note(
-              `couldn't read the review threads on #${r.pr.number}, and who you are on ${unknownOn([r.name])} is unknown: nothing of it is handed to its Claude until it can tell the PR is yours`,
+              `couldn't read the review threads on #${r.pr.number}, and who you are on ${unknownOn([r.repo])} is unknown: nothing of it is handed to its Claude until it can tell the PR is yours`,
               'warn',
             );
           continue;
         }
         // Who you are wasn't known on its host: the review read's own viewer says it, or it stays held.
         let held = false;
-        if (unsure.has(r.name) && r.pr.author) {
+        if (unsure.has(prKey(r)) && r.pr.author) {
           // The read is made on the repo's own server (the host's adapter asks that one), so its viewer is
           // who you are there. GitHub's read answers nothing without one (the `!fb` path above); an empty
           // viewer is another host's way of saying it can't tell.
           const me = fb.viewer.trim();
-          if (me) viewers.set(r.name, me);
-          if (me && me.toLowerCase() === r.pr.author.toLowerCase()) unsure.delete(r.name);
+          if (me) viewers.set(r.repo, me);
+          if (me && me.toLowerCase() === r.pr.author.toLowerCase()) unsure.delete(prKey(r));
           else if (me) {
-            unsure.delete(r.name);
-            theirs.add(r.name); // theirs: shown, never handed over (and not counted, as above)
+            unsure.delete(prKey(r));
+            theirs.add(prKey(r)); // theirs: shown, never handed over (and not counted, as above)
             continue;
           } else held = true;
         }
-        threads.set(r.name, openThreadCount(fb));
+        threads.set(r.repo, (threads.get(r.repo) ?? 0) + openThreadCount(fb));
         const prNumber = r.pr.number;
-        threadList.set(
-          r.name,
-          openThreadsOf(fb, opts.trustedBots ?? DEFAULT_TRUSTED_BOTS).map((t) => ({ ...t, repo: r.name, prNumber })),
-        );
+        threadList.set(r.repo, [
+          ...(threadList.get(r.repo) ?? []),
+          ...openThreadsOf(fb, opts.trustedBots ?? DEFAULT_TRUSTED_BOTS).map((t) => ({ ...t, repo: r.repo, prNumber })),
+        ]);
         if (act && deliverReviews && held) {
           const open = fb.threads.filter((t) => !t.isResolved).length; // unresolved, whoever spoke last: unknown
           if (open)
             note(
-              `${open} open review thread${open === 1 ? '' : 's'} on #${r.pr.number}, but who you are on ${unknownOn([r.name])} is unknown: not handing ${open === 1 ? 'it' : 'them'} to its Claude until it can tell the PR is yours`,
+              `${open} open review thread${open === 1 ? '' : 's'} on #${r.pr.number}, but who you are on ${unknownOn([r.repo])} is unknown: not handing ${open === 1 ? 'it' : 'them'} to its Claude until it can tell the PR is yours`,
               'warn',
             );
         } else if (act && unsafeFromBefore) {
           // What it would have been handed, read into a throwaway set: nothing is recorded as told, so it goes
           // over once the agent was restarted.
-          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, staged(id), {
+          const items = newFeedback(fb, `${id}:${r.repo}:${r.pr.number}`, staged(id), {
             trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
           });
           if (items.length)
@@ -567,10 +677,17 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
               'warn',
             );
         } else if (act) {
-          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {
+          const items = newFeedback(fb, `${id}:${r.repo}:${r.pr.number}`, feedbackSeen, {
             trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
           });
-          if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items, ...(r.host ? { host: r.host } : {}) });
+          if (items.length)
+            feedback.push({
+              repo: r.repo,
+              number: r.pr.number,
+              items,
+              ...(r.host ? { host: r.host } : {}),
+              ...placeFields(r),
+            });
         }
       }
     }
@@ -588,6 +705,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         ...(threads.has(r.name) ? { openThreads: threads.get(r.name)! } : {}),
         ...(threadList.get(r.name)?.length ? { threads: threadList.get(r.name)! } : {}),
       })),
+      ...(pre.elsewhere?.length ? { elsewhere: pre.elsewhere } : {}),
     };
     const before = JSON.stringify(states.get(id)?.repos);
     states.set(id, ci);
@@ -609,7 +727,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       const n = feedback.reduce((k, f) => k + f.items.length, 0);
       const prs = feedback.map((f) => `#${f.number}`).join(', ');
       const what = `${n} new review comment${n === 1 ? '' : 's'} on ${prs}`;
-      if (await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER, deps.contextShare?.(session)), feedbackSeen)) {
+      const placed = feedback.map((f) => ({ ...f, place: placeOf(f) }));
+      const body = reviewMessage(placed, session.isGroup, DECISION_MARKER, deps.contextShare?.(session), placeLines(feedback));
+      if (await tellThenRecord(id, body, feedbackSeen)) {
         deps.rememberThreads?.(
           id,
           feedback.flatMap((f) =>
@@ -632,14 +752,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       } else note(`couldn't hand ${what} to its Claude; trying again next time`, 'warn');
     } else feedbackSeen.commit(); // only history / baselines: nothing to deliver
     if (opts.fixCi) {
-      const failing = failingOf(ci).filter((f) => !theirs.has(f.repo) && !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
-      const held = failing.filter((f) => unsure.has(f.repo));
+      const failing = failingOf(ci).filter((f) => !theirs.has(prKey(f)) && !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
+      const held = failing.filter((f) => unsure.has(prKey(f)));
       if (held.length)
         note(
           `checks fail on ${held.map((f) => `#${f.number}`).join(', ')}, but who you are on ${unknownOn(held.map((f) => f.repo))} is unknown: not asking its Claude until it can tell the PR is yours`,
           'warn',
         );
-      const fresh = failing.filter((f) => !unsure.has(f.repo));
+      const fresh = failing.filter((f) => !unsure.has(prKey(f)));
       if (fresh.length) {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
@@ -653,15 +773,15 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     // Someone else's PR is theirs to bring up to date, as its CI is.
     if (opts.fixConflicts !== false) {
       const conflicting = conflictingOf(ci).filter(
-        (c) => !theirs.has(c.repo) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`),
+        (c) => !theirs.has(prKey(c)) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`),
       );
-      const held = conflicting.filter((c) => unsure.has(c.repo));
+      const held = conflicting.filter((c) => unsure.has(prKey(c)));
       if (held.length)
         note(
           `merge conflict on ${held.map((c) => `#${c.number}`).join(', ')}, but who you are on ${unknownOn(held.map((c) => c.repo))} is unknown: not asking its Claude until it can tell the PR is yours`,
           'warn',
         );
-      const fresh = conflicting.filter((c) => !unsure.has(c.repo));
+      const fresh = conflicting.filter((c) => !unsure.has(prKey(c)));
       if (fresh.length) {
         const seen = staged(id);
         for (const c of fresh) seen.add(`${id}:${c.repo}:conflict:${c.headSha}`);
@@ -712,11 +832,12 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     let threads = 0;
     let failing = 0;
     for (const id of ids) {
-      for (const r of states.get(id)?.repos ?? []) {
-        if (r.pr?.state !== 'OPEN') continue;
+      const ci = states.get(id);
+      for (const r of ci?.repos ?? []) threads += r.openThreads ?? 0;
+      for (const a of ci ? prsOfCheck(ci) : []) {
+        if (a.pr.state !== 'OPEN') continue;
         prs++;
-        threads += r.openThreads ?? 0;
-        if (r.pr.checks === 'fail') failing++;
+        if (a.pr.checks === 'fail') failing++;
       }
     }
     const parts = [`${ids.length} session${ids.length === 1 ? '' : 's'}`, `${prs} open PR${prs === 1 ? '' : 's'}`];

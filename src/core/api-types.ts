@@ -882,12 +882,20 @@ export interface ShipPr {
   updatedAt?: string;
   /** Checks that failed (name + link), when `checks` is 'fail'. */
   failing?: FailingCheck[];
+  /** Checks that failed but aren't required: the host merges it all the same, so they don't make `checks` fail —
+   *  shown quietly, never red, never asked of Claude. */
+  optionalFailing?: FailingCheck[];
+  /** The host said which checks are required (GitHub's branch protection or rulesets, Azure DevOps' blocking
+   *  policies), and `checks` counts only those: a repo's list in config (`prWatch.requiredChecks`) isn't applied. */
+  checksRequiredByHost?: boolean;
   /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or '' when the repo requires no review (gh's reviewDecision). */
   reviewDecision?: string;
   /** Its author's login: a session on someone else's PR (work on it, review it) isn't handed its threads or CI notes. */
   author?: string;
   /** The branch it merges into (gh's baseRefName): what a conflict is resolved against. */
   baseBranch?: string;
+  /** Its own branch (gh's headRefName), when the host said: a session's PR on a branch it isn't on now is named by it. */
+  headBranch?: string;
 }
 
 export interface FailingCheck {
@@ -933,6 +941,20 @@ export interface RepoShipState {
   /** The other branches this repo worked on (session-branches.ts), as they stand: a session isn't done
    *  while one has work that isn't pushed or a PR still open (`workElsewhere`). Absent: none recorded. */
   otherBranches?: OtherBranchState[];
+  /** PRs on the session's list (session-prs.ts) in this repo that neither the checked-out branch nor `otherBranches`
+   *  found — a branch made and left within one turn, or one past the branches looked at — each looked up by its link. */
+  listedPrs?: Array<{ branch: string; pr: ShipPr }>;
+}
+
+/** A PR on the session's list in a repo the session doesn't have (Claude opened one on the docs repo too). */
+export interface ElsewherePr {
+  /** The host's name for the repo (`owner/name`). */
+  repo: string;
+  /** Its host (absent: GitHub). */
+  host?: string;
+  /** Its branch, when the host said. */
+  branch?: string;
+  pr: ShipPr;
 }
 
 /** Another branch a repo of the session worked on: the facts (branch-facts.ts) and its PR. */
@@ -952,6 +974,11 @@ export interface OtherBranchState {
 
 export interface ShipPreflight {
   repos: RepoShipState[];
+  /** The session's listed PRs in repos it doesn't have (session-prs.ts). */
+  elsewhere?: ElsewherePr[];
+  /** Listed PRs still open as far as work knows that the host couldn't be asked about this time (`<repo>#<n>: why`):
+   *  never read as gone — the session isn't archived meanwhile. */
+  unknownPrs?: string[];
 }
 
 export type ShipAction = 'push' | 'create-pr' | 'merge';
@@ -1057,6 +1084,8 @@ export interface SessionCi {
     /** Those threads (the PR watch's last read). */
     threads?: OpenReviewThread[];
   }>;
+  /** The session's PRs in repos it doesn't have (session-prs.ts): shown beside its own, newest first. */
+  elsewhere?: ElsewherePr[];
 }
 
 /** An unresolved review thread waiting on you (the PR watch's last read). */

@@ -202,6 +202,16 @@ function PrSectionView({
           {unfolded ? '▾' : '▸'}
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
+        {s.branch && s.branchShown && (
+          <span className="wd-pr-earlier" title="The branch this pull request is from.">
+            {s.branch}
+          </span>
+        )}
+        {s.elsewhere && (
+          <span className="wd-pr-earlier" title="In a repo this session doesn't have: its Claude opened it there.">
+            another repo
+          </span>
+        )}
         {s.earlier && (
           <span className="wd-pr-earlier" title="An earlier pull request of this session: it moved on to a newer branch and PR since.">
             earlier{s.branch ? ` · ${s.branch}` : ''}
@@ -238,13 +248,40 @@ function PrSectionView({
   );
 }
 
+/** Checks that failed but don't stop the merge (not required): named, quietly. */
+function OptionalFailing({ checks }: { checks: NonNullable<PrSection['optionalFailing']> }) {
+  return (
+    <span title="These checks failed, but they aren't required: the pull request can merge all the same.">
+      {' · '}
+      {checks.length === 1 ? '1 optional check failed: ' : `${checks.length} optional checks failed: `}
+      {checks.map((f, i) => (
+        <span key={f.name + i}>
+          {i > 0 && ', '}
+          {f.url ? (
+            <a href={f.url} target="_blank" rel="noopener noreferrer">
+              {f.name}
+            </a>
+          ) : (
+            f.name
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** Its checks in a line: passing, running, or failing by name (linked), with Ask Claude to fix. */
 function Checks({ sessionId, s }: { sessionId: string; s: PrSection }) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState<string | null>(null);
   if (s.checks === 'none') return null;
   if (s.checks !== 'fail')
-    return <p className="wd-pr-checks wd-web-muted">{s.checks === 'pass' ? '✓ Checks passing' : '● Checks running'}</p>;
+    return (
+      <p className="wd-pr-checks wd-web-muted">
+        {s.checks === 'pass' ? '✓ Checks passing' : '● Checks running'}
+        {s.optionalFailing?.length ? <OptionalFailing checks={s.optionalFailing} /> : null}
+      </p>
+    );
   return (
     <p className="wd-pr-checks wd-pr-checks-fail" role="status">
       <span aria-hidden="true">✗</span> Checks failing

@@ -10,6 +10,7 @@ import {
   githubOpenPrs,
   githubPrByNumber,
   githubPrForBranch,
+  githubPrForRef,
   githubPrState,
   githubSubmitReview,
 } from './pr-ops.js';
@@ -41,6 +42,7 @@ export const github: GitHost = {
   list: async (repos, run) => githubPrList(Object.fromEntries(repos.map((r) => [r.alias, r.path])), defaultPrListDeps(run)),
   viewer: githubViewer,
   prForBranch: githubPrForBranch,
+  prForRef: githubPrForRef,
   prByNumber: githubPrByNumber,
   prState: (run, url) => githubPrState(run, url, os.tmpdir()),
   createPr: githubCreatePr,

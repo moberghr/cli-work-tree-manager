@@ -76,6 +76,7 @@ import { readWebUrl } from '../core/platform/web-discovery.js';
 import { VERSION } from '../version.js';
 import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire, withRestoring } from '../core/sessions/session-wire.js';
 import { createStageTracker, prStageOf, stageRepos } from '../core/pr/pr-stage.js';
+import { stageInputOf } from '../core/pr/branch-work.js';
 import { createSeenStores } from '../core/pr/pr-watch-store.js';
 import { createDigestSource } from '../core/conversations/digest-source.js';
 import { report } from '../core/platform/report.js';
@@ -574,7 +575,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       const n = reviewThreadsOf(prWatch.state(id));
       const threadsMoved = n !== (threadsShown.get(id) ?? 0);
       threadsShown.set(id, n);
-      const stage = prStageOf(stageRepos(prWatch.state(id)?.repos ?? []));
+      const stage = prStageOf(stageRepos(stageInputOf(prWatch.state(id))));
       const news = stageNewsFor(id, stage);
       if (threadsMoved || news !== 'none') broadcast('sessions-changed', { ts: Date.now() });
       // The real work web notifies; the dev server would say it twice.

@@ -292,6 +292,23 @@ export const azure: GitHost = {
     return ship ? { kind: 'pr', pr: ship } : { kind: 'error', error: "couldn't read what az said about the PR" };
   },
 
+  async prForRef(run, cwd, ref) {
+    // The link names its organisation, project and repo: asked of that one, wherever `cwd` is.
+    const l = parseAzurePrUrl(ref.url);
+    if (!l || l.number !== ref.number) return { kind: 'error', error: 'not an Azure DevOps pull request link' };
+    const r = l.repo;
+    const shown = await az<AzPr>(run, cwd, ['repos', 'pr', 'show', '--id', String(ref.number), '--org', r.orgUrl]);
+    if (!shown.ok) return { kind: 'error', error: shown.error };
+    const pr = shown.value ?? {};
+    // PR numbers are the organisation's, not the repo's: #N may be another repo's PR.
+    if (lower(pr.repository?.name) !== lower(r.repo) || lower(pr.repository?.project?.name) !== lower(r.project))
+      return { kind: 'error', error: `PR #${ref.number} isn't in ${r.project}/${r.repo}` };
+    const pol: AzResult<AzPolicy[]> = pr.status === 'active' ? await policies(run, cwd, r, ref.number) : { ok: true, value: [] };
+    if (!pol.ok) return { kind: 'error', error: pol.error };
+    const ship = shipPrOf(r, pr, pol.value);
+    return ship ? { kind: 'pr', pr: ship } : { kind: 'error', error: "couldn't read what az said about the PR" };
+  },
+
   async prByNumber(run, cwd, repoId, number) {
     const r = repoAt(cwd);
     if (!r || `${r.org}/${r.project}/${r.repo}`.toLowerCase() !== repoId)

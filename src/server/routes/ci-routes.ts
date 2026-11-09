@@ -6,10 +6,8 @@ import { createCiStore, createSeenStores } from '../../core/pr/pr-watch-store.js
 import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { findSession } from '../../core/sessions/web-state.js';
-import { defaultRunner, shipPreflight } from '../../core/pr/ship.js';
-import { branchFactsOf, prWatchHostDeps, watchAskGh, watchBranchOptions } from '../../core/pr/pr-watch-hosts.js';
-import { noteBranchFacts, readSessionBranches } from '../../core/sessions/session-branches.js';
-import { bestEffort } from '../../core/platform/best-effort.js';
+import { defaultRunner } from '../../core/pr/ship.js';
+import { prWatchHostDeps, watchPreflight } from '../../core/pr/pr-watch-hosts.js';
 import { readStatus, turnInProgress } from '../../core/status/session-status.js';
 import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
 import { lastConversationWriteMs } from '../../core/sessions/session-activity.js';
@@ -89,22 +87,13 @@ export function mountCiRoutes(
     // unless the watch already knows one (a merged PR whose branch is gone).
     // A host resting after its API limit isn't asked at all (the watch keeps what it knew).
     // The session's other branches too (session-branches.ts): their PRs and unpushed work, recent ones only.
-    preflight: async (s, o) => {
-      const id = sessionIdFor(s);
-      const repoOf = (name: string) => watch.state(id)?.repos.find((x) => x.name === name);
-      const pre = await shipPreflight(s, defaultRunner, {
-        askGh: watchAskGh(o?.resting, (name) => !!repoOf(name)?.pr),
-        ...watchBranchOptions(
-          readSessionBranches(id),
-          Date.now(),
-          o?.resting,
-          (name, branch) => !!repoOf(name)?.otherPrs?.some((p) => p.branch === branch),
-        ),
-      });
-      const facts = branchFactsOf(pre);
-      if (facts.length) bestEffort(`keep the branch facts of ${id}`, () => noteBranchFacts(id, facts));
-      return pre;
-    },
+    // Its listed PRs (session-prs.ts) the branches didn't find, each by its link.
+    preflight: (s, o) =>
+      watchPreflight(s, defaultRunner, {
+        ...(o?.resting ? { resting: o.resting } : {}),
+        last: watch.state(sessionIdFor(s)),
+        requiredChecks: loadConfig()?.prWatch?.requiredChecks,
+      }),
     // Who you are, review feedback and API-limit words: each repo asked of its own host.
     ...prWatchHostDeps(defaultRunner),
     // An agent from before --unsafe was retired (legacy-unsafe.ts; remove next release).

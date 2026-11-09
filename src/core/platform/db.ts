@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS pr_reviews (key TEXT PRIMARY KEY, data TEXT NOT NULL)
 
 -- Every branch a session's repos have been on (core/sessions/session-branches.ts). (v12)
 CREATE TABLE IF NOT EXISTS session_branches (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- Every pull request a session made or worked on, from its agent's conversation and its branches (core/pr/session-prs.ts). (v13)
+CREATE TABLE IF NOT EXISTS session_prs (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.
@@ -317,6 +320,7 @@ export function purgeSessionRows(d: Db, sessionId: string): void {
     'diff_seen',
     'pr_watch_state',
     'session_branches',
+    'session_prs',
   ]) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }

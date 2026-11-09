@@ -459,3 +459,75 @@ describe("a PR's existing discussion, read only (#64)", () => {
     expect(calls[0].args.at(-1)).toContain('updatedAt');
   });
 });
+
+describe('which failed checks count: only the ones GitHub requires, when it requires any', () => {
+  const view = (rollup: unknown[]) =>
+    JSON.stringify({
+      number: 3657,
+      url: 'https://github.com/acme/api/pull/3657',
+      state: 'OPEN',
+      isDraft: false,
+      mergeStateStatus: 'BLOCKED',
+      headRefOid: 'abc',
+      headRefName: 'fix/culture',
+      statusCheckRollup: rollup,
+    });
+  const run = (o: { name: string; conclusion: string; detailsUrl?: string }) => ({ ...o, status: 'COMPLETED' });
+  const rollup = [
+    run({ name: 'Test', conclusion: 'SUCCESS' }),
+    run({ name: 'OWASP Security Review', conclusion: 'FAILURE', detailsUrl: 'https://x/1' }),
+  ];
+  const gh = (required: Partial<RunResult>) =>
+    recorder((_cmd, args) => (args[1] === 'checks' ? required : { code: 0, stdout: view(rollup) }));
+
+  it('GitHub requires Test only: the failed scanner is set apart, the checks pass, and the host said so', async () => {
+    const r = gh({ code: 0, stdout: JSON.stringify([{ name: 'Test' }]) });
+    const got = await github.prForBranch(r.run, '/repo', 'fix/culture');
+    expect(got).toMatchObject({
+      kind: 'pr',
+      pr: {
+        checks: 'pass',
+        optionalFailing: [{ name: 'OWASP Security Review', url: 'https://x/1' }],
+        checksRequiredByHost: true,
+        headBranch: 'fix/culture',
+      },
+    });
+    expect(got.kind === 'pr' && got.pr.failing).toBeUndefined();
+    // Asked only because a check failed, for that PR.
+    expect(r.calls.find((c) => c.args[1] === 'checks')?.args).toEqual(['pr', 'checks', 'fix/culture', '--required', '--json', 'name']);
+  });
+
+  it('a required check that fails still counts (gh exits 1 with the list all the same)', async () => {
+    const failing = [run({ name: 'Test', conclusion: 'FAILURE' }), run({ name: 'OWASP Security Review', conclusion: 'FAILURE' })];
+    const r = recorder((_cmd, args) =>
+      args[1] === 'checks' ? { code: 1, stdout: JSON.stringify([{ name: 'Test' }]) } : { code: 0, stdout: view(failing) },
+    );
+    expect(await github.prForBranch(r.run, '/repo', 'x')).toMatchObject({
+      kind: 'pr',
+      pr: { checks: 'fail', failing: [{ name: 'Test' }], optionalFailing: [{ name: 'OWASP Security Review' }] },
+    });
+  });
+
+  it('GitHub requires none, or gh can’t say: every failed check counts (a repo’s config list may narrow it later)', async () => {
+    for (const answer of [
+      { code: 1, stderr: "no required checks reported on the 'fix/culture' branch" },
+      { code: 1, stderr: 'HTTP 502' },
+    ]) {
+      const got = await github.prForBranch(gh(answer).run, '/repo', 'fix/culture');
+      expect(got).toMatchObject({ kind: 'pr', pr: { checks: 'fail', failing: [{ name: 'OWASP Security Review' }] } });
+      expect(got.kind === 'pr' && (got.pr.optionalFailing ?? got.pr.checksRequiredByHost)).toBeFalsy();
+    }
+  });
+
+  it('passing checks: GitHub isn’t asked which are required', async () => {
+    const r = recorder(() => ({ code: 0, stdout: view([run({ name: 'Test', conclusion: 'SUCCESS' })]) }));
+    expect(await github.prForBranch(r.run, '/repo', 'x')).toMatchObject({ kind: 'pr', pr: { checks: 'pass' } });
+    expect(r.calls.some((c) => c.args[1] === 'checks')).toBe(false);
+  });
+
+  it('a PR by its link is `gh pr view <link>`, which names its repo itself', async () => {
+    const r = recorder(() => ({ code: 0, stdout: view([]) }));
+    await github.prForRef(r.run, '/anywhere', { number: 3657, url: 'https://github.com/acme/api/pull/3657' });
+    expect(r.calls[0].args.slice(0, 3)).toEqual(['pr', 'view', 'https://github.com/acme/api/pull/3657']);
+  });
+});

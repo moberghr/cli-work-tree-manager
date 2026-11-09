@@ -154,6 +154,13 @@ export interface WorkConfig {
     /** Start a session's Claude (resuming its conversation) when feedback
      *  arrives and it isn't running, so it works on it at once. Default on. */
     wakeClaude?: boolean;
+    /**
+     * The checks that count, per repo (its alias, or the host's `owner/name`), for a repo whose host requires none
+     * (GitHub's branch protection or rulesets list no required checks): a failed check not named here doesn't make
+     * the PR's checks fail — shown grey as "not required", never asked of Claude. The host's own list, when it has
+     * one, wins; a repo with neither counts every check.
+     */
+    requiredChecks?: Record<string, string[]>;
   };
   /**
    * Opt-in desktop notifications. When true, the dashboard fires an OS
@@ -404,12 +411,27 @@ export function loadConfig(): WorkConfig | null {
                   }
                 : {}),
               wakeClaude: parsed.prWatch.wakeClaude !== false,
+              ...(cleanRequiredChecks(parsed.prWatch.requiredChecks)
+                ? { requiredChecks: cleanRequiredChecks(parsed.prWatch.requiredChecks)! }
+                : {}),
             }
           : undefined,
     };
   } catch {
     return null;
   }
+}
+
+/** `prWatch.requiredChecks` as written: repo → check names (strings only, none empty); null when there's none. */
+export function cleanRequiredChecks(raw: unknown): Record<string, string[]> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out: Record<string, string[]> = {};
+  for (const [repo, names] of Object.entries(raw as Record<string, unknown>)) {
+    if (!repo.trim() || !Array.isArray(names)) continue;
+    const list = names.filter((n): n is string => typeof n === 'string' && n.trim().length > 0).map((n) => n.trim());
+    if (list.length) out[repo] = list;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 export function saveConfig(config: WorkConfig): void {

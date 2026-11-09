@@ -68,6 +68,22 @@ const isStoredPr = (pr: unknown): boolean =>
 
 export function isSessionCi(v: unknown): v is SessionCi {
   if (!isObject(v) || typeof v.checkedAt !== 'string' || !Array.isArray(v.repos)) return false;
+  // The session's PRs in repos it doesn't have (session-prs.ts).
+  if (
+    v.elsewhere !== undefined &&
+    !(
+      Array.isArray(v.elsewhere) &&
+      v.elsewhere.every(
+        (e) =>
+          isObject(e) &&
+          typeof e.repo === 'string' &&
+          (e.host === undefined || typeof e.host === 'string') &&
+          (e.branch === undefined || typeof e.branch === 'string') &&
+          isStoredPr(e.pr),
+      )
+    )
+  )
+    return false;
   return v.repos.every(
     (r) =>
       isObject(r) &&

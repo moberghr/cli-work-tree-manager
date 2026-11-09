@@ -98,6 +98,11 @@ function fakeHost(id: string, name: string, domain: string, cli: string): { host
       const pr = state.prs.get(branch);
       return pr ? { kind: 'pr', pr } : { kind: 'none' };
     },
+    prForRef: async (_run, _cwd, ref) => {
+      if (state.limited) return { kind: 'error', error: `${name} says: slow down` };
+      const pr = [...state.prs.values()].find((p) => p.url === ref.url);
+      return pr ? { kind: 'pr', pr } : { kind: 'none' };
+    },
     prByNumber: async (_run, _cwd, _repoId, number) => ({
       ok: true,
       pr: {

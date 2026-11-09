@@ -119,6 +119,13 @@ describe("PR watch's last check", () => {
     expect(isSessionCi(withThread({ ...ok, body: 3 }))).toBe(false);
     expect(isSessionCi(withThread({ ...ok, reviewer: undefined }))).toBe(false);
     expect(isSessionCi(withThread({ ...ok, prNumber: '7' }))).toBe(false);
+    // The session's PRs in repos it doesn't have (session-prs.ts): kept, checked when there.
+    const docsPr = { number: 87, url: 'u/87', state: 'OPEN', headSha: 'd' };
+    const withElsewhere = (e: unknown) => ({ checkedAt: 'x', repos: [], elsewhere: [e] });
+    expect(isSessionCi(withElsewhere({ repo: 'kvika/docs', branch: 'docs/x', pr: docsPr }))).toBe(true);
+    expect(isSessionCi(withElsewhere({ repo: 'kvika/docs', pr: { ...docsPr, state: 'GONE' } }))).toBe(false);
+    expect(isSessionCi(withElsewhere({ repo: 7, pr: docsPr }))).toBe(false);
+    expect(isSessionCi({ checkedAt: 'x', repos: [], elsewhere: 'docs' })).toBe(false);
   });
 
   it("a database it can't read gives none, rather than stopping work web from starting", () => {

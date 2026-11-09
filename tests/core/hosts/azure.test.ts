@@ -109,10 +109,29 @@ describe('Azure DevOps answers in work’s words', () => {
       status,
       configuration: { isBlocking: true, type: { displayName: 'Minimum number of reviewers' } },
     });
-    expect(checksOf([])).toEqual({ checks: 'none', failing: [] });
-    expect(checksOf([build('approved')])).toEqual({ checks: 'pass', failing: [] });
-    expect(checksOf([build('running')])).toEqual({ checks: 'pending', failing: [] });
-    expect(checksOf([build('approved'), build('rejected', 'unit tests')])).toEqual({ checks: 'fail', failing: [{ name: 'unit tests' }] });
+    expect(checksOf([])).toEqual({ checks: 'none', failing: [], optional: [] });
+    expect(checksOf([build('approved')])).toEqual({ checks: 'pass', failing: [], optional: [] });
+    expect(checksOf([build('running')])).toEqual({ checks: 'pending', failing: [], optional: [] });
+    expect(checksOf([build('approved'), build('rejected', 'unit tests')])).toEqual({
+      checks: 'fail',
+      failing: [{ name: 'unit tests' }],
+      optional: [],
+    });
+    // A build policy that isn't blocking doesn't stop the merge: its failure is set apart, not counted.
+    const optionalBuild = (status: string, name: string) => ({
+      status,
+      configuration: { isBlocking: false, type: { displayName: 'Build' }, settings: { displayName: name } },
+    });
+    expect(checksOf([build('approved'), optionalBuild('rejected', 'scan')])).toEqual({
+      checks: 'pass',
+      failing: [],
+      optional: [{ name: 'scan' }],
+    });
+    expect(checksOf([build('rejected', 'unit tests'), optionalBuild('rejected', 'scan')])).toEqual({
+      checks: 'fail',
+      failing: [{ name: 'unit tests' }],
+      optional: [{ name: 'scan' }],
+    });
     expect(mergeState({ mergeStatus: 'conflicts' }, [])).toBe('DIRTY');
     expect(mergeState({ isDraft: true }, [])).toBe('DRAFT');
     expect(mergeState({}, [build('approved'), reviewers('queued')])).toBe('BLOCKED');
@@ -575,6 +594,28 @@ describe('#65 review: what az answers, and what it fails to', () => {
     az.prs = [prOf()];
     az.failing = { 'account show': "ERROR: Please run 'az login' to setup account." };
     expect(await azure.list([{ alias: 'api', path: api.path, origin: ORIGIN }], run)).toEqual({ prs: [], incomplete: ['api'] });
+  });
+
+  it("a session's listed PR by its link: asked of the org the link names, refused when #N is another repo's", async () => {
+    az.prs = [prOf()];
+    const ref = { number: 7, url: `${ORIGIN}/pullrequest/7` };
+    const found = await azure.prForRef(run, os.tmpdir(), ref);
+    expect(found).toMatchObject({ kind: 'pr', pr: { number: 7, state: 'OPEN', headBranch: 'feat/refunds' } });
+    expect(az.calls.find((c) => c[0] === 'repos' && c[2] === 'show')?.slice(0, 7)).toEqual([
+      'repos',
+      'pr',
+      'show',
+      '--id',
+      '7',
+      '--org',
+      ORG,
+    ]);
+    az.prs = [prOf({ repository: { name: 'web', project: { name: 'Shop' } } })];
+    expect(await azure.prForRef(run, os.tmpdir(), ref)).toEqual({ kind: 'error', error: "PR #7 isn't in Shop/api" });
+    expect(await azure.prForRef(run, os.tmpdir(), { number: 7, url: 'https://example.com/pull/7' })).toEqual({
+      kind: 'error',
+      error: 'not an Azure DevOps pull request link',
+    });
   });
 
   it("az missing, or an answer that isn't JSON, is an error", async () => {

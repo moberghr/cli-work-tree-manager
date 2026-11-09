@@ -19,11 +19,13 @@ import type {
   BlockerWire,
   PrStageWire,
   SessionBranchWire,
+  ElsewherePr,
 } from '../api-types.js';
 import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/session-archive.js';
 import { isArchiving, isRestoring } from '../archive/archiving.js';
 import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, stageRepos, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
+import { stageInputOf } from '../pr/branch-work.js';
 import { isLeftover } from '../worktree/leftover.js';
 import { recordedRepos, sessionRepos } from './session-repos.js';
 import { DEFAULT_ACCOUNT, getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
@@ -254,13 +256,16 @@ export const stageSeenKey = (stageKey: string) => `stage:${stageKey}`;
  */
 export function prStageWire(
   ci:
-    | { repos: Array<{ name: string; pr: StagePr | null; branch?: string; otherPrs?: Array<{ branch: string; pr: StagePr }> }> }
+    | {
+        repos: Array<{ name: string; pr: StagePr | null; branch?: string; otherPrs?: Array<{ branch: string; pr: StagePr }> }>;
+        elsewhere?: ElsewherePr[];
+      }
     | null
     | undefined,
   seen: (key: string) => boolean,
 ): PrStageWire | null {
-  // The newest open PR across the branches it worked on (stageRepos), not only the checked-out branch's.
-  const stage = prStageOf(stageRepos(ci?.repos ?? []));
+  // Every open PR across the branches it worked on (stageRepos), and its listed PRs in repos it doesn't have.
+  const stage = prStageOf(stageRepos(stageInputOf(ci)));
   if (!stage) return null;
   return STAGE_WANTS_YOU.has(stage.kind) && seen(stageSeenKey(stage.key)) ? { ...stage, seen: true } : stage;
 }
