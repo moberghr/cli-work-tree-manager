@@ -7,6 +7,7 @@ import { DiffHunk } from './DiffHunk.js';
 import { GapRegion } from './GapRegion.js';
 import { NewFileView } from './NewFileView.js';
 import { useReviewedHunks } from '../../hooks/use-reviewed-hunks.js';
+import { revealInScroller } from '../../utils/scroll.js';
 import { hunkContentKey } from '../../utils/hunk-key.js';
 import { computeGaps } from '../../utils/expand.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
@@ -97,7 +98,9 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
   // instead (the `.wd-file` scroll-margin-top lands it just below the sticky
   // toolbar) so the next file sits right beneath it. Only fires on an explicit
   // user toggle-on, not on initial mount or persisted-viewed load. Double rAF
-  // waits for the collapse layout to settle before measuring.
+  // waits for the collapse layout to settle before measuring. Only the diff's
+  // own scroller moves: `scrollIntoView` slid the whole dashboard up when the
+  // file was near the end (utils/scroll.ts).
   const articleRef = useRef<HTMLElement>(null);
   const handleToggleViewed = useCallback(
     (next: boolean) => {
@@ -105,7 +108,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
       if (next) {
         requestAnimationFrame(() =>
           requestAnimationFrame(() => {
-            articleRef.current?.scrollIntoView({ block: 'start' });
+            if (articleRef.current) revealInScroller(articleRef.current);
           }),
         );
       }

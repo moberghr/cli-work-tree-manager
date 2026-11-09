@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { revealInScroller } from '../utils/scroll.js';
 
 /** Every inline comment thread in the diff, in document order. */
 const THREAD = '.wd-comment-row';
@@ -27,7 +28,7 @@ export function useCommentJump(containerRef: RefObject<HTMLElement | null>): voi
           ? threads[at < 0 ? 0 : (at + 1) % threads.length]
           : threads[at < 0 ? threads.length - 1 : (at - 1 + threads.length) % threads.length];
       current.current = next;
-      next.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      revealInScroller(next, { behavior: 'smooth', block: 'center' });
       next.classList.add('wd-row-flash');
       setTimeout(() => next.classList.remove('wd-row-flash'), 1200);
     };

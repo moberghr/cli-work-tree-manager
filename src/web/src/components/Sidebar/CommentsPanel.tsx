@@ -1,5 +1,6 @@
 import { useReview } from '../../state/ReviewProvider.js';
 import type { Comment } from '../../api/client.js';
+import { revealInScroller } from '../../utils/scroll.js';
 
 interface Props {
   /** The repo on screen (none: the diff is empty). Every repo's comments are listed; another repo's say which. */
@@ -73,14 +74,14 @@ function jumpTo(comment: Comment) {
     const pane = document.querySelector('.wd-general-pane');
     const details = pane?.querySelector('details');
     if (details && !details.open) details.open = true;
-    pane?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (pane) revealInScroller(pane, { behavior: 'smooth' });
     return;
   }
   // Find the table row corresponding to this comment's anchor.
   const file = document.querySelector<HTMLElement>(`article.wd-file[data-path="${cssEscape(comment.file)}"]`);
   if (!file) return;
   // Scroll into view and flash the first matching row.
-  file.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  revealInScroller(file, { behavior: 'smooth' });
   // Whole-file comments have no line to flash — the file scroll is enough.
   if (comment.side !== 'file') flashLine(file, comment.line, comment.side);
 }
@@ -95,7 +96,7 @@ function flashLine(file: HTMLElement, line: number, side: 'left' | 'right' | 'ge
         setTimeout(() => row.classList.remove('wd-row-flash'), 1200);
         const next = row.nextElementSibling;
         if (next?.classList.contains('wd-comment-row')) {
-          next.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          revealInScroller(next, { behavior: 'smooth', block: 'center' });
         }
       }
       break;
