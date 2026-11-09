@@ -206,7 +206,7 @@ describe('watchBranchOptions (what work web wires into the preflight)', () => {
   });
   it('branchFactsOf: what to keep in the record', () => {
     expect(branchFactsOf({ repos: [repo('main', null, [other('a', { exists: false, merged: true })])] })).toEqual([
-      { repo: 'api', name: 'a', exists: false, merged: true, pushed: true },
+      { repo: 'api', name: 'a', exists: false, merged: true, pushed: true, sha: 'tip' },
     ]);
   });
 });

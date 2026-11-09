@@ -18,12 +18,12 @@ import {
   withSightings,
   type SessionBranches,
 } from '../../../src/core/sessions/session-branches.js';
-import { branchesFromReflog, checkoutBranchHistory, parseReflogLine } from '../../../src/core/git/reflog.js';
-import { gitDirs } from '../../../src/core/git/git-head.js';
+import { branchesFromReflog, checkoutBranchHistory, parseReflogLine, startFromReflog } from '../../../src/core/git/reflog.js';
+import { checkedOutBranch, gitDirs } from '../../../src/core/git/git-head.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { purgeSessionRows, tx } from '../../../src/core/platform/db.js';
 import { branchFacts, branchJobs, branchesWire, sessionBranchesNow } from '../../../src/core/stacks/branch-facts.js';
-import { sessionCommits } from '../../../src/core/diff/session-history.js';
+import { computeSessionRange, historyBranchRefs, sessionCommits, sessionHistory } from '../../../src/core/diff/session-history.js';
 import { shipPreflight, workElsewhere } from '../../../src/core/pr/ship.js';
 import { recordBranchesFor, runTurnHook } from '../../../src/commands/hook.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
@@ -109,11 +109,48 @@ describe('withSightings (pure)', () => {
   });
 });
 
+describe("where a branch's own work begins (its reflog, pure)", () => {
+  const sha = (c: string) => c.repeat(40);
+  const l = (to: string, message: string) => parseReflogLine(`${'0'.repeat(40)} ${sha(to)} T <t@t> 100 +0100\t${message}`)!;
+
+  it("feat/webhook's real reflog: made, fast-forwarded onto dev, a commit, rebased onto newer dev — its work starts there", () => {
+    expect(
+      startFromReflog([
+        l('1', 'branch: Created from HEAD'),
+        l('2', 'merge origin/dev: Fast-forward (no commit created; -m option ignored)'),
+        l('3', 'commit: feat(SD-3999): webhook delivery log'),
+        l('4', `rebase (finish): refs/heads/feat/webhook-improvements onto ${sha('9')}`),
+        l('5', 'commit: fix(SD-3999): blank line before comments'),
+        l('6', "merge origin/dev: Merge made by the 'ort' strategy."), // its base merged in: no new start
+        l('7', 'commit (merge): Merge origin/dev into feat/webhook-improvements'),
+      ]),
+    ).toBe(sha('9'));
+  });
+
+  it('a reset or a pull that fast-forwarded moves it; commits alone never do; nothing known: null', () => {
+    expect(startFromReflog([l('1', 'branch: Created from origin/dev'), l('2', 'commit: a')])).toBe(sha('1'));
+    expect(startFromReflog([l('1', 'branch: Created from origin/dev'), l('2', 'reset: moving to origin/dev')])).toBe(sha('2'));
+    expect(startFromReflog([l('1', 'pull: Fast-forward'), l('2', 'commit: a')])).toBe(sha('1'));
+    expect(startFromReflog([l('1', 'commit: a')])).toBeNull();
+    expect(startFromReflog([])).toBeNull();
+  });
+});
+
 describe('reflog parsing (pure)', () => {
   const line = (sec: number, msg: string) => `a b T <t@t> ${sec} +0100\t${msg}`;
   it('reads time and message; branches in the order HEAD came to them, with the one it left', () => {
     expect(parseReflogLine(line(1793784300, 'commit: x'))).toEqual({ at: 1793784300_000, message: 'commit: x' });
     expect(parseReflogLine('garbage')).toBeNull();
+    // A real line carries the commit it moved to: a branch's first line is the commit it was made at.
+    const old = '0'.repeat(40);
+    const at = 'a'.repeat(40);
+    expect(parseReflogLine(`${old} ${at} T <t@t> 100 +0100\tbranch: Created from origin/dev`)).toEqual({
+      at: 100_000,
+      message: 'branch: Created from origin/dev',
+      sha: at,
+    });
+    // A branch deleted (moved to nothing): no commit.
+    expect(parseReflogLine(`${at} ${old} T <t@t> 100 +0100\tx`)?.sha).toBeUndefined();
     const lines = [
       line(100, 'commit: on feat'),
       line(200, 'checkout: moving from feat/x to fix/a'),
@@ -252,8 +289,47 @@ describe("the user's case: a session that moved on to two new branches after its
       branch: 'fix/SD-3999-probe-recovers-on-2xx',
       subject: 'fix(SD-3999): webhook recovers only on a 2xx probe',
     });
-    // The merged branch's commits are in dev: nothing of its own to list.
-    expect(commits.filter((c) => c.branch === 'feat/webhook-improvements')).toEqual([]);
+    // The merged branch is still the session's work: its commit is listed under it, merged into dev or not
+    // (reported: the Diff tab lost every branch once it merged).
+    expect(commits.filter((c) => c.branch === 'feat/webhook-improvements').map((c) => c.subject)).toEqual([
+      'feat(SD-3999): webhook delivery log',
+    ]);
+  });
+
+  it("each other branch's whole work is a span: from where it was made to its tip, its own files only, merged too", () => {
+    const others = historyBranchRefs(session, backfillSessionBranches(session, T0), checkedOutBranch);
+    // Every recorded branch but the one checked out, in each repo; the frontend has only its checked-out one.
+    expect(others.map((o) => o.name).sort()).toEqual(['feat/webhook-improvements', 'fix/SD-3999-probe-recovers-on-2xx']);
+    // The start commit came from each branch's own reflog ("branch: Created from origin/dev").
+    expect(others.every((o) => /^[0-9a-f]{40}$/.test(o.start ?? ''))).toBe(true);
+    const { spans } = sessionHistory(session, others);
+    for (const name of ['feat/webhook-improvements', 'fix/SD-3999-probe-recovers-on-2xx']) {
+      const span = spans.find((s) => s.branch === name)!;
+      expect(span).toMatchObject({ repo: 'backend', tip: git(backend, 'rev-parse', name) });
+      const diff = computeSessionRange(
+        session,
+        { kind: 'commit', repo: 'backend', sha: span.base },
+        { kind: 'commit', repo: 'backend', sha: span.tip },
+      );
+      if ('error' in diff) throw new Error(diff.error);
+      const files = diff.repos.flatMap((r) => r.files.map((f) => f.path));
+      expect(files).toEqual([name === 'feat/webhook-improvements' ? 'webhook.cs' : 'probe.cs']);
+    }
+  });
+
+  it('a branch deleted after its merge is still listed from the tip recorded while it was there', () => {
+    const tip = git(backend, 'rev-parse', 'feat/webhook-improvements');
+    const start = historyBranchRefs(session, backfillSessionBranches(session, T0), checkedOutBranch).find(
+      (o) => o.name === 'feat/webhook-improvements',
+    )!.start;
+    const gone = { path: backend, name: 'no-longer/a-branch', tip, ...(start ? { start } : {}) };
+    const { commits, spans } = sessionHistory(session, [gone]);
+    expect(commits.filter((c) => c.branch === 'no-longer/a-branch').map((c) => c.subject)).toEqual(['feat(SD-3999): webhook delivery log']);
+    expect(spans.map((s) => s.branch)).toEqual(['no-longer/a-branch']);
+    // A recorded tip the repo no longer has: nothing to list, nothing thrown.
+    const none = sessionHistory(session, [{ path: backend, name: 'no-longer/a-branch', tip: 'f'.repeat(40) }]);
+    expect(none.commits.filter((c) => c.branch)).toEqual([]);
+    expect(none.spans).toEqual([]);
   });
 
   it('Ship and the PR watch see the work on the other branch: never done, never archived', async () => {
@@ -287,6 +363,12 @@ describe("the user's case: a session that moved on to two new branches after its
     noteBranchFacts(id, [{ repo: 'backend', name: 'feat/webhook-improvements', exists: false, merged: true, pushed: true }], T0);
     const b = readSessionBranches(id)!.branches.find((x) => x.repo === 'backend' && x.name === 'feat/webhook-improvements')!;
     expect(b).toMatchObject({ gone: T0.toISOString(), merged: true, pushed: true });
+    // While a branch is there its tip is kept: the Diff tab shows it from that once it is deleted.
+    noteBranchFacts(id, [{ repo: 'backend', name: 'fix/SD-3999-probe-recovers-on-2xx', exists: true, merged: false, sha: sdSha }], T0);
+    const sd = readSessionBranches(id)!.branches.find((x) => x.name === 'fix/SD-3999-probe-recovers-on-2xx')!;
+    expect(sd.tip).toBe(sdSha);
+    // Shape-checked like the rest: a tip that isn't a commit's name is dropped, not the branch.
+    expect(cleanBranches({ branches: [{ ...sd, tip: 'x; rm -rf', start: 42 }] })?.branches[0]).not.toHaveProperty('tip');
     // Gone and merged for long enough: hidden from the header, still in the record.
     const wire = branchesWire(readSessionBranches(id), () => null, new Map(), null, T0.getTime() + GONE_SHOWN_MS);
     expect(wire?.some((w) => w.name === 'feat/webhook-improvements' && w.repo === 'backend')).toBe(false);

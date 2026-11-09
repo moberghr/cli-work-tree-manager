@@ -1,4 +1,4 @@
-import type { CheckpointEntry, DiffPoint, SessionCommit } from '../api/client.js';
+import type { CheckpointEntry, DiffPoint, SessionBranchSpan, SessionCommit } from '../api/client.js';
 import type { DiffLook } from '../../../core/api-types.js';
 
 /**
@@ -37,28 +37,14 @@ export const UNCOMMITTED_KEY = 'u';
  * and a turn at the same moment: the commit first, since the turn's
  * snapshot was taken after it.
  */
-export function historyItems(entries: CheckpointEntry[], commits: SessionCommit[], repo: string | null): HistoryItem[] {
-  const sorted = [...entries].sort((a, b) => a.id - b.id);
-  // A turn is named by its checkpoint id (they count up from Initial's 0), so its
-  // number never shifts. One whose predecessor is gone (the oldest turns are
-  // dropped past MAX_CHECKPOINTS) isn't listed: diffed from Initial it would show
-  // every dropped turn as its own. It stays inside spans and the branch's scope.
-  const turns: HistoryItem[] = sorted.flatMap((e, i): HistoryItem[] => {
-    if (i === 0 || sorted[i - 1].id !== e.id - 1) return [];
-    const switched = branchSwitch(sorted[i - 1], e);
-    return [
-      {
-        key: `t:${e.id}`,
-        kind: 'turn',
-        title: e.label && e.label.trim() && e.label !== 'Initial' ? e.label.trim() : '',
-        tag: `Turn ${e.id}`,
-        at: e.ts,
-        before: { kind: 'checkpoint', id: sorted[i - 1].id },
-        after: { kind: 'checkpoint', id: e.id },
-        ...(switched ? { switched } : {}),
-      },
-    ];
-  });
+export function historyItems(
+  entries: CheckpointEntry[],
+  commits: SessionCommit[],
+  repo: string | null,
+  turnBranch?: TurnBranch,
+): HistoryItem[] {
+  // A turn taken on another branch is listed under that branch (branchGroups), not in this one's timeline.
+  const turns = turnItems(entries, turnBranch).filter((t) => !t.branch);
   const own: HistoryItem[] = commits
     // Another branch's commits are listed under it (branchGroups), not in this branch's timeline.
     .filter((c) => !c.branch && (repo === null || c.repo === repo))
@@ -88,6 +74,60 @@ export function historyItems(entries: CheckpointEntry[], commits: SessionCommit[
 }
 
 /**
+ * Which other branch a turn was taken on, for the repo on screen: its name when that isn't the branch checked out
+ * now, else null (this branch's, or not recorded). The Diff tab's own rule (DiffView), passed to every list built
+ * from the turns so a pick means the same in each.
+ */
+export type TurnBranch = (turn: CheckpointEntry) => string | null;
+
+/**
+ * The branch a turn recorded for a repo (by its folder's name: turns record each repo by its root), or null when
+ * it recorded none. Pure.
+ */
+export function branchAt(branches: CheckpointEntry['branches'], repo: string): string | null {
+  if (!branches) return null;
+  if (repo in branches) return branches[repo] ?? null;
+  const key = Object.keys(branches).find((root) => (root.split(/[\\/]/).filter(Boolean).pop() ?? root) === repo);
+  return key ? (branches[key] ?? null) : null;
+}
+
+/** The rule for the repo on screen: a turn on a branch other than `current` belongs to that branch. */
+export function turnBranchFor(repo: string, current: string | null): TurnBranch {
+  return (e) => {
+    const b = branchAt(e.branches, repo);
+    return b && b !== current ? b : null;
+  };
+}
+
+/**
+ * Every turn, oldest first, named by its checkpoint id (they count up from Initial's 0), so its number never
+ * shifts. One whose predecessor is gone (the oldest turns are dropped past MAX_CHECKPOINTS) isn't listed: diffed
+ * from Initial it would show every dropped turn as its own. It stays inside spans and the branch's scope. A turn
+ * on another branch (`turnBranch`) carries it.
+ */
+function turnItems(entries: CheckpointEntry[], turnBranch?: TurnBranch): HistoryItem[] {
+  const sorted = [...entries].sort((a, b) => a.id - b.id);
+  return sorted.flatMap((e, i): HistoryItem[] => {
+    if (i === 0 || sorted[i - 1].id !== e.id - 1) return [];
+    const switched = branchSwitch(sorted[i - 1], e);
+    const branch = turnBranch?.(e) ?? null;
+    return [
+      {
+        key: `t:${e.id}`,
+        kind: 'turn',
+        title: e.label && e.label.trim() && e.label !== 'Initial' ? e.label.trim() : '',
+        tag: `Turn ${e.id}`,
+        at: e.ts,
+        before: { kind: 'checkpoint', id: sorted[i - 1].id },
+        after: { kind: 'checkpoint', id: e.id },
+        ...(switched ? { switched } : {}),
+        ...(branch ? { branch } : {}),
+      },
+    ];
+  });
+}
+
+/**
  * The branch switch a turn crossed: the first repo whose checked-out branch differs from the turn before's,
  * as "fix/a → fix/b" (a detached HEAD reads "detached"); null when none did, or either turn didn't record its
  * branches (from before). Pure.
@@ -102,7 +142,7 @@ export function branchSwitch(prev: Pick<CheckpointEntry, 'branches'>, next: Pick
   return null;
 }
 
-/** The commits of one of the session's other branches. */
+/** The commits and turns of one of the session's other branches. */
 export interface BranchGroup {
   branch: string;
   /** Newest first, as the picker shows them. */
@@ -111,10 +151,19 @@ export interface BranchGroup {
 
 /**
  * The other branches the session worked on, with their commits (`repo`: the repo on screen, null for every
- * repo's), the branch with the newest commit first. Pure.
+ * repo's) and the turns taken on them (`turnBranch`), the branch with the newest first. Pure.
  */
-export function branchGroups(commits: SessionCommit[], repo: string | null): BranchGroup[] {
+export function branchGroups(
+  commits: SessionCommit[],
+  repo: string | null,
+  entries: CheckpointEntry[] = [],
+  turnBranch?: TurnBranch,
+): BranchGroup[] {
   const byBranch = new Map<string, HistoryItem[]>();
+  for (const t of turnItems(entries, turnBranch)) {
+    if (!t.branch) continue;
+    byBranch.set(t.branch, [...(byBranch.get(t.branch) ?? []), t]);
+  }
   for (const c of commits) {
     if (!c.branch || (repo !== null && c.repo !== repo)) continue;
     const list = byBranch.get(c.branch) ?? [];
@@ -140,15 +189,46 @@ export function branchGroups(commits: SessionCommit[], repo: string | null): Bra
  * The checked-out branch's history (historyItems), then every other branch's commits (branchGroups; oldest
  * first within each, as the rest of the list): one list a pick's keys are found in.
  */
-export function allHistoryItems(entries: CheckpointEntry[], commits: SessionCommit[], repo: string | null): HistoryItem[] {
-  return [...historyItems(entries, commits, repo), ...branchGroups(commits, repo).flatMap((g) => [...g.items].reverse())];
+export function allHistoryItems(
+  entries: CheckpointEntry[],
+  commits: SessionCommit[],
+  repo: string | null,
+  turnBranch?: TurnBranch,
+): HistoryItem[] {
+  return [
+    ...historyItems(entries, commits, repo, turnBranch),
+    ...branchGroups(commits, repo, entries, turnBranch).flatMap((g) => [...g.items].reverse()),
+  ];
 }
 
-/** Everything on another branch the session worked on: its commits as one span, named by it. Null when none is listed. */
-export function branchSelection(items: HistoryItem[], branch: string): DiffSelection | null {
-  const mine = items.filter((x) => x.branch === branch);
+/**
+ * Everything on another branch the session worked on, named by it. With its span (the server's: the last base
+ * it took in, to its tip) it is that whole diff — merged or not, its base's own changes never in it; without one,
+ * its commits as one span. Null when nothing of it is listed.
+ */
+export function branchSelection(items: HistoryItem[], branch: string, spans: SessionBranchSpan[] = []): DiffSelection | null {
+  const commits = items.filter((x) => x.branch === branch && x.kind === 'commit');
+  const mine = commits.length ? commits : items.filter((x) => x.branch === branch);
   if (!mine.length) return null;
-  return { kind: 'range', fromKey: mine[0].key, toKey: mine[mine.length - 1].key, label: branch };
+  const first = mine[0];
+  const last = mine[mine.length - 1];
+  const repo = first.after.kind === 'commit' ? first.after.repo : null;
+  const span = spans.find((s) => s.branch === branch && s.repo === repo && last.after.kind === 'commit' && last.after.sha === s.tip);
+  return {
+    kind: 'range',
+    fromKey: first.key,
+    toKey: last.key,
+    ...(span ? { from: { kind: 'commit' as const, repo: span.repo, sha: span.base } } : {}),
+    label: branch,
+  };
+}
+
+/** The other branch a selection is of (both its ends on it), or null: the checked-out branch's history, a scope. Pure. */
+export function shownBranchOf(items: HistoryItem[], sel: DiffSelection): string | null {
+  if (sel.kind !== 'range') return null;
+  const to = items.find((x) => x.key === sel.toKey);
+  const from = items.find((x) => x.key === sel.fromKey);
+  return to?.branch && to.branch === from?.branch ? to.branch : null;
 }
 
 /**

@@ -8,13 +8,7 @@ import { logSwallowed } from '../core/platform/best-effort.js';
 import { shownState } from '../core/status/turn-activity.js';
 import { BehindCache } from '../core/stacks/behind-main.js';
 import { createSessionBranches } from '../core/stacks/branch-facts.js';
-import {
-  allSessionBranches,
-  BRANCH_WATCH_MS,
-  otherBranchesToWatch,
-  readSessionBranches,
-  repoNameOf,
-} from '../core/sessions/session-branches.js';
+import { allSessionBranches, readSessionBranches } from '../core/sessions/session-branches.js';
 import { checkedOutBranch } from '../core/git/git-head.js';
 import { mountUpdateRoutes } from './routes/update-routes.js';
 import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
@@ -114,7 +108,7 @@ import {
   scopesToSweep,
   suppressScopeWatch,
 } from '../core/diff/scope-manager.js';
-import { computeSessionRange, sessionCommits } from '../core/diff/session-history.js';
+import { computeSessionRange, historyBranchRefs, sessionHistory, type SessionHistory } from '../core/diff/session-history.js';
 import { parsePoint } from '../core/diff/diff-points.js';
 import { clearCheckpoints } from '../core/diff/checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -480,17 +474,6 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // registration doesn't — and hide scopes from the SPA.
   let scopeApi: ReturnType<typeof mountScopeRoutes> | null = null;
   // A session's other recent branches, for its commit list (session-history.ts).
-  const otherBranchRefs = (session: WorktreeSession) => {
-    const rec = readSessionBranches(sessionIdFor(session));
-    const now = Date.now();
-    return session.paths.flatMap((p) => {
-      const repo = repoNameOf(session, p);
-      return otherBranchesToWatch(rec, repo, checkedOutBranch(p), now, BRANCH_WATCH_MS).map((name) => {
-        const from = rec?.branches.find((b) => b.repo === repo && b.name === name)?.from;
-        return { path: p, name, ...(from ? { from } : {}) };
-      });
-    });
-  };
   const sessionScope = (session: WorktreeSession) =>
     bestEffort(
       `checkpoint scope for ${session.target}:${session.branch}`,
@@ -507,9 +490,20 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const hash = scopeHashForPaths(session.paths);
     // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read) —
-    // and those of the other branches it worked on (session-branches.ts), under each.
-    const commits = bestEffort('list the session commits', () => sessionCommits(session, otherBranchRefs(session)), []);
-    return c.json({ scopeHash: hash, entries: loadManifest(hash).entries, commits } satisfies SessionHistoryWire);
+    // and every other branch it worked on (session-branches.ts), merged ones too, under each, with its whole span.
+    const none: SessionHistory = { commits: [], spans: [] };
+    const { commits, spans } =
+      bestEffort(
+        'list the session commits',
+        () => sessionHistory(session, historyBranchRefs(session, readSessionBranches(sessionIdFor(session)), checkedOutBranch)),
+        none,
+      ) ?? none;
+    return c.json({
+      scopeHash: hash,
+      entries: loadManifest(hash).entries,
+      commits,
+      branchSpans: spans,
+    } satisfies SessionHistoryWire);
   });
 
   app.get('/api/sessions/:id/diff', async (c) => {

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { json, tx, withDb } from '../platform/db.js';
 import { checkedOutBranch, gitDirs } from '../git/git-head.js';
-import { branchCreatedFrom, checkoutBranchHistory } from '../git/reflog.js';
+import { branchCreatedFrom, branchStart, checkoutBranchHistory } from '../git/reflog.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionIdFor } from './session-id.js';
 
@@ -36,6 +36,10 @@ export interface RecordedBranch {
   merged?: true;
   /** It was seen on origin once: its PR is asked about even after origin's copy was deleted (a merge's tidy-up). */
   pushed?: true;
+  /** The commit it was made at (its reflog's first line): its own work is what it has beyond it, merged or not. */
+  start?: string;
+  /** Its tip when last looked at (the branch facts): what the Diff tab shows of it once it is deleted. */
+  tip?: string;
 }
 
 export interface SessionBranches {
@@ -48,6 +52,7 @@ export interface SessionBranches {
 export const MAX_BRANCHES_PER_REPO = 30;
 
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
+const isSha = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40,64}$/.test(v);
 
 /** A stored record, shape-checked; entries that don't hold up are dropped, not the record. */
 export function cleanBranches(raw: unknown): SessionBranches | null {
@@ -67,6 +72,8 @@ export function cleanBranches(raw: unknown): SessionBranches | null {
       ...(isIso(x.gone) ? { gone: x.gone } : {}),
       ...(x.merged === true ? { merged: true as const } : {}),
       ...(x.pushed === true ? { pushed: true as const } : {}),
+      ...(isSha(x.start) ? { start: x.start } : {}),
+      ...(isSha(x.tip) ? { tip: x.tip } : {}),
     });
   }
   return { branches, ...(isIso(o.backfilled) ? { backfilled: o.backfilled } : {}) };
@@ -100,6 +107,8 @@ export interface BranchSighting {
   firstSeen?: string;
   lastSeen?: string;
   from?: string;
+  /** The commit it was made at, when its reflog says. */
+  start?: string;
 }
 
 /** lastSeen is written again only when it moved this much: a turn's end needn't write the row every time. */
@@ -126,7 +135,14 @@ export function withSightings(
     const last = s.lastSeen ?? nowIso;
     const b = branches.find((x) => x.repo === s.repo && x.name === s.name);
     if (!b) {
-      branches.push({ repo: s.repo, name: s.name, firstSeen: first, lastSeen: last, ...(s.from ? { from: s.from } : {}) });
+      branches.push({
+        repo: s.repo,
+        name: s.name,
+        firstSeen: first,
+        lastSeen: last,
+        ...(s.from ? { from: s.from } : {}),
+        ...(s.start ? { start: s.start } : {}),
+      });
       changed = true;
       continue;
     }
@@ -140,6 +156,11 @@ export function withSightings(
     }
     if (s.from && !b.from) {
       b.from = s.from;
+      changed = true;
+    }
+    // Where its own work begins moves when it is rebased or fast-forwarded: the newest reading wins.
+    if (s.start && b.start !== s.start) {
+      b.start = s.start;
       changed = true;
     }
     if (b.gone && s.lastSeen === undefined) {
@@ -188,7 +209,7 @@ export function noteBranches(
  */
 export function noteBranchFacts(
   sessionId: string,
-  facts: Array<{ repo: string; name: string; exists: boolean; merged: boolean; pushed?: boolean }>,
+  facts: Array<{ repo: string; name: string; exists: boolean; merged: boolean; pushed?: boolean; sha?: string | null }>,
   now = new Date(),
 ): void {
   tx((d) => {
@@ -212,6 +233,10 @@ export function noteBranchFacts(
       }
       if (f.pushed && !b.pushed) {
         b.pushed = true;
+        changed = true;
+      }
+      if (f.exists && f.sha && isSha(f.sha) && b.tip !== f.sha) {
+        b.tip = f.sha;
         changed = true;
       }
     }
@@ -241,13 +266,13 @@ export function recordCheckedOutBranches(
     const name = checkedOutBranch(p);
     if (!name) continue;
     const repo = repoNameOf(s, p);
-    const isNew = !known?.branches.some((b) => b.repo === repo && b.name === name);
-    let from: string | undefined;
-    if (isNew) {
-      const dirs = gitDirs(p);
-      from = (dirs && branchCreatedFrom(dirs.commonDir, name)) || undefined;
-    }
-    seen.push({ repo, name, ...(from && from !== name ? { from } : {}) });
+    const had = known?.branches.find((b) => b.repo === repo && b.name === name);
+    const dirs = gitDirs(p);
+    // A new branch: where it came from. Every turn: where its own work begins (a rebase or fast-forward moves it),
+    // kept so the Diff tab still has it once the branch — and its reflog — are deleted.
+    const from = (!had && dirs && branchCreatedFrom(dirs.commonDir, name)) || undefined;
+    const start = (dirs && branchStart(dirs.commonDir, name)) || undefined;
+    seen.push({ repo, name, ...(from && from !== name ? { from } : {}), ...(start ? { start } : {}) });
   }
   if (!seen.length) return null;
   // Nothing moved (the usual turn end): no write transaction at all.
@@ -281,6 +306,7 @@ export function backfillSessionBranches(
         firstSeen: new Date(b.firstSeen || Date.parse(s.createdAt) || now.getTime()).toISOString(),
         lastSeen: new Date(b.lastSeen || b.firstSeen || now.getTime()).toISOString(),
         ...(b.from ? { from: b.from } : {}),
+        ...(b.start ? { start: b.start } : {}),
       });
     }
   }

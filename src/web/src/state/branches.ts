@@ -12,13 +12,13 @@ export function branchNote(b: SessionBranchWire | null, withPr = true): string |
   const bits: string[] = [];
   if (b.exists === false) bits.push('deleted');
   else {
-    if (typeof b.commits === 'number') bits.push(`${b.commits} commit${b.commits === 1 ? '' : 's'}`);
+    // Merged: none of its commits are its own any more, which says nothing of the work it held.
+    if (typeof b.commits === 'number' && !(b.merged && b.commits === 0)) bits.push(`${b.commits} commit${b.commits === 1 ? '' : 's'}`);
     if (b.pushed === false) bits.push('not pushed');
     else if (b.unpushed) bits.push(`${b.unpushed} not pushed`);
   }
-  if (b.pr) {
-    if (withPr) bits.push(`PR #${b.pr.number} ${b.pr.state === 'OPEN' ? 'open' : b.pr.state.toLowerCase()}`);
-  } else if (b.merged) bits.push('merged');
+  if (b.pr && withPr) bits.push(`PR #${b.pr.number} ${b.pr.state === 'OPEN' ? 'open' : b.pr.state.toLowerCase()}`);
+  else if (b.merged) bits.push('merged');
   return bits.length ? bits.join(' · ') : null;
 }
 

@@ -4,8 +4,10 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoryPicker } from '../../src/web/src/components/Diff/HistoryPicker.js';
 import { BranchesLine } from '../../src/web/src/components/Dashboard/SessionBits.js';
+import { BranchSwitch } from '../../src/web/src/components/Diff/BranchSwitch.js';
 import {
   allHistoryItems,
+  branchAt,
   branchGroups,
   branchSelection,
   branchSwitch,
@@ -14,7 +16,9 @@ import {
   pick,
   selectionLabel,
   selectionRange,
+  shownBranchOf,
   sinceLooked,
+  turnBranchFor,
   SINCE_BRANCH,
   UNCOMMITTED,
   type DiffSelection,
@@ -89,8 +93,113 @@ describe('the Diff picker: commits grouped by branch', () => {
   });
 });
 
+describe('the Diff tab: everything the session worked on, by branch', () => {
+  // Turns 1–2 were on feat/webhook (merged since), 3 is the switch to fix/tests, checked out now. A turn records each
+  // repo by its root: the picker matches it by the folder's name.
+  const root = 'C:\\wt\\backend';
+  const turns = [
+    entry(0, 0, { [root]: 'feat/webhook-improvements' }),
+    entry(1, 5, { [root]: 'feat/webhook-improvements' }),
+    entry(2, 8, { [root]: 'feat/webhook-improvements' }),
+    entry(3, 30, { [root]: 'fix/tests-deterministic-culture' }),
+  ];
+  const webhook = commit('c0ffee1', 6, 'feat/webhook-improvements');
+  const all = [commit('a31a7f2', 25), webhook];
+  const turnBranch = turnBranchFor('backend', 'fix/tests-deterministic-culture');
+  const spans = [{ repo: 'backend', branch: 'feat/webhook-improvements', base: 'b'.repeat(40), tip: webhook.sha }];
+
+  it("a turn on another branch is listed under it, with that branch's commits; this branch's timeline keeps its own", () => {
+    expect(branchAt({ [root]: 'x' }, 'backend')).toBe('x');
+    expect(branchAt({ backend: 'y' }, 'backend')).toBe('y');
+    expect(branchAt(undefined, 'backend')).toBeNull();
+    const own = historyItems(turns, all, null, turnBranch);
+    expect(own.map((i) => i.tag)).toEqual(['a31a7f2', 'Turn 3', 'Uncommitted']);
+    const groups = branchGroups(all, null, turns, turnBranch);
+    expect(groups.map((g) => [g.branch, g.items.map((i) => i.tag)])).toEqual([
+      ['feat/webhook-improvements', ['Turn 2', 'c0ffee1', 'Turn 1']],
+    ]);
+    // Without the rule (an older caller): every turn is this branch's, as before.
+    expect(historyItems(turns, all, null).filter((i) => i.kind === 'turn')).toHaveLength(3);
+  });
+
+  it("a branch's whole change is its span (base → tip), merged or not; without one, its commits; the switch names it", () => {
+    const items = allHistoryItems(turns, all, null, turnBranch);
+    const sel = branchSelection(items, 'feat/webhook-improvements', spans)!;
+    expect(selectionRange(items, sel)).toEqual({
+      from: { kind: 'commit', repo: 'backend', sha: 'b'.repeat(40) },
+      to: items.find((i) => i.key === `c:${webhook.sha}`)!.after,
+    });
+    expect(selectionLabel(items, sel)).toBe('feat/webhook-improvements');
+    expect(shownBranchOf(items, sel)).toBe('feat/webhook-improvements');
+    expect(shownBranchOf(items, SINCE_BRANCH)).toBeNull();
+    expect(shownBranchOf(items, pick('t:3'))).toBeNull();
+    // No span known (an older server): the commits as one span, from the first one's parent.
+    expect(selectionRange(items, branchSelection(items, 'feat/webhook-improvements')!)?.from).toEqual({
+      kind: 'parent',
+      repo: 'backend',
+      sha: webhook.sha,
+    });
+  });
+
+  it('the toolbar Branch switch: the checked-out one, then each other with what is known of it; a pick shows it', () => {
+    const onPick = vi.fn<(b: string | null) => void>();
+    act(() =>
+      root_.render(
+        createElement(BranchSwitch, {
+          current: 'fix/tests-deterministic-culture',
+          groups: branchGroups(all, null, turns, turnBranch),
+          shownBranch: null,
+          branches: [branch({ repo: 'backend', name: 'feat/webhook-improvements', commits: 0, pushed: true, unpushed: 0, merged: true })],
+          repo: 'backend',
+          onPick,
+        }),
+      ),
+    );
+    const select = container.querySelector('select')!;
+    expect([...select.options].map((o) => o.textContent)).toEqual([
+      'fix/tests-deterministic-culture (checked out)',
+      // Merged: "0 commits" would say its work is gone; it says merged.
+      'feat/webhook-improvements · merged',
+    ]);
+    act(() => {
+      select.value = 'feat/webhook-improvements';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onPick).toHaveBeenCalledWith('feat/webhook-improvements');
+    act(() => {
+      select.value = '';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onPick).toHaveBeenLastCalledWith(null);
+  });
+
+  it("the picker's branch heading has All of it: the branch's span", () => {
+    const items = allHistoryItems(turns, all, null, turnBranch);
+    const onSelect = vi.fn<(sel: DiffSelection) => void>();
+    act(() =>
+      root_.render(
+        createElement(HistoryPicker, {
+          items,
+          selection: UNCOMMITTED,
+          onSelect,
+          lastTurn: null,
+          sinceLooked: null,
+          groups: branchGroups(all, null, turns, turnBranch),
+          current: 'fix/tests-deterministic-culture',
+          spans,
+        }),
+      ),
+    );
+    act(() => container.querySelector<HTMLButtonElement>('.wd-history-btn')!.click());
+    act(() => container.querySelector<HTMLButtonElement>('.wd-history-branch-all')!.click());
+    expect(onSelect).toHaveBeenCalledWith(branchSelection(items, 'feat/webhook-improvements', spans));
+  });
+});
+
 let container: HTMLDivElement;
 let root: Root;
+// The tests above name their repo's root `root`; this is the React root.
+const root_ = { render: (el: Parameters<Root['render']>[0]) => root.render(el) };
 beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -191,8 +300,9 @@ describe('the header: Branches', () => {
   });
 
   it('branchNote / branchUnpushed', () => {
-    expect(branchNote(wires[2])).toBe('0 commits · PR #3592 merged');
-    expect(branchNote(wires[2], false)).toBe('0 commits');
+    // Merged: its own commits are 0, which isn't news; the PR says it.
+    expect(branchNote(wires[2])).toBe('PR #3592 merged');
+    expect(branchNote(wires[2], false)).toBe('merged');
     expect(branchNote(branch({ exists: false }))).toBe('deleted');
     expect(branchNote(null)).toBeNull();
     expect(branchUnpushed(wires[2])).toBe(false);

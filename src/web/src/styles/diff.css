@@ -485,6 +485,35 @@
   letter-spacing: 0;
   font-weight: 400;
 }
+/* "All of it": the branch's whole change, on its heading's right. */
+.wd-history-branch-all {
+  float: right;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 11px;
+}
+/* The Diff toolbar's branch switch: the branches the session worked on in the repo on screen. */
+.wd-diff-branch-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.wd-diff-branch-switch-tag {
+  color: var(--muted);
+}
+.wd-diff-branch-switch select {
+  max-width: 22em;
+  min-width: 0;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
 /* A turn that crossed a branch switch: its diff is the switch, not Claude's change. */
 .wd-history-switch {
   color: var(--warn-fg);

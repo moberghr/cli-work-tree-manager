@@ -85,6 +85,7 @@ const SPA_SHARED = new Set([
   'src/core/pr/pr-ref.js',
   'src/core/usage/usage.js', // pure: plan-limit windows, the meter's pick, token wording
   'src/core/time/time-month.js', // pure: the Time tab's months (range, next / previous)
+  'src/core/settings/settings-schema.js', // pure, import-free: the Settings page's fields, defaults and checks
 ]);
 
 describe('architecture boundaries', () => {

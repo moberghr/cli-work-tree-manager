@@ -192,9 +192,16 @@ export async function withListedPrs(
 /** What a preflight found of the other branches, to keep in the record (deleted, merged, pushed once). */
 export function branchFactsOf(
   pre: ShipPreflight,
-): Array<{ repo: string; name: string; exists: boolean; merged: boolean; pushed: boolean }> {
+): Array<{ repo: string; name: string; exists: boolean; merged: boolean; pushed: boolean; sha?: string | null }> {
   return pre.repos.flatMap((r) =>
-    (r.otherBranches ?? []).map((b) => ({ repo: r.name, name: b.name, exists: b.exists, merged: b.merged, pushed: b.pushed })),
+    (r.otherBranches ?? []).map((b) => ({
+      repo: r.name,
+      name: b.name,
+      exists: b.exists,
+      merged: b.merged,
+      pushed: b.pushed,
+      ...(b.sha ? { sha: b.sha } : {}),
+    })),
   );
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  branchSelection,
   inSelection,
   pick,
   selectionKey,
@@ -12,7 +13,7 @@ import {
   type LookEntry,
 } from '../../state/diff-history.js';
 import { relativeTime } from '../../utils/time.js';
-import type { SessionBranchWire } from '../../api/client.js';
+import type { SessionBranchSpan, SessionBranchWire } from '../../api/client.js';
 import { branchNote } from '../../state/branches.js';
 
 interface Props {
@@ -33,6 +34,8 @@ interface Props {
   branches?: SessionBranchWire[];
   /** The branch checked out (the repo on screen's): names this branch's section when others are listed. */
   current?: string | null;
+  /** Each other branch's whole work (the server's spans): its heading's "All of it". */
+  spans?: SessionBranchSpan[];
 }
 
 /**
@@ -55,6 +58,7 @@ export function HistoryPicker({
   groups = [],
   branches = [],
   current,
+  spans = [],
 }: Props) {
   const [open, setOpen] = useState(false);
   const [allLooks, setAllLooks] = useState(false);
@@ -210,11 +214,25 @@ export function HistoryPicker({
           {rows.length === 1 && <p className="wd-history-empty">No commits on this branch and no finished turns yet.</p>}
           {groups.map((g) => {
             const note = branchNote(branches.find((b) => b.name === g.branch && (!commitsOf || b.repo === commitsOf)) ?? null);
+            const whole = branchSelection(items, g.branch, spans);
             return (
               <div key={g.branch} className="wd-history-branch" role="group" aria-label={`Branch ${g.branch}`}>
                 <div className="wd-history-section">
                   {g.branch}
                   {note && <span className="wd-history-branch-note"> · {note}</span>}
+                  {whole && (
+                    <button
+                      type="button"
+                      className="wd-link-button wd-history-branch-all"
+                      title={`Everything ${g.branch} changed, as one diff`}
+                      onClick={() => {
+                        setAnchor(null);
+                        choose(whole);
+                      }}
+                    >
+                      All of it
+                    </button>
+                  )}
                 </div>
                 {g.items.map(row)}
               </div>

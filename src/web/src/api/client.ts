@@ -1,8 +1,8 @@
 import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
-import type { LastReplyWire, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
+import type { LastReplyWire, SessionBranchSpan, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
 import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
 export type { DiffPoint } from '../../../core/diff/diff-points.js';
-export type { SessionBranchWire, SessionCommit } from '../../../core/api-types.js';
+export type { SessionBranchSpan, SessionBranchWire, SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import { archiveQuestion } from '../state/archive-view.js';
@@ -725,11 +725,12 @@ export function fetchSessionDiff(
  *  its turn ends; the first is the baseline) and its commits since the branch's base. */
 export function fetchSessionHistory(
   sessionId: string,
-): Promise<{ scopeHash: string; entries: CheckpointEntry[]; commits: SessionCommit[] }> {
+): Promise<{ scopeHash: string; entries: CheckpointEntry[]; commits: SessionCommit[]; spans: SessionBranchSpan[] }> {
   return getJson<SessionHistoryWire>(`/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`).then((r) => ({
     scopeHash: r.scopeHash,
     entries: r.entries,
     commits: r.commits ?? [],
+    spans: r.branchSpans ?? [],
   }));
 }
 

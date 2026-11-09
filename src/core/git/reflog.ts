@@ -17,6 +17,8 @@ export interface ReflogLine {
   at: number;
   /** What git wrote after the tab: `checkout: moving from a to b`, `commit: …`. */
   message: string;
+  /** The commit it moved to (the line's second object name), when the line has one. */
+  sha?: string;
 }
 
 /** `<old> <new> Name <email> 1793784300 +0100\t<message>` → its time and message; null for a line that isn't one. */
@@ -25,7 +27,8 @@ export function parseReflogLine(line: string): ReflogLine | null {
   if (tab < 0) return null;
   const m = /\s(\d+)\s+[+-]\d{4}\s*$/.exec(line.slice(0, tab));
   if (!m) return null;
-  return { at: Number(m[1]) * 1000, message: line.slice(tab + 1).trim() };
+  const sha = /^[0-9a-f]{40,64} ([0-9a-f]{40,64}) /.exec(line)?.[1];
+  return { at: Number(m[1]) * 1000, message: line.slice(tab + 1).trim(), ...(sha && !/^0+$/.test(sha) ? { sha } : {}) };
 }
 
 /** A checkout target that names a branch: not a commit (detached), not a remote-tracking ref, not HEAD. */
@@ -122,16 +125,49 @@ export function branchCreatedFrom(commonDir: string, name: string, movedFrom?: s
 }
 
 /**
+ * Where a branch's own work begins, from its own reflog: the newest point it was put onto from outside — made
+ * (`branch: Created from …`), fast-forwarded (`merge origin/dev: Fast-forward`, `pull: Fast-forward`), reset,
+ * or rebased (`rebase (finish): … onto <sha>`: what it was replayed on). Its own work is what it has beyond that,
+ * along its first parents, even once it is merged into what it was made from; a merge of its base into it isn't
+ * a new start (first parents step over it). Null when the reflog says none (cut short, or never made here). Pure.
+ *
+ * Reported: a branch made from dev, fast-forwarded and rebased onto newer dev before its first commit listed dev's
+ * own merges as its work, read from where it was made.
+ */
+export function startFromReflog(lines: ReflogLine[]): string | null {
+  let start: string | null = null;
+  for (const l of lines) {
+    const onto = /\bonto ([0-9a-f]{40,64})\s*$/.exec(l.message);
+    if (onto && /^(?:rebase|pull --rebase)\b.*\((?:finish)\)|^rebase finished/.test(l.message)) start = onto[1];
+    else if (
+      l.sha &&
+      (createdFromLine(l.message) !== null ||
+        /: Fast-forward\b/.test(l.message) ||
+        /^reset: moving to /.test(l.message) ||
+        /^branch: Reset to /.test(l.message))
+    )
+      start = l.sha;
+  }
+  return start;
+}
+
+/** startFromReflog over a branch's reflog file. Reads one small file. */
+export function branchStart(commonDir: string, name: string): string | null {
+  return startFromReflog(readReflog(path.join(commonDir, 'logs', 'refs', 'heads', ...name.split('/'))));
+}
+
+/**
  * The branches a checkout has been on (its HEAD reflog), each with where it
- * was made from when its own reflog says. File reads only. `start`: the
+ * was made from when its own reflog says, and the commit it was made at. File reads only. `start`: the
  * session's branch. [] when it isn't a checkout.
  */
-export function checkoutBranchHistory(checkout: string, start?: string | null): Array<ReflogBranch & { from?: string }> {
+export function checkoutBranchHistory(checkout: string, start?: string | null): Array<ReflogBranch & { from?: string; start?: string }> {
   const dirs = gitDirs(checkout);
   if (!dirs) return [];
   const lines = readReflog(path.join(dirs.gitDir, 'logs', 'HEAD'));
   return branchesFromReflog(lines, { start: start ?? null, current: checkedOutBranch(checkout) }).map((b) => {
     const from = branchCreatedFrom(dirs.commonDir, b.name, b.movedFrom);
-    return from && from !== b.name ? { ...b, from } : b;
+    const at = branchStart(dirs.commonDir, b.name);
+    return { ...b, ...(from && from !== b.name ? { from } : {}), ...(at ? { start: at } : {}) };
   });
 }

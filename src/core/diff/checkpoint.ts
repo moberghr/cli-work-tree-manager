@@ -476,6 +476,15 @@ export async function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRe
 }
 
 /**
+ * Whether the repo has another branch checked out than when the turn was taken (the turn recorded its branches;
+ * one from before didn't: not known, false). HEAD files only.
+ */
+export function switchedBranch(turn: Pick<CheckpointEntry, 'branches'>, repo: ScopeRepo): boolean {
+  if (!turn.branches || !(repo.name in turn.branches)) return false;
+  return turn.branches[repo.name] !== checkedOutBranch(repo.root);
+}
+
+/**
  * A session's scope keeps its turns across its own commits, but not across
  * a HEAD move that brought in work the session didn't do: the next turn,
  * diffed against the one before, would show all of it as Claude's. Since the
@@ -501,6 +510,10 @@ export async function headBroughtInOtherWork(scopeHash: string, repos: ScopeRepo
   const broughtIn = async (repo: ScopeRepo): Promise<boolean> => {
     const snap = newest.repos[repo.name];
     if (!snap) return false;
+    // Another branch checked out since (Claude moved on to a new branch, or back to an old one): the session's
+    // own history goes on — the next turn is marked as the switch (`branchSwitch`), never taken for Claude's work.
+    // Starting over here wiped every turn of a session that worked on more than one branch.
+    if (switchedBranch(newest, repo)) return false;
     const was = await run(repo.root, ['rev-parse', '--verify', '--quiet', `${snap}^`]);
     const now = await run(repo.root, ['rev-parse', '--verify', '--quiet', 'HEAD']);
     if (!was.ok || !now.ok || !was.out || was.out === now.out) return false;

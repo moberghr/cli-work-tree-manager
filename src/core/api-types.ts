@@ -315,6 +315,17 @@ export interface SessionHistoryWire {
     branches?: Record<string, string | null>;
   }>;
   commits?: SessionCommit[];
+  /** (additive) Each other branch's whole work: its base and its tip, to diff between (`c:<repo>:<base>` to `c:<repo>:<tip>`). */
+  branchSpans?: SessionBranchSpan[];
+}
+
+/** Another branch the session worked on, as one span: from the last base it took in (or where it was made) to its tip. */
+export interface SessionBranchSpan {
+  /** The repo's tab name (its folder). */
+  repo: string;
+  branch: string;
+  base: string;
+  tip: string;
 }
 
 /**
