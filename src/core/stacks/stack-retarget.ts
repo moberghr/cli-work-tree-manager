@@ -5,6 +5,7 @@ import { readArchive } from '../archive/session-archive.js';
 import { defaultRunner, type CommandRunner } from '../pr/ship.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import type { StackedSession } from './stack-sessions.js';
+import { sessionAliases } from '../sessions/session-repos.js';
 
 /**
  * A stacked session (stack.ts) whose parent merged — its session archived —
@@ -20,7 +21,7 @@ import type { StackedSession } from './stack-sessions.js';
 /** The parent's tip in this repo: its branch if it is still there, else what its archive recorded. */
 export async function parentTipFor(
   repo: string,
-  parent: Pick<StackedSession, 'id' | 'branch' | 'target' | 'isGroup'>,
+  parent: Pick<StackedSession, 'id' | 'branch' | 'target' | 'isGroup'> & Partial<Pick<StackedSession, 'paths' | 'repos'>>,
   config: WorkConfig | null,
   run: CommandRunner = defaultRunner,
 ): Promise<string | null> {
@@ -29,8 +30,8 @@ export async function parentTipFor(
   const tips = readArchive(parent.id)?.tips ?? {};
   if (!parent.isGroup) return tips[parent.target] ?? Object.values(tips)[0] ?? null;
   // A group's repos: the alias whose checkout folder this is.
-  // (Only the group's own: another project's repo may have the same folder name.)
-  const own = config?.groups[parent.target] ?? [];
+  // (Only the session's own — recorded, else the group's config: another project's repo may have the same folder name.)
+  const own = sessionAliases({ ...parent, paths: parent.paths ?? [] }, config);
   const alias = own.find((a) => a in tips && !!config?.repos[a] && path.basename(config.repos[a]) === path.basename(repo));
   return alias ? tips[alias] : null;
 }

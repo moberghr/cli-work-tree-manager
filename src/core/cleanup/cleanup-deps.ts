@@ -13,6 +13,7 @@ import { fetchRemoteAsync } from '../git/git.js';
 import { defaultRunner, type CommandRunner } from '../pr/ship.js';
 import { normPath, type CleanupDeps, type CleanupSession } from './cleanup.js';
 import type { CleanupAction } from '../api-types.js';
+import { sessionAliases } from '../sessions/session-repos.js';
 
 /**
  * The real inputs for cleanup (cleanup.ts): work's history, the worktrees
@@ -143,7 +144,7 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
           paths: s.paths,
           archivedAt: s.archivedAt ?? null,
           lastActiveMs: lastActiveMs(s.lastAccessedAt, id, readSessionActivity(s).lastActivity),
-          aliases: s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target],
+          aliases: sessionAliases(s, cfg),
         };
       });
       const trackedPaths = new Set(tracked.flatMap((s) => s.paths.map(normPath)));
@@ -161,7 +162,7 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
         // Keeps the conversation; the worktree stays when it has work in it.
         const session = loadHistory().find((h) => sessionIdFor(h) === s.id);
         if (!session) throw new Error('Not archived: work does not track it.');
-        const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release, run }));
+        const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release, run }), { by: 'cleanup' });
         if (!out.ok) throw new Error(out.message);
         return;
       }

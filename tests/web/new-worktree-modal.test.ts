@@ -46,9 +46,27 @@ const flush = () =>
   });
 const picker = () => container.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const options = () => [...container.querySelectorAll('[role="option"]')].map((o) => o.firstElementChild!.textContent);
-const type = (el: HTMLInputElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+const type = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
+};
+/** Text typed where the caret is: over the selection, if there is one. */
+const typeAtCaret = (el: HTMLInputElement, text: string) => {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  type(el, el.value.slice(0, start) + text + el.value.slice(end));
+};
+/** A mouse press on `el`; returns the event, to see whether the browser's own handling was prevented. */
+const press = async (el: Element, init: MouseEventInit = {}) => {
+  const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, ...init });
+  await act(async () => void el.dispatchEvent(ev));
+  return ev;
+};
+const pointerDown = (pointerType: string) => {
+  const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'pointerType', { value: pointerType });
+  return ev;
 };
 const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 const submit = () =>
@@ -75,6 +93,68 @@ describe('the project field', () => {
     expect(matchProjects(all, '  ').length).toBe(3);
   });
 
+  it('opens with a project picked and the cursor in "What should Claude do?" — no list dropped open to click away', async () => {
+    await open();
+    expect(picker().value).toBe('jobly'); // the first, by default
+    expect(container.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.activeElement?.tagName).toBe('TEXTAREA');
+    // Focusing the field with a project in it doesn't open the list either; a click does.
+    await act(async () => picker().focus());
+    expect(container.querySelector('[role="listbox"]')).toBeNull();
+    await act(async () => void picker().dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    expect(options().length).toBeGreaterThan(0);
+  });
+
+  it('a click that opens the list selects the name, so typing replaces it; a click in the open list keeps the caret', async () => {
+    await open();
+    await act(async () => picker().focus());
+    picker().setSelectionRange(5, 5); // a caret left at the end
+    const opening = await press(picker());
+    expect(opening.defaultPrevented).toBe(true); // the browser doesn't put its caret over the selection
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([0, 'jobly'.length]);
+    // Typed where the caret is, as a key would: over the selection, or after the name had the click not selected it.
+    await act(async () => typeAtCaret(picker(), 'work'));
+    expect(picker().value).toBe('work');
+    expect(options()).toEqual(['work-tree']);
+    const inside = await press(picker());
+    expect(inside.defaultPrevented).toBe(false);
+  });
+
+  it('a double-click on the name keeps it all selected; once you typed, a double-click is the browser’s', async () => {
+    await open();
+    await act(async () => picker().focus());
+    await press(picker(), { detail: 1 });
+    picker().setSelectionRange(2, 2); // as if the browser had moved the caret meanwhile
+    const second = await press(picker(), { detail: 2 });
+    expect(second.defaultPrevented).toBe(true); // no word selected out of "jobly (group)"
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([0, 'jobly'.length]);
+    await act(async () => typeAtCaret(picker(), 'wo'));
+    expect((await press(picker(), { detail: 2 })).defaultPrevented).toBe(false);
+  });
+
+  it('a right- or middle-click is left to the browser and opens nothing', async () => {
+    await open();
+    await act(async () => picker().focus());
+    picker().setSelectionRange(5, 5);
+    for (const button of [1, 2]) {
+      expect((await press(picker(), { button })).defaultPrevented).toBe(false);
+      expect(container.querySelector('[role="listbox"]')).toBeNull();
+    }
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([5, 5]);
+  });
+
+  it('a tap is left to the browser (its focus brings the keyboard), and opens the list', async () => {
+    await open();
+    await act(async () => void picker().dispatchEvent(pointerDown('touch')));
+    const tap = await press(picker());
+    expect(tap.defaultPrevented).toBe(false);
+    expect(options().length).toBeGreaterThan(0);
+    // The next mouse press is a mouse's again.
+    await act(async () => key(picker(), 'Escape'));
+    await act(async () => void picker().dispatchEvent(pointerDown('mouse')));
+    expect((await press(picker())).defaultPrevented).toBe(true);
+  });
+
   it('type to narrow, ↓ and Enter to pick (not submitting), Escape closes the list but not the dialog', async () => {
     const { onClose } = await open();
     await act(async () => picker().focus());
@@ -92,6 +172,21 @@ describe('the project field', () => {
     await act(async () => void key(picker(), 'Escape'));
     expect(picker().value).toBe('acme-backend'); // back to what was picked
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+/** The branch field: always there, empty until you type (the suggestion is its placeholder). */
+const branchInput = () => container.querySelector<HTMLInputElement>('input[name="branch"]')!;
+
+describe('typing a branch (#60)', () => {
+  it('a space becomes a dash as you type or paste, and that is what is created', async () => {
+    await open({ initial: { target: 'jobly' } });
+    const input = branchInput();
+    act(() => type(input, 'fix login  bug'));
+    expect(input.value).toBe('fix-login-bug');
+    await flush();
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ target: 'jobly', branch: 'fix-login-bug' }));
   });
 });
 
@@ -140,12 +235,13 @@ describe('what Claude should do, and the branch it suggests', () => {
       typeof label === 'string' ? b.textContent === label : label.test(b.textContent ?? ''),
     )!;
 
-  it('two fields: the branch follows the prompt, and the button says it starts Claude', async () => {
+  it("the suggestion is only the empty field's placeholder: nothing to delete, and an empty field uses it", async () => {
     await open({ initial: { target: 'jobly' } });
-    expect(container.querySelectorAll('.wd-modal-row')).toHaveLength(2); // Project, What should Claude do?
+    expect(container.querySelectorAll('.wd-modal-row')).toHaveLength(3); // Project, What should Claude do?, Branch
     expect(container.textContent).toContain('Leave it empty to just make the worktree.');
     await act(async () => typeArea('Add CSV export to the invoices endpoint'));
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('feat/csv-export-invoices');
+    expect(branchInput().value).toBe('');
+    expect(branchInput().placeholder).toBe('feat/csv-export-invoices (suggested; type to name your own)');
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.textContent).toBe('Create and start');
     await submit();
     expect(api.createWorktree).toHaveBeenCalledWith(
@@ -153,20 +249,42 @@ describe('what Claude should do, and the branch it suggests', () => {
     );
   });
 
-  it('Edit: your own branch, which the prompt no longer changes', async () => {
+  it('typing names your own (the prompt no longer changes it); emptied, the suggestion is back', async () => {
     await open({ initial: { target: 'jobly' } });
     await act(async () => typeArea('Fix the login redirect'));
-    await act(async () => button('Edit').click());
-    const input = container.querySelector<HTMLInputElement>('input[placeholder^="feat/whatever"]')!;
-    expect(input.value).toBe('fix/login-redirect');
+    const input = branchInput();
     await act(async () => type(input, 'fix/sso-loop'));
     await act(async () => typeArea('Fix the login redirect, and add a test'));
     expect(input.value).toBe('fix/sso-loop');
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/sso-loop' }));
+  });
+
+  it('emptied again: the suggestion is used', async () => {
+    await open({ initial: { target: 'jobly' } });
+    await act(async () => typeArea('Fix the login redirect'));
+    await act(async () => type(branchInput(), 'mine'));
+    await act(async () => type(branchInput(), ''));
+    expect(branchInput().placeholder).toMatch(/^fix\/login-redirect \(suggested/);
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/login-redirect' }));
+  });
+
+  it('what setting it up warned about is handed on, to be shown', async () => {
+    api.createWorktree.mockResolvedValue({ sessionId: 's1', launchDir: 'x', paths: ['x'], warnings: ['docs not set up'] });
+    const { onCreated } = await open({ initial: { target: 'jobly' } });
+    await submit();
+    expect(onCreated).toHaveBeenCalledWith('s1', expect.objectContaining({ warnings: ['docs not set up'] }));
+  });
+
+  it('no prompt and an empty field: the placeholder says the project opens as it is', async () => {
+    await open({ initial: { target: 'jobly' } });
+    expect(branchInput().placeholder).toBe('empty: the project as it is, on its own checkout');
   });
 
   it('a pick that names its branch (Jira, a PR) keeps it', async () => {
     await open({ initial: { target: 'jobly', branch: 'feat/PAY-12', prompt: 'Work on PAY-12: retries' } });
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('feat/PAY-12');
+    expect(branchInput().value).toBe('feat/PAY-12');
   });
 
   it('name and base wait under More options (open when a pick gave a base)', async () => {
@@ -210,7 +328,7 @@ describe('a branch that is not new', () => {
     await act(async () => typeArea('Fix tests'));
     await settle();
     expect(api.checkBranch).toHaveBeenCalledWith('jobly', 'fix/tests');
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('fix/tests-2');
+    expect(branchInput().placeholder).toMatch(/^fix\/tests-2 \(suggested/);
     expect(container.querySelector('.wd-modal-branch-note')!.textContent).toBe('fix/tests is taken, so a new one: fix/tests-2.');
     await submit();
     expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/tests-2' }));
@@ -240,7 +358,7 @@ describe('a branch that is not new', () => {
     }));
     await open({ initial: { target: 'jobly', branch: 'fix/tests' } });
     await settle();
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('fix/tests'); // yours stays
+    expect(branchInput().value).toBe('fix/tests'); // yours stays
     expect(container.querySelector('.wd-modal-branch-note')!.textContent).toContain('already has a session');
   });
 
@@ -307,7 +425,7 @@ describe('start from a pull request', () => {
     author: 'ana',
   };
   const link = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Start from a pull request…')!;
-  const prInput = () => container.querySelector<HTMLInputElement>('input[placeholder^="https://github.com/"]')!;
+  const prInput = () => container.querySelector<HTMLInputElement>('input[placeholder^="A pull request link"]')!;
 
   it('a link fills in its repo, their branch and a first prompt saying whose branch it is; Create sends them', async () => {
     const findPr = vi.fn(async () => pr);
@@ -369,5 +487,27 @@ describe('start from a pull request', () => {
     await act(async () => type(picker(), 'work'));
     await act(async () => void key(picker(), 'Enter'));
     expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+});
+
+describe('closing on the backdrop', () => {
+  const backdrop = () => container.querySelector<HTMLElement>('[role="dialog"]')!;
+  const prompt = () => container.querySelector('textarea')!;
+  const click = (el: Element) => act(async () => void el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+  it('a press in the dialog let go outside it (a drag over the prompt) keeps it open', async () => {
+    const { onClose } = await open();
+    await act(async () => type(prompt(), 'Add CSV export'));
+    await press(prompt());
+    await click(backdrop()); // the browser sends the click to where press and release meet: the backdrop
+    expect(onClose).not.toHaveBeenCalled();
+    expect(prompt().value).toBe('Add CSV export');
+  });
+
+  it('a click on the backdrop itself closes it', async () => {
+    const { onClose } = await open();
+    await press(backdrop());
+    await click(backdrop());
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

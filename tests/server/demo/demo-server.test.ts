@@ -54,6 +54,106 @@ const advance = (ms: number) => {
 const sessions = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions?archived=1')).sessions;
 const byBranch = async (b: string) => (await sessions()).find((s) => s.branch === b)!;
 
+describe('demo server: Claude accounts', () => {
+  it('lists made-up accounts (one nobody logged in to), and a switch just records it on the session (and says so on the wire)', async () => {
+    const w = await get<{ accounts: Array<{ name: string; loggedIn: boolean | null }>; default: string }>('/api/accounts');
+    expect(w.accounts.map((a) => a.name)).toEqual(['default', 'work', 'spare']);
+    expect(w.accounts.find((a) => a.name === 'spare')?.loggedIn).toBe(false);
+    expect(w.default).toBe('default');
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    expect(s.account).toBeUndefined(); // the default account is not said
+    const res = await send('POST', `/api/sessions/${s.id}/account`, { to: 'work' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, outcome: 'recorded', moved: 0 });
+    expect((await sessions()).find((x) => x.id === s.id)?.account).toBe('work');
+    // Back to the default: absent again.
+    await send('POST', `/api/sessions/${s.id}/account`, { to: 'default' });
+    expect((await sessions()).find((x) => x.id === s.id)?.account).toBeUndefined();
+  });
+
+  it('the Accounts page: add (the name rules), log in through a pretend terminal, make it the default, remove it', async () => {
+    const bad = await send('POST', '/api/accounts', { name: 'Bad Name' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toContain('not a valid account name');
+    const added = await send('POST', '/api/accounts', { name: 'team' });
+    expect(await added.json()).toEqual({ ok: true, name: 'team', dir: '~/.claude-team' });
+    expect((await send('POST', '/api/accounts', { name: 'team' })).status).toBe(400);
+    type W = { accounts: Array<{ name: string; loggedIn: boolean | null; isDefault: boolean }>; default: string; canManage?: boolean };
+    let w = await get<W>('/api/accounts');
+    expect(w.canManage).toBe(true);
+    expect(w.accounts.find((a) => a.name === 'team')?.loggedIn).toBe(false);
+
+    const login = (await (await send('POST', '/api/accounts/team/login')).json()) as { id: string };
+    expect(login.id).toBe('account-login:team');
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/sessions/${encodeURIComponent(login.id)}/terminal`);
+    const frames: Array<{ bin: boolean; text: string }> = [];
+    ws.on('message', (d, bin) => frames.push({ bin, text: d.toString() }));
+    await new Promise((r) => ws.on('open', r));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(JSON.parse(frames[0].text).data).toContain('/login');
+    ws.send(JSON.stringify({ type: 'input', data: '/login\r' }));
+    await new Promise((r) => setTimeout(r, 50));
+    ws.close();
+    expect((await send('DELETE', '/api/accounts/team/login')).status).toBe(200);
+    w = await get<W>('/api/accounts');
+    expect(w.accounts.find((a) => a.name === 'team')?.loggedIn).toBe(true);
+
+    expect((await send('POST', '/api/accounts/team/default')).status).toBe(200);
+    expect((await get<W>('/api/accounts')).default).toBe('team');
+    expect((await send('DELETE', '/api/accounts/team')).status).toBe(200);
+    w = await get<W>('/api/accounts');
+    expect(w.accounts.map((a) => a.name)).toEqual(['default', 'work', 'spare']);
+    expect(w.default).toBe('default'); // the default falls back
+    expect((await send('DELETE', '/api/accounts/default')).status).toBe(400);
+  });
+
+  it('removing an account a session runs on is refused, naming it; an archived one needs force', async () => {
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    await send('POST', `/api/sessions/${s.id}/account`, { to: 'work' });
+    const r = await send('DELETE', '/api/accounts/work?force=1');
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ kind: 'live', sessions: [`${s.target} · ${s.branch}`] });
+  });
+
+  it('refuses as the real one does: the same account, an unknown one, an unknown session', async () => {
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    expect((await send('POST', `/api/sessions/${s.id}/account`, { to: 'default' })).status).toBe(409);
+    expect((await send('POST', `/api/sessions/${s.id}/account`, { to: 'nope' })).status).toBe(400);
+    expect((await send('POST', `/api/sessions/${s.id}/account`, {})).status).toBe(400);
+    expect((await send('POST', '/api/sessions/nope/account', { to: 'work' })).status).toBe(404);
+  });
+
+  it('refuses an account nobody is logged in to, by the shared rules (account-switch-rules.ts)', async () => {
+    const s = (await sessions()).find((x) => !x.archivedAt)!;
+    const res = await send('POST', `/api/sessions/${s.id}/account`, { to: 'spare' });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain('nobody is logged in on “spare”');
+    const archived = (await sessions()).find((x) => x.archivedAt);
+    expect(archived).toBeDefined();
+    if (archived) expect((await send('POST', `/api/sessions/${archived.id}/account`, { to: 'work' })).status).toBe(409);
+  });
+
+  it('a new worktree records the account New worktree picked, and refuses an unknown one', async () => {
+    const res = await send('POST', '/api/worktrees', { target: 'api', branch: 'feat/on-work', account: 'work' });
+    expect(res.status).toBe(200);
+    const { sessionId } = (await res.json()) as { sessionId: string };
+    expect((await sessions()).find((x) => x.id === sessionId)?.account).toBe('work');
+    const plain = (await (await send('POST', '/api/worktrees', { target: 'api', branch: 'feat/on-default' })).json()) as {
+      sessionId: string;
+    };
+    expect((await sessions()).find((x) => x.id === plain.sessionId)?.account).toBeUndefined();
+    expect((await send('POST', '/api/worktrees', { target: 'api', branch: 'feat/x2', account: 'nope' })).status).toBe(400);
+  });
+
+  it('the usage panel has a reading per account, the default marked', async () => {
+    const u = await get<{ agents: Array<{ accounts: Array<{ account: string; isDefault?: boolean }> }> }>('/api/usage');
+    expect(u.agents[0]!.accounts.map((a) => [a.account, !!a.isDefault])).toEqual([
+      ['default', true],
+      ['work', false],
+    ]);
+  });
+});
+
 describe('demo server', () => {
   it('serves the dashboard context and a realistic session list', async () => {
     expect(await get('/api/context')).toMatchObject({ mode: 'dashboard', demo: true });
@@ -62,6 +162,11 @@ describe('demo server', () => {
     expect(list.find((s) => s.branch === 'feat/invoice-export')?.attention).toMatchObject({ state: 'needs_input', seen: false });
     expect(list.find((s) => s.branch === 'fix/login-redirect')?.diffStat).toMatchObject({ files: 2 });
     expect(list.find((s) => s.target === 'shop')?.isGroup).toBe(true);
+    // One shows "In background": working, its turn handed to a background agent.
+    expect(list.find((s) => s.branch === 'chore/dependency-audit')?.attention).toMatchObject({
+      state: 'working',
+      background: { what: '/code-review Review the dependency bumps' },
+    });
   });
 
   it('drives a session like work web: send queues a published note, start / stop / screen answer in the same shapes', async () => {
@@ -202,6 +307,28 @@ describe('demo server', () => {
     expect((await byBranch(`${login.branch}-2`)).stackedOn).toMatchObject({ id: login.id });
   });
 
+  it('adds a repo to a session folder, its Claude told; refuses as the real route does', async () => {
+    const list = await sessions();
+    const group = list.find((s) => s.isGroup && !s.archivedAt)!;
+    const single = list.find((s) => !s.isGroup && !s.archivedAt)!;
+    // On the wire as the real server sends them: a folder, with its repos (one per path); a single repo's is its target.
+    expect(group).toMatchObject({ folder: true });
+    expect(group.repos).toHaveLength(group.paths.length);
+    expect(single).toMatchObject({ folder: false, repos: [single.target] });
+    const res = await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'api', base: 'dev' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, branch: group.branch, created: true, from: 'dev' });
+    expect((await byBranch(group.branch)).paths).toHaveLength(group.paths.length + 1);
+    expect((await byBranch(group.branch)).repos).toEqual([...group.repos!, 'api']);
+    const notes = (await get<Comments>(`/api/sessions/${group.id}/comments`)).comments;
+    expect(notes.some((c) => c.status === 'published' && c.body.startsWith('Added repo api to this session'))).toBe(true);
+    expect((await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'api' })).status).toBe(409);
+    expect((await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'nope' })).status).toBe(400);
+    expect((await send('POST', `/api/sessions/${group.id}/repos`, {})).status).toBe(400);
+    expect((await send('POST', `/api/sessions/${single.id}/repos`, { alias: 'web' })).status).toBe(409);
+    expect((await send('POST', '/api/sessions/nope/repos', { alias: 'web' })).status).toBe(404);
+  });
+
   it('shows a session whose parent merged, and Move onto main takes it off the stack', async () => {
     const list = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
     const report = (await list()).find((s) => s.branch === 'feat/tax-report')!;
@@ -329,7 +456,7 @@ describe('demo server', () => {
   it('first run: the demo is set up already, and its folders are pretend', async () => {
     expect(await get('/api/setup')).toMatchObject({
       configured: true,
-      repos: 4,
+      repos: 5,
       tools: expect.arrayContaining([expect.objectContaining({ id: 'claude', ok: true })]),
     });
     expect((await send('POST', '/api/setup', { worktreesRoot: '/x', reposFolder: '/y' })).status).toBe(400);
@@ -496,5 +623,29 @@ describe('demo server', () => {
       body: '{"text":"x"}',
     });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("Fix it myself's sessions in the demo (#64 F010)", () => {
+  it('a new session is made with no first prompt (never its name as one); the instruction arrives as a note it answers', async () => {
+    const { demoReviewSessions } = await import('../../../src/server/demo/demo-server.js');
+    const demo = new DemoScenario();
+    const events: unknown[] = [];
+    const sessions = demoReviewSessions(demo, (e) => events.push(e));
+    expect(sessions.liveOn('api', 'feat/nowhere-yet')).toBeNull();
+    const made = sessions.create('api', 'feat/fix-review-231', 'Fix my review of #231');
+    const row = demo.list().find((s) => s.id === made.id)!;
+    expect(made.label).toBe('api · feat/fix-review-231');
+    expect(JSON.stringify(row)).not.toContain('Fix my review of #231'); // neither its summary nor its screen
+    expect(sessions.liveOn('api', 'feat/fix-review-231')).toEqual({ id: made.id, label: made.label });
+    sessions.note(made.id, 'Make these changes');
+    expect(
+      demo
+        .comments(made.id)!
+        .list()
+        .map((c) => c.body),
+    ).toContain('Make these changes');
+    expect(events).toContainEqual({ event: 'comments-changed', data: expect.objectContaining({ sessionId: made.id }) });
+    expect(() => sessions.note('nope', 'x')).toThrow('unknown session');
   });
 });

@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createSeenStores } from '../../../src/core/pr/pr-watch-store.js';
+import { createCiStore, createSeenStores, isSessionCi } from '../../../src/core/pr/pr-watch-store.js';
+import { withDb } from '../../../src/core/platform/db.js';
+import type { SessionCi } from '../../../src/core/api-types.js';
 import { purgeSessionState } from '../../../src/core/sessions/session-store.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 
@@ -43,5 +45,92 @@ describe('PR watch seen-stores', () => {
     expect(stores(id).has(`${id}:api:sha1`)).toBe(true);
     await purgeSessionState('api', 'feat/x'); // `work remove`, from any process
     expect(stores(id).has(`${id}:api:sha1`)).toBe(false);
+  });
+});
+
+const check = (number = 3565): SessionCi => ({
+  checkedAt: '2026-10-16T08:00:00.000Z',
+  viewer: 'me',
+  repos: [
+    {
+      name: 'api',
+      pr: {
+        number,
+        url: `https://github.com/o/api/pull/${number}`,
+        state: 'OPEN',
+        isDraft: false,
+        mergeStateStatus: 'CLEAN',
+        checks: 'pass',
+        headSha: 'f3c0896',
+      },
+      done: false,
+      openThreads: 1,
+    },
+  ],
+});
+
+describe("PR watch's last check", () => {
+  it('a new work web reads back what the last one saved', () => {
+    createCiStore().save('aaa', check());
+    createCiStore().save('bbb', { checkedAt: '2026-10-16T08:00:00.000Z', repos: [{ name: 'web', pr: null, done: true }] });
+    createCiStore().save('aaa', check(3566)); // a later check replaces it
+    expect(new Map(createCiStore().load())).toEqual(
+      new Map([
+        ['aaa', check(3566)],
+        ['bbb', { checkedAt: '2026-10-16T08:00:00.000Z', repos: [{ name: 'web', pr: null, done: true }] }],
+      ]),
+    );
+  });
+
+  it('drops a row that is not a check as the watch writes it', () => {
+    createCiStore().save('good', check());
+    withDb((d) => {
+      const put = d.prepare('INSERT INTO pr_watch_state (session_id, data) VALUES (?, ?)');
+      put.run('not-json', '{oops');
+      put.run('no-repos', JSON.stringify({ checkedAt: 'x' }));
+      put.run('bad-pr', JSON.stringify({ checkedAt: 'x', repos: [{ name: 'api', done: false, pr: { number: '7' } }] }));
+      put.run('bad-state', JSON.stringify({ ...check(), repos: [{ ...check().repos[0], pr: { ...check().repos[0].pr, state: 'GONE' } }] }));
+    });
+    expect(
+      createCiStore()
+        .load()
+        .map(([id]) => id),
+    ).toEqual(['good']);
+  });
+
+  it('isSessionCi takes what the watch writes and refuses the rest', () => {
+    expect(isSessionCi(check())).toBe(true);
+    expect(isSessionCi({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, openThreads: 'two' }] })).toBe(false);
+    expect(isSessionCi(null)).toBe(false);
+    // Who you are per repo: a login, or absent.
+    expect(isSessionCi({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, viewer: 'ana' }] })).toBe(true);
+    expect(isSessionCi({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, viewer: 7 }] })).toBe(false);
+    expect(isSessionCi([])).toBe(false);
+    // Its open threads too: an entry missing what readers use (a reply's row is made from it) refuses the check.
+    const withThread = (t: unknown) => ({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, threads: [t] }] });
+    const ok = { threadId: 'PRRT_abcd', repo: 'api', prNumber: 7, url: 'u', where: null, reviewer: 'dana', excerpt: 'e', trusted: true };
+    expect(isSessionCi(withThread(ok))).toBe(true);
+    expect(isSessionCi(withThread({ ...ok, where: 'src/a.ts:3' }))).toBe(true);
+    expect(isSessionCi(withThread(null))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, where: 3 }))).toBe(false);
+    // The whole comment and its code: optional, but checked when there.
+    expect(isSessionCi(withThread({ ...ok, body: '**b**', code: { hunk: '@@ -1 +1 @@\n+x', lines: 1 } }))).toBe(true);
+    expect(isSessionCi(withThread({ ...ok, code: { hunk: 'x', lines: 1 } }))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, body: 3 }))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, reviewer: undefined }))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, prNumber: '7' }))).toBe(false);
+  });
+
+  it("a database it can't read gives none, rather than stopping work web from starting", () => {
+    createCiStore().save('aaa', check());
+    withDb((d) => d.exec('DROP TABLE pr_watch_state'));
+    expect(createCiStore().load()).toEqual([]);
+  });
+
+  it('removing a session removes its last check', async () => {
+    const id = sessionIdFor({ target: 'api', branch: 'feat/x' });
+    createCiStore().save(id, check());
+    await purgeSessionState('api', 'feat/x');
+    expect(createCiStore().load()).toEqual([]);
   });
 });

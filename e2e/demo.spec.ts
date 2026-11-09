@@ -117,8 +117,9 @@ test('revert a file from the diff, and Claude is told', async ({ page }) => {
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
-  page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Revert file: src/auth.test.ts' }).click();
+  // Asked in the page (state/ask.ts), never the browser's own pop-up.
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Revert' }).click();
   await expect(files).toHaveCount(1);
   await expect(files).not.toContainText('auth.test.ts');
   await expect(page.locator('.wd-web-review-sidebar, .wd-comments-panel').first()).toContainText('I reverted your uncommitted change');
@@ -296,7 +297,8 @@ test('a Jira issue on Start starts a session with a first prompt, opened on its 
   const dialog = page.getByRole('dialog');
   const prompt = dialog.locator('textarea');
   await expect(prompt).toHaveValue(/^Work on [A-Z]+-\d+: /);
-  await expect(dialog.locator('.wd-modal-branch code')).toHaveText(/^feat\/[A-Z]+-\d+$/);
+  // A pick that names its branch fills the field (the suggestion is only an empty field's placeholder).
+  await expect(dialog.locator('input[name="branch"]')).toHaveValue(/^feat\/[A-Z]+-\d+$/);
   await prompt.fill('Work on it: add the export button');
   await dialog.getByRole('button', { name: 'Create and start' }).click();
   await expect(page).toHaveURL(/\/term$/);
@@ -384,7 +386,7 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
 }) => {
   await page.goto(`${url}#/inbox`);
   const ready = page.locator('.wd-inbox-rank-2 .wd-inbox-item', { hasText: 'feat/order-history' });
-  await expect(ready).toContainText('PR #209 · approved, ready to merge');
+  await expect(ready).toContainText('#209 ready to merge');
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/tax-report' })).toHaveCount(0);
   await expect(page.locator('.wd-inbox-rest')).toContainText('in review');
   await ready.getByRole('button', { name: 'Open' }).click();
@@ -393,7 +395,9 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
   await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-pr-chip')).toHaveText('#209');
   await page.goto(`${url}#/inbox`);
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/order-history' })).toHaveCount(0);
-  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-dot-in_review')).toHaveCount(1);
+  // Seen: out of the Inbox, but the rail still says it's yours to merge (the badge), and the waiting one says in review.
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-rail-slot-owed')).toHaveText('merge');
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-slot-waiting')).toHaveText('in review');
 });
 
 test('Welcome walks the first run: folders, repos inline, the tools, then New worktree', async ({ page }) => {
@@ -424,7 +428,11 @@ test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session
   await page.keyboard.press('.');
   await expect(page.getByRole('menuitem', { name: /Catch me up/ })).toBeVisible();
   await page.keyboard.press('Escape');
+  // e asks first ("Archive …?", in the page), and archives on yes.
   await page.keyboard.press('e');
+  const ask = page.getByRole('alertdialog');
+  await expect(ask).toContainText(/^Archive “.+”\?/);
+  await ask.getByRole('button', { name: 'OK' }).click();
   await expect(page.locator('.wd-archived-pill')).toBeVisible();
 });
 
@@ -461,20 +469,20 @@ test("Help in the top bar says which work runs, checks for updates, and opens Wh
   await expect(notes).toHaveCount(0);
 });
 
-test('archived sessions come only when shown: Show archived lists them, and a link to one opens it', async ({ page }) => {
+test('archived sessions come only when shown: Archived lists them, and a link to one opens it', async ({ page }) => {
   const all = (await (await fetch(`${url}api/sessions?archived=1`)).json()) as {
     sessions: Array<{ id: string; branch: string; archivedAt: string | null }>;
   };
   const gone = all.sessions.find((s) => s.archivedAt)!;
   await page.goto(`${url}#/sessions`);
   const row = page.locator('tr', { hasText: gone.branch });
-  await page.getByRole('button', { name: /^View/ }).click();
-  const box = page.getByRole('checkbox', { name: /Show archived/ });
-  if (await box.isChecked()) await box.uncheck();
+  const scope = page.getByRole('group', { name: 'Which sessions' });
+  await scope.getByRole('button', { name: /^Live/ }).click();
   await expect(row).toHaveCount(0);
-  await box.check();
+  await scope.getByRole('button', { name: /^Archived/ }).click();
   await expect(row.first()).toBeVisible();
-  await box.uncheck();
+  await expect(row.first().getByRole('button', { name: 'Restore' })).toBeVisible();
+  await scope.getByRole('button', { name: /^Live/ }).click();
   // A link straight to an archived session: it is fetched, never "not found".
   await page.goto(`${url}#/s/${gone.id}/timeline`);
   await expect(page.locator('.wd-archived-pill')).toBeVisible();
@@ -581,4 +589,31 @@ test('the terminal follows the window both ways: it grows, and shrinks back', as
   await expect.poll(async () => (await widths()).screen).toBeLessThan(small.screen + 30);
   const after = await widths();
   expect(after.screen).toBeLessThanOrEqual(after.host); // nothing drawn past the edge
+});
+
+test("Code tab: the session's files, a changed one read with its highlighting; Timeline moved to the ⋯ menu", async ({ page }) => {
+  await page.goto(`${url}#/s/demo-web-fix-login-redirect`);
+  await page.getByRole('tab', { name: 'Code' }).click();
+  await expect(page).toHaveURL(/\/code$/);
+  await page.locator('button.wd-code-dir', { hasText: 'src' }).click();
+  await page.locator('button.wd-code-file', { hasText: 'auth.ts' }).first().click();
+  await expect(page.locator('.wd-code-path')).toHaveText(/auth/);
+  await expect(page.locator('.wd-code-table .wd-fileview-row').first()).toBeVisible();
+  await page.locator('.wd-code-filter').fill('readme');
+  await expect(page.locator('button.wd-code-file')).toHaveText(['README.md']);
+
+  // Search the code (Ctrl+T in the app; the button here): a type by name, then a line of text, opened at its line.
+  await page.locator('.wd-code-search-btn').click();
+  const box = page.getByRole('dialog', { name: 'Search the code' });
+  await box.getByRole('combobox').fill('login');
+  await expect(box.locator('.wd-code-search-heading').first()).toHaveText('Types & members');
+  await expect(box.getByRole('option').first()).toContainText('afterLogin');
+  await box.getByRole('option', { name: /never redirects back/ }).click();
+  await expect(page.locator('.wd-code-path')).toHaveText('src/auth.test.ts');
+  await expect(page.locator('.wd-code-line-mark')).toHaveAttribute('data-line', '3');
+
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: /^Timeline/ }).click();
+  await expect(page).toHaveURL(/\/timeline$/);
+  await expect(page.locator('.wd-timeline-title')).toHaveText('Timeline');
 });

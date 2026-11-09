@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { archivePending, trackArchive, useArchivePending } from '../../src/web/src/api/archive-pending.js';
+import { archivePending, markArchiving, trackArchive, useArchivePending, useMarkArchiving } from '../../src/web/src/api/archive-pending.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -69,12 +69,75 @@ describe('archives in flight', () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }),
     );
-    const call = setArchived('s4', true);
-    expect(archivePending('s4')).toBe(true);
+    const call = setArchived('s4', true, () => true); // "Archive …?" → yes
+    await vi.waitFor(() => expect(archivePending('s4')).toBe(true)); // from the answer on, not while it asks
     d.resolve();
     await call;
     await Promise.resolve();
     expect(archivePending('s4')).toBeUndefined();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('the rows show Archiving from the click', () => {
+  it('markArchiving sets it on the rows being archived, and gives the same array back when none is', () => {
+    const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c', archiving: true }];
+    expect(markArchiving(rows, () => undefined)).toBe(rows);
+    expect(markArchiving(rows, (id) => (id === 'c' ? true : undefined))).toBe(rows); // the server said so already
+    expect(markArchiving(rows, (id) => (id === 'b' ? false : undefined))).toEqual([{ id: 'a' }, { id: 'b', restoring: true }, rows[2]]);
+    const marked = markArchiving(rows, (id) => (id === 'a' ? true : undefined));
+    expect(marked).toEqual([{ id: 'a', archiving: true }, { id: 'b' }, { id: 'c', archiving: true }]);
+    expect(marked[1]).toBe(rows[1]);
+  });
+
+  it('useMarkArchiving follows archives as they start and end', async () => {
+    const rows: Array<{ id: string; archiving?: boolean }> = [{ id: 'm1' }, { id: 'm2' }];
+    function Rows() {
+      const shown = useMarkArchiving(rows);
+      return createElement('span', null, shown.map((r) => `${r.id}:${r.archiving ? 'archiving' : '-'}`).join(' '));
+    }
+    act(() => root.render(createElement(Rows)));
+    expect(container.textContent).toBe('m1:- m2:-');
+    const d = deferred();
+    act(() => void trackArchive('m2', true, d.promise));
+    expect(container.textContent).toBe('m1:- m2:archiving');
+    await act(async () => {
+      d.resolve();
+      await d.promise;
+    });
+    expect(container.textContent).toBe('m1:- m2:-');
+  });
+});
+
+describe("a Restore's warnings", () => {
+  it('come back from setArchived and go out as one event the dashboard shows, whichever button restored it', async () => {
+    const { setArchived, RESTORE_WARNINGS } = await import('../../src/web/src/api/client.js');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, warnings: ['not in your config any more, so not set up: docs', 7] }), { status: 200 }),
+    );
+    const seen: unknown[] = [];
+    const listen = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(RESTORE_WARNINGS, listen);
+    try {
+      const r = await setArchived('s1', false);
+      expect(r).toEqual({ ok: true, warnings: ['not in your config any more, so not set up: docs'] });
+      expect(seen).toEqual([{ sessionId: 's1', warnings: ['not in your config any more, so not set up: docs'] }]);
+    } finally {
+      window.removeEventListener(RESTORE_WARNINGS, listen);
+    }
+  });
+
+  it('none: no event, a plain ok', async () => {
+    const { setArchived, RESTORE_WARNINGS } = await import('../../src/web/src/api/client.js');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const seen: unknown[] = [];
+    const listen = (e: Event) => seen.push(e);
+    window.addEventListener(RESTORE_WARNINGS, listen);
+    try {
+      expect(await setArchived('s1', false)).toEqual({ ok: true });
+      expect(seen).toEqual([]);
+    } finally {
+      window.removeEventListener(RESTORE_WARNINGS, listen);
+    }
   });
 });

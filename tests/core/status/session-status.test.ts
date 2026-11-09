@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let configDir: string;
 vi.mock('../../../src/core/platform/config.js', () => ({ getConfigDir: () => configDir }));
+// The logger finds the folder through config-dir.js (not config.js, which reports through the logger).
+vi.mock('../../../src/core/platform/config-dir.js', () => ({ getConfigDir: () => configDir }));
 
 import {
   ANSWERED_AFTER_MS,
@@ -14,6 +16,7 @@ import {
   effectiveStatus,
   lastTurnEntryMs,
   withLiveClaude,
+  markAgentStopped,
   markSeen,
   notifyKindForTransition,
   oneLine,
@@ -282,9 +285,10 @@ describe('attention ordering', () => {
     expect(order).toEqual(['blockedOld', 'blockedNew', 'done', 'working-new', 'working-old', 'none']);
   });
 
-  it('the inbox puts review comments after done and before working, and counts them as wanting you', () => {
+  it('the inbox puts what waits on you (threads, replies to post) after done and before working, whatever its Claude is doing', () => {
     const items = [
-      { id: 'working', attention: s('working', true, 40), openReviewThreads: 2 }, // mid-turn: working, not review
+      { id: 'working', attention: s('working', true, 40), openReviewThreads: 2 }, // mid-turn: the threads still wait on you
+      { id: 'reply', attention: s('idle', true, 30), replyDrafts: 1 }, // a reply to post (reported: it read Idle, out of the Inbox)
       { id: 'review-quiet', attention: s('idle', true, 10), openReviewThreads: 1 },
       { id: 'review-untracked', attention: null, openReviewThreads: 3 },
       { id: 'quiet', attention: s('idle', true, 20) },
@@ -297,6 +301,7 @@ describe('attention ordering', () => {
       'done',
       'review-untracked',
       'review-quiet',
+      'reply',
       'working',
       'quiet',
       'none',
@@ -306,7 +311,7 @@ describe('attention ordering', () => {
         .filter(wantsYou)
         .map((x) => x.id)
         .sort(),
-    ).toEqual(['blocked', 'done', 'review-quiet', 'review-untracked']);
+    ).toEqual(['blocked', 'done', 'reply', 'review-quiet', 'review-untracked', 'working']);
     expect(inboxRank({ attention: null })).toBe(5);
   });
 });
@@ -326,6 +331,16 @@ describe('notifyKindForTransition', () => {
     // Approving the prompt fires no hook, so the stored state is still
     // needs_input when the turn's Stop arrives.
     expect(notifyKindForTransition({ state: 'needs_input' }, { state: 'idle' })).toBe('idle');
+  });
+
+  it('markAgentStopped: work stopped its Claude (idle sleep, `work stop`) is kept on the record, and nothing else moves', async () => {
+    await recordStatusEvent('p9', { kind: 'stop', lastMessage: 'done' }, T0);
+    const before = readStatus('p9')!;
+    await markAgentStopped('p9', at(600));
+    expect(readStatus('p9')).toEqual({ ...before, stoppedAt: at(600).toISOString() });
+    // No status yet: nothing the Terminal tab could misread, so nothing written.
+    await markAgentStopped('never-seen', at(600));
+    expect(readStatus('never-seen')).toBeNull();
   });
 
   it('a Stop with no prompt hook before it (a `!` command, a background task) still notifies "Finished"', async () => {
@@ -421,6 +436,35 @@ describe("withLiveClaude (Claude Code's own state over the hooks, when newer)", 
 
   it('older than what the hooks recorded: the hooks win (the file lags a turn edge)', () => {
     expect(withLiveClaude(rec('idle', 10), { state: 'busy', stateAt: at(9).getTime() }, known).state).toBe('idle');
+  });
+
+  it('its turn ended but Claude Code is still busy, and a background agent it started wrote since: working (reported: read Idle)', () => {
+    // The turn ended at 10 s ("handing it to a background agent"); Claude Code went busy at 9 s and wrote nothing since.
+    const ended = { ...rec('idle', 10), turnEndedAt: at(10).toISOString() };
+    const busy = { state: 'busy' as const, stateAt: at(9).getTime() };
+    const asked: string[] = [];
+    const review = { what: '/mtk:code-review-and-quality Re-review' };
+    const background = (v: { what: string | null } | null) => () => (asked.push('asked'), v);
+    // Working — in the background, saying what's at it (the dashboard: "In background", teal).
+    expect(withLiveClaude(ended, busy, { ...known, background: background(review) })).toMatchObject({
+      state: 'working',
+      stale: false,
+      background: review,
+    });
+    // No background agent at work: the hook's idle stands, as before.
+    expect(withLiveClaude(ended, busy, { ...known, background: background(null) }).state).toBe('idle');
+    expect(withLiveClaude(ended, busy, known).state).toBe('idle');
+    // Claude Code said idle after the turn: nothing to ask, the turn is over.
+    asked.length = 0;
+    expect(withLiveClaude(ended, { state: 'idle', stateAt: at(13).getTime() }, { ...known, background: background(review) }).state).toBe(
+      'idle',
+    );
+    expect(asked).toEqual([]);
+  });
+
+  it("Claude's own turn is working with no background mark (only a background agent's is)", () => {
+    expect(withLiveClaude(rec('working', 10), { state: 'busy', stateAt: at(11).getTime() }, known)).not.toHaveProperty('background');
+    expect(withLiveClaude(rec('idle', 10), { state: 'busy', stateAt: at(11).getTime() }, known)).not.toHaveProperty('background');
   });
 
   it('nothing running anywhere: working / waiting is over at once — unless a PTY of ours runs it, or the process list was not read', () => {

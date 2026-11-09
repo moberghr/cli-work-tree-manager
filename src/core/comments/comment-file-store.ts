@@ -169,3 +169,20 @@ export function getCommentFileStore(sessionId: string): CommentFileStore {
 export function clearCommentStoreCache(): void {
   cache.clear();
 }
+
+/**
+ * Every comment of one store moved to another (a scope whose paths changed:
+ * scope-migrate.ts), in one transaction — ids, and so their deliveries,
+ * unchanged. One whose id the other store has already stays where it was and
+ * is counted in `kept`, never dropped. Both stores' cached copies here are let go.
+ */
+export function moveStoreComments(from: string, to: string): { moved: number; kept: number } {
+  const out = tx((d) => {
+    const moved = d.prepare('UPDATE OR IGNORE comments SET store = ? WHERE store = ?').run(to, from).changes;
+    const kept = (d.prepare('SELECT COUNT(*) AS n FROM comments WHERE store = ?').get(from) as { n: number }).n;
+    return { moved, kept };
+  });
+  cache.delete(from);
+  cache.delete(to);
+  return out;
+}

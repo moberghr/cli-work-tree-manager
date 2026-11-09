@@ -1,0 +1,804 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { GitHost, PrDiscussion } from '../../../src/core/hosts/types.js';
+import { createReviewQueue } from '../../../src/core/review/review-queue.js';
+import { parseGitDiff } from '../../../src/core/diff/diff-parse.js';
+import type { PrReviewWire } from '../../../src/core/api-types.js';
+import { hostForOrigin, hostForRepo, hostOfThread, originHostname, registerHost } from '../../../src/core/hosts/index.js';
+import { commandsFor, hostName } from '../../../src/core/hosts/commands.js';
+import type { PullRequestInfo } from '../../../src/core/pr/pr-types.js';
+import type { ShipPr, SessionCi } from '../../../src/core/api-types.js';
+import type { ReviewFeedback } from '../../../src/core/pr/review-types.js';
+import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
+import { fetchAllPullRequests } from '../../../src/core/pr/pr.js';
+import { mergeSelected, shipPreflight, defaultRunner as realRunner, type CommandRunner } from '../../../src/core/pr/ship.js';
+import { createPrWatch } from '../../../src/core/pr/pr-watch.js';
+import { prWatchHostDeps, watchAskGh } from '../../../src/core/pr/pr-watch-hosts.js';
+import { prStageOf } from '../../../src/core/pr/pr-stage.js';
+import { listReplies, postReply, rememberSent, saveDraft, threadRefusal } from '../../../src/core/pr/pr-replies.js';
+import { blockedPrState, blockRefFrom } from '../../../src/core/rail/session-blocks.js';
+import { resolvePrToStart } from '../../../src/core/pr/pr-start.js';
+import { workOnPrPrompt } from '../../../src/core/pr/pr-ref.js';
+import { prPrompt } from '../../../src/web/src/state/start-prompts.js';
+import { commitsWrittenOn } from '../../../src/core/time/time-deps.js';
+import { createActivityLog } from '../../../src/core/platform/activity.js';
+import { runAll } from '../../functional/fixtures/processes.js';
+
+/**
+ * #63's proof that work is ready for another git host: a made-up one
+ * ("Fakehub": its own CLI name, link format, thread ids and words) drives
+ * the PR list, Ship, the PR watch and its stages, reply drafts, blockers and
+ * Start from a PR through the GitHost interface — and a group whose two
+ * repos are on two different hosts. Nothing here calls gh (the runner records
+ * any call, and the suite fails on one): the repos are real
+ * git (Ship reads them), their origins on the fake hosts' domains, pushes
+ * going to a local bare repo through `url.<bare>.insteadOf`.
+ */
+
+const NO_GITHUB = /GitHub|\bgh\b/;
+
+/** The real runner (git for Ship), recording any `gh` call: none may happen on these hosts. */
+const ghCalls: string[][] = [];
+const defaultRunner: CommandRunner = (cmd, args, cwd) => {
+  if (cmd === 'gh') ghCalls.push(args);
+  return realRunner(cmd, args, cwd);
+};
+
+interface FakeState {
+  prs: Map<string, ShipPr>; // by branch
+  list: PullRequestInfo[];
+  merged: Array<{ number: number; method: string; headSha: string }>;
+  feedback: ReviewFeedback | null;
+  threads: Map<string, { resolved: boolean; lastAuthor: string }>;
+  replies: Array<{ id: string; body: string }>;
+  resolved: string[];
+  prStates: Map<string, 'OPEN' | 'MERGED' | 'CLOSED'>;
+  limited: boolean;
+  /** Who you are on it; null: it can't say (signed out). */
+  viewer: string | null;
+  /** The PR's discussion as it answers it, and how many times it was asked. */
+  discussion: PrDiscussion;
+  discussionAsked: number;
+}
+
+function fakeHost(id: string, name: string, domain: string, cli: string): { host: GitHost; state: FakeState } {
+  const state: FakeState = {
+    prs: new Map(),
+    list: [],
+    merged: [],
+    feedback: null,
+    threads: new Map(),
+    replies: [],
+    resolved: [],
+    prStates: new Map(),
+    limited: false,
+    viewer: 'me',
+    discussion: { threads: [], reviews: [], comments: [] },
+    discussionAsked: 0,
+  };
+  const linkRe = new RegExp(`^https://${domain.replace(/\./g, '\\.')}/([\\w-]+/[\\w-]+)/pr/(\\d+)$`);
+  const host: GitHost = {
+    id,
+    name,
+    cli: { cmd: cli, label: `${name} CLI`, checkArgs: ['whoami'], missing: `Optional: install ${cli}.`, failing: `Run ${cli} login.` },
+    matches: (o) => o.includes(`//${domain}/`),
+    repoId: (o) => /\/\/[^/]+\/([\w-]+\/[\w-]+?)(?:\.git)?$/.exec(o)?.[1].toLowerCase() ?? null,
+    parsePrUrl: (t) => {
+      const m = linkRe.exec(t.trim());
+      return m ? { repoId: m[1].toLowerCase(), number: Number(m[2]), url: t.trim(), label: `${m[1].split('/')[1]}!${m[2]}` } : null;
+    },
+    prRef: (n) => `refs/${id}/${n}`,
+    list: async (repos) => ({ prs: state.list.filter((p) => repos.some((r) => r.alias === p.repoAlias)), incomplete: [] }),
+    viewer: async () => state.viewer,
+    prForBranch: async (_run, _cwd, branch) => {
+      if (state.limited) return { kind: 'error', error: `${name} says: slow down` };
+      const pr = state.prs.get(branch);
+      return pr ? { kind: 'pr', pr } : { kind: 'none' };
+    },
+    prByNumber: async (_run, _cwd, _repoId, number) => ({
+      ok: true,
+      pr: {
+        number,
+        title: 'Add refunds',
+        url: `https://${domain}/team/api/pr/${number}`,
+        branch: 'feat/refunds',
+        base: 'main',
+        author: 'ana',
+        state: 'OPEN',
+      },
+    }),
+    prState: async (_run, url) =>
+      state.prStates.has(url) ? { ok: true, state: state.prStates.get(url)! } : { ok: false, error: 'unknown' },
+    createPr: async () => ({ ok: true, url: `https://${domain}/team/api/pr/99` }),
+    mergePr: async (_run, _cwd, number, method, headSha) => {
+      state.merged.push({ number, method, headSha });
+      return { ok: true };
+    },
+    mergedPr: async () => null,
+    openPrs: async () => ({ ok: true, prs: [] }),
+    submitReview: async () => ({ ok: true }),
+    reviewFeedback: async () => state.feedback,
+    discussion: async () => {
+      state.discussionAsked++;
+      return state.limited ? { ok: false, error: `${name} says: slow down` } : { ok: true, discussion: state.discussion };
+    },
+    threads: {
+      isId: (t) => new RegExp(`^${id.toUpperCase()}-\\d+$`).test(t),
+      now: async (_run, _cwd, t) => {
+        const th = state.threads.get(t);
+        return th
+          ? { ok: true, thread: { viewer: 'me', resolved: th.resolved, lastAuthor: th.lastAuthor } }
+          : { ok: false, error: 'no thread' };
+      },
+      live: async () => ({ ok: false, error: 'not here' }),
+      isResolved: async (_run, _cwd, t) => state.threads.get(t)?.resolved ?? null,
+      reply: async (_run, _cwd, t, body) => {
+        state.replies.push({ id: t, body });
+        return { ok: true, url: `https://${domain}/team/api/pr/7#${t}` };
+      },
+      resolve: async (_run, _cwd, t) => {
+        state.resolved.push(t);
+        return true;
+      },
+    },
+    rateLimited: (text) => /slow down/.test(text),
+    hostCommit: (email) => email === `robot@${domain}`,
+    commands: {
+      host: name,
+      cli,
+      view: (n) => `${cli} show ${n}`,
+      comments: (n) => `${cli} show ${n} --talk`,
+      diff: (n) => `${cli} changes ${n}`,
+      checks: (n) => `${cli} builds ${n}`,
+      failedLog: `${cli} build-log <build>`,
+      checkout: (n, detach) => `${cli} fetch ${n}${detach ? ' --detached' : ''}`,
+      create: `${cli} open`,
+    },
+  };
+  return { host, state };
+}
+
+const fake = fakeHost('fake', 'Fakehub', 'code.fake.example', 'fk');
+const other = fakeHost('other', 'Otherhub', 'git.other.example', 'oth');
+const unregister: Array<() => void> = [];
+
+let tmp: string;
+const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }).trim();
+
+/** A repo whose origin is on `origin` (a fake host's URL), pushing to a local bare repo; on `branch`, pushed, one commit past main. */
+function repoOn(name: string, origin: string, branch: string): { path: string; head: string } {
+  const bare = path.join(tmp, `${name}.git`);
+  const work = path.join(tmp, name);
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', bare);
+  git(tmp, 'init', '-q', '-b', 'main', work);
+  for (const [k, v] of [
+    ['user.email', 'me@example.com'],
+    ['user.name', 'Me'],
+    ['commit.gpgsign', 'false'],
+    [`url.${bare.split(path.sep).join('/')}.insteadOf`, origin],
+  ])
+    git(work, 'config', k, v);
+  git(work, 'remote', 'add', 'origin', origin);
+  fs.writeFileSync(path.join(work, 'a.txt'), 'one\n');
+  git(work, 'add', '.');
+  git(work, 'commit', '-q', '-m', 'first');
+  git(work, 'push', '-q', '-u', 'origin', 'main');
+  git(work, 'remote', 'set-head', 'origin', 'main');
+  git(work, 'checkout', '-q', '-b', branch);
+  fs.writeFileSync(path.join(work, 'b.txt'), 'two\n');
+  git(work, 'add', '.');
+  git(work, 'commit', '-q', '-m', 'the change');
+  git(work, 'push', '-q', '-u', 'origin', branch);
+  return { path: work, head: git(work, 'rev-parse', 'HEAD') };
+}
+
+let api: { path: string; head: string };
+let web: { path: string; head: string };
+let group: WorktreeSession;
+
+const openPr = (number: number, headSha: string, over: Partial<ShipPr> = {}): ShipPr => ({
+  number,
+  url: `https://code.fake.example/team/api/pr/${number}`,
+  state: 'OPEN',
+  isDraft: false,
+  mergeStateStatus: 'CLEAN',
+  checks: 'pass',
+  headSha,
+  reviewDecision: 'APPROVED',
+  author: 'me',
+  baseBranch: 'main',
+  ...over,
+});
+
+beforeAll(() => {
+  unregister.push(registerHost(fake.host), registerHost(other.host));
+  tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-host-')));
+  api = repoOn('api', 'https://code.fake.example/team/api.git', 'feat/refunds');
+  web = repoOn('web', 'https://git.other.example/team/web.git', 'feat/refunds');
+  group = {
+    target: 'shop',
+    isGroup: true,
+    branch: 'feat/refunds',
+    paths: [api.path, web.path],
+    repos: ['api', 'web'],
+    createdAt: '2026-11-01T00:00:00Z',
+    lastAccessedAt: '2026-11-01T00:00:00Z',
+  };
+}, 60_000);
+
+// Cleanup first, each step on its own (a failed one can't keep the temp repos or the fake hosts registered); the gh check last.
+afterAll(() =>
+  runAll([...unregister.map((u) => () => u()), () => fs.rmSync(tmp, { recursive: true, force: true }), () => expect(ghCalls).toEqual([])]),
+);
+
+describe('a repo is on the host its origin says', () => {
+  it('each repo resolves on its own; nobody claims a plain server, which is asked as GitHub (as before hosts)', () => {
+    expect(hostForRepo(api.path).host.id).toBe('fake');
+    expect(hostForRepo(web.path).host.id).toBe('other');
+    expect(hostForOrigin('https://github.com/acme/api.git').id).toBe('github');
+    expect(hostForOrigin('git@git.internal:acme/api.git').id).toBe('github');
+    expect(hostForOrigin(null).id).toBe('github');
+  });
+
+  it('config gitHosts names the host of an origin the URL cannot tell (by its hostname)', () => {
+    const overrides = () => new Map([['git.internal', 'fake']]);
+    expect(hostForOrigin('git@git.internal:acme/api.git', { overrides }).id).toBe('fake');
+    expect(hostForOrigin('https://user@git.internal/acme/api', { overrides }).id).toBe('fake');
+    expect(originHostname('ssh://git@git.internal:2222/acme/api')).toBe('git.internal');
+    expect(originHostname('/c/repos/local')).toBeNull();
+  });
+
+  it('a thread id belongs to the host whose shape it has; its name and commands come with it', () => {
+    expect(hostOfThread('FAKE-12')?.id).toBe('fake');
+    expect(hostOfThread('OTHER-3')?.id).toBe('other');
+    expect(hostOfThread('PRRT_kwDOabc123')?.id).toBe('github');
+    expect(hostOfThread('nope')).toBeNull();
+    expect(hostName('fake')).toBe('Fakehub');
+    expect(commandsFor('fake').checks(4)).toBe('fk builds 4');
+    expect(commandsFor('nobody').cli).toBe('gh'); // an unknown id (an older server's row): GitHub's
+  });
+});
+
+describe('the PR list', () => {
+  it('a group on two hosts: each repo listed by its own host, each PR saying which', async () => {
+    const row = (alias: string, number: number): PullRequestInfo => ({
+      number,
+      title: `PR ${number}`,
+      branch: 'feat/refunds',
+      url: `u${number}`,
+      isDraft: false,
+      checksStatus: 'SUCCESS',
+      reviewDecision: 'NONE',
+      myReview: 'NONE',
+      isMine: true,
+      conflicting: false,
+      reviewRequested: false,
+      repoAlias: alias,
+    });
+    fake.state.list = [row('api', 7)];
+    other.state.list = [row('web', 8)];
+    const { map, incomplete } = await fetchAllPullRequests({ api: api.path, web: web.path }, { run: defaultRunner });
+    expect(incomplete).toEqual([]);
+    expect(map.get('feat/refunds')?.map((p) => [p.repoAlias, p.number, p.host])).toEqual([
+      ['api', 7, 'fake'],
+      ['web', 8, 'other'],
+    ]);
+  });
+});
+
+describe('Ship', () => {
+  it("reads each repo's PR from its own host, and merges each through it with the head you were shown", async () => {
+    fake.state.prs.set('feat/refunds', openPr(7, api.head));
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { url: 'https://git.other.example/team/web/pr/8' }));
+    const pre = await shipPreflight(group, defaultRunner);
+    expect(pre.repos.map((r) => [r.name, r.host, r.pr?.number, r.mergeBlockers])).toEqual([
+      ['api', 'fake', 7, []],
+      ['web', 'other', 8, []],
+    ]);
+    const out = await mergeSelected(
+      group,
+      [
+        { name: 'api', headSha: api.head },
+        { name: 'web', headSha: web.head },
+      ],
+      'squash',
+      defaultRunner,
+    );
+    expect(out.results.map((r) => [r.repo, r.ok])).toEqual([
+      ['api', true],
+      ['web', true],
+    ]);
+    expect(fake.state.merged).toEqual([{ number: 7, method: 'squash', headSha: api.head }]);
+    expect(other.state.merged).toEqual([{ number: 8, method: 'squash', headSha: web.head }]);
+  }, 60_000);
+});
+
+describe('the PR watch, its stage and its notes', () => {
+  const watch = (told: string[], extra: Partial<Parameters<typeof createPrWatch>[0]> = {}) =>
+    createPrWatch({
+      sessions: () => [{ id: 'shop1', session: group }],
+      preflight: (s) => shipPreflight(s, defaultRunner),
+      archive: async () => undefined,
+      tell: async (_id, body) => void told.push(body),
+      broadcast: () => undefined,
+      options: () => ({ autoArchive: false, fixCi: true, reviewComments: true }),
+      // work web's own wiring (ci-routes.ts): who you are, feedback and API-limit words, each asked of the repo's host.
+      ...prWatchHostDeps(defaultRunner),
+      told: () => {
+        const seen = new Set<string>();
+        return { has: (k) => seen.has(k), add: (k) => void seen.add(k) };
+      },
+      ...extra,
+    });
+
+  it("failing checks and review threads on Fakehub: the stage, and notes in Fakehub's words — never GitHub's", async () => {
+    fake.state.limited = false;
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }] }));
+    other.state.viewer = 'me-on-other';
+    other.state.prs.set(
+      'feat/refunds',
+      openPr(8, web.head, {
+        author: 'me-on-other',
+        checks: 'fail',
+        failing: [{ name: 'lint' }],
+        url: 'https://git.other.example/team/web/pr/8',
+      }),
+    );
+    fake.state.feedback = {
+      viewer: 'me',
+      threads: [
+        {
+          id: 'FAKE-1',
+          isResolved: false,
+          isOutdated: false,
+          path: 'a.txt',
+          line: 1,
+          comments: [
+            {
+              id: 'c1',
+              author: 'rev',
+              association: 'MEMBER',
+              body: 'Rename this',
+              url: 'https://code.fake.example/c1',
+              createdAt: '2026-11-01T00:00:00Z',
+            },
+          ],
+        },
+      ],
+      reviews: [],
+      comments: [],
+    };
+    other.state.feedback = { viewer: 'me-on-other', threads: [], reviews: [], comments: [] };
+    const told: string[] = [];
+    const ci = (await watch(told).refresh('shop1')) as SessionCi;
+    expect(ci.repos.map((r) => [r.name, r.host, r.openThreads])).toEqual([
+      ['api', 'fake', 1],
+      ['web', 'other', 0],
+    ]);
+    expect(prStageOf(ci.repos)?.kind).toBe('checks_failing');
+    const review = told.find((t) => t.startsWith('New review feedback'))!;
+    const ciNote = told.find((t) => t.startsWith('CI is failing'))!;
+    expect(review).toContain('on Fakehub');
+    expect(review).toContain('[thread FAKE-1]');
+    expect(ciNote).toContain('`fk builds <n>`');
+    // Each repo's PR is yours by its own host's word (`me` on Fakehub, `me-on-other` on Otherhub): both told, each in its host's commands.
+    expect(ciNote).toContain('#7');
+    expect(ciNote).toContain('#8');
+    expect(ciNote).toContain('`oth builds <n>`');
+    for (const t of told) expect(t).not.toMatch(NO_GITHUB);
+  }, 60_000);
+
+  it("who you are on a host can't be told: its PR is neither yours nor theirs, and nothing of it goes to Claude", async () => {
+    fake.state.feedback = null;
+    other.state.feedback = null;
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], author: 'me' }));
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null; // signed out of Fakehub
+    const told: string[] = [];
+    const w = watch(told);
+    await w.refresh('shop1');
+    expect(told.filter((t) => t.startsWith('CI is failing'))).toEqual([]);
+    fake.state.viewer = 'me'; // signed in again: asked again, and the PR is yours
+    await w.refresh('shop1');
+    expect(told.filter((t) => t.startsWith('CI is failing'))).toHaveLength(1);
+    fake.state.viewer = 'someone-else';
+    const w2: string[] = [];
+    await watch(w2).refresh('shop1');
+    expect(w2.filter((t) => t.startsWith('CI is failing'))).toEqual([]); // theirs: shown, never handed over
+    fake.state.viewer = 'me';
+  }, 60_000);
+
+  /** A review read with one open thread by a trusted reviewer; `viewer`: who it says you are ('' : it can't say). */
+  const oneThread = (viewer: string, comment = 'c9'): ReviewFeedback => ({
+    viewer,
+    threads: [
+      {
+        id: 'FAKE-9',
+        isResolved: false,
+        isOutdated: false,
+        path: 'a.txt',
+        line: 1,
+        comments: [
+          {
+            id: comment,
+            author: 'rev',
+            association: 'MEMBER',
+            body: 'Split this up',
+            url: `https://code.fake.example/${comment}`,
+            createdAt: '2026-11-01T00:00:00Z',
+          },
+        ],
+      },
+    ],
+    reviews: [],
+    comments: [],
+  });
+  const notesOf = (activity: ReturnType<typeof createActivityLog>) =>
+    activity.snapshot().recent.flatMap((r) => r.notes.map((n) => ({ level: n.level, text: n.text })));
+
+  it("who you are can't be told, but the review read says it: that settles whose PR it is (#63 N001)", async () => {
+    other.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null; // `whoami` fails, the review read doesn't
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], author: 'me' }));
+
+    // The read can't say either: the threads are counted, held, and said so; nothing goes to Claude.
+    fake.state.feedback = oneThread('');
+    let told: string[] = [];
+    let activity = createActivityLog();
+    await watch(told, { activity }).tick();
+    expect(told).toEqual([]);
+    expect(notesOf(activity)).toEqual(
+      expect.arrayContaining([
+        {
+          level: 'warn',
+          text: expect.stringContaining(
+            '1 open review thread on #7, but who you are on Fakehub is unknown: not handing it to its Claude until it can tell the PR is yours',
+          ),
+        },
+        { level: 'warn', text: expect.stringContaining('checks fail on #7, but who you are on Fakehub is unknown') },
+      ]),
+    );
+
+    // It says you are its author: yours — the thread and the failing checks go to its Claude.
+    fake.state.feedback = oneThread('me');
+    told = [];
+    await watch(told).refresh('shop1');
+    expect(told.filter((t) => t.startsWith('New review feedback'))).toHaveLength(1);
+    expect(told.filter((t) => t.startsWith('CI is failing'))).toHaveLength(1);
+
+    // It says you are someone else: theirs — shown, never handed over, its threads not counted as owed to you.
+    fake.state.feedback = oneThread('someone-else', 'c10');
+    told = [];
+    activity = createActivityLog();
+    const w = watch(told, { activity });
+    await w.tick();
+    expect(told).toEqual([]);
+    expect(w.state('shop1')?.repos.find((r) => r.name === 'api')?.openThreads).toBeUndefined();
+    expect(notesOf(activity).filter((n) => n.text.includes('unknown'))).toEqual([]);
+    fake.state.viewer = 'me';
+    fake.state.feedback = null;
+  }, 60_000);
+
+  it("GitHub's shape: with who you are unknown the review read answers nothing either — held, and said so (#63 final T1/H4)", async () => {
+    other.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null;
+    fake.state.feedback = null; // GitHub's read is null without a viewer, never an empty one
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], author: 'me' }));
+    const told: string[] = [];
+    const activity = createActivityLog();
+    const w = watch(told, { activity });
+    await w.tick();
+    expect(told).toEqual([]);
+    expect(notesOf(activity)).toEqual(
+      expect.arrayContaining([
+        {
+          level: 'warn',
+          text: expect.stringContaining(
+            "couldn't read the review threads on #7, and who you are on Fakehub is unknown: nothing of it is handed to its Claude",
+          ),
+        },
+        { level: 'warn', text: expect.stringContaining('checks fail on #7, but who you are on Fakehub is unknown') },
+      ]),
+    );
+    expect(w.state('shop1')?.repos.find((r) => r.name === 'api')?.viewer).toBeUndefined();
+    fake.state.viewer = 'me';
+  }, 60_000);
+
+  it('with review comments off, or a PR not open, no review read settles it: CI and conflicts stay held (#63 final T1)', async () => {
+    other.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null;
+    fake.state.feedback = oneThread('me'); // would settle it, were it read
+    fake.state.prs.set(
+      'feat/refunds',
+      openPr(7, api.head, { checks: 'fail', failing: [{ name: 'build' }], mergeStateStatus: 'DIRTY', author: 'me' }),
+    );
+    const told: string[] = [];
+    const activity = createActivityLog();
+    await watch(told, { activity, options: () => ({ autoArchive: false, fixCi: true, reviewComments: false }) }).tick();
+    expect(told).toEqual([]);
+    expect(notesOf(activity).map((n) => n.text)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('checks fail on #7, but who you are on Fakehub is unknown'),
+        expect.stringContaining('merge conflict on #7, but who you are on Fakehub is unknown'),
+      ]),
+    );
+    // A closed PR isn't read for review threads: its viewer stays unknown, nothing goes out.
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { state: 'CLOSED', author: 'me' }));
+    const w = watch(told);
+    await w.refresh('shop1');
+    expect(told).toEqual([]);
+    expect(w.state('shop1')?.repos.find((r) => r.name === 'api')?.viewer).toBeUndefined();
+    fake.state.viewer = 'me';
+    fake.state.feedback = null;
+    fake.state.prs.set('feat/refunds', openPr(7, api.head));
+  }, 60_000);
+
+  it("each repo's check carries who you are on its own host and server; one settled by the review read is written too (#63 final H3)", async () => {
+    other.state.feedback = null;
+    other.state.viewer = 'me-on-other';
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.viewer = null;
+    fake.state.feedback = oneThread('me', 'c11');
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { author: 'me' }));
+    const w = watch([]);
+    const ci = (await w.refresh('shop1')) as SessionCi;
+    expect(ci.repos.map((r) => [r.name, r.viewer])).toEqual([
+      ['api', 'me'],
+      ['web', 'me-on-other'],
+    ]);
+    fake.state.viewer = 'me';
+    fake.state.feedback = null;
+  }, 60_000);
+
+  it("a conflict on a PR whose owner can't be told is held, and said so (#63 N002, N003)", async () => {
+    other.state.feedback = null;
+    fake.state.feedback = null;
+    other.state.prs.set('feat/refunds', openPr(8, web.head, { author: 'me-on-other' }));
+    fake.state.prs.set('feat/refunds', openPr(7, api.head, { mergeStateStatus: 'DIRTY', author: 'me' }));
+    fake.state.viewer = null;
+    const told: string[] = [];
+    const activity = createActivityLog();
+    await watch(told, { activity, options: () => ({ autoArchive: false, fixCi: true, reviewComments: true }) }).tick();
+    expect(told).toEqual([]);
+    expect(notesOf(activity)).toContainEqual({
+      level: 'warn',
+      text: expect.stringContaining(
+        'merge conflict on #7, but who you are on Fakehub is unknown: not asking its Claude until it can tell the PR is yours',
+      ),
+    });
+    fake.state.viewer = 'me'; // known again: the conflict goes to its Claude
+    await watch(told).refresh('shop1');
+    expect(told.filter((t) => /conflict/i.test(t))).toHaveLength(1);
+    fake.state.prs.set('feat/refunds', openPr(7, api.head));
+  }, 60_000);
+
+  it("the host's own words for its API limit: the watch keeps what it knew, tells nobody, and rests that host by name", async () => {
+    const told: string[] = [];
+    let t = Date.now();
+    const activity = createActivityLog({ now: () => t });
+    // The preflight as work web wires it (ci-routes.ts): a resting host isn't asked.
+    const w: ReturnType<typeof createPrWatch> = watch(told, {
+      activity,
+      now: () => t,
+      preflight: (s, o) => shipPreflight(s, defaultRunner, { askGh: watchAskGh(o?.resting, () => false) }),
+    });
+    const stop = w.start(180_000, 60_000);
+    try {
+      fake.state.prs.set('feat/refunds', openPr(7, api.head));
+      const first = await w.refresh('shop1');
+      fake.state.limited = true;
+      told.length = 0;
+      await w.tick();
+      expect(w.state('shop1')).toEqual(first);
+      expect(told).toEqual([]);
+      expect(notesOf(activity)[0]).toEqual({
+        level: 'warn',
+        text: expect.stringContaining('Fakehub says its API limit is spent: keeping what it knew, resting'),
+      });
+      expect(activity.snapshot().schedules[0]).toMatchObject({ kind: 'pr-watch', pausedWhy: "Fakehub's API limit is spent" });
+      // The next sweep: Fakehub rests (not asked), Otherhub is — the session is checked, keeping what it knew.
+      t += 60_000;
+      await w.tick();
+      expect(notesOf(activity)[0]).toEqual({
+        level: 'info',
+        text: expect.stringContaining("Fakehub's API limit is spent: keeping what it knew"),
+      });
+      for (const n of notesOf(activity)) expect(n.text).not.toMatch(NO_GITHUB);
+    } finally {
+      stop();
+      fake.state.limited = false;
+    }
+  }, 60_000);
+});
+
+describe('reply drafts', () => {
+  it('a Fakehub thread is drafted, checked and posted through Fakehub; your own last word is refused', async () => {
+    rememberSent('shop1', [
+      {
+        threadId: 'FAKE-1',
+        repo: 'api',
+        prNumber: 7,
+        url: 'https://code.fake.example/c1',
+        where: 'a.txt:1',
+        reviewer: 'rev',
+        excerpt: 'Rename this',
+      },
+    ]);
+    expect(listReplies('shop1').map((r) => r.threadId)).toEqual(['FAKE-1']);
+    expect(saveDraft('shop1', 'FAKE-1', 'Renamed.').ok).toBe(true);
+    fake.state.threads.set('FAKE-1', { resolved: false, lastAuthor: 'me' });
+    expect(await threadRefusal('FAKE-1', api.path, defaultRunner)).toMatch(/already yours/);
+    fake.state.threads.set('FAKE-1', { resolved: false, lastAuthor: 'rev' });
+    const r = await postReply('shop1', 'FAKE-1', 'Renamed.', { resolve: true, cwd: api.path, run: defaultRunner });
+    expect(r).toEqual({ ok: true, url: 'https://code.fake.example/team/api/pr/7#FAKE-1', resolved: true });
+    expect(fake.state.replies).toEqual([{ id: 'FAKE-1', body: 'Renamed.' }]);
+    expect(fake.state.resolved).toEqual(['FAKE-1']);
+  });
+});
+
+describe('blocked by a PR on another host', () => {
+  it('a Fakehub link is a blocker, and its state is asked of Fakehub', async () => {
+    const url = 'https://code.fake.example/team/api/pr/7';
+    expect(blockRefFrom({ kind: 'pr', url })).toEqual({ kind: 'pr', url, label: 'api!7' });
+    fake.state.prStates.set(url, 'MERGED');
+    expect(await blockedPrState(url, defaultRunner)).toEqual({ state: 'MERGED' });
+  });
+});
+
+describe('Start from a PR, and what its session is told', () => {
+  it("a Fakehub link finds its repo by origin; the prompts use Fakehub's commands", async () => {
+    const r = await resolvePrToStart(
+      'https://code.fake.example/team/api/pr/12',
+      { repos: { api: api.path, web: web.path }, groups: {} },
+      undefined,
+      { run: defaultRunner },
+    );
+    expect(r).toMatchObject({ ok: true, pr: { alias: 'api', number: 12, branch: 'feat/refunds', host: 'fake' } });
+    const first = workOnPrPrompt({ number: 12, title: 'Add refunds', url: 'u', author: 'ana', host: 'fake' });
+    expect(first).toContain('fk show 12');
+    expect(first).toContain("Don't post on Fakehub");
+    const review = prPrompt({
+      number: 12,
+      title: 'Add refunds',
+      branch: 'feat/refunds',
+      url: 'u',
+      isDraft: false,
+      checksStatus: 'FAILURE',
+      reviewDecision: 'CHANGES_REQUESTED',
+      myReview: 'NONE',
+      isMine: true,
+      repoAlias: 'api',
+      host: 'fake',
+    });
+    const theirs = prPrompt({
+      ...{
+        number: 13,
+        title: 'x',
+        branch: 'b',
+        url: 'u',
+        isDraft: false,
+        checksStatus: 'NONE',
+        reviewDecision: 'NONE',
+        myReview: 'NONE',
+        isMine: false,
+        repoAlias: 'api',
+        fork: true,
+        host: 'fake',
+      },
+    });
+    for (const t of [first, review, theirs]) expect(t).not.toMatch(NO_GITHUB);
+    expect(review).toContain('fk builds 12');
+    expect(theirs).toContain('fk fetch 13 --detached');
+  });
+
+  it("a day's commits leave out the ones a host wrote itself (a squash merge), whichever host", () => {
+    // A local day, and a commit at half past midnight local time: a UTC day here failed east of UTC every night.
+    const day = '2026-11-02';
+    const at = new Date(2026, 10, 2, 0, 30).toISOString();
+    const log = [
+      `a1\t${at}\tme@example.com\tmine`,
+      `b2\t${at}\trobot@code.fake.example\tSquash`,
+      `c3\t${at}\tnoreply@github.com\tMerge`,
+    ].join('\n');
+    expect(commitsWrittenOn(log, day).map((c) => c.sha)).toEqual(['a1']);
+  });
+
+  it("the Reviews queue reads a Fakehub PR's discussion through Fakehub, gives it to the AI step, and rests on Fakehub's own words for its limit", async () => {
+    fake.state.limited = false;
+    fake.state.discussionAsked = 0;
+    fake.state.discussion = {
+      threads: [
+        {
+          id: 'FAKE-1',
+          path: 'a.cs',
+          line: 1,
+          side: 'right',
+          outdated: false,
+          resolved: false,
+          comments: [{ author: 'ana', body: 'Use a constant here.', at: '2026-11-01T10:00:00Z' }],
+        },
+      ],
+      reviews: [],
+      comments: [],
+    };
+    const rows = new Map<string, PrReviewWire>();
+    const prompts: string[] = [];
+    let now = new Date('2026-11-02T10:00:00Z');
+    const host: GitHost = {
+      ...fake.host,
+      openPrs: async () => ({
+        ok: true,
+        prs: [
+          {
+            number: 5,
+            title: 'Add a',
+            url: 'https://code.fake.example/team/api/pr/5',
+            branch: 'feat/a',
+            headSha: 'h5',
+            base: 'main',
+            author: 'ana',
+            isDraft: false,
+            additions: 1,
+            deletions: 0,
+            requested: [],
+          },
+        ],
+      }),
+    };
+    const queue = createReviewQueue({
+      projects: () => [{ alias: 'api', path: '/repos/api', mode: 'all' }],
+      hostOf: () => host,
+      run: async () => ({ code: 0, stdout: '', stderr: '' }),
+      prepare: async () => ({
+        ok: true,
+        files: parseGitDiff('diff --git a/a.cs b/a.cs\n--- a/a.cs\n+++ b/a.cs\n@@ -1 +1 @@\n-x\n+y\n'),
+        extras: { whitespaceOnly: new Set(), generated: new Set() },
+        mergeBase: 'mb',
+        headSha: 'h5',
+      }),
+      agent: async (p) => {
+        prompts.push(p);
+        return null;
+      },
+      store: {
+        read: (r, n) => rows.get(`${r}#${n}`) ?? null,
+        update: (r, n, change) => {
+          const was = rows.get(`${r}#${n}`);
+          if (!was) return null;
+          rows.set(`${r}#${n}`, change(was));
+          return rows.get(`${r}#${n}`)!;
+        },
+        upsert: (r, n, change) => {
+          rows.set(`${r}#${n}`, change(rows.get(`${r}#${n}`) ?? null));
+          return rows.get(`${r}#${n}`)!;
+        },
+        all: () => [...rows.values()],
+        keepOnly: () => [],
+      },
+      limits: () => ({ maxPerDay: null, maxLines: 3000 }),
+      changed: () => undefined,
+      now: () => now,
+    });
+    await queue.sweep();
+    expect(fake.state.discussionAsked).toBe(1);
+    expect(rows.get('api#5')?.discussion?.threads[0].id).toBe('FAKE-1');
+    expect(prompts[0]).toContain('Use a constant here.');
+    expect(prompts[0]).not.toMatch(NO_GITHUB);
+    // Fakehub's words for its limit rest it: the last read stays, and it's not asked again for 10 minutes.
+    fake.state.limited = true;
+    now = new Date('2026-11-02T11:00:00Z');
+    expect((await queue.refreshDiscussion('api', 5)).ok).toBe(true);
+    expect(fake.state.discussionAsked).toBe(2);
+    now = new Date('2026-11-02T11:05:00Z');
+    await queue.refreshDiscussion('api', 5);
+    expect(fake.state.discussionAsked).toBe(2);
+    expect(rows.get('api#5')?.discussion?.threads).toHaveLength(1);
+    fake.state.limited = false;
+  });
+});

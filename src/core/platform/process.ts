@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { execFile, spawn, spawnSync } from 'node:child_process';
+import { programPath } from './program-path.js';
 
 /**
  * Process lifecycle rules for the long-lived pieces (work web, the PTY
@@ -16,7 +17,19 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
  *   - Detached `work` children: `detached` + `windowsHide` so no console
  *     window flashes and the child outlives the parent's terminal; output
  *     goes to a log file, never the parent's stdio.
+ *   - Anything else started in the background (an editor, a URL, a toast, a
+ *     status hook): `detached` on POSIX only (`detachHere`). On Windows a
+ *     detached process has no console at all, so every console program it
+ *     starts — cmd.exe running code.cmd, PowerShell — opens a window of its
+ *     own, and `windowsHide` can't stop that (measured: detached flashed a
+ *     Windows Terminal window every time, hidden alone never). A child there
+ *     outlives its parent anyway.
  */
+
+/** Start a background program detached? POSIX yes (its own process group); Windows no — see above. */
+export function detachHere(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32';
+}
 
 export function isPidAlive(pid: number): boolean {
   try {
@@ -113,7 +126,7 @@ export function linuxProcessTable(read: ProcReader = procFs): Map<number, string
 export function processName(pid: number): string | null {
   try {
     if (process.platform === 'win32') {
-      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+      const r = spawnSync(programPath('tasklist'), ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
         encoding: 'utf-8',
         windowsHide: true,
         timeout: 5000,
@@ -122,7 +135,7 @@ export function processName(pid: number): string | null {
       return m && Number(m[2]) === pid ? m[1] : null;
     }
     if (process.platform === 'linux') return isPidAlive(pid) ? linuxProcessName(pid) : null;
-    const r = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf-8', timeout: 5000 });
+    const r = spawnSync(programPath('ps'), ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf-8', timeout: 5000, windowsHide: true });
     const name = (r.stdout ?? '').trim();
     return r.status === 0 && name ? name.split('/').pop()! : null;
   } catch {
@@ -158,7 +171,7 @@ export function processTableAsync(): Promise<Map<number, string>> {
     const win = process.platform === 'win32';
     const [cmd, args] = win ? ['tasklist', ['/FO', 'CSV', '/NH']] : ['ps', ['-A', '-o', 'pid=,comm=']];
     execFile(
-      cmd,
+      programPath(cmd as string),
       args as string[],
       { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 },
       (_err, stdout) => {
@@ -191,8 +204,18 @@ export function processTable(): Map<number, string> {
   try {
     const win = process.platform === 'win32';
     const r = win
-      ? spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 })
-      : spawnSync('ps', ['-A', '-o', 'pid=,comm='], { encoding: 'utf-8', timeout: 8000, maxBuffer: 16 * 1024 * 1024 });
+      ? spawnSync(programPath('tasklist'), ['/FO', 'CSV', '/NH'], {
+          encoding: 'utf-8',
+          windowsHide: true,
+          timeout: 8000,
+          maxBuffer: 16 * 1024 * 1024,
+        })
+      : spawnSync(programPath('ps'), ['-A', '-o', 'pid=,comm='], {
+          encoding: 'utf-8',
+          timeout: 8000,
+          windowsHide: true,
+          maxBuffer: 16 * 1024 * 1024,
+        });
     return parseProcessTable(r.stdout ?? '', win);
   } catch {
     return new Map(); // unreadable: nothing is known to be alive
@@ -207,7 +230,7 @@ export function bootTime(): number {
 /** Kill a process AND its children. True if the kill was delivered. */
 export function killTree(pid: number): boolean {
   if (process.platform === 'win32') {
-    return spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).status === 0;
+    return spawnSync(programPath('taskkill'), ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).status === 0;
   }
   try {
     process.kill(pid);
@@ -215,6 +238,18 @@ export function killTree(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/** killTree, not blocking the event loop (taskkill takes a few hundred ms): for a server killing several at once. */
+export function killTreeAsync(pid: number): Promise<boolean> {
+  // Already gone counts as stopped, as with taskkill below: it's what the caller wanted.
+  if (process.platform !== 'win32') return Promise.resolve(killTree(pid) || !isPidAlive(pid));
+  return new Promise((resolve) =>
+    // taskkill fails the whole call when one child had already exited or won't go; the top gone is what counts.
+    execFile(programPath('taskkill'), ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, (err) =>
+      resolve(!err || !isPidAlive(pid)),
+    ),
+  );
 }
 
 /**

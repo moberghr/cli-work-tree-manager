@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { resolveHighlightLang } from '../../utils/highlight.js';
 import { STATUS_LETTER } from '../../utils/status.js';
@@ -6,12 +6,12 @@ import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
 import { GapRegion } from './GapRegion.js';
 import { NewFileView } from './NewFileView.js';
-import { useReviewedHunks } from '../../hooks/use-reviewed-hunks.js';
 import { revealInScroller } from '../../utils/scroll.js';
 import { hunkContentKey } from '../../utils/hunk-key.js';
 import { computeGaps } from '../../utils/expand.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
 import { useExpandOptional } from '../../state/ExpandProvider.js';
+import { useFileContext } from '../../hooks/use-file-context.js';
 import { useReviewOptional, useReview } from '../../state/ReviewProvider.js';
 import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentItem } from '../Review/CommentItem.js';
@@ -29,8 +29,12 @@ interface Props {
   viewed?: boolean;
   /** Toggle the viewed flag. Wired by the parent so it can persist. */
   onToggleViewed?: (next: boolean) => void;
-  /** Scope key for per-hunk reviewed state. Empty disables persistence. */
-  hunkScopeKey?: string;
+  /** A new file's leading import lines folded into one row (the Reviews tab). */
+  foldImports?: boolean;
+  /** Shown under the header, above the code, while the file is open (the Reviews tab: what changed here). */
+  note?: ReactNode;
+  /** Not drawn until "Load diff", with this said instead (the Reviews tab's Files view: a generated file, as GitHub does). */
+  deferred?: string;
 }
 
 /** Lines (added + deleted) past which we don't auto-render the diff
@@ -41,8 +45,7 @@ interface Props {
  *  the genuine pathology. */
 const AUTO_COLLAPSE_LINES = 500;
 
-export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, hunkScopeKey }: Props) {
-  const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(hunkScopeKey ?? '');
+export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, foldImports, note, deferred }: Props) {
   // Split (side-by-side) vs unified (inline) layout — a global, persisted
   // preference. Drives the table's column layout here; DiffHunk and GapRegion
   // read the same mode to emit matching rows.
@@ -67,6 +70,8 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
   // line-by-line highlighting would lose it. React owns the DOM via
   // dangerouslySetInnerHTML — no post-paint mutation.
   const lang = useMemo(() => (file.isBinary ? null : resolveHighlightLang(file.path)), [file.isBinary, file.path]);
+  // The file above each hunk, so one starting inside a string or comment is coloured right (use-file-context.ts).
+  const context = useFileContext(file, repo, lang, expand);
 
   // Large-file gate. Auto-generated migrations / lockfile churn / bundle
   // diffs can have tens of thousands of rows; rendering them all at once
@@ -75,7 +80,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
   // on scope switch which is the right reset point).
   const totalChanged = file.added + file.deleted;
   const isLarge = totalChanged >= AUTO_COLLAPSE_LINES;
-  const [expanded, setExpanded] = useState(!isLarge);
+  const [expanded, setExpanded] = useState(!isLarge && !deferred);
 
   // GitHub-style per-file fold. The chevron in the header collapses the
   // whole file body. A file starts folded when it carries no diff worth
@@ -273,6 +278,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
           </label>
         )}
       </header>
+      {note && !collapsed && <div className="wd-file-note">{note}</div>}
       {fileCommentsOn && <FileCommentSection repo={repo!} file={file.path} />}
       {!collapsed &&
         (hasPreview && viewMode !== 'diff' ? (
@@ -284,15 +290,19 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
         ) : !expanded ? (
           <div className="wd-binary wd-large-file">
             <p>
-              Large file — {totalChanged.toLocaleString()} line
-              {totalChanged === 1 ? '' : 's'} changed. Not rendered by default.
+              {deferred ?? (
+                <>
+                  Large file — {totalChanged.toLocaleString()} line
+                  {totalChanged === 1 ? '' : 's'} changed. Not rendered by default.
+                </>
+              )}
             </p>
             <button type="button" className="wd-btn-secondary" onClick={() => setExpanded(true)}>
               Load diff
             </button>
           </div>
         ) : file.status === 'added' ? (
-          <NewFileView file={file} lang={lang} review={review} repo={repo} />
+          <NewFileView file={file} lang={lang} review={review} repo={repo} foldImports={foldImports} />
         ) : (
           <table className={'wd-diff-table ' + (diffMode === 'unified' ? 'wd-unified' : 'wd-side')}>
             <colgroup>
@@ -314,6 +324,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
             <tbody>
               {repo && gapByKey.has('head') && (
                 <GapRegion
+                  context={context}
                   repo={repo}
                   file={file.path}
                   gap={gapByKey.get('head')!}
@@ -352,12 +363,12 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
                       repo={repo}
                       file={file.path}
                       lang={lang}
-                      reviewed={reviewedHunkKeys.has(hunkKey)}
-                      onToggleReviewed={hunkScopeKey ? (next: boolean) => toggleHunk(hunkKey, next) : undefined}
+                      context={context}
                       showHeading={showOwnHeading}
                     />
                     {repo && midGap && (
                       <GapRegion
+                        context={context}
                         repo={repo}
                         file={file.path}
                         gap={midGap}
@@ -369,7 +380,9 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
                   </Fragment>
                 );
               })}
-              {repo && gapByKey.has('tail') && <GapRegion repo={repo} file={file.path} gap={gapByKey.get('tail')!} lang={lang} />}
+              {repo && gapByKey.has('tail') && (
+                <GapRegion context={context} repo={repo} file={file.path} gap={gapByKey.get('tail')!} lang={lang} />
+              )}
             </tbody>
           </table>
         ))}

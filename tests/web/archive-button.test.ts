@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 const h = vi.hoisted(() => ({ setArchived: vi.fn() }));
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
-  setArchived: (id: string, archived: boolean) => h.setArchived(id, archived),
+  setArchived: (id: string, archived: boolean, _confirm: unknown, opts: unknown) => h.setArchived(id, archived, opts),
 }));
 
 const { ArchiveButton } = await import('../../src/web/src/components/Dashboard/SessionDetail.js');
@@ -27,6 +27,13 @@ afterEach(() => {
 });
 
 describe('ArchiveButton (the session header)', () => {
+  it("Archive asks with the session's name", async () => {
+    h.setArchived.mockResolvedValue({ ok: true });
+    act(() => root.render(createElement(ArchiveButton, { sessionId: 's1', name: 'feat/x', archived: false })));
+    await act(async () => container.querySelector<HTMLButtonElement>('.wd-session-archive')!.click());
+    expect(h.setArchived).toHaveBeenCalledWith('s1', true, { name: 'feat/x' });
+  });
+
   it('a Restore refused: why goes to the header (onError), the button says ⚠ and keeps it as its tooltip', async () => {
     const why = "Couldn't restore it: a file in its folder is in use (Visual Studio?): close it and try again";
     h.setArchived.mockRejectedValue(new Error(why));

@@ -42,10 +42,13 @@ describe('runStatusHooks', () => {
     const opts = spawnMock.mock.calls[0][1] as Record<string, unknown>;
     expect(opts.cwd).toBe('/work/dir');
     expect(opts.shell).toBe(true);
-    expect(opts.detached).toBe(true);
+    expect(opts.detached).toBe(process.platform !== 'win32'); // detached on Windows would flash a console window
+    expect(opts.windowsHide).toBe(true);
     const env = opts.env as Record<string, string>;
     expect(env.WORK_SESSION).toBe('dir');
     expect(env.WORK_STATUS).toBe('needs_input');
+    // Windows: cmd.exe takes the hook's program from PATH, never the worktree it runs in (shell-env.ts).
+    expect(env.NoDefaultCurrentDirectoryInExePath).toBe(process.platform === 'win32' ? '1' : undefined);
   });
 
   it('does not propagate when spawn throws', () => {

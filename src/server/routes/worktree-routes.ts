@@ -3,7 +3,9 @@ import { forgetCatchUp } from '../../core/conversations/catch-up.js';
 import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import crossSpawn from 'cross-spawn';
+import crossSpawn from '../../core/platform/spawn.js';
+import { programPath } from '../../core/platform/program-path.js';
+import { whenStarted } from '../../core/platform/started.js';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -19,6 +21,9 @@ import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-
 import { startSessionWithPrompt, type StartOutcome } from '../../core/sessions/session-start.js';
 import { resolvePrToStart, type PrStartResult } from '../../core/pr/pr-start.js';
 import type { PrStartWire } from '../../core/api-types.js';
+import { codeFilePath } from '../../core/worktree/code-browse.js';
+import { editorArgs } from '../../core/platform/launch.js';
+import { detachHere } from '../../core/platform/process.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -40,7 +45,7 @@ export interface WorktreeMutOptions {
  *   DELETE /api/sessions/:id/worktree — remove (force / sessionOnly flags)
  *   POST   /api/sessions/:id/sync     — git fetch (+ pull where safe)
  *   POST   /api/sessions/:id/rebase   — rebase on detected/recorded parent
- *   POST   /api/sessions/:id/open-editor — spawn `code <path>`
+ *   POST   /api/sessions/:id/open-editor — spawn `code <path>` ({repo, path, line}: that file, at that line)
  *   POST   /api/sessions/:id/open-terminal — Windows Terminal tab running
  *                                           `work attach` for the session
  *
@@ -59,6 +64,8 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     prompt: z.string().max(20_000).optional(),
     /** Name the session (its title); the branch stays its identity. */
     name: z.string().max(120).optional(),
+    /** The Claude account a new session runs on (a name from `work account list`); empty: the configured default. */
+    account: z.string().max(64).optional(),
   });
   const startSession = opts.startSession ?? startSessionWithPrompt;
   const create = opts.create ?? createInProcess;
@@ -76,6 +83,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   });
   app.post('/api/worktrees', zValidator('json', createSchema), async (c) => {
     const { target, base, jiraKey, prompt, name } = c.req.valid('json');
+    const account = c.req.valid('json').account?.trim() || undefined;
     const config = loadConfig();
     if (!config) return c.json({ error: 'no config' }, 400);
     const wanted = c.req.valid('json').branch?.trim() ?? '';
@@ -86,7 +94,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
       // No branch: the repo's own checkout, as `work tree <repo>` opens it.
       // A failure says why (core's reports, or the child run's errors).
       const made = await create(
-        { target, branch: wanted || undefined, base: base?.trim() ? toBaseSpec(base.trim()) : undefined, jiraKey, name },
+        { target, branch: wanted || undefined, base: base?.trim() ? toBaseSpec(base.trim()) : undefined, jiraKey, name, account },
         config,
       );
       if (!made.ok) return c.json({ error: made.error }, 400);
@@ -112,6 +120,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
         sessionId: id,
         launchDir: result.launchDir,
         paths: result.paths,
+        ...(made.warnings?.length ? { warnings: made.warnings } : {}),
         ...(started ? { started } : {}),
         ...(startError ? { startError } : {}),
       });
@@ -243,14 +252,33 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   });
 
   // -- Open in editor ----------------------------------------------------
+  // No body: the worktree. {repo, path, line} (the Code tab): that file, in
+  // the worktree's window, at the line where the editor takes one — only a
+  // file the Code tab may show (codeFilePath), never a path from the browser.
+  const openFileSchema = z.object({
+    repo: z.string().max(200),
+    path: z.string().min(1).max(4096),
+    line: z.number().int().positive().max(10_000_000).optional(),
+  });
   app.post('/api/sessions/:id/open-editor', async (c) => {
     const id = c.req.param('id');
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
+    const body: unknown = await c.req.json().catch(() => ({}));
+    const wantsFile = !!body && typeof body === 'object' && 'path' in body;
+    const asked = wantsFile ? openFileSchema.safeParse(body) : null;
+    if (asked && !asked.success) return c.json({ error: 'repo and path required' }, 400);
     // Open the worktree (or group root) in VS Code. Detached + ignored
     // stdio so the spawn returns immediately and the parent doesn't
     // hold on to a zombie.
-    const target = session.isGroup ? path.dirname(session.paths[0]) : session.paths[0];
+    const folder = session.isGroup ? path.dirname(session.paths[0]) : session.paths[0];
+    let file: { path: string; line?: number } | undefined;
+    if (asked?.success) {
+      const at = await codeFilePath(session, asked.data.repo, asked.data.path);
+      if ('error' in at) return c.json({ error: at.error }, at.error === 'unreadable' ? 500 : 404);
+      file = { path: at.real, line: asked.data.line };
+    }
+    const target = file?.path ?? folder;
     // cross-spawn, not node's spawn: the editor is usually a `.cmd` shim on
     // Windows (code.cmd), which node refuses to run without a shell since
     // the BatBadBut fix (EINVAL) — and a shell would interpret `&` etc. in
@@ -258,7 +286,14 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     const editor = loadConfig()?.editor?.trim() || 'code';
     const failed = await new Promise<string | null>((resolve) => {
       try {
-        const child = crossSpawn(editor, [target], { detached: true, stdio: 'ignore', windowsHide: true });
+        // Not detached on Windows: cmd.exe running code.cmd would then flash a console window (process.ts).
+        // keepCwdLookup: the editor is no tool run — its own terminals and tasks would inherit shellEnv's switch (spawn.ts).
+        const child = crossSpawn(editor, editorArgs(editor, folder, file), {
+          detached: detachHere(),
+          stdio: 'ignore',
+          windowsHide: true,
+          keepCwdLookup: true,
+        });
         // A missing editor surfaces as 'error' — on Windows only when the
         // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
         // so wait for an error, an exit, or a moment of it running.
@@ -287,7 +322,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   // argv array, no shell (§1.1). wt splits its OWN command line on `;`,
   // so a path or title containing one is refused/stripped rather than
   // escaped.
-  app.post('/api/sessions/:id/open-terminal', (c) => {
+  app.post('/api/sessions/:id/open-terminal', async (c) => {
     const id = c.req.param('id');
     const session = findSession(id);
     const spec = session ? spawnSpecFor(session) : null;
@@ -299,19 +334,22 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
       return c.json({ error: 'worktree path contains ";", which wt.exe cannot take' }, 400);
     }
     const title = `${session.target} · ${session.branch || '(base)'}`.replace(/;/g, ' ');
+    let child: ReturnType<typeof spawn>;
     try {
-      const child = spawn('wt.exe', ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'], {
-        detached: true,
+      child = spawn(programPath('wt.exe'), ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'], {
         stdio: 'ignore',
         shell: false,
+        windowsHide: false, // a Windows Terminal tab: the window is what was asked for
+        // node's spawn, not work's wrapper: no shellEnv — the shell in the tab is the user's (shell-env.ts).
       });
-      // A missing wt.exe fails asynchronously, after we've answered —
-      // swallow it so it can't crash the server.
-      child.on('error', () => {});
-      child.unref();
-      return c.json({ ok: true });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);
     }
+    // A missing wt.exe fails after spawn() returns: wait for it to start (or not) and answer that, never "ok" for a
+    // window that didn't open. Its later errors are swallowed so they can't crash the server.
+    const why = await whenStarted(child);
+    child.unref();
+    if (why) return c.json({ error: `Windows Terminal didn't start: ${why}` }, 500);
+    return c.json({ ok: true });
   });
 }

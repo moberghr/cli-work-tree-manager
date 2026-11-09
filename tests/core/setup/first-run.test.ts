@@ -74,6 +74,14 @@ describe('saveFolders', () => {
     });
   });
 
+  it('refuses a worktrees folder it cannot make, saying why in words, and writes no config', async () => {
+    fs.writeFileSync(path.join(home, 'blocker'), 'a file');
+    await expect(saveFolders({ worktreesRoot: path.join(home, 'blocker', 'wt'), reposFolder: home })).rejects.toThrow(
+      /Worktrees folder: can't create .*: a file is in the way — pick a folder you own/,
+    );
+    expect(fs.existsSync(path.join(home, '.work', 'config.json'))).toBe(false);
+  });
+
   it('refuses a relative or missing folder, saying which', async () => {
     await expect(saveFolders({ worktreesRoot: 'wt', reposFolder: home })).rejects.toThrow(/Worktrees folder: wt isn't a full path/);
     await expect(saveFolders({ worktreesRoot: path.join(home, 'wt'), reposFolder: path.join(home, 'nope') })).rejects.toThrow(
@@ -101,6 +109,60 @@ describe('checkTools', () => {
     expect(tools[0].detail).toBe('git version 2.47.0');
     expect(tools[1].detail).toMatch(/Install Claude Code/);
     expect(tools[2].detail).toMatch(/gh auth login/);
+  });
+
+  it('az is listed (after gh) only when an enrolled repo is on Azure DevOps', async () => {
+    let azAnswers: (args: string[]) => { code: number; stdout: string; stderr: string } = (args) =>
+      args[0] === 'extension'
+        ? { code: 0, stdout: '{"name":"azure-devops"}', stderr: '' }
+        : { code: 1, stdout: '', stderr: 'Please run az login' };
+    const asked: string[][] = [];
+    const run: CommandRunner = async (cmd, args) => {
+      if (cmd === 'az') asked.push(args);
+      return cmd === 'az' ? azAnswers(args) : { code: 0, stdout: `${cmd} 1\n`, stderr: '' };
+    };
+    const repo = (name: string, origin: string) => {
+      const p = path.join(home, 'repos', name);
+      fs.mkdirSync(path.join(p, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(p, '.git', 'config'), `[remote "origin"]\n\turl = ${origin}\n`);
+      return p;
+    };
+    const write = (repos: Record<string, string>) => {
+      fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
+      fs.writeFileSync(getConfigPath(), JSON.stringify({ worktreesRoot: path.join(home, 'wt'), repos, groups: {} }));
+    };
+    write({ web: repo('web', 'https://github.com/acme/web.git') });
+    expect((await checkTools(run)).map((t) => t.id)).toEqual(['git', 'claude', 'gh', 'acli']);
+    write({ web: repo('web', 'https://github.com/acme/web.git'), api: repo('api', 'https://dev.azure.com/acme/Shop/_git/api') });
+    const tools = await checkTools(run);
+    expect(tools.map((t) => [t.id, t.ok, t.needed])).toEqual([
+      ['git', true, true],
+      ['claude', true, true],
+      ['gh', true, false],
+      ['az', false, false],
+      ['acli', true, false],
+    ]);
+    expect(tools[3].detail).toMatch(/az login/);
+    expect(asked).toEqual([
+      ['extension', 'show', '--name', 'azure-devops'],
+      ['account', 'show'],
+    ]);
+
+    // Signed in, but without the azure-devops extension (`az account show` alone passes): said so, how to add it.
+    azAnswers = (args) =>
+      args[0] === 'extension'
+        ? { code: 1, stdout: '', stderr: 'ERROR: The extension azure-devops is not installed.' }
+        : { code: 0, stdout: '{}', stderr: '' };
+    const noExt = (await checkTools(run))[3];
+    expect(noExt.ok).toBe(false);
+    expect(noExt.detail).toMatch(/az extension add --name azure-devops/);
+    expect(noExt.detail).not.toMatch(/az login/);
+
+    // az itself missing: the install line; everything there: ok.
+    azAnswers = () => ({ code: 127, stdout: '', stderr: '' });
+    expect((await checkTools(run))[3].detail).toMatch(/install the Azure CLI/);
+    azAnswers = (args) => ({ code: 0, stdout: args[0] === 'account' ? 'signed in\n' : '{}', stderr: '' });
+    expect((await checkTools(run))[3]).toMatchObject({ ok: true, detail: 'signed in' });
   });
 });
 

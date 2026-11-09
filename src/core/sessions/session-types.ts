@@ -8,6 +8,18 @@ export interface WorktreeSession {
   isGroup: boolean;
   branch: string;
   paths: string[];
+  /** The repo alias each of `paths` is a checkout of: same order and length.
+   *  The session owns this list (a group's may differ from the group's config
+   *  now). Absent on rows from before it was recorded: read it through
+   *  `sessionRepos` / `sessionAliases` (session-repos.ts), which derive those. */
+  repos?: string[];
+  /** How its folder's instructions file is made, recorded so a Restore (whose
+   *  worktree, file and all, was removed) makes it the same way whatever config
+   *  says now: `imports` = a work block importing each repo's own
+   *  (session-instructions.ts); `summary+imports` = the group's copied summary
+   *  with that block after it (a group session a repo was added to). Absent: the
+   *  group's copied summary (`~/.work/<group>.claude.md`), as before. */
+  instructions?: SessionInstructions;
   createdAt: string;
   lastAccessedAt: string;
   jiraKey?: string;
@@ -26,15 +38,21 @@ export interface WorktreeSession {
    *  be lost, its branch kept. Re-entering it with `work tree` (or Restore)
    *  recreates the worktree and clears it. */
   archivedAt?: string;
-  /** The AI tool was last launched with `--unsafe` (skip-permissions).
-   *  Untrusted text (PR review comments) is never auto-delivered to it. */
+  /** From before `--unsafe` was retired: its agent was last launched directly with the skip-permissions flag.
+   *  Written no more; read only by legacy-unsafe.ts for one release, and cleared by a current direct launch
+   *  when no agent of the session still runs (`clearLaunchedUnsafeWhenIdle`). REMOVE IN THE NEXT RELEASE. */
   launchedUnsafe?: boolean;
   /** The agent it runs (`claude`, `codex`, …: agents/), recorded when it was
    *  created — when work has an adapter for it — so changing the default
    *  (config `aiCommand`) doesn't change what an existing session runs.
    *  Absent: from before, or an unknown command; it follows `aiCommand`. */
   agent?: string;
+  /** The Claude account it runs on (a name from config `claudeAccounts`); absent = the default account (`~/.claude`), as every row from before. */
+  account?: string;
   /** The name you gave it (the dashboard's rename); otherwise it is named
    *  after its first prompt (session-title.ts). */
   title?: string;
 }
+
+/** How a session folder's instructions file is made (WorktreeSession.instructions). */
+export type SessionInstructions = 'imports' | 'summary+imports';

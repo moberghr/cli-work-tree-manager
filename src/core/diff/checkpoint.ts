@@ -39,6 +39,7 @@ import path from 'node:path';
 import spawn from '../platform/spawn.js';
 import { atomicWriteFile, ensureFile, withFileLock } from '../platform/fs-safe.js';
 import { runGitAsync, writeTempTreeAsync } from './git-tree-snapshot.js';
+import { checkedOutBranch } from '../git/git-head.js';
 
 export interface CheckpointEntry {
   /** Monotonic per-scope sequence id, starting at 0 for the initial
@@ -54,6 +55,15 @@ export interface CheckpointEntry {
    *  commits), the value is null — diff ranges that touch it on the
    *  "from" side fall back to the empty tree. */
   repos: Record<string, string | null>;
+  /** Per repo (keyed as `repos`), the branch checked out when it was taken (null: detached). A turn whose
+   *  branch differs from the one before it crossed a branch switch: its diff is the switch, not a revert.
+   *  Absent on entries from before. */
+  branches?: Record<string, string | null>;
+}
+
+/** Each repo's checked-out branch now (HEAD files, no git). */
+export function branchesOf(repos: ScopeRepo[]): Record<string, string | null> {
+  return Object.fromEntries(repos.map((r) => [r.name, checkedOutBranch(r.root)]));
 }
 
 export interface CheckpointManifest {
@@ -116,6 +126,22 @@ export function loadManifest(scopeHash: string): CheckpointManifest {
  * Internally uses a temp `GIT_INDEX_FILE` so the user's real index is
  * untouched. The temp file is unlinked on success and on most failures.
  */
+/** A commit's (or rev's) tree, off the event loop; null when git can't say. */
+async function treeOfAsync(root: string, rev: string | null): Promise<string | null> {
+  if (!rev) return null;
+  const r = await runGitAsync(root, { args: ['rev-parse', `${rev}^{tree}`] });
+  return r.status === 0 ? r.stdout.trim() || null : null;
+}
+
+/** Every repo's tree of `a` equals its tree of `b` (each known). */
+async function sameTrees(repos: ScopeRepo[], a: (r: ScopeRepo) => string | null, b: (r: ScopeRepo) => string | null): Promise<boolean> {
+  for (const repo of repos) {
+    const cur = await treeOfAsync(repo.root, a(repo));
+    if (cur === null || cur !== (await treeOfAsync(repo.root, b(repo)))) return false;
+  }
+  return true;
+}
+
 export async function snapshotRepo(repoRoot: string, scopeHash: string, id: number, includeWorkingTree = true): Promise<string | null> {
   // Build the tree (HEAD baseline, or full working tree) via the shared
   // temp-index helper — same dance `diff-pipeline.ts` uses to diff against
@@ -202,15 +228,9 @@ export async function takeCheckpoint(
     // `update-ref -d` is a no-op on a missing ref, so the same helper
     // covers "rollback what we wrote" and "rollback what we might
     // have written" without needing per-repo state.
-    const rollbackRefs = () => {
+    const rollbackRefs = async () => {
       const refName = `refs/wd/${scopeHash}/${nextId}`;
-      for (const repo of repos) {
-        spawn.sync('git', ['update-ref', '-d', refName], {
-          cwd: repo.root,
-          encoding: 'utf-8',
-          windowsHide: true,
-        });
-      }
+      for (const repo of repos) await runGitAsync(repo.root, { args: ['update-ref', '-d', refName] });
     };
 
     // If any repo snapshot failed (returned null), bail — a partial
@@ -219,7 +239,7 @@ export async function takeCheckpoint(
     // in scope-routes) instead of surfacing the problem. The next
     // fs-event will retry.
     if (repos.some((r) => captured[r.name] === null)) {
-      rollbackRefs();
+      await rollbackRefs();
       return null;
     }
 
@@ -232,19 +252,13 @@ export async function takeCheckpoint(
     // exactly what the user expects from "no changes since last snapshot".
     if (!opts.force && !isFirst) {
       const prev = manifest.entries[manifest.entries.length - 1];
-      const treeOf = (root: string, commitSha: string | null): string | null => {
-        if (!commitSha) return null;
-        const r = spawn.sync('git', ['rev-parse', `${commitSha}^{tree}`], { cwd: root, encoding: 'utf-8', windowsHide: true });
-        if (r.status !== 0 || typeof r.stdout !== 'string') return null;
-        return r.stdout.trim() || null;
-      };
-      const allTreesMatch = repos.every((repo) => {
-        const curTree = treeOf(repo.root, captured[repo.name]);
-        const prevTree = treeOf(repo.root, prev.repos[repo.name] ?? null);
-        return curTree !== null && curTree === prevTree;
-      });
+      const allTreesMatch = await sameTrees(
+        repos,
+        (r) => captured[r.name],
+        (r) => prev.repos[r.name] ?? null,
+      );
       if (allTreesMatch) {
-        rollbackRefs();
+        await rollbackRefs();
         return null;
       }
     }
@@ -253,6 +267,7 @@ export async function takeCheckpoint(
       id: nextId,
       ts: new Date().toISOString(),
       repos: captured,
+      branches: branchesOf(repos),
     };
     const label = opts.label ?? (isFirst ? 'Initial' : undefined);
     if (label) entry.label = label;
@@ -312,22 +327,10 @@ export async function updateCheckpoint(scopeHash: string, repos: ScopeRepo[], id
     if (!entry) return { status: 'missing' as const };
 
     const refName = `refs/wd/${scopeHash}/${id}`;
-    const restoreRefs = () => {
+    const restoreRefs = async () => {
       for (const repo of repos) {
         const old = entry.repos[repo.name] ?? null;
-        if (old) {
-          spawn.sync('git', ['update-ref', refName, old], {
-            cwd: repo.root,
-            encoding: 'utf-8',
-            windowsHide: true,
-          });
-        } else {
-          spawn.sync('git', ['update-ref', '-d', refName], {
-            cwd: repo.root,
-            encoding: 'utf-8',
-            windowsHide: true,
-          });
-        }
+        await runGitAsync(repo.root, { args: old ? ['update-ref', refName, old] : ['update-ref', '-d', refName] });
       }
     };
 
@@ -338,31 +341,22 @@ export async function updateCheckpoint(scopeHash: string, repos: ScopeRepo[], id
       captured[repo.name] = await snapshotRepo(repo.root, scopeHash, id, true);
     }
     if (repos.some((r) => captured[r.name] === null)) {
-      restoreRefs();
+      await restoreRefs();
       return { status: 'missing' as const };
     }
 
-    const treeOf = (root: string, commitSha: string | null): string | null => {
-      if (!commitSha) return null;
-      const r = spawn.sync('git', ['rev-parse', `${commitSha}^{tree}`], {
-        cwd: root,
-        encoding: 'utf-8',
-        windowsHide: true,
-      });
-      if (r.status !== 0 || typeof r.stdout !== 'string') return null;
-      return r.stdout.trim() || null;
-    };
-    const unchanged = repos.every((repo) => {
-      const curTree = treeOf(repo.root, captured[repo.name]);
-      const prevTree = treeOf(repo.root, entry.repos[repo.name] ?? null);
-      return curTree !== null && curTree === prevTree;
-    });
+    const unchanged = await sameTrees(
+      repos,
+      (r) => captured[r.name],
+      (r) => entry.repos[r.name] ?? null,
+    );
     if (unchanged) {
-      restoreRefs();
+      await restoreRefs();
       return { status: 'unchanged' as const };
     }
 
     entry.repos = captured;
+    entry.branches = branchesOf(repos);
     entry.ts = new Date().toISOString();
     delete entry.label; // content changed → re-summarise
     atomicWriteFile(file, JSON.stringify(manifest, null, 2));
@@ -398,26 +392,20 @@ export async function resetBaseline(scopeHash: string, repos: ScopeRepo[]): Prom
       captured[repo.name] = await snapshotRepo(repo.root, scopeHash, 0, false);
     }
 
-    const delRef = (id: number) => {
-      for (const repo of repos) {
-        spawn.sync('git', ['update-ref', '-d', `refs/wd/${scopeHash}/${id}`], {
-          cwd: repo.root,
-          encoding: 'utf-8',
-          windowsHide: true,
-        });
-      }
+    const delRef = async (id: number) => {
+      for (const repo of repos) await runGitAsync(repo.root, { args: ['update-ref', '-d', `refs/wd/${scopeHash}/${id}`] });
     };
 
     // Any repo failed → undo the partial id-0 write, leave the old manifest.
     if (repos.some((r) => captured[r.name] === null)) {
-      delRef(0);
+      await delRef(0);
       return null;
     }
 
     // Drop every previous step's ref except id 0 (just overwritten with the
     // fresh Initial). These are the now-orphaned snapshots being discarded.
     for (const id of prevIds) {
-      if (id !== 0) delRef(id);
+      if (id !== 0) await delRef(id);
     }
 
     const entry: CheckpointEntry = {
@@ -425,6 +413,7 @@ export async function resetBaseline(scopeHash: string, repos: ScopeRepo[]): Prom
       ts: new Date().toISOString(),
       label: 'Initial',
       repos: captured,
+      branches: branchesOf(repos),
     };
     const manifest: CheckpointManifest = {
       version: 1,
@@ -469,28 +458,21 @@ export async function setCheckpointLabel(scopeHash: string, id: number, label: s
  * when every recorded tree still matches (uncommitted edits don't move HEAD's
  * tree, so a dirty-but-not-advanced worktree is correctly left alone).
  */
-export function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRepo[]): boolean {
+export async function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRepo[]): Promise<boolean> {
   const manifest = loadManifest(scopeHash);
   const initial = manifest.entries.find((e) => e.id === 0);
   if (!initial) return false;
-  const treeOf = (root: string, rev: string): string | null => {
-    const r = spawn.sync('git', ['rev-parse', `${rev}^{tree}`], {
-      cwd: root,
-      encoding: 'utf-8',
-      windowsHide: true,
-    });
-    if (r.status !== 0 || typeof r.stdout !== 'string') return null;
-    return r.stdout.trim() || null;
-  };
-  return repos.some((repo) => {
-    const headTree = treeOf(repo.root, 'HEAD');
-    if (headTree === null) return false; // can't resolve HEAD → don't reset
+  // Off the event loop: this runs on every turn of every session.
+  for (const repo of repos) {
+    const headTree = await treeOfAsync(repo.root, 'HEAD');
+    if (headTree === null) continue; // can't resolve HEAD → don't reset
     const baselineSha = initial.repos[repo.name];
     if (!baselineSha) return true; // baseline had no commit, HEAD exists now
-    const baselineTree = treeOf(repo.root, baselineSha);
-    if (baselineTree === null) return false; // baseline ref gone → leave it
-    return baselineTree !== headTree;
-  });
+    const baselineTree = await treeOfAsync(repo.root, baselineSha);
+    if (baselineTree === null) continue; // baseline ref gone → leave it
+    if (baselineTree !== headTree) return true;
+  }
+  return false;
 }
 
 /**
@@ -503,33 +485,36 @@ export function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRepo[]):
  * (`origin/HEAD`: a fast-forward pull, a rebase onto main) — true; only new
  * commits of its own on top — false. Can't tell (git failed): false.
  */
-export function headBroughtInOtherWork(scopeHash: string, repos: ScopeRepo[]): boolean {
+export async function headBroughtInOtherWork(scopeHash: string, repos: ScopeRepo[]): Promise<boolean> {
   const entries = loadManifest(scopeHash).entries;
   if (entries.length === 0) return false;
   const newest = entries.reduce((a, b) => (b.id > a.id ? b : a));
-  const run = (root: string, args: string[]) => {
-    const r = spawn.sync('git', args, { cwd: root, encoding: 'utf-8', windowsHide: true });
-    return { ok: r.status === 0, out: typeof r.stdout === 'string' ? r.stdout.trim() : '' };
+  // Off the event loop: this runs on every turn of every session, up to seven git calls a repo.
+  const run = async (root: string, args: string[]) => {
+    const r = await runGitAsync(root, { args });
+    return { ok: r.status === 0, out: r.stdout.trim() };
   };
-  const count = (root: string, args: string[]) => {
-    const r = run(root, ['rev-list', '--count', ...args]);
+  const count = async (root: string, args: string[]) => {
+    const r = await run(root, ['rev-list', '--count', ...args]);
     return r.ok && /^\d+$/.test(r.out) ? Number(r.out) : null;
   };
-  return repos.some((repo) => {
+  const broughtIn = async (repo: ScopeRepo): Promise<boolean> => {
     const snap = newest.repos[repo.name];
     if (!snap) return false;
-    const was = run(repo.root, ['rev-parse', '--verify', '--quiet', `${snap}^`]);
-    const now = run(repo.root, ['rev-parse', '--verify', '--quiet', 'HEAD']);
+    const was = await run(repo.root, ['rev-parse', '--verify', '--quiet', `${snap}^`]);
+    const now = await run(repo.root, ['rev-parse', '--verify', '--quiet', 'HEAD']);
     if (!was.ok || !now.ok || !was.out || was.out === now.out) return false;
-    if (!run(repo.root, ['merge-base', '--is-ancestor', was.out, now.out]).ok) return true;
+    if (!(await run(repo.root, ['merge-base', '--is-ancestor', was.out, now.out])).ok) return true;
     const range = `${was.out}..${now.out}`;
-    if ((count(repo.root, ['--merges', range]) ?? 0) > 0) return true;
-    const main = run(repo.root, ['rev-parse', '--verify', '--quiet', 'origin/HEAD']);
+    if (((await count(repo.root, ['--merges', range])) ?? 0) > 0) return true;
+    const main = await run(repo.root, ['rev-parse', '--verify', '--quiet', 'origin/HEAD']);
     if (!main.ok) return false;
-    const all = count(repo.root, [range]);
-    const own = count(repo.root, [range, '^origin/HEAD']);
+    const all = await count(repo.root, [range]);
+    const own = await count(repo.root, [range, '^origin/HEAD']);
     return all !== null && own !== null && own < all;
-  });
+  };
+  for (const repo of repos) if (await broughtIn(repo)) return true;
+  return false;
 }
 
 /** Remove the manifest + every ref for this scope. Called when a scope

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { OpenReviewThread, PrReply, RepliesWire } from '../../../../core/api-types.js';
+import { hostName } from '../../../../core/hosts/commands.js';
+import { threadHostId } from '../../../../core/hosts/links.js';
+import type { OpenReviewThread, PrReply, RepliesWire, ThreadCode } from '../../../../core/api-types.js';
+import { Markdown } from '../Markdown.js';
+import { threadCodeLines } from '../../state/pr-tab.js';
 import { discardReply, editReply, fetchReplies, postReply, sendPromptToSession } from '../../api/client.js';
 import { useSse } from '../../api/events.js';
 import { quoteForAgent } from '../../../../core/pr/review-quote.js';
@@ -285,14 +289,20 @@ function Waiting({
   return (
     <article className="wd-reply">
       <div className="wd-reply-head">
-        <a href={thread.url} target="_blank" rel="noreferrer" className="wd-reply-where" title="Open the thread on GitHub">
+        <a
+          href={thread.url}
+          target="_blank"
+          rel="noreferrer"
+          className="wd-reply-where"
+          title={`Open the thread on ${hostName(threadHostId(thread.threadId))}`}
+        >
           PR #{thread.prNumber}
           {thread.where ? ` · ${thread.where}` : ''}
         </a>
         <span className="wd-replies-muted"> @{thread.reviewer}</span>
         {handed && <span className="wd-replies-muted"> · handed to Claude, no draft yet</span>}
       </div>
-      <blockquote className="wd-reply-quote">{thread.excerpt}</blockquote>
+      <ThreadComment body={thread.body ?? thread.excerpt} code={thread.code} where={thread.where} />
       {error && (
         <div className="wd-tab-error" role="alert">
           {error}
@@ -309,7 +319,7 @@ function Waiting({
           {state === 'asking' ? 'Asking…' : state === 'asked' ? 'Asked — the draft will show here' : 'Ask Claude to reply'}
         </button>
         <a className="wd-link-button" href={thread.url} target="_blank" rel="noreferrer">
-          Answer on GitHub ↗
+          Answer on {hostName(threadHostId(thread.threadId))} ↗
         </a>
       </div>
     </article>
@@ -335,13 +345,19 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
   return (
     <article className="wd-reply">
       <div className="wd-reply-head">
-        <a href={reply.url} target="_blank" rel="noreferrer" className="wd-reply-where" title="Open the thread on GitHub">
+        <a
+          href={reply.url}
+          target="_blank"
+          rel="noreferrer"
+          className="wd-reply-where"
+          title={`Open the thread on ${hostName(threadHostId(reply.threadId))}`}
+        >
           PR #{reply.prNumber}
           {reply.where ? ` · ${reply.where}` : ''}
         </a>
         <span className="wd-replies-muted"> @{reply.reviewer}</span>
       </div>
-      <blockquote className="wd-reply-quote">{reply.excerpt}</blockquote>
+      <ThreadComment body={reply.body ?? reply.excerpt} code={reply.code} where={reply.where} />
       <textarea
         className="wd-reply-text"
         value={text}
@@ -360,7 +376,7 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
           className="wd-btn-primary"
           disabled={!!busy || !text.trim()}
           onClick={() => act('resolve')}
-          title="Post from your GitHub account, then resolve the thread"
+          title={`Post from your ${hostName(threadHostId(reply.threadId))} account, then resolve the thread`}
         >
           {busy === 'resolve' ? 'Posting…' : 'Post & resolve'}
         </button>
@@ -369,7 +385,7 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
           className="wd-btn-secondary"
           disabled={!!busy || !text.trim()}
           onClick={() => act('post')}
-          title="Post from your GitHub account; leave the thread open"
+          title={`Post from your ${hostName(threadHostId(reply.threadId))} account; leave the thread open`}
         >
           {busy === 'post' ? 'Posting…' : 'Post'}
         </button>
@@ -384,5 +400,41 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
         </button>
       </div>
     </article>
+  );
+}
+
+/**
+ * What a reviewer said, where: the lines of code the thread is on (the end
+ * of its diff hunk, the commented lines marked; "outdated" when the code
+ * moved on since), then the comment rendered as Markdown — GitHub's
+ * suggestion blocks show as a suggested change.
+ */
+export function ThreadComment({ body, code, where }: { body: string; code?: ThreadCode; where: string | null }) {
+  const shown = code ? threadCodeLines(code) : null;
+  return (
+    <div className="wd-reply-comment">
+      {shown && shown.lines.length > 0 && (
+        <div className="wd-reply-code" aria-label={`The code${where ? ` at ${where}` : ''}`}>
+          {code?.outdated && <div className="wd-reply-code-note">Outdated: the code has changed since this comment</div>}
+          {shown.skipped > 0 && (
+            <div className="wd-reply-code-note">
+              ⋯ {shown.skipped} line{shown.skipped === 1 ? '' : 's'} above
+            </div>
+          )}
+          <table>
+            <tbody>
+              {shown.lines.map((l, i) => (
+                <tr key={i} className={`wd-reply-code-${l.kind}${l.commented ? ' wd-reply-code-on' : ''}`}>
+                  <td className="wd-reply-code-no">{l.newNo ?? l.oldNo ?? ''}</td>
+                  <td className="wd-reply-code-sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ' '}</td>
+                  <td className="wd-reply-code-text">{l.text}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Markdown source={body} block className="wd-reply-body" />
+    </div>
   );
 }

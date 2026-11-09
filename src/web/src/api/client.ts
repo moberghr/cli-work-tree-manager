@@ -1,10 +1,12 @@
 import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
-import type { SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
+import type { LastReplyWire, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
 import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
 export type { DiffPoint } from '../../../core/diff/diff-points.js';
-export type { SessionCommit } from '../../../core/api-types.js';
+export type { SessionBranchWire, SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
+import { archiveQuestion } from '../state/archive-view.js';
+import { ask } from '../state/ask.js';
 import type {
   ActivityState,
   AnswerRequest,
@@ -89,10 +91,20 @@ export type DiffBase = 'uncommitted' | 'branch';
 
 export interface SessionSummary {
   id: string;
+  /** Being archived right now (SessionWire.archiving; this window's own click marks it at once, archive-pending.ts). */
+  archiving?: boolean;
+  /** Being restored right now (SessionWire.restoring, or this window's own click): in the rail again meanwhile. */
+  restoring?: boolean;
+  /** Its Claude was stopped while idle and hasn't run since (SessionWire.asleep): opening the session starts it again. */
+  asleep?: boolean;
   target: string;
   branch: string;
   isGroup: boolean;
   paths: string[];
+  /** Its repos' aliases, one per path (absent from a server before this). */
+  repos?: string[];
+  /** A session folder: a repo can be added to it (absent from a server before this: read `isGroup`). */
+  folder?: boolean;
   baseBranch?: string;
   jiraKey?: string;
   createdAt: string;
@@ -130,6 +142,10 @@ export interface SessionSummary {
   claudes?: SessionClaudes;
   /** The agent it runs, and what work can do with it. */
   agent?: import('../../../core/api-types.js').SessionAgentWire;
+  /** The account (login) its agent runs on; absent = the default account. */
+  account?: string;
+  /** The account a switch waiting for its turn to end will move it to. */
+  accountPending?: string;
   /** What its archive kept (archived sessions). */
   archive?: SessionArchiveInfo;
   /** Its name: yours, else its first prompt, else its Jira key. */
@@ -148,6 +164,8 @@ export interface SessionSummary {
   blockedBy?: import('../../../core/api-types.js').BlockerWire[];
   /** It was stacked on a session that merged and is archived: it should move onto main. */
   stackParentMerged?: { id: string; branch: string };
+  /** Every branch it worked on, when more than one (session-branches.ts): the header's Branches line. */
+  branches?: import('../../../core/api-types.js').SessionBranchWire[];
   /** Repos checked out on another branch than `branch` (null = detached). */
   onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
   titleIsYours?: boolean;
@@ -176,16 +194,21 @@ export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse
 }
 
 /**
- * Archive or restore. When something is still waiting in the session
+ * Archive or restore. An Archive asks first (`archiveQuestion`, naming `opts.name`), unless the caller asked
+ * already (`opts.asked`: the bulk bar, once for all). When something is still waiting in the session
  * (replies to post, notes for its Claude, a Claude mid-turn), the server
- * says what; `confirm` asks whether to archive anyway (the browser's own
- * dialog by default). Declined: rejects with what was waiting.
+ * says what; `confirm` asks whether to archive anyway (the page's own
+ * dialog by default, `ask`: the macOS desktop app's webview has no `window.confirm`). Declined: rejects, cancelled, with what was waiting.
  */
-export function setArchived(
+export async function setArchived(
   sessionId: string,
   archived: boolean,
-  confirm: (question: string) => boolean = (q) => window.confirm(q),
-): Promise<{ ok: true }> {
+  confirm: Confirm = ask,
+  opts: { name?: string; asked?: boolean } = {},
+): Promise<{ ok: true; warnings?: string[] }> {
+  if (archived && !opts.asked && !(await confirm(archiveQuestion(opts.name)))) {
+    throw Object.assign(new Error('Not archived'), { cancelled: true });
+  }
   // Every caller's button shows it running, wherever you come back to it.
   return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
 }
@@ -193,26 +216,61 @@ export function setArchived(
 /** An archive the user called off ("Archive it anyway?" → Cancel): their choice, not a failure to show. */
 export const archiveCancelled = (err: unknown): boolean => (err as { cancelled?: unknown } | null)?.cancelled === true;
 
-async function sendArchived(sessionId: string, archived: boolean, confirm: (question: string) => boolean): Promise<{ ok: true }> {
+/** A yes/no question, answered now or later. */
+type Confirm = (question: string) => boolean | Promise<boolean>;
+
+async function sendArchived(sessionId: string, archived: boolean, confirm: Confirm): Promise<{ ok: true; warnings?: string[] }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
-  const send = (force: boolean) =>
+  const send = (force: boolean, stopHolders = false) =>
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived, ...(force ? { force: true } : {}) }),
+      body: JSON.stringify({ archived, ...(force ? { force: true } : {}), ...(stopHolders ? { stopHolders: true } : {}) }),
     });
   let res = await send(false);
-  if (res.status === 409) {
+  if (res.status === 409 && !archived) {
+    // Restore: something still runs from its old folder (a dev server its Claude left running).
+    const body = (await res.json().catch(() => ({}))) as { holders?: string[]; error?: string };
+    const holders = body.holders ?? [];
+    if (holders.length === 0) throw new Error(body.error ?? `409 for ${url}`);
+    if (!(await confirm(`Still running from its old folder:\n\n• ${holders.join('\n• ')}\n\nStop it and restore?`))) {
+      throw Object.assign(new Error(body.error ?? 'Not restored'), { cancelled: true });
+    }
+    res = await send(false, true);
+  } else if (res.status === 409) {
     const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
     const waiting = body.blocked ?? [];
-    if (!confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`)) {
+    if (!(await confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`))) {
       throw Object.assign(new Error(`Not archived: ${waiting.join('; ')}`), { cancelled: true });
     }
     res = await send(true);
   }
-  const json = (await res.json().catch(() => ({}))) as { ok?: true; error?: string };
+  const json = (await res.json().catch(() => ({}))) as { ok?: true; error?: string; warnings?: unknown };
   if (!res.ok) throw new Error(json.error ?? `${res.status} for ${url}`);
-  return { ok: true };
+  // A Restore's warnings (a repo not in your config any more, so not set up): told to the dashboard, whichever
+  // button restored it (the header, a row, the bulk bar, a conversation hit, the rail's menu).
+  const warnings = Array.isArray(json.warnings) ? json.warnings.filter((w): w is string => typeof w === 'string') : [];
+  if (warnings.length) announceRestoreWarnings(sessionId, warnings);
+  return warnings.length ? { ok: true, warnings } : { ok: true };
+}
+
+/** The event a Restore's warnings go out as (`RESTORE_WARNINGS`, detail `{sessionId, warnings}`); DashboardApp shows them. */
+export const RESTORE_WARNINGS = 'work:restore-warnings';
+
+function announceRestoreWarnings(sessionId: string, warnings: string[]): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(RESTORE_WARNINGS, { detail: { sessionId, warnings } }));
+}
+
+/**
+ * The event an action's warnings go out as when the view that asked goes away with the answer (Fix it myself opens
+ * its session): detail `{what, warnings}`; DashboardApp toasts them, as a Restore's.
+ */
+export const ACTION_WARNINGS = 'work:action-warnings';
+
+export function announceWarnings(what: string, warnings: string[]): void {
+  if (typeof window === 'undefined' || !warnings.length) return;
+  window.dispatchEvent(new CustomEvent(ACTION_WARNINGS, { detail: { what, warnings } }));
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -270,7 +328,94 @@ export function fetchActivity(): Promise<import('../../../core/api-types.js').Ac
   return getJson('/api/activity');
 }
 
+/** Each agent's plan limits as last read, and the tokens used today and this week (GET /api/usage). */
+export function fetchUsage(): Promise<import('../../../core/api-types.js').UsageWire> {
+  return getJson('/api/usage');
+}
+
 /** The live sessions; with `withArchived`, the archived ones too (they're asked for only where shown). */
+/** Its agent's newest message as it wrote it (GET …/last-reply), or null when there is none. */
+export function fetchLastReply(sessionId: string): Promise<string | null> {
+  return getJson<LastReplyWire>(`/api/sessions/${encodeURIComponent(sessionId)}/last-reply`).then((r) => r.text);
+}
+
+/** The agent's accounts (GET /api/accounts): each login new sessions can use, and which one is the default. */
+export function fetchAccounts(): Promise<import('../../../core/api-types.js').AccountsWire> {
+  return getJson('/api/accounts');
+}
+
+/**
+ * Move a session's Claude to another account (POST /api/sessions/:id/account): switched, queued
+ * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
+ */
+export async function switchSessionAccount(sessionId: string, to: string): Promise<import('../../../core/api-types.js').AccountSwitchWire> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to }),
+  });
+  const text = await res.text().catch(() => '');
+  if (!res.ok) {
+    let why = '';
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === 'string') why = parsed.error;
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(why || text || `${res.status} ${res.statusText}`);
+  }
+  return JSON.parse(text) as import('../../../core/api-types.js').AccountSwitchWire;
+}
+
+/** Drop the switch of account waiting for its turn (DELETE /api/sessions/:id/account). Throws the server's reason when refused. */
+export async function cancelAccountSwitch(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, { method: 'DELETE' });
+  if (res.ok) return;
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  throw new Error(typeof body?.error === 'string' ? body.error : `${res.status} ${res.statusText}`);
+}
+
+// ---- the Accounts page (account-routes.ts) ----
+
+/** A refused account change: the reason, and for a removal the sessions on it (`archived` ones can be forced past). */
+export class AccountChangeError extends Error {
+  constructor(
+    message: string,
+    readonly sessions: string[] = [],
+    readonly kind?: 'live' | 'archived',
+  ) {
+    super(message);
+  }
+}
+
+async function accountCall<T>(method: 'POST' | 'DELETE', url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const b = (await res.json().catch(() => ({}))) as import('../../../core/api-types.js').AccountRefusalWire & T;
+  if (!res.ok) throw new AccountChangeError(b.error || `${res.status} ${res.statusText}`, b.sessions ?? [], b.kind);
+  return b;
+}
+
+const accountPath = (name: string) => `/api/accounts/${encodeURIComponent(name)}`;
+
+/** Record a new account (POST /api/accounts); its folder defaults to ~/.claude-<name>. */
+export const addAccount = (name: string, folder?: string) =>
+  accountCall<import('../../../core/api-types.js').AccountAddWire>('POST', '/api/accounts', { name, ...(folder ? { folder } : {}) });
+/** New sessions use this account. */
+export const makeDefaultAccount = (name: string) => accountCall<{ ok: true }>('POST', `${accountPath(name)}/default`);
+/** Forget an account (its folder stays); `force` past archived sessions on it. */
+export const removeAccount = (name: string, force = false) =>
+  accountCall<{ ok: true }>('DELETE', `${accountPath(name)}${force ? '?force=1' : ''}`);
+/** Start the account's login terminal in the PTY host; its id, for the terminal. */
+export const startAccountLogin = (name: string) =>
+  accountCall<import('../../../core/api-types.js').AccountLoginWire>('POST', `${accountPath(name)}/login`).then((r) => r.id);
+/** Stop it (work's skills then go into a new account's folder). */
+export const stopAccountLogin = (name: string) => accountCall<{ ok: true }>('DELETE', `${accountPath(name)}/login`).then(() => undefined);
+
 export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
   return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
 }
@@ -442,6 +587,9 @@ export interface CheckpointEntry {
   /** Per-repo commit sha (null when the repo had no HEAD at capture
    *  time — diffs treat that side as the empty tree). */
   repos: Record<string, string | null>;
+  /** Per repo, the branch checked out when it was taken (absent on turns from before): a change from the turn
+   *  before is a branch switch. */
+  branches?: Record<string, string | null>;
 }
 
 export function fetchCheckpoints(hash: string): Promise<CheckpointEntry[]> {
@@ -705,6 +853,14 @@ export function fetchHostHealth(): Promise<import('../../../core/pty/host-health
   return getJson('/api/pty-host/health');
 }
 
+/** Restart the PTY host (stuck, or older than this work): its sessions resume with --continue. The server's reason on a refusal. */
+export async function restartPtyHost(): Promise<import('../../../core/api-types.js').PtyHostRestartWire> {
+  const res = await fetch('/api/pty-host/restart', { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body as import('../../../core/api-types.js').PtyHostRestartWire;
+}
+
 // ---- a session's timeline ---------------------------------------------------
 
 export async function fetchTimeline(sessionId: string): Promise<import('../../../core/conversations/timeline.js').TimelineEvent[]> {
@@ -713,6 +869,55 @@ export async function fetchTimeline(sessionId: string): Promise<import('../../..
       `/api/sessions/${encodeURIComponent(sessionId)}/timeline`,
     )
   ).events;
+}
+
+// ---- the Code tab: a session's files, read only -------------------------------
+
+type CodeFilesWire = import('../../../core/api-types.js').CodeFilesWire;
+type CodeFileWire = import('../../../core/api-types.js').CodeFileWire;
+
+/** One listing per session for the page, shared by the Code tab and Ctrl+T for a while (a group's can be megabytes). */
+const codeFilesCache = new Map<string, { at: number; files: Promise<CodeFilesWire> }>();
+const CODE_FILES_TTL_MS = 30_000;
+/** Listings kept for the page: the sessions opened last (the dashboard stays open all day). */
+const CODE_FILES_KEPT = 6;
+
+/** The session's files; `fresh` when they changed (the worktree's update): asked again, and kept for the rest. */
+export function fetchCodeFiles(sessionId: string, opts: { fresh?: boolean } = {}): Promise<CodeFilesWire> {
+  const hit = codeFilesCache.get(sessionId);
+  if (hit && !opts.fresh && Date.now() - hit.at < CODE_FILES_TTL_MS) return hit.files;
+  const files = getJson<CodeFilesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/files`);
+  codeFilesCache.delete(sessionId);
+  codeFilesCache.set(sessionId, { at: Date.now(), files });
+  while (codeFilesCache.size > CODE_FILES_KEPT) codeFilesCache.delete(codeFilesCache.keys().next().value as string);
+  files.catch(() => codeFilesCache.get(sessionId)?.files === files && codeFilesCache.delete(sessionId));
+  return files;
+}
+
+/** Types and members by name, and lines with it in them (Ctrl+T). A newer search aborts this one (`signal`). */
+export function fetchCodeSearch(
+  sessionId: string,
+  q: string,
+  signal?: AbortSignal,
+): Promise<import('../../../core/api-types.js').CodeSearchWire> {
+  return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/code-search?${new URLSearchParams({ q }).toString()}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  }).then((res) => {
+    if (!res.ok) throw new Error(`${res.status} searching`);
+    return res.json() as Promise<import('../../../core/api-types.js').CodeSearchWire>;
+  });
+}
+
+/** One file as it is now; a refusal says why (gone, not listed). */
+export async function fetchCodeFile(sessionId: string, repo: string, path: string): Promise<CodeFileWire> {
+  const q = new URLSearchParams({ repo, path });
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/file?${q.toString()}`, {
+    headers: { Accept: 'application/json' },
+  });
+  const json = (await res.json().catch(() => ({}))) as CodeFileWire & { error?: string };
+  if (!res.ok) throw new Error(json.error === 'not listed' ? 'Not there any more (moved or deleted).' : (json.error ?? `${res.status}`));
+  return json;
 }
 
 // ---- blocked by ----------------------------------------------------------

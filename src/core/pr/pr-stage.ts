@@ -123,6 +123,31 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
   };
 }
 
+/**
+ * Per repo, the PR its stage reads, across the branches it worked on (session-branches.ts: Claude may have
+ * moved on after a PR merged, to a new branch and a new PR): the newest open one; else the checked-out
+ * branch's; else the newest of the others. `earlier`: the rest, newest first — the PR tab folds them under
+ * it ("earlier: #3592 merged"), and they drop out of the stage's pills. Pure.
+ */
+export function stageRepos<P extends StagePr>(
+  repos: ReadonlyArray<{ name: string; pr: P | null; branch?: string; otherPrs?: ReadonlyArray<{ branch: string; pr: P }> }>,
+): Array<{ name: string; pr: P | null; branch?: string; earlier: Array<{ branch?: string; pr: P }> }> {
+  return repos.map((r) => {
+    const all: Array<{ branch?: string; pr: P }> = [
+      ...(r.pr ? [{ ...(r.branch ? { branch: r.branch } : {}), pr: r.pr }] : []),
+      ...(r.otherPrs ?? []).filter((o) => !r.pr || o.pr.url !== r.pr.url),
+    ];
+    const open = all.filter((x) => x.pr.state === 'OPEN').sort((a, b) => b.pr.number - a.pr.number);
+    const chosen = open[0] ?? all.find((x) => x.pr === r.pr) ?? [...all].sort((a, b) => b.pr.number - a.pr.number)[0] ?? null;
+    return {
+      name: r.name,
+      pr: chosen?.pr ?? null,
+      ...(chosen?.branch ? { branch: chosen.branch } : {}),
+      earlier: all.filter((x) => x !== chosen).sort((a, b) => b.pr.number - a.pr.number),
+    };
+  });
+}
+
 /** A stage in a word or two, for one PR's pill: "waiting for review", "ready to merge"… */
 export const stagePhrase = (kind: PrStageKind): string => (kind === 'ready' ? 'ready to merge' : PHRASE[kind]);
 

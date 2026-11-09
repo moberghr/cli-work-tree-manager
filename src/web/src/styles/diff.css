@@ -235,21 +235,6 @@
 /* Per-hunk reviewed state. A reviewer checks off individual hunks; the
    checkbox sits in the hunk header and a reviewed hunk gets a subtle left
    accent plus a faintly tinted header. Client-side review progress only. */
-.wd-hunk-checkbox {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 8px;
-  vertical-align: middle;
-  cursor: pointer;
-}
-.wd-hunk-checkbox input {
-  margin: 0;
-  cursor: pointer;
-}
-.wd-hunk-row.wd-hunk-reviewed .wd-hunk-context {
-  border-left: 3px solid var(--add, #2da44e);
-  background: var(--status-added-bg, rgba(45, 164, 78, 0.08));
-}
 
 /* Per-file line-coverage badge in the Changed Files tree. Rendered only when
    lcov data is available for the file. */
@@ -493,6 +478,17 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 8px 8px 2px;
+}
+/* An other branch's section (its commits), and what's known of it: "1 commit · not pushed". */
+.wd-history-branch-note {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+/* A turn that crossed a branch switch: its diff is the switch, not Claude's change. */
+.wd-history-switch {
+  color: var(--warn-fg);
+  font-style: italic;
 }
 .wd-history-row-look .wd-history-tag {
   min-width: 9em;

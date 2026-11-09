@@ -65,6 +65,16 @@ describe('InboxTab', () => {
     expect(text(container.querySelector('.wd-inbox-rest'))).toBe("1 working, 2 quiet — they're in the list on the left."); // the untracked one is in the rail too
   });
 
+  it('a session in the background is counted apart in the closing line, never in a section or the count', () => {
+    const bg = { ...att('working', true, 3), background: { what: '/code-review' } };
+    const sessions = [...SESSIONS, session('bg', bg)];
+    act(() => root.render(createElement(InboxTab, { sessions, onOpenSession: () => {} })));
+    const sections = [...container.querySelectorAll('.wd-inbox-section')];
+    expect(sections.map((s) => text(s.querySelector('h2')))).toEqual(['Needs your input · 2', 'Done · 1']);
+    expect(text(container.querySelector('h1'))).toBe('Inbox 3 need you');
+    expect(text(container.querySelector('.wd-inbox-rest'))).toBe("1 working, 1 in background, 2 quiet — they're in the list on the left.");
+  });
+
   it('one action a row: Open for a question, Review for finished work', () => {
     act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: () => {} })));
     const actions = [...container.querySelectorAll('.wd-inbox-actions')].map((a) =>
@@ -73,22 +83,28 @@ describe('InboxTab', () => {
     expect(actions).toEqual([['Open'], ['Open'], ['Review']]);
   });
 
-  it('sessions with unresolved review comments get their own section, and count as needing you', () => {
+  it('what waits on you (review threads, replies to post) is the Needs you section, whatever its Claude is doing, and counts', () => {
     const withReview = [
       ...SESSIONS,
       { ...session('reviewed', att('idle', true, 300)), openReviewThreads: 3 },
       { ...session('reviewed-untracked', null), openReviewThreads: 1 },
-      { ...session('reviewed-busy', att('working', true, 1)), openReviewThreads: 2 }, // mid-turn: Working wins
+      // Mid-turn: the threads still wait on you (its icon says it's working).
+      { ...session('reviewed-busy', att('working', true, 1)), openReviewThreads: 2 },
+      // Only a reply to post (reported: it read Idle, and the Inbox left it out).
+      { ...session('reply', att('idle', true, 200)), replyDrafts: 1 },
     ];
     act(() => root.render(createElement(InboxTab, { sessions: withReview, onOpenSession: () => {} })));
     const sections = [...container.querySelectorAll('.wd-inbox-section')].map((s) => text(s.querySelector('h2')));
-    expect(sections).toEqual(['Needs your input · 2', 'Done · 1', 'Pull requests · 2']);
-    const review = [...container.querySelectorAll('.wd-inbox-section')][2];
-    expect(text(review)).toContain('3 open threads');
-    expect(text(review)).toContain('1 open thread');
-    expect(review.querySelector('.wd-rail-dot-review')).not.toBeNull();
-    expect(text(container.querySelector('h1'))).toBe('Inbox 5 need you');
-    expect(text(container.querySelector('.wd-inbox-rest'))).toContain('2 working');
+    expect(sections).toEqual(['Needs your input · 2', 'Done · 1', 'Needs you · 4']);
+    const owed = [...container.querySelectorAll('.wd-inbox-section')][2];
+    expect(text(owed)).toContain('3 open review threads');
+    expect(text(owed)).toContain('1 open review thread');
+    expect(text(owed)).toContain('1 reply to post');
+    // Each row's icon is what its Claude is doing.
+    expect(owed.querySelector('.wd-rail-dot-working')).not.toBeNull();
+    expect(owed.querySelector('.wd-rail-dot-quiet')).not.toBeNull();
+    expect(text(container.querySelector('h1'))).toBe('Inbox 7 need you');
+    expect(text(container.querySelector('.wd-inbox-rest'))).toContain('1 working');
   });
 
   it('opens blocked sessions on the terminal and finished ones on the diff', () => {
@@ -121,6 +137,15 @@ describe('inboxRestLine', () => {
       "1 working, 2 in review, 3 quiet, 2 snoozed, 1 waiting on others — they're in the list on the left.",
     );
     expect(inboxRestLine({ working: 0, inReview: 0, quiet: 0, snoozed: 0, waiting: 0 })).toBeNull();
+  });
+
+  it('sessions in the background are counted apart from working ones', () => {
+    expect(inboxRestLine({ working: 1, background: 2, inReview: 0, quiet: 0, snoozed: 0, waiting: 0 })).toBe(
+      "1 working, 2 in background — they're in the list on the left.",
+    );
+    expect(inboxRestLine({ working: 0, background: 1, inReview: 0, quiet: 0, snoozed: 0, waiting: 0 })).toBe(
+      "1 in background — it's in the list on the left.",
+    );
   });
 });
 
@@ -243,18 +268,38 @@ describe('SessionRail with attention', () => {
     expect(blocked.className).toContain('wd-dash-rail-item-unseen');
     expect(blocked.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-needs_input');
     expect(blocked.getAttribute('title')).toContain('Claude needs your permission to use Edit');
-    expect(byName('done').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-done');
+    // A finished turn you haven't seen: the icon says idle, the blue review badge (and bold) that it's yours to look at.
+    const done = byName('done');
+    expect(done.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-quiet');
+    expect(done.querySelector('.wd-rail-dot-done')).toBeNull();
+    const pill = done.querySelector('.wd-rail-slot-owed')!;
+    expect(text(pill)).toBe('review');
+    expect(pill.className).toContain('wd-rail-slot-owed-turn');
+    expect(done.className).toContain('wd-dash-rail-item-unseen');
   });
 
-  it('colours a session with unresolved review comments, and says how many', () => {
-    const list = [{ ...session('reviewed', att('idle', true, 300)), openReviewThreads: 2 }];
+  it('two signals on a row: the icon is what its Claude is doing, the pink badge what waits on you', () => {
+    const list = [
+      { ...session('reviewed', att('idle', true, 300)), openReviewThreads: 2 },
+      { ...session('busy', att('working', true, 1)), replyDrafts: 1, openReviewThreads: 1 },
+      session('plain', att('idle', true, 300)),
+    ];
     act(() =>
       root.render(createElement(SessionRail, { sessions: list, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })),
     );
-    const item = container.querySelector('.wd-dash-rail-item')!;
-    expect(item.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-review');
-    expect(item.querySelector('.wd-rail-dot')!.getAttribute('aria-label')).toBe('Review comments');
-    expect(text(item.querySelector('.wd-rail-slot-review'))).toBe('2'); // the icon says what it counts
+    const row = (name: string) =>
+      [...container.querySelectorAll('.wd-dash-rail-item')].find((r) => text(r.querySelector('.wd-dash-rail-name')) === name)!;
+    expect(row('reviewed').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-quiet');
+    expect(text(row('reviewed').querySelector('.wd-rail-slot-owed'))).toBe('2 threads');
+    expect(row('reviewed').className).toContain('wd-dash-rail-item-unseen'); // bold: it wants you
+    // Working, and a reply waits on you: both show.
+    expect(row('busy').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-working');
+    const busy = row('busy').querySelector('.wd-rail-slot-owed')!;
+    expect(text(busy)).toBe('1 reply +1');
+    expect(busy.className).not.toContain('wd-rail-slot-owed-turn'); // pink: GitHub's
+    expect(busy.getAttribute('title')).toBe('Needs you: 1 reply to post · 1 review thread with no answer');
+    expect(row('plain').querySelector('.wd-rail-slot-owed')).toBeNull();
+    expect(row('plain').className).not.toContain('wd-dash-rail-item-unseen');
   });
 
   it('keeps an old selected session visible even with 40+ current ones', () => {

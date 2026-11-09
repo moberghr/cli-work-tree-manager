@@ -6,11 +6,14 @@ import {
   selectionLabel,
   SINCE_BRANCH,
   UNCOMMITTED,
+  type BranchGroup,
   type DiffSelection,
   type HistoryItem,
   type LookEntry,
 } from '../../state/diff-history.js';
 import { relativeTime } from '../../utils/time.js';
+import type { SessionBranchWire } from '../../api/client.js';
+import { branchNote } from '../../state/branches.js';
 
 interface Props {
   /** Oldest first (historyItems); shown newest first. */
@@ -24,6 +27,12 @@ interface Props {
   looks?: LookEntry[];
   /** A group: the commits listed are this repo's (the tab on screen). */
   commitsOf?: string | null;
+  /** The other branches the session worked on, with their commits (branchGroups): listed after this one's. */
+  groups?: BranchGroup[];
+  /** What's known of each branch (the session row's `branches`): "not pushed", its PR. */
+  branches?: SessionBranchWire[];
+  /** The branch checked out (the repo on screen's): names this branch's section when others are listed. */
+  current?: string | null;
 }
 
 /**
@@ -35,7 +44,18 @@ interface Props {
 /** Looks shown before "Show all". */
 const LOOKS_SHOWN = 5;
 
-export function HistoryPicker({ items, selection, onSelect, lastTurn, sinceLooked, looks = [], commitsOf }: Props) {
+export function HistoryPicker({
+  items,
+  selection,
+  onSelect,
+  lastTurn,
+  sinceLooked,
+  looks = [],
+  commitsOf,
+  groups = [],
+  branches = [],
+  current,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [allLooks, setAllLooks] = useState(false);
   // Where a Shift+click span starts: the last row clicked.
@@ -79,8 +99,43 @@ export function HistoryPicker({ items, selection, onSelect, lastTurn, sinceLooke
         {sub && <span className="wd-checkpoint-pop-sub"> {sub}</span>}
       </button>
     );
-  const commitCount = items.filter((i) => i.kind === 'commit').length;
-  const rows = [...items].reverse();
+  const commitCount = items.filter((i) => i.kind === 'commit' && !i.branch).length;
+  const rows = items.filter((i) => !i.branch).reverse();
+  const row = (it: HistoryItem) => {
+    const on = inSelection(items, selection, it.key);
+    return (
+      <button
+        key={it.key}
+        type="button"
+        role="option"
+        aria-selected={on}
+        className={'wd-checkpoint-pop-row wd-history-row wd-history-row-' + it.kind + (on ? ' wd-checkpoint-pop-in-range' : '')}
+        title={
+          it.switched
+            ? `This turn switched branches (${it.switched}): its diff is mostly the other branch's files, not a change Claude made or undid.`
+            : undefined
+        }
+        onClick={(ev) => {
+          // A span from a row that isn't in this list (gone since), or on another branch, is just this row.
+          const from = ev.shiftKey && anchor && items.some((x) => x.key === anchor && x.branch === it.branch) ? anchor : null;
+          const sel = pick(it.key, from);
+          if (!ev.shiftKey) setAnchor(it.key);
+          choose(sel, ev.shiftKey);
+        }}
+      >
+        <span className="wd-history-mark" aria-hidden="true">
+          {it.kind === 'commit' ? '◆' : it.kind === 'turn' ? '◇' : '●'}
+        </span>
+        <span className="wd-history-tag">{it.tag}</span>
+        <span className="wd-checkpoint-pop-label">
+          {it.switched && <span className="wd-history-switch">branch switched: {it.switched}</span>}
+          {it.switched && it.title ? ' · ' : ''}
+          {it.title}
+        </span>
+        <span className="wd-checkpoint-pop-time">{it.at ? relativeTime(it.at) : 'now'}</span>
+      </button>
+    );
+  };
 
   return (
     <div ref={rootRef} className="wd-history" data-popover>
@@ -150,33 +205,21 @@ export function HistoryPicker({ items, selection, onSelect, lastTurn, sinceLooke
               <div className="wd-history-section">History</div>
             </div>
           )}
-          {rows.map((it) => {
-            const on = inSelection(items, selection, it.key);
+          {groups.length > 0 && <div className="wd-history-section">{current ? `On ${current} (checked out)` : 'This branch'}</div>}
+          {rows.map(row)}
+          {rows.length === 1 && <p className="wd-history-empty">No commits on this branch and no finished turns yet.</p>}
+          {groups.map((g) => {
+            const note = branchNote(branches.find((b) => b.name === g.branch && (!commitsOf || b.repo === commitsOf)) ?? null);
             return (
-              <button
-                key={it.key}
-                type="button"
-                role="option"
-                aria-selected={on}
-                className={'wd-checkpoint-pop-row wd-history-row wd-history-row-' + it.kind + (on ? ' wd-checkpoint-pop-in-range' : '')}
-                onClick={(ev) => {
-                  // A span from a row that isn't in this list (gone since) is just this row.
-                  const from = ev.shiftKey && anchor && items.some((x) => x.key === anchor) ? anchor : null;
-                  const sel = pick(it.key, from);
-                  if (!ev.shiftKey) setAnchor(it.key);
-                  choose(sel, ev.shiftKey);
-                }}
-              >
-                <span className="wd-history-mark" aria-hidden="true">
-                  {it.kind === 'commit' ? '◆' : it.kind === 'turn' ? '◇' : '●'}
-                </span>
-                <span className="wd-history-tag">{it.tag}</span>
-                <span className="wd-checkpoint-pop-label">{it.title}</span>
-                <span className="wd-checkpoint-pop-time">{it.at ? relativeTime(it.at) : 'now'}</span>
-              </button>
+              <div key={g.branch} className="wd-history-branch" role="group" aria-label={`Branch ${g.branch}`}>
+                <div className="wd-history-section">
+                  {g.branch}
+                  {note && <span className="wd-history-branch-note"> · {note}</span>}
+                </div>
+                {g.items.map(row)}
+              </div>
             );
           })}
-          {rows.length === 1 && <p className="wd-history-empty">No commits on this branch and no finished turns yet.</p>}
         </div>
       )}
     </div>

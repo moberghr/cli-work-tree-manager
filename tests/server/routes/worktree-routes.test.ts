@@ -9,14 +9,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
+import { NO_CWD_LOOKUP } from '../../../src/core/platform/shell-env.js';
 
 // The PTY pool pulls in node-pty; the route only needs its dispose hook.
-const { disposePty, ensurePty, peekPty } = vi.hoisted(() => ({
+const { disposePty, ensurePty, peekPty, spawnSpecFor, getWorkBin } = vi.hoisted(() => ({
   disposePty: vi.fn(),
   ensurePty: vi.fn(async () => 'ws://host/attach'),
   peekPty: vi.fn(() => false),
+  spawnSpecFor: vi.fn((s: { paths: string[] }) => ({ cwd: s.paths[0] })),
+  getWorkBin: vi.fn(() => 'work.js'),
 }));
-vi.mock('../../../src/core/pty/pty-pool.js', () => ({ disposePty, ensurePty, peekPty }));
+vi.mock('../../../src/core/pty/pty-pool.js', () => ({ disposePty, ensurePty, peekPty, spawnSpecFor, getWorkBin }));
 
 import { mountWorktreeRoutes } from '../../../src/server/routes/worktree-routes.js';
 import { git } from '../../../src/core/git/git.js';
@@ -146,6 +149,48 @@ describe('POST /api/worktrees with a first prompt', () => {
     ]);
   });
 
+  it('what setting it up warned about comes back with the new worktree', async () => {
+    const warned = new Hono();
+    mountWorktreeRoutes(warned, {
+      broadcast,
+      create: async () => ({
+        ok: true,
+        branch: 'feat/w',
+        launchDir: '/wt/x',
+        paths: ['/wt/x'],
+        warnings: ['not in your config any more, so not set up: docs'],
+      }),
+    });
+    const res = await create(warned, { target: 'repo', branch: 'feat/w' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { warnings?: string[] }).warnings).toEqual(['not in your config any more, so not set up: docs']);
+  });
+
+  it('a Claude account is passed to the creation (trimmed; empty means the configured default); an unknown one is refused with why', async () => {
+    const asked: Array<{ account?: string }> = [];
+    const spy = new Hono();
+    mountWorktreeRoutes(spy, {
+      broadcast,
+      create: async (req) => {
+        asked.push(req);
+        return { ok: true, branch: 'feat/a', launchDir: '/wt/x', paths: ['/wt/x'] };
+      },
+    });
+    await create(spy, { target: 'repo', branch: 'feat/a', account: ' work ' });
+    await create(spy, { target: 'repo', branch: 'feat/a', account: '  ' });
+    await create(spy, { target: 'repo', branch: 'feat/a' });
+    expect(asked.map((r) => r.account)).toEqual(['work', undefined, undefined]);
+
+    // Through the real creation: recorded on the new session, or refused before anything is made.
+    saveConfig({ ...(loadConfig() as WorkConfig), claudeAccounts: { work: path.join(tmpHome, '.claude-work') } });
+    expect((await create(app, { target: 'repo', branch: 'feat/new', account: 'work' })).status).toBe(200);
+    expect(loadHistory().find((s) => s.branch === 'feat/new')?.account).toBe('work');
+    const bad = await create(app, { target: 'repo', branch: 'feat/bad', account: 'nope' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/Unknown Claude Code account: nope/);
+    expect(loadHistory().find((s) => s.branch === 'feat/bad')).toBeUndefined();
+  });
+
   it('a start that fails still reports the created worktree', async () => {
     const failing = new Hono();
     mountWorktreeRoutes(failing, {
@@ -257,11 +302,146 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe(wtPath);
   });
 
+  it.runIf(process.platform === 'win32')(
+    "the editor keeps cmd.exe's usual lookup: no NoDefaultCurrentDirectoryInExePath for its own terminals and tasks (N4)",
+    async () => {
+      const bin = path.join(tmpHome, 'bin-env-editor');
+      fs.mkdirSync(bin);
+      const record = path.join(bin, 'env.txt');
+      const script = path.join(bin, 'record.cjs');
+      fs.writeFileSync(
+        script,
+        `require('fs').writeFileSync(${JSON.stringify(record)}, String(process.env[${JSON.stringify(NO_CWD_LOOKUP)}] ?? 'unset'))`,
+      );
+      const editor = path.join(bin, 'code.cmd');
+      fs.writeFileSync(editor, `@"${process.execPath}" "${script}" %*\r\n`);
+      saveConfig({ ...loadConfig()!, editor });
+      const saved = Object.keys(process.env).filter((k) => k.toLowerCase() === NO_CWD_LOOKUP.toLowerCase());
+      const values = saved.map((k) => process.env[k]);
+      for (const k of saved) delete process.env[k];
+      try {
+        expect((await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' })).status).toBe(200);
+        await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe('unset');
+      } finally {
+        saved.forEach((k, i) => (process.env[k] = values[i]));
+      }
+    },
+  );
+
+  /** A fake editor named `name` that records its arguments ('|'-joined); a .cmd shim on Windows, like code.cmd. */
+  function fakeEditor(name: string): string {
+    const bin = path.join(tmpHome, 'bin-' + name);
+    fs.mkdirSync(bin);
+    const record = path.join(bin, 'args.txt');
+    const script = path.join(bin, 'record.cjs');
+    fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(record)}, process.argv.slice(2).join('|'))`);
+    const editor = process.platform === 'win32' ? path.join(bin, name + '.cmd') : path.join(bin, name);
+    fs.writeFileSync(
+      editor,
+      process.platform === 'win32'
+        ? `@"${process.execPath}" "${script}" %*\r\n`
+        : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`,
+      { mode: 0o755 },
+    );
+    saveConfig({ ...loadConfig()!, editor });
+    return record;
+  }
+  const openFile = (body: unknown) =>
+    app.request(`/api/sessions/${sessionId()}/open-editor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const recorded = (record: string) =>
+    expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 });
+
+  it("opens one of the Code tab's files in VS Code, in the worktree's window, at the line", async () => {
+    const record = fakeEditor('code');
+    const res = await openFile({ repo: 'feat-x', path: 'README.md', line: 3 });
+    expect(res.status).toBe(200);
+    const file = fs.realpathSync.native(path.join(wtPath, 'README.md'));
+    await recorded(record).toBe([wtPath, '--goto', `${file}:3`].join('|'));
+  });
+
+  it('another editor gets the file alone', async () => {
+    const record = fakeEditor('my-editor');
+    expect((await openFile({ repo: 'feat-x', path: 'README.md', line: 3 })).status).toBe(200);
+    await recorded(record).toBe(fs.realpathSync.native(path.join(wtPath, 'README.md')));
+  });
+
+  it("a group: the group's folder (every repo) as the window, a file of any repo in it at its line", async () => {
+    const groupDir = path.join(tmpHome, 'worktrees', 'grp', 'feat-x');
+    const repos = ['backend', 'frontend'].map((name) => {
+      const dir = path.join(groupDir, name);
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      git(['init', '-b', 'main'], dir);
+      fs.writeFileSync(path.join(dir, 'src', `${name}.ts`), `export const ${name} = 1;\n`);
+      git(['add', '.'], dir);
+      return dir;
+    });
+    fs.writeFileSync(path.join(groupDir, 'CLAUDE.md'), '# grp\n');
+    await upsertSession('grp', true, BRANCH, repos);
+    const id = sessionIdFor({ target: 'grp', branch: BRANCH });
+    const open = (body: unknown) =>
+      app.request(`/api/sessions/${id}/open-editor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const real = (...p: string[]) => fs.realpathSync.native(path.join(groupDir, ...p));
+
+    for (const [repo, rel, line] of [
+      ['backend', 'src/backend.ts', 7],
+      ['frontend', 'src/frontend.ts', 2],
+      ['', 'CLAUDE.md', 1], // the group folder's own note
+    ] as const) {
+      const record = fakeEditor('code');
+      expect((await open({ repo, path: rel, line })).status).toBe(200);
+      await recorded(record).toBe([groupDir, '--goto', `${real(repo, rel)}:${line}`].join('|'));
+      fs.rmSync(path.dirname(record), { recursive: true, force: true });
+    }
+
+    // A file asked for under the wrong repo, or a repo's file as the group folder's: refused.
+    const record = fakeEditor('code');
+    expect((await open({ repo: 'frontend', path: 'src/backend.ts' })).status).toBe(404);
+    expect((await open({ repo: '', path: 'backend/src/backend.ts' })).status).toBe(404);
+    // No file (the session's `o`): the group's folder, as before.
+    expect((await open({})).status).toBe(200);
+    await recorded(record).toBe(groupDir);
+  });
+
+  it("refuses a file the Code tab wouldn't show, and starts nothing", async () => {
+    const record = fakeEditor('code');
+    fs.writeFileSync(path.join(wtPath, '.gitignore'), '.env\n');
+    fs.writeFileSync(path.join(wtPath, '.env'), 'SECRET=1\n');
+    expect((await openFile({ repo: 'feat-x', path: '.env' })).status).toBe(404);
+    expect((await openFile({ repo: 'feat-x', path: '../../../repo/README.md' })).status).toBe(404);
+    expect((await openFile({ repo: 'nope', path: 'README.md' })).status).toBe(404);
+    expect((await openFile({ repo: 'feat-x', path: '' })).status).toBe(400);
+    expect((await openFile({ repo: 'feat-x', path: 'README.md', line: -1 })).status).toBe(400);
+    expect(fs.existsSync(record)).toBe(false);
+  });
+
   it('reports an editor that is not installed instead of pretending it opened', async () => {
     saveConfig({ ...loadConfig()!, editor: 'definitely-not-an-editor-xyz' });
     const res = await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' });
     expect(res.status).toBe(500);
     expect(((await res.json()) as { error: string }).error).toMatch(/could not start/);
+  });
+
+  it("Open in terminal answers that Windows Terminal didn't start, never ok, when it isn't there", async () => {
+    const empty = fs.mkdtempSync(path.join(tmpHome, 'no-wt-'));
+    const oldPath = process.env.PATH;
+    process.env.PATH = empty; // no wt.exe anywhere: nothing starts
+    try {
+      const res = await app.request(`/api/sessions/${sessionId()}/open-terminal`, { method: 'POST' });
+      if (process.platform === 'win32') {
+        expect(res.status).toBe(500);
+        expect(((await res.json()) as { error: string }).error).toBe("Windows Terminal didn't start: wt.exe not found on PATH");
+      } else expect(res.status).toBe(501);
+    } finally {
+      process.env.PATH = oldPath;
+    }
   });
 
   it('404s for an unknown session', async () => {

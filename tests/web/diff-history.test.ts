@@ -8,12 +8,13 @@ import {
   selectionLabel,
   selectionRange,
   sinceLooked,
+  onlyNew,
   lookWhen,
   yourLooks,
   SINCE_BRANCH,
   UNCOMMITTED,
 } from '../../src/web/src/state/diff-history.js';
-import { emptyDiffMessage, orderRepoTabs, preferredRepo } from '../../src/web/src/state/diff-view.js';
+import { emptyDiffMessage, orderRepoTabs, preferredRepo, repoSwitch, sessionRepoNames } from '../../src/web/src/state/diff-view.js';
 
 const entry = (id: number, minute: number, label?: string) => ({
   id,
@@ -26,6 +27,31 @@ const commit = (repo: string, sha: string, minute: number, subject = `commit ${s
   sha: sha.padEnd(40, '0'),
   subject,
   at: `2026-10-06T08:${String(minute).padStart(2, '0')}:00Z`,
+});
+
+describe('onlyNew (the update chip)', () => {
+  const entries = [entry(0, 0), entry(1, 10), entry(2, 30)];
+  const items = historyItems(entries, [commit('api', 'aaaaaaa', 20)], null);
+  const at = (minute: number) => Date.parse(`2026-10-06T08:${String(minute).padStart(2, '0')}:00Z`);
+
+  it('from the newest turn the diff on screen had (taken before it was read) to the working tree, what came after marked', () => {
+    const sel = onlyNew(items, entries, at(25))!;
+    expect(sel).toMatchObject({ kind: 'range', from: { kind: 'checkpoint', id: 1 }, toKey: 'u', label: 'Only new' });
+    expect(selectionRange(items, sel)?.from).toEqual({ kind: 'checkpoint', id: 1 });
+    expect(items.filter((i) => i.kind !== 'uncommitted' && inSelection(items, sel, i.key)).map((i) => i.tag)).toEqual([
+      'aaaaaaa',
+      'Turn 2',
+    ]);
+  });
+
+  it('read after the last turn: only what is newer than it', () => {
+    expect(onlyNew(items, entries, at(45))).toMatchObject({ from: { kind: 'checkpoint', id: 2 }, fromKey: 'u' });
+  });
+
+  it('nothing before it, or not known when it was read: none', () => {
+    expect(onlyNew(items, entries.slice(1), at(5))).toBeNull();
+    expect(onlyNew(items, entries, undefined)).toBeNull();
+  });
 });
 
 describe('historyItems', () => {
@@ -198,5 +224,17 @@ describe('linesRef: where the lines between hunks are read from', () => {
     expect(linesRef({ kind: 'checkpoint', id: 3 }, { 'C:\\wt\\shop\\feat-x\\api': 'abc' }, 'api')).toBe('abc');
     expect(linesRef({ kind: 'checkpoint', id: 3 }, repos, 'web')).toBeNull();
     expect(linesRef({ kind: 'checkpoint', id: 3 }, repos, 'docs')).toBeNull();
+  });
+});
+
+describe("the Diff toolbar's repo switch", () => {
+  it("names a group's repos by folder, in the session's order, whatever the diff has", () => {
+    expect(sessionRepoNames(['C:\\wt\\grp\\straumur-backend-ai', '/wt/grp/frontend/'])).toEqual(['straumur-backend-ai', 'frontend']);
+    const f = (added: number, deleted: number) => ({ added, deleted });
+    expect(repoSwitch(['backend', 'frontend'], [{ name: 'frontend', files: [f(3, 1), f(2, 0)] }])).toEqual([
+      { name: 'backend', files: null, added: 0, deleted: 0 }, // not in this pick (a commit of frontend)
+      { name: 'frontend', files: 2, added: 5, deleted: 1 },
+    ]);
+    expect(repoSwitch(['a', 'b'], undefined).map((r) => r.files)).toEqual([null, null]); // still loading
   });
 });

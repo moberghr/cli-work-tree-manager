@@ -1,4 +1,6 @@
-import { withDb } from '../platform/db.js';
+import { json, withDb } from '../platform/db.js';
+import type { SessionCi } from '../api-types.js';
+import { isThreadCode } from './pr-review.js';
 
 /**
  * What the PR watch has already acted on, per session: state.db's
@@ -25,4 +27,86 @@ export function createSeenStores(): (sessionId: string) => { has: (k: string) =>
       }
     },
   });
+}
+
+/**
+ * The PR watch's last check of each session: state.db's `pr_watch_state`
+ * (session_id, data), removed with the session. Kept so a restarted work web
+ * shows each session's PRs at once rather than after its first sweep reaches
+ * it (a minute or two with many sessions); that sweep then replaces it.
+ */
+export interface CiStore {
+  load(): Array<[string, SessionCi]>;
+  save(sessionId: string, ci: SessionCi): void;
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const PR_STATES = new Set(['OPEN', 'MERGED', 'CLOSED']);
+
+/** A stored open thread as the watch wrote it (`OpenReviewThread`). */
+function isOpenThread(t: unknown): boolean {
+  return (
+    isObject(t) &&
+    ['threadId', 'repo', 'url', 'reviewer', 'excerpt'].every((k) => typeof t[k] === 'string') &&
+    typeof t.prNumber === 'number' &&
+    (t.where === null || typeof t.where === 'string') &&
+    (t.trusted === undefined || typeof t.trusted === 'boolean') &&
+    (t.body === undefined || typeof t.body === 'string') &&
+    (t.code === undefined || isThreadCode(t.code))
+  );
+}
+
+/** A stored check as the watch wrote it (the fields its readers rely on, its open threads' too); anything else is dropped. */
+/** A stored PR: what the stage and the pills read of it. */
+const isStoredPr = (pr: unknown): boolean =>
+  isObject(pr) &&
+  typeof pr.number === 'number' &&
+  typeof pr.url === 'string' &&
+  typeof pr.state === 'string' &&
+  PR_STATES.has(pr.state) &&
+  typeof pr.headSha === 'string';
+
+export function isSessionCi(v: unknown): v is SessionCi {
+  if (!isObject(v) || typeof v.checkedAt !== 'string' || !Array.isArray(v.repos)) return false;
+  return v.repos.every(
+    (r) =>
+      isObject(r) &&
+      typeof r.name === 'string' &&
+      typeof r.done === 'boolean' &&
+      (r.pr === null || isStoredPr(r.pr)) &&
+      (r.branch === undefined || typeof r.branch === 'string') &&
+      (r.otherPrs === undefined ||
+        (Array.isArray(r.otherPrs) && r.otherPrs.every((o) => isObject(o) && typeof o.branch === 'string' && isStoredPr(o.pr)))) &&
+      (r.openThreads === undefined || typeof r.openThreads === 'number') &&
+      (r.viewer === undefined || typeof r.viewer === 'string') &&
+      (r.threads === undefined || (Array.isArray(r.threads) && r.threads.every(isOpenThread))),
+  );
+}
+
+export function createCiStore(): CiStore {
+  return {
+    load() {
+      let rows: Array<{ session_id: string; data: string }>;
+      try {
+        rows = withDb((d) => d.prepare('SELECT session_id, data FROM pr_watch_state').all() as Array<{ session_id: string; data: string }>);
+      } catch {
+        return []; // best-effort, as saving is: the sweep fills it in
+      }
+      const out: Array<[string, SessionCi]> = [];
+      for (const r of rows) {
+        const ci = json.parse(r.data);
+        if (isSessionCi(ci)) out.push([r.session_id, ci]);
+      }
+      return out;
+    },
+    save(sessionId, ci) {
+      try {
+        withDb((d) =>
+          d.prepare('INSERT OR REPLACE INTO pr_watch_state (session_id, data) VALUES (?, ?)').run(sessionId, JSON.stringify(ci)),
+        );
+      } catch {
+        /* best-effort: a restart then waits for the sweep, as before */
+      }
+    },
+  };
 }

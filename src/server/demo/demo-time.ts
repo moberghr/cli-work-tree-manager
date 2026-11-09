@@ -1,9 +1,10 @@
-import type { TimeDaysWire, TimeDayWire, TimeEvidence, TimePostWire } from '../../core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeEvidence, TimeMonthWire, TimePostWire } from '../../core/api-types.js';
 import { DEFAULT_TIME_SETTINGS, isWorkday, type TimeEntry } from '../../core/time/allocate.js';
 import { addDays, daysBetween, dayWireOf, daysWireOf, localDay, type TimeConfig, type TimeDayRecord } from '../../core/time/time-view.js';
+import { monthRange, monthWireOf } from '../../core/time/time-month.js';
 
 /**
- * The demo's Time tab: two weeks of made-up evidence (sessions with Claude
+ * The demo's Time tab: a month of made-up evidence (sessions with Claude
  * minutes, commits, an issue moved), through the real suggestion and view
  * (time-view.ts). Edits and days off are kept in memory.
  */
@@ -49,15 +50,18 @@ function evidenceFor(n: number): TimeEvidence {
   };
 }
 
+/** How many days back the demo has gathered (a month: the Month view has one to post). */
+const DEMO_DAYS = 31;
+
 export function createDemoTime(now: () => number) {
   const edits = new Map<string, { edited?: TimeEntry[] | null; dayOff?: boolean; posted?: TimeDayRecord['posted'] }>();
   const record = (day: string): TimeDayRecord | null => {
     const today = localDay(now());
     if (day > today) return null;
-    const all = daysBetween(addDays(today, -13), today);
+    const all = daysBetween(addDays(today, -(DEMO_DAYS - 1)), today);
     const n = all.indexOf(day);
     const e = edits.get(day) ?? {};
-    // Two weeks of work days; before that, nothing gathered.
+    // A month of work days; before that, nothing gathered.
     if (n < 0 && !e.edited && !e.dayOff) return null;
     return {
       day,
@@ -79,6 +83,16 @@ export function createDemoTime(now: () => number) {
           .map(record)
           .filter((r): r is TimeDayRecord => !!r),
       ),
+    month: (month: string): TimeMonthWire => {
+      const today = localDay(now());
+      const r = monthRange(month, today);
+      const records = r
+        ? daysBetween(r.from, r.to)
+            .map(record)
+            .filter((x): x is TimeDayRecord => !!x)
+        : [];
+      return { ...monthWireOf(month, today, SETTINGS, records), gathering: false, gatherError: null, posting: { ready: true, why: null } };
+    },
     day: (day: string): TimeDayWire => ({ ...dayWireOf(day, SETTINGS, record(day)), posting: { ready: true, why: null } }),
     update: (day: string, change: { edited?: TimeEntry[] | null; dayOff?: boolean }): TimeDayWire => {
       edits.set(day, { ...(edits.get(day) ?? {}), ...change });

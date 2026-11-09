@@ -6,9 +6,12 @@ import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 import { encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
 import {
   archiveSession,
+  archivedByOf,
   readArchive,
   readArchivedTranscript,
   restoreArchivedTranscripts,
+  lastEntryTime,
+  RESTORED_AGE_MS,
   writeArchiveSummary,
   type ArchiveDeps,
 } from '../../../src/core/archive/session-archive.js';
@@ -141,6 +144,16 @@ describe('archiveSession', () => {
     );
   });
 
+  it('records who archived it; an archive from before (or a value work never writes) says nobody', async () => {
+    await archiveSession(session, deps(), { by: 'you' });
+    const rec = readArchive(sessionIdFor(session), root)!;
+    expect(rec.archivedBy).toBe('you');
+    expect(archivedByOf(rec)).toBe('you');
+    expect(archivedByOf({})).toBeUndefined();
+    expect(archivedByOf({ archivedBy: 'someone' })).toBeUndefined();
+    expect(archivedByOf({ archivedBy: 'pr-merged' })).toBe('pr-merged');
+  });
+
   it('keeps a worktree that has work in it, and says why', async () => {
     const d = deps({ removable: async () => ({ ok: false, reason: '3 uncommitted files' }) });
     const out = await archiveSession(session, d);
@@ -246,6 +259,120 @@ describe('restoreArchivedTranscripts', () => {
     expect(restoreArchivedTranscripts(session, root, claudeDirIn(projects))).toBe(0); // already there
   });
 
+  it('dated a few minutes back: not now (it would read as a Claude at work there), not months back with an old archive (Claude Code would delete it)', async () => {
+    await archiveSession(session, deps());
+    // Archived 45 days ago: dated then, Claude Code's 30-day cleanup would remove the restored conversation.
+    const id = sessionIdFor(session);
+    const recFile = path.join(root, id, 'archive.json');
+    const rec = JSON.parse(fs.readFileSync(recFile, 'utf-8')) as { archivedAt: string };
+    fs.writeFileSync(recFile, JSON.stringify({ ...rec, archivedAt: new Date(Date.now() - 45 * 86_400_000).toISOString() }));
+    fs.rmSync(path.join(projects, encodeProjectDir(wt)), { recursive: true, force: true });
+    restoreArchivedTranscripts(session, root, claudeDirIn(projects));
+    const age = Date.now() - fs.statSync(transcript).mtimeMs;
+    expect(age).toBeGreaterThan(RESTORED_AGE_MS - 5_000);
+    expect(age).toBeLessThan(RESTORED_AGE_MS + 60_000);
+  });
+
+  it('several conversations keep their order: the newest dated latest (what --continue resumes)', async () => {
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    const dir = path.join(root, id);
+    fs.mkdirSync(path.join(dir, 'transcripts'), { recursive: true });
+    const conv = (ts: string) => JSON.stringify({ type: 'user', timestamp: ts }) + '\n';
+    // Listed newest first, as nothing promises they are listed in order.
+    const files = { 'new.jsonl': '2026-10-10T10:00:00Z', 'mid.jsonl': '2026-10-05T10:00:00Z', 'old.jsonl': '2026-09-01T10:00:00Z' };
+    for (const [f, ts] of Object.entries(files)) fs.writeFileSync(path.join(dir, 'transcripts', f), conv(ts));
+    fs.writeFileSync(
+      path.join(dir, 'archive.json'),
+      JSON.stringify({
+        ...readArchive(id, root),
+        sessionId: id,
+        archivedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+        transcripts: Object.keys(files).map((file) => ({ file, projectDir: 'p' })),
+      }),
+    );
+    const dest = fs.mkdtempSync(path.join(tmp, 'restore-'));
+    expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(3);
+    const mtime = (f: string) => fs.statSync(path.join(dest, f)).mtimeMs;
+    expect(mtime('old.jsonl')).toBeLessThan(mtime('mid.jsonl'));
+    expect(mtime('mid.jsonl')).toBeLessThan(mtime('new.jsonl'));
+    expect(Date.now() - mtime('new.jsonl')).toBeLessThan(RESTORED_AGE_MS + 60_000); // not 40 days back
+  });
+
+  it('a restored one with no time in it goes first: never the one --continue resumes', async () => {
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    const dir = path.join(root, id);
+    fs.writeFileSync(
+      path.join(dir, 'transcripts', 'real.jsonl'),
+      JSON.stringify({ type: 'user', timestamp: '2026-10-10T10:00:00Z' }) + '\n',
+    );
+    fs.writeFileSync(path.join(dir, 'transcripts', 'summary.jsonl'), JSON.stringify({ type: 'summary', summary: 'x' }) + '\n');
+    fs.writeFileSync(
+      path.join(dir, 'archive.json'),
+      JSON.stringify({
+        ...readArchive(id, root),
+        transcripts: [
+          { file: 'real.jsonl', projectDir: 'p' },
+          { file: 'summary.jsonl', projectDir: 'p' },
+        ],
+      }),
+    );
+    const dest = fs.mkdtempSync(path.join(tmp, 'restore-notime-'));
+    expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(2);
+    const m = (f: string) => fs.statSync(path.join(dest, f)).mtimeMs;
+    expect(m('summary.jsonl')).toBeLessThan(m('real.jsonl'));
+  });
+
+  it("a conversation's last time: a small tail first, further back when its last line is big", () => {
+    const entries = (lines: readonly unknown[]) =>
+      lines.map((l) => ({ at: String((l as { timestamp?: string }).timestamp ?? ''), role: 'other' as const, text: '' }));
+    const file = path.join(tmp, 'big-tail.jsonl');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ timestamp: '2026-10-10T10:00:00Z' }) + '\n' + JSON.stringify({ result: 'x'.repeat(200_000) }) + '\n',
+    );
+    expect(lastEntryTime(file, entries)).toBe(Date.parse('2026-10-10T10:00:00Z'));
+    const none = path.join(tmp, 'no-time.jsonl');
+    fs.writeFileSync(none, JSON.stringify({ type: 'summary' }) + '\n');
+    expect(lastEntryTime(none, entries)).toBe(0);
+  });
+
+  it('one still there that is newer than a restored one stays the newest (Claude Code deleted only the old)', async () => {
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    const dir = path.join(root, id);
+    const conv = (ts: string) => JSON.stringify({ type: 'user', timestamp: ts }) + '\n';
+    fs.writeFileSync(path.join(dir, 'transcripts', 'old.jsonl'), conv('2026-09-01T10:00:00Z'));
+    fs.writeFileSync(
+      path.join(dir, 'archive.json'),
+      JSON.stringify({
+        ...readArchive(id, root),
+        transcripts: [
+          { file: 'old.jsonl', projectDir: 'p' },
+          { file: 'new.jsonl', projectDir: 'p' },
+        ],
+      }),
+    );
+    const dest = fs.mkdtempSync(path.join(tmp, 'restore-kept-'));
+    fs.writeFileSync(path.join(dest, 'new.jsonl'), conv('2026-10-10T10:00:00Z')); // kept by Claude Code
+    const keptAt = new Date(Date.now() - 3 * 86_400_000);
+    fs.utimesSync(path.join(dest, 'new.jsonl'), keptAt, keptAt);
+    // Another conversation in the same folder (you ran Claude there yourself): not this session's, keeps its date.
+    const mineAt = new Date(Date.now() - 2 * 86_400_000);
+    fs.writeFileSync(path.join(dest, 'yours.jsonl'), conv('2026-10-12T10:00:00Z'));
+    fs.utimesSync(path.join(dest, 'yours.jsonl'), mineAt, mineAt);
+    expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(1);
+    const m = (f: string) => fs.statSync(path.join(dest, f)).mtimeMs;
+    expect(m('old.jsonl')).toBeLessThan(m('new.jsonl'));
+    expect(Math.abs(m('yours.jsonl') - mineAt.getTime())).toBeLessThan(1000);
+    // None of the session's anywhere near Claude Code's 30 days, none "written just now".
+    for (const f of ['old.jsonl', 'new.jsonl']) {
+      expect(Date.now() - m(f)).toBeLessThan(RESTORED_AGE_MS + 60_000);
+      expect(Date.now() - m(f)).toBeGreaterThan(RESTORED_AGE_MS - 5_000);
+    }
+  });
+
   it('does nothing for a session that was never archived with a copy', () => {
     expect(restoreArchivedTranscripts({ ...session, branch: 'other' }, root, claudeDirIn(projects))).toBe(0);
     expect(vi.isMockFunction(restoreArchivedTranscripts)).toBe(false);
@@ -274,6 +401,66 @@ describe('archiveSession: what it does around the copy', () => {
     expect(tidy).toHaveBeenCalled();
     expect(clearBuildFolders).not.toHaveBeenCalled(); // the folder is gone anyway
     expect(readArchive(sessionIdFor(session), root)).toMatchObject({ tips: { api: 'abc123' }, branchesDeleted: ['api'] });
+  });
+
+  it('unasked (the PR watch): something you run from the worktree keeps it — nothing is stopped', async () => {
+    const stopRunningFrom = vi.fn(async () => ['x']);
+    const removeWorktree = vi.fn(async () => true);
+    const runningFrom = vi.fn(async () => ['node …\\server.js (PID 9)']);
+    const clearBuildFolders = vi.fn(async () => ({ folders: 1, bytes: 10 }));
+    const out = await archiveSession(session, deps({ stopRunningFrom, removeWorktree, runningFrom, clearBuildFolders }), {
+      merged: true,
+      unattended: true,
+    });
+    expect(out.ok).toBe(true);
+    expect(out.worktreeRemoved).toBe(false);
+    expect(out.keptBecause).toBe('still running from it: node …\\server.js (PID 9)');
+    expect(stopRunningFrom).not.toHaveBeenCalled();
+    expect(removeWorktree).not.toHaveBeenCalled();
+    expect(clearBuildFolders).not.toHaveBeenCalled(); // its node_modules is what the dev server runs from
+    // Nothing running: it goes as usual.
+    const out2 = await archiveSession(session, deps({ stopRunningFrom, removeWorktree, runningFrom: async () => [] }), {
+      merged: true,
+      unattended: true,
+    });
+    expect(out2.worktreeRemoved).toBe(true);
+    // Unasked, nothing is ever stopped — not even what started after the look.
+    expect(stopRunningFrom).not.toHaveBeenCalled();
+    // A process list that didn't answer: kept, as for something running.
+    const out3 = await archiveSession(
+      session,
+      deps({
+        stopRunningFrom,
+        removeWorktree: vi.fn(async () => true),
+        runningFrom: async () => {
+          throw new Error("couldn't read the running processes");
+        },
+      }),
+      { merged: true, unattended: true },
+    );
+    expect(out3.worktreeRemoved).toBe(false);
+    expect(out3.keptBecause).toMatch(/couldn't tell/);
+  });
+
+  it('stops what still runs from its folders (a dev server its Claude left) before the worktree goes, and says so', async () => {
+    const stopRunningFrom = vi.fn(async () => ['node …/vite/bin/vite.js --mode demo (PID 35464)']);
+    const removeWorktree = vi.fn(async () => true);
+    const out = await archiveSession(session, deps({ stopRunningFrom, removeWorktree }));
+    expect(stopRunningFrom).toHaveBeenCalledWith(session);
+    expect(stopRunningFrom.mock.invocationCallOrder[0]).toBeLessThan(removeWorktree.mock.invocationCallOrder[0]);
+    expect(out.message).toContain('stopped what still ran from it: node …/vite/bin/vite.js --mode demo (PID 35464)');
+    // A worktree that stays (its folder isn't removed): what runs there is left alone.
+    const keptStop = vi.fn(async () => []);
+    await archiveSession(
+      session,
+      deps({ stopRunningFrom: keptStop, removable: async () => ({ ok: false, reason: '2 unpushed commits' }) }),
+    );
+    expect(keptStop).not.toHaveBeenCalled();
+    // One that fails to look stops nothing else from happening.
+    const failing = vi.fn(async () => {
+      throw new Error('no process list');
+    });
+    expect((await archiveSession(session, deps({ stopRunningFrom: failing }))).ok).toBe(true);
   });
 
   it('a kept worktree gets its build output cleared, not a repo’s own checkout', async () => {

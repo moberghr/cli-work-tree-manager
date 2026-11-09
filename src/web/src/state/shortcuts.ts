@@ -14,7 +14,8 @@ export type SessionAction =
   | 'tab-term'
   | 'tab-diff'
   | 'tab-pr'
-  | 'tab-timeline'
+  | 'tab-code'
+  | 'timeline'
   | 'archive'
   | 'snooze'
   | 'block'
@@ -27,7 +28,10 @@ export type SessionAction =
   | 'reconnect'
   | 'editor'
   | 'copy'
+  | 'copy-reply'
   | 'fork'
+  | 'add-repo'
+  | 'account'
   | 'dev'
   | 'delete';
 
@@ -42,7 +46,8 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   'tab-term': { key: '1', label: 'Terminal tab' },
   'tab-diff': { key: '2', label: 'Diff tab' },
   'tab-pr': { key: '3', label: 'PR tab' },
-  'tab-timeline': { key: '4', label: 'Timeline tab' },
+  'tab-code': { key: '4', label: 'Code tab' },
+  timeline: { key: 'l', label: 'Timeline (how it got here)' },
   archive: { key: 'e', label: 'Archive (Restore when archived)' },
   snooze: { key: 'z', label: 'Snooze…' },
   block: { key: 'b', label: 'Blocked by…' },
@@ -55,9 +60,28 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   reconnect: { key: 'r', shift: true, label: 'Reconnect its terminal' },
   editor: { key: 'o', label: 'Open in editor' },
   copy: { key: 'y', label: 'Copy branch name' },
+  'copy-reply': { key: 'y', shift: true, label: "Copy Claude's last reply" },
   fork: { key: 'f', label: 'Fork…' },
+  'add-repo': { key: 'a', shift: true, label: 'Add a repo… (a session folder)' },
+  account: { key: 'c', shift: true, label: 'Claude account… (move it to another login)' },
   dev: { key: 'd', shift: true, label: 'Start / stop the dev server' },
   delete: { key: 'Delete', shift: true, label: 'Delete…' },
+};
+
+/** What a key does on an open review (the Reviews tab). */
+export type ReviewAction = 'prev' | 'next' | 'overview' | 'stories' | 'comments' | 'files';
+
+/**
+ * An open review's keys (the Reviews tab, no session open). Not `c` for the comments: `c` is New worktree everywhere,
+ * so it is `m` (comMents).
+ */
+export const REVIEW_KEYS: Record<ReviewAction, KeyDef> = {
+  prev: { key: '[', label: 'Previous story / comment' },
+  next: { key: ']', label: 'Next story / comment' },
+  overview: { key: 'o', label: 'The overview' },
+  stories: { key: 's', label: 'The stories, one at a time' },
+  comments: { key: 'm', label: 'Walk through the comments' },
+  files: { key: 'f', label: 'Every file in one scroll (Files changed)' },
 };
 
 /** The parts of a key event the handlers read. */
@@ -76,6 +100,14 @@ export function sessionActionFor(e: KeyLike): SessionAction | null {
   for (const [action, def] of Object.entries(SESSION_KEYS) as Array<[SessionAction, KeyDef]>) {
     if (def.key === key && !!def.shift === !!e.shiftKey) return action;
   }
+  return null;
+}
+
+/** An open review's action for a key, or null. */
+export function reviewActionFor(e: KeyLike): ReviewAction | null {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  for (const [action, def] of Object.entries(REVIEW_KEYS) as Array<[ReviewAction, KeyDef]>) if (def.key === key) return action;
   return null;
 }
 
@@ -118,7 +150,9 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
         { keys: 'g w', label: 'Start' },
         { keys: 'g j', label: 'Jira' },
         { keys: 'g h', label: 'Time (hours per ticket)' },
+        { keys: 'g v', label: 'Reviews (PRs prepared for you)' },
         { keys: 'g r', label: 'Repos & groups' },
+        { keys: 'g a', label: 'Claude accounts' },
         { keys: 'g c', label: 'Clean up' },
         { keys: 'g t', label: 'Tasks (open / close)' },
       ],
@@ -128,12 +162,17 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
       rows: [
         ...Object.values(SESSION_KEYS).map((d) => ({ keys: keyText(d), label: d.label })),
         { keys: 'F2', label: 'Rename' },
+        { keys: 'Ctrl+T', label: "Search its code: types and members, files, text (in the app; in a browser, the Code tab's button)" },
         { keys: 'Alt+↑ / ↓', label: 'Move it up / down the list (on its row)' },
       ],
     },
     {
       title: 'The diff',
       rows: [{ keys: '] / [', label: 'Next / previous comment' }],
+    },
+    {
+      title: 'An open review',
+      rows: Object.values(REVIEW_KEYS).map((d) => ({ keys: keyText(d), label: d.label })),
     },
   ];
 }
@@ -147,13 +186,17 @@ export interface SessionActionDetail {
 
 /** What the dashboard does for each of the open session's keys (DashboardApp passes its functions). */
 export interface SessionKeyHandlers {
-  tab: (sub: 'term' | 'diff' | 'pr' | 'timeline') => void;
+  tab: (sub: 'term' | 'diff' | 'pr' | 'code') => void;
   setArchived: (archived: boolean) => void;
   snoozeMenu: () => void;
   blockBy: () => void;
   openEditor: () => void;
   copyBranch: () => void;
   fork: () => void;
+  /** Open Add a repo… (a session folder only). */
+  addRepo: () => void;
+  /** Open Claude account… (more than one account, and a Claude session). */
+  account: () => void;
   remove: () => void;
   /** The rest are its header's (its menu, Ship, notes, a prompt, catch-up, the dev server, a terminal). */
   header: (a: SessionAction) => void;
@@ -169,8 +212,8 @@ export function runSessionKey(action: SessionAction, s: { archived: boolean }, h
       return h.tab('diff');
     case 'tab-pr':
       return h.tab('pr');
-    case 'tab-timeline':
-      return h.tab('timeline');
+    case 'tab-code':
+      return h.tab('code');
     case 'archive':
       return h.setArchived(live);
     case 'snooze':
@@ -183,6 +226,10 @@ export function runSessionKey(action: SessionAction, s: { archived: boolean }, h
       return h.copyBranch();
     case 'fork':
       return live ? h.fork() : undefined;
+    case 'add-repo':
+      return live ? h.addRepo() : undefined;
+    case 'account':
+      return live ? h.account() : undefined;
     case 'delete':
       return h.remove();
     default:

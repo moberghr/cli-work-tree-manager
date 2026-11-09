@@ -3,6 +3,11 @@ import { ProjectPicker } from './ProjectPicker.js';
 import { createWorktree, fetchBranchCheck, fetchProjects, lookupPr, type ProjectSummary } from '../../api/panes.js';
 import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
+import { onBranchChange } from '../../utils/branch-input.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { fetchAccounts } from '../../api/client.js';
+import { accountLabel, accountName } from '../../state/accounts.js';
+import type { AccountsWire } from '../../../../core/api-types.js';
 import { parsePrRef, workOnPrPrompt, type PrToStart } from '../../../../core/pr/pr-ref.js';
 
 interface Props {
@@ -19,14 +24,18 @@ interface Props {
   title?: string;
   /** Called with the new session id on successful create; `started` when
    *  Claude was started with the prompt (open its terminal). */
-  onCreated: (sessionId: string, result?: { started?: 'started' | 'queued' }) => void;
+  onCreated: (sessionId: string, result?: { started?: 'started' | 'queued'; warnings?: string[] }) => void;
   onClose: () => void;
   /** The Repos page, for a project that isn't in the list yet. */
   onManageRepos?: () => void;
+  /** The Accounts page's Add account, from the Claude account pick. */
+  onAddAccount?: () => void;
   /** Test seam; defaults to GET /api/branch-check. */
   checkBranch?: (target: string, branch: string) => Promise<BranchCheck>;
   /** Test seam; defaults to GET /api/pr-start. */
   findPr?: (ref: string, target?: string) => Promise<PrToStart>;
+  /** Test seam; defaults to GET /api/accounts. */
+  loadAccounts?: () => Promise<AccountsWire>;
 }
 
 /** What a branch check means for what you're about to create; null when it's simply new. Pure. */
@@ -35,7 +44,7 @@ export function branchNote(check: BranchCheck, suggested: boolean): { text: stri
   if (suggested) {
     // A suggestion is swapped for a free name (the dialog shows that one); say why.
     if (check.free && check.free !== check.branch) return { text: `${check.branch} is taken, so a new one: ${check.free}.` };
-    if (!check.free) return { text: `${check.branch} and its -2 … -9 are all taken: Edit to name the branch.`, blocks: true };
+    if (!check.free) return { text: `${check.branch} and its -2 … -9 are all taken: type a name for the branch.`, blocks: true };
     return null;
   }
   if (check.session?.archived) return { text: `${check.branch} is an archived session: Create restores it and gives it the prompt.` };
@@ -45,14 +54,15 @@ export function branchNote(check: BranchCheck, suggested: boolean): { text: stri
 }
 
 /** "More options" with what's set in it, so a value folded away is never a surprise. Pure. */
-export function moreLabel(name: string, base: string): string {
-  const set = [name.trim() ? `name “${name.trim()}”` : '', base.trim() ? `base ${base.trim()}` : ''].filter(Boolean);
+export function moreLabel(name: string, base: string, account = ''): string {
+  const set = [name.trim() ? `name “${name.trim()}”` : '', base.trim() ? `base ${base.trim()}` : '', accountLabel(account)].filter(Boolean);
   return set.length ? `More options: ${set.join(' · ')}` : 'More options: name, base branch';
 }
 
 /**
  * Modal for creating a worktree: a project and what Claude should do. The
- * branch is suggested from that (branch-suggest.ts; Edit to type your own),
+ * branch field starts empty, the name suggested from that (branch-suggest.ts)
+ * only its placeholder — used when it's left empty with a prompt; typing names your own,
  * and a name and a base branch are under "More options". Nothing for
  * Claude: just the worktree; no branch either: the project's own checkout.
  *
@@ -60,14 +70,25 @@ export function moreLabel(name: string, base: string): string {
  * branch), Jira (prefill jiraKey + branch slug), Tasks (prefill branch
  * as `todo/<slug>`), and the standalone "+ New" button.
  */
+/**
+ * The branch field's placeholder: the branch an empty field makes — the suggestion (or the free
+ * name it gave way to) when there is a prompt, else the project's own checkout. Pure.
+ */
+export function branchPlaceholder(branch: string, suggested: boolean, isGroup: boolean, hasPrompt: boolean): string {
+  if (suggested && branch && hasPrompt) return `${branch} (suggested; type to name your own)`;
+  return isGroup ? 'feat/whatever (a group needs one)' : 'empty: the project as it is, on its own checkout';
+}
+
 export function NewWorktreeModal({
   initial,
   title = 'New worktree',
   onCreated,
   onClose,
   onManageRepos,
+  onAddAccount,
   checkBranch = fetchBranchCheck,
   findPr = lookupPr,
+  loadAccounts = fetchAccounts,
 }: Props) {
   const [projects, setProjects] = useState<{
     singles: ProjectSummary[];
@@ -76,11 +97,35 @@ export function NewWorktreeModal({
   const [target, setTarget] = useState(initial?.target ?? '');
   // The branch follows what Claude should do until you edit it (or a pick named one).
   const [branchTyped, setBranchTyped] = useState<string | null>(initial?.branch ?? null);
-  const [editingBranch, setEditingBranch] = useState(false);
   const [base, setBase] = useState(initial?.base ?? '');
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
   const [more, setMore] = useState(!!initial?.base);
+  // Claude accounts: a pick shows only when there is more than one (the default is preselected); with one, a link to add another.
+  const [accounts, setAccounts] = useState<AccountsWire | null>(null);
+  const [onlyAccount, setOnlyAccount] = useState(false);
+  const [account, setAccount] = useState('');
+  useEffect(() => {
+    let live = true;
+    loadAccounts().then(
+      (a) => {
+        if (!live) return;
+        if (a.accounts.length < 2) return setOnlyAccount(a.accounts.length === 1);
+        setAccounts(a);
+        setAccount((cur) => cur || (a.accounts.find((x) => x.isDefault) ?? a.accounts[0]).name);
+      },
+      () => {
+        /* no answer: no account to pick, the default is used */
+      },
+    );
+    return () => {
+      live = false;
+    };
+    // Read once, when the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const defaultAccount = accounts?.accounts.find((x) => x.isDefault)?.name ?? '';
+  const otherAccount = accounts && account && account !== defaultAccount ? account : '';
   // Starting on someone's PR: its link or number, looked up (gh pr view), then
   // its repo, branch and first prompt filled in — on their branch, pushes land in their PR.
   const [prOpen, setPrOpen] = useState(false);
@@ -119,7 +164,6 @@ export function NewWorktreeModal({
   // A suggestion that's taken gives way to a free name: new work never lands on an old branch unasked.
   const branch = suggested && checkFor?.free ? checkFor.free : wanted;
   const note = checkFor ? branchNote(checkFor, suggested) : null;
-  const setBranch = (b: string) => setBranchTyped(b);
   const checkRef = useRef(checkBranch);
   checkRef.current = checkBranch;
   useEffect(() => {
@@ -146,6 +190,7 @@ export function NewWorktreeModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstFocusRef = useRef<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     fetchProjects().then(
@@ -165,7 +210,9 @@ export function NewWorktreeModal({
   // and would focus a stale ref or nothing when fetchProjects was slow.)
   useEffect(() => {
     if (!projects) return;
-    firstFocusRef.current?.focus();
+    // A project already there (prefilled, or the first by default): what to do is what's left to say.
+    (target && promptRef.current ? promptRef.current : firstFocusRef.current)?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the projects have come
   }, [projects]);
 
   const targetOptions = useMemo(() => {
@@ -183,18 +230,15 @@ export function NewWorktreeModal({
     }
     // No branch: the project as it is, on its own checkout (`work tree <repo>`).
     if (!branch.trim() && isGroup) {
-      setEditingBranch(true);
       setError(`${target} is a group: give it a branch (a group has no one checkout to open).`);
       return;
     }
     if (!branch.trim() && base.trim()) {
-      setEditingBranch(true);
       setMore(true);
       setError('A base needs a branch to fork. Leave both empty to open the project as it is.');
       return;
     }
     if (note?.blocks) {
-      setEditingBranch(true);
       setError(note.text);
       return;
     }
@@ -214,29 +258,30 @@ export function NewWorktreeModal({
         jiraKey: initial?.jiraKey,
         prompt: prompt.trim() || undefined,
         name: name.trim() || undefined,
+        // Only a pick other than the configured default is sent: without one the server uses the default.
+        account: otherAccount || undefined,
       });
       if (res.startError) {
         setCreatedNoStart({ id: res.sessionId, reason: res.startError });
         setSubmitting(false);
         return;
       }
-      onCreated(res.sessionId, { started: res.started });
+      onCreated(res.sessionId, { started: res.started, ...(res.warnings?.length ? { warnings: res.warnings } : {}) });
     } catch (err) {
       setError((err as Error).message);
       setSubmitting(false);
     }
   }
 
-  function onBackdropClick(e: React.MouseEvent) {
-    if (e.target === e.currentTarget) onClose();
-  }
+  const backdrop = useBackdropClose(onClose);
 
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
-      onClick={onBackdropClick}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => {
         if (e.key === 'Escape') onClose();
       }}
@@ -286,7 +331,7 @@ export function NewWorktreeModal({
                       lookUpPr();
                     }
                   }}
-                  placeholder="https://github.com/owner/repo/pull/123, or #123"
+                  placeholder="A pull request link, or #123"
                   disabled={submitting || prLooking}
                 />
                 <button type="button" className="wd-btn-secondary" onClick={lookUpPr} disabled={submitting || prLooking || !prRef.trim()}>
@@ -308,6 +353,7 @@ export function NewWorktreeModal({
             <span>What should Claude do?</span>
             <textarea
               ref={(el) => {
+                promptRef.current = el;
                 if (initial?.target) firstFocusRef.current = el;
               }}
               value={prompt}
@@ -325,39 +371,25 @@ export function NewWorktreeModal({
             />
             <span className="wd-modal-hint">Leave it empty to just make the worktree. Ctrl+Enter creates.</span>
           </label>
-          {editingBranch ? (
-            <label className="wd-modal-row">
-              <span>Branch {isGroup ? '' : '(empty: the project as it is)'}</span>
-              <input
-                autoFocus
-                type="text"
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                placeholder={isGroup ? 'feat/whatever' : 'feat/whatever, or empty: its current branch'}
-                disabled={submitting}
-                required={isGroup}
-              />
-            </label>
-          ) : (
-            <div className="wd-modal-branch">
-              Branch{' '}
-              {branch ? (
-                <code>{branch}</code>
-              ) : (
-                <span className="wd-modal-hint">{isGroup ? 'needed for a group' : 'none: the project as it is, on its own checkout'}</span>
-              )}{' '}
-              <button type="button" className="wd-link-button" onClick={() => setEditingBranch(true)} disabled={submitting}>
-                Edit
-              </button>
-            </div>
-          )}
+          <label className="wd-modal-row">
+            <span>Branch</span>
+            {/* Empty until you type: the suggestion is only its placeholder (nothing to delete to name your own). */}
+            <input
+              type="text"
+              name="branch"
+              value={branchTyped ?? ''}
+              onChange={onBranchChange((b) => setBranchTyped(b === '' ? null : b))}
+              placeholder={branchPlaceholder(branch, suggested, isGroup, prompt.trim() !== '')}
+              disabled={submitting}
+            />
+          </label>
           {note && (
             <p className={'wd-modal-branch-note' + (note.blocks ? ' wd-modal-branch-note-bad' : '')} role="status">
               {note.text}
             </p>
           )}
           <button type="button" className="wd-link-button wd-modal-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
-            {more ? '▾' : '▸'} {more ? 'More options: name, base branch' : moreLabel(name, base)}
+            {more ? '▾' : '▸'} {more ? 'More options: name, base branch' : moreLabel(name, base, otherAccount)}
           </button>
           {more && (
             <>
@@ -372,6 +404,35 @@ export function NewWorktreeModal({
                   disabled={submitting}
                 />
               </label>
+              {accounts && (
+                <label className="wd-modal-row">
+                  <span>Claude account</span>
+                  <select value={account} onChange={(e) => setAccount(e.target.value)} disabled={submitting}>
+                    {accounts.accounts.map((a) => (
+                      <option key={a.name} value={a.name} disabled={a.loggedIn === false}>
+                        {accountName(a)}
+                        {a.loggedIn === false ? ' — not logged in' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {onAddAccount && (
+                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                      Add account…
+                    </button>
+                  )}
+                </label>
+              )}
+              {!accounts && onlyAccount && onAddAccount && (
+                <p className="wd-modal-row wd-modal-hint">
+                  <span>Claude account</span>
+                  <span>
+                    one login (~/.claude) ·{' '}
+                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                      Add another account…
+                    </button>
+                  </span>
+                </p>
+              )}
               <label className="wd-modal-row">
                 <span>Base branch (optional)</span>
                 <input

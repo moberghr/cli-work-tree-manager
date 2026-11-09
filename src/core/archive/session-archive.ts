@@ -1,3 +1,4 @@
+import { ARCHIVED_BY, type ArchivedBy } from '../api-types.js';
 import fs from 'node:fs';
 import { isSavedUncommitted, type SavedUncommitted } from './archive-uncommitted.js';
 import { logSwallowed } from '../platform/best-effort.js';
@@ -68,6 +69,8 @@ export interface ArchiveRecord {
   isGroup: boolean;
   paths: string[];
   archivedAt: string;
+  /** Who archived it (ArchiveOptions.by); none in an archive from before it was recorded. */
+  archivedBy?: ArchivedBy;
   /** The worktree folder(s) were removed (false: kept, see keptBecause). */
   worktreeRemoved: boolean;
   keptBecause: string | null;
@@ -112,6 +115,11 @@ export interface ArchiveRecord {
   transcriptsDroppedAt?: string;
 }
 
+/** Who archived it, as stored (archive.json is read back as JSON): only a value work writes. */
+export function archivedByOf(rec: { archivedBy?: unknown }): ArchivedBy | undefined {
+  return ARCHIVED_BY.find((b) => b === rec.archivedBy);
+}
+
 export interface ArchiveKept {
   replyDrafts: Array<{ threadId: string; url: string; reviewer: string; draft: string }>;
   notes: Array<{ id: string; text: string }>;
@@ -149,6 +157,12 @@ export interface ArchiveDeps {
   /** What waits in it, to list in the record (drafts, notes, a question). */
   kept?: (id: string) => ArchiveKept;
   stopDev?: (id: string) => void;
+  /** Stop what still runs from its folders (a dev server or watcher its Claude started in the background,
+   *  running-from.ts) and say what: otherwise it holds files, and the worktree is removed only in part. */
+  stopRunningFrom?: (s: WorktreeSession) => Promise<string[]>;
+  /** What runs from its folders, by name, stopping nothing (an unattended archive keeps the worktree then).
+   *  Rejects when it can't tell, which keeps it too. */
+  runningFrom?: (s: WorktreeSession) => Promise<string[]>;
   /** Repos checked out on another branch than the session's (alias → branch). */
   heads?: (s: WorktreeSession) => Record<string, string>;
   /** Each repo's branch tip (alias → commit): of `heads[alias]`, else the session's branch. */
@@ -197,8 +211,12 @@ export function onArchived(listener: (s: WorktreeSession) => void | Promise<unkn
  * Claude in the middle of a turn does (the caller tries again later).
  */
 export interface ArchiveOptions {
+  /** Who asked: kept in the record, and shown with the archived session. */
+  by?: ArchivedBy;
   force?: boolean;
   merged?: boolean;
+  /** No one asked (the PR watch, a merged PR): nothing running from the worktree is stopped — it keeps it. */
+  unattended?: boolean;
 }
 
 export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: ArchiveOptions = {}): Promise<ArchiveOutcome> {
@@ -294,7 +312,17 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   let leftovers: string[] = [];
   let ignored: Record<string, SavedIgnored> = {};
   const ignoredDir = path.join(dir, 'ignored');
-  if (verdict.ok) {
+  let stopped: string[] = [];
+  // Unasked (the PR watch): what runs from the folder is yours — it keeps the worktree rather than stop it, and
+  // stops nothing (not even what started after this look). Processes it can't read keep it too: no guess.
+  const runningThere =
+    verdict.ok && opts.unattended
+      ? ((await deps.runningFrom?.(s).catch(() => ["(couldn't tell: the process list didn't answer)"])) ?? [])
+      : [];
+  if (verdict.ok && runningThere.length === 0) {
+    // Only for a folder that goes (never a repo's own checkout, never a kept worktree: what runs there is
+    // yours), and only when you asked: what still runs from it holds its files, and git would remove it only in part.
+    if (!opts.unattended) stopped = (await deps.stopRunningFrom?.(s).catch(() => [])) ?? [];
     // Local settings and the editor's state go with the folder: kept, so Restore brings them back.
     fs.rmSync(ignoredDir, { recursive: true, force: true });
     ignored = deps.saveIgnored ? await deps.saveIgnored(s, dir).catch(() => ({})) : {};
@@ -310,7 +338,11 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
         ? `git removed ${leftovers.join(', ')} only in part (a file in use) and kept the rest`
         : 'git refused to remove the worktree';
   } else {
-    keptBecause = saving.error && !verdict.reason.includes(saving.error) ? `${verdict.reason} (${saving.error})` : verdict.reason;
+    keptBecause = runningThere.length
+      ? `still running from it: ${runningThere.join(', ')}`
+      : saving.error && !verdict.reason.includes(saving.error)
+        ? `${verdict.reason} (${saving.error})`
+        : verdict.reason;
   }
   // Kept: the changes are still in it, so the saves aren't needed.
   // (Not when part of it is gone: the saves are the only copy of that.)
@@ -330,7 +362,8 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   let branchesDeleted: string[] = [];
   let buildFolders: ArchiveRecord['buildFolders'];
   if (worktreeRemoved) branchesDeleted = (await deps.tidy?.(s, heads).catch(() => [])) ?? [];
-  else if (keptBecause !== "it is the repo's own checkout" && deps.clearBuildFolders) {
+  // Not under what still runs from it (a dev server's node_modules): kept so as to leave it alone.
+  else if (keptBecause !== "it is the repo's own checkout" && runningThere.length === 0 && deps.clearBuildFolders) {
     buildFolders = await deps.clearBuildFolders(s).catch(() => undefined);
   }
 
@@ -343,6 +376,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     isGroup: s.isGroup,
     paths: s.paths,
     archivedAt: new Date(now()).toISOString(),
+    ...(opts.by ? { archivedBy: opts.by } : {}),
     worktreeRemoved,
     keptBecause,
     ...(leftovers.length ? { leftovers } : {}),
@@ -381,7 +415,9 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     message:
       (worktreeRemoved
         ? `Archived; worktree removed, conversation kept${savedFiles(saved) ? `, ${savedFiles(saved)} uncommitted file${savedFiles(saved) === 1 ? '' : 's'} saved for Restore` : ''}${leftovers.length ? `; git stopped at a file in use, so part of the folder is left (${leftovers.join(', ')}): close what holds it and delete it, or Restore puts it back` : ''}`
-        : `Archived; worktree kept (${keptBecause})`) + (keptList(kept) ? `; kept for Restore: ${keptList(kept)}` : ''),
+        : `Archived; worktree kept (${keptBecause})`) +
+      (keptList(kept) ? `; kept for Restore: ${keptList(kept)}` : '') +
+      (stopped.length ? `; stopped what still ran from it: ${stopped.join(', ')}` : ''),
     ...(keptList(kept) ? { kept: keptList(kept) } : {}),
   };
 }
@@ -489,10 +525,44 @@ function isArchiveRecord(x: unknown): x is ArchiveRecord {
   );
 }
 
+/** How far back the newest restored transcript is dated: past the Terminal tab's 5 minutes of "written just now". */
+export const RESTORED_AGE_MS = 10 * 60_000;
+
+/**
+ * When a conversation file's last entry was written, as its agent reads it (`conversation.entries` over its
+ * tail), or 0 — no time in it (an empty file, a summary only).
+ */
+export function lastEntryTime(file: string, entries: (lines: readonly unknown[]) => ConversationEntry[]): number {
+  // 64 KB back almost always has a time; up to 4 MB when it doesn't (a last line can be a big tool result).
+  for (const bytes of [64 * 1024, 4 * 1024 * 1024]) {
+    let t = 0;
+    for (const e of entries(readJsonlTail(file, bytes))) {
+      const at = Date.parse(e.at);
+      if (Number.isFinite(at) && at > t) t = at;
+    }
+    if (t || fileSize(file) <= bytes) return t;
+  }
+  return 0;
+}
+
+function fileSize(file: string): number {
+  try {
+    return fs.statSync(file).size;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Put an archived conversation back where Claude looks for it (the project
  * folder of the session's worktree), so `--continue` picks it up. Files that
  * are already there are left alone. Returns how many were restored.
+ *
+ * Then every conversation in that folder — restored, and kept by Claude Code (it deletes the old ones first) —
+ * is dated in the order it was written (by its last entry; one with no time first), a second apart, the newest
+ * a few minutes back: --continue and every "its newest conversation" reader take the newest, whichever were kept;
+ * none reads as written just now (the Terminal tab's "running in another terminal"); none lands near Claude
+ * Code's 30 days (cleanupPeriodDays), which would delete it.
  */
 export function restoreArchivedTranscripts(
   s: WorktreeSession,
@@ -505,7 +575,7 @@ export function restoreArchivedTranscripts(
   if (!rec) return 0;
   const dest = restoreDir(s);
   if (!dest) return 0;
-  let n = 0;
+  const written = new Set<string>();
   for (const t of rec.transcripts) {
     const to = path.join(dest, t.file);
     if (fs.existsSync(to)) continue;
@@ -513,7 +583,32 @@ export function restoreArchivedTranscripts(
     if (text === null) continue;
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(to, text);
-    n++;
+    written.add(to);
   }
-  return n;
+  if (written.size === 0) return 0;
+  // Only this session's own conversations (the archive's list): another conversation in the same folder — you
+  // ran Claude there yourself — keeps its date.
+  const entries = agentOf(s).conversation?.entries ?? (() => []);
+  const files: Array<{ file: string; last: number }> = [];
+  for (const t of rec.transcripts) {
+    const file = path.join(dest, t.file);
+    try {
+      // Its last entry's time; with none readable (none at all, or a last line past the tail read), its own
+      // date — but not for one just written, whose date is now: that one goes first, never the one resumed.
+      files.push({ file, last: lastEntryTime(file, entries) || (written.has(file) ? 0 : fs.statSync(file).mtimeMs) });
+    } catch {
+      /* gone: nothing to date */
+    }
+  }
+  files.sort((a, b) => a.last - b.last);
+  const newest = Date.now() - RESTORED_AGE_MS;
+  for (const [i, { file }] of files.entries()) {
+    const at = new Date(newest - (files.length - 1 - i) * 1000);
+    try {
+      fs.utimesSync(file, at, at);
+    } catch {
+      /* dated as it is */
+    }
+  }
+  return written.size;
 }

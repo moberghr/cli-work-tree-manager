@@ -18,8 +18,8 @@ export interface BulkActions {
 
 /**
  * The bar over the Sessions table while sessions are ticked: archive /
- * restore / snooze them, send them all one prompt, or delete them. Delete asks
- * first and never forces: one with uncommitted or unpushed work is refused,
+ * restore / snooze them, send them all one prompt, or delete them. Archive and Delete ask
+ * first (once for all) and never force: one with uncommitted or unpushed work is refused,
  * and said so. Progress shows here; the outcome as one line.
  */
 export function BulkBar({
@@ -42,7 +42,7 @@ export function BulkBar({
   /** The rail's sections, for Move to. */
   sections?: RailSection[];
 }) {
-  const [mode, setMode] = useState<null | 'send' | 'delete'>(null);
+  const [mode, setMode] = useState<null | 'send' | 'archive' | 'delete'>(null);
   const [text, setText] = useState('');
   const [snoozeAt, setSnoozeAt] = useState<{ x: number; y: number } | null>(null);
   const [until, setUntil] = useState(false);
@@ -85,6 +85,24 @@ export function BulkBar({
             Cancel
           </button>
         </form>
+      ) : mode === 'archive' ? (
+        <span className="wd-bulk-confirm" role="alert">
+          Archive {live.length} session{live.length === 1 ? '' : 's'}? Their Claudes stop, and a worktree goes only where nothing would be
+          lost; one with work waiting is refused and listed. Restore brings each back.{' '}
+          <button
+            type="button"
+            className="wd-btn-primary"
+            onClick={() => {
+              setMode(null);
+              onRun('Archived', (s) => actions.archive(s), live);
+            }}
+          >
+            Archive
+          </button>
+          <button type="button" className="wd-btn-secondary" onClick={() => setMode(null)}>
+            Cancel
+          </button>
+        </span>
       ) : mode === 'delete' ? (
         <span className="wd-bulk-confirm" role="alert">
           Delete {selected.length} session{selected.length === 1 ? '' : 's'}? A worktree goes only where nothing would be lost; the others
@@ -106,7 +124,7 @@ export function BulkBar({
       ) : (
         <>
           {live.length > 0 && (
-            <button type="button" className="wd-btn-secondary" onClick={() => onRun('Archived', (s) => actions.archive(s), live)}>
+            <button type="button" className="wd-btn-secondary" onClick={() => setMode('archive')}>
               Archive {live.length}
             </button>
           )}

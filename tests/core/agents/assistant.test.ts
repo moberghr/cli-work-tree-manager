@@ -10,6 +10,8 @@ import {
   describeView,
   prepareAssistantDir,
   assistantContextDay,
+  assistantContextMonth,
+  assistantContextReview,
   readAssistantContext,
   writeAssistantContext,
 } from '../../../src/core/agents/assistant.js';
@@ -121,6 +123,7 @@ describe('the assistant folder', () => {
       'work overlaps --json',
       'work search encryption keys --json',
       'work timesheet show 2026-10-08 --json',
+      'work timesheet month 2026-10 --json',
     ]) {
       expect(allows(ASSISTANT_ALLOW, read), read).toBe(true);
       expect(claudeAllows(claudeSettingsAllow(), read), read).toBe(true);
@@ -139,6 +142,7 @@ describe('the assistant folder', () => {
       'work timesheet reset 2026-10-08',
       'work timesheet off 2026-10-08',
       'work timesheet post 2026-10-08',
+      'work timesheet gather 2026-10', // reads Jira, Outlook, git: the user's say-so
       // Acting on another session: approving its tool call is yours to say, and a message or a start makes it act.
       'work answer --allow',
       'work answer api feat/x --allow',
@@ -248,5 +252,60 @@ describe('POST /api/assistant/context', () => {
     expect(assistantContextDay()).toBeNull();
     await post({ tab: 'sessions', day: '2026-10-08' }); // another tab: no day
     expect(assistantContextDay()).toBeNull();
+  });
+
+  it("on the Month view: the month on screen in words, in place of a day; a month that isn't one is dropped", async () => {
+    const app = new Hono();
+    mountAssistantRoutes(app);
+    const post = (body: unknown) =>
+      app.request('/api/assistant/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    await post({ tab: 'time', day: '2026-10-08', month: '2026-10' });
+    expect(assistantContextMonth()).toBe('2026-10');
+    expect(assistantContextDay()).toBeNull(); // the month, not a day of it
+    const { describeMonthNow } = await import('../../../src/core/time/time-actions.js');
+    const { updateDay } = await import('../../../src/core/time/time-store.js');
+    updateDay('2026-10-06', { edited: [{ key: 'APP-1', hours: 7.5 }] });
+    const said = readAssistantContext(Date.now(), describeMonthNow('2026-10'))!;
+    expect(said).toContain("On the Time tab's Month view: 2026-10");
+    expect(said).toContain('2026-10-06 (edited, your rows): 7.5 h — APP-1 7.5 h.');
+    expect(said).toContain('work timesheet set <day> KEY=HOURS');
+    await post({ tab: 'time', month: '2026-13' });
+    expect(assistantContextMonth()).toBeNull();
+    await post({ tab: 'sessions', month: '2026-10' }); // another tab: no month
+    expect(assistantContextMonth()).toBeNull();
+  });
+  it('on the Reviews tab: only which PR is kept; its review is described as it is at each prompt (a re-prepare or submit shows at once)', async () => {
+    const app = new Hono();
+    mountAssistantRoutes(app);
+    const post = (body: unknown) =>
+      app.request('/api/assistant/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const { writeReview, updateReview } = await import('../../../src/core/review/review-store.js');
+    const { demoReview } = await import('../../../src/server/demo/demo-reviews.js');
+    const { describeReviewNow } = await import('../../../src/core/review/review-now.js');
+    await post({ tab: 'reviews', review: { repo: 'api', number: 231 } });
+    expect(assistantContextReview()).toEqual({ repo: 'api', number: 231 });
+    expect(describeReviewNow('api', 231)).toBe('The Reviews tab shows api PR #231: no review of it is prepared (any more).');
+    writeReview(demoReview(new Date('2026-11-02T10:00:00Z')));
+    // A review exists now, and still nothing of it is in the stored context: only which PR.
+    expect(readAssistantContext()).not.toContain('Refunds');
+    expect(readAssistantContext()).toContain('[work dashboard]');
+    const said = readAssistantContext(Date.now(), describeReviewNow('api', 231))!;
+    expect(said).toContain('the prepared review of api PR #231');
+    expect(said).toContain('<<< Refunds: partial refunds on paid orders >>>'); // the PR's text fenced as data
+    expect(said).toContain('2 draft comment(s) wait');
+    updateReview('api', 231, (r) => ({ ...r, drafts: r.drafts.map((d) => ({ ...d, state: 'posted' as const })) }));
+    expect(readAssistantContext(Date.now(), describeReviewNow('api', 231))).toContain('0 draft comment(s) wait');
+    await post({ tab: 'reviews', review: { repo: 'api', number: 'x' } });
+    expect(assistantContextReview()).toBeNull();
+    await post({ tab: 'sessions', review: { repo: 'api', number: 231 } }); // another tab: no review
+    expect(assistantContextReview()).toBeNull();
   });
 });

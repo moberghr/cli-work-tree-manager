@@ -1,5 +1,7 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
-import type { SessionCi, ShipPreflight, OpenReviewThread } from '../api-types.js';
+import { howToLift, type LegacyUnsafe } from '../sessions/legacy-unsafe.js';
+import { commandsFor, hostName } from '../hosts/commands.js';
+import type { SessionCi, ShipPreflight, OpenReviewThread, ThreadCode } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
 import {
   newFeedback,
@@ -11,7 +13,8 @@ import {
   openThreadsOf,
 } from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from '../platform/activity.js';
-import { DEFAULT_TRUSTED_BOTS, subAgentHint } from './pr-review.js';
+import { otherPrsOf, workElsewhere } from './branch-work.js';
+import { DEFAULT_TRUSTED_BOTS, MAX_THREAD_BODY, subAgentHint } from './pr-review.js';
 
 /** What waking a session's Claude did: started it; it was already running (it has the note);
  *  waking is off; or it couldn't (no PTY host, no worktree). */
@@ -41,13 +44,17 @@ export type WakeResult = 'started' | 'running' | 'off' | 'failed';
 export interface PrWatchDeps {
   /** Sessions worth checking (recent, not archived). */
   sessions: () => Array<{ id: string; session: WorktreeSession }>;
-  preflight: (session: WorktreeSession) => Promise<ShipPreflight>;
+  /**
+   * The session's repos and their PRs. `resting(host)`: that host refused for its API limit a while ago — don't
+   * ask it (the repo reads as no PR; the watch keeps what it knew of it).
+   */
+  preflight: (session: WorktreeSession, opts?: { resting?: (host: string | undefined) => boolean }) => Promise<ShipPreflight>;
   /** Archive merged work (archiveSession `merged`); resolves to what it kept that was waiting in it ("2 reply drafts"), if anything. */
   archive: (id: string) => Promise<string | void>;
   /** Leave the session's Claude a (published) review note. */
   tell: (id: string, body: string) => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
-  options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean; trustedBots?: string[] };
+  options: () => { autoArchive: boolean; fixCi: boolean; fixConflicts?: boolean; reviewComments: boolean; trustedBots?: string[] };
   /** Threads just handed to a session's Claude, for the reply drafts (pr-replies.ts). */
   rememberThreads?: (
     sessionId: string,
@@ -59,8 +66,15 @@ export interface PrWatchDeps {
       where: string | null;
       reviewer: string;
       excerpt: string;
+      body?: string;
+      code?: ThreadCode;
     }>,
   ) => void;
+  /**
+   * Reply rows (handed over or drafted) whose thread this check doesn't list as open: the ones
+   * GitHub says are resolved go (pr-replies.ts `retireResolvedReplies`). Returns what went.
+   */
+  retireReplies?: (sessionId: string, ci: SessionCi) => Promise<string[]>;
   /** How full the session's Claude conversation is (share of its window), for the sub-agent hint. */
   contextShare?: (session: WorktreeSession) => number | null;
   /** What archiving it now would leave unfinished (replies to post, undelivered notes). Merged work
@@ -77,16 +91,25 @@ export interface PrWatchDeps {
    *  keep the PR state current for its dashboard, but tell no Claude, archive nothing, wake nobody.
    *  What you click (Fix CI) still happens. */
   lookOnly?: boolean;
-  /** The session's Claude runs in the PTY host with permission checks off. */
-  runsUnsafe?: (sessionId: string) => boolean;
-  /** Who gh is signed in as: a PR by someone else (you work on it or review it) is theirs —
-   *  its review threads are addressed to its author, and its CI isn't yours to fix unasked. */
-  viewer?: () => Promise<string | null>;
+  /** Its agent still runs as started `--unsafe` before the retirement (legacy-unsafe.ts): no review text goes to it.
+   *  Which case (legacy-unsafe.ts), so the Activity note can say what lifts it. REMOVE IN THE NEXT RELEASE. */
+  runsUnsafe?: (sessionId: string) => LegacyUnsafe | null;
+  /** Who you're signed in as on a host (`host`: its id; absent: GitHub): a PR by someone else (you work on it or
+   *  review it) is theirs — its review threads are addressed to its author, and its CI isn't yours to fix unasked.
+   *  `repoPath`: the repo it's asked for (its origin's server: a GitHub Enterprise login isn't github.com's). */
+  viewer?: (host?: string, repoPath?: string) => Promise<string | null>;
+  /** The host (`host`: its id; absent: GitHub) refused for its API limit, in its own words (absent: `RATE_LIMITED`).
+   *  Wired per host by pr-watch-hosts.ts, as `viewer` and `reviewFeedback` are. */
+  rateLimited?: (host: string | undefined, text: string) => boolean;
   /** Review threads/comments on a PR (null when gh can't say). */
   reviewFeedback?: (repoPath: string, prNumber: number) => Promise<ReviewFeedback | null>;
   /** Per session: what was already acted on — CI head commits reported,
    *  review comments handed over (persisted, see pr-watch-store.ts). */
   told: (sessionId: string) => SeenStore;
+  /** Its last check of each session, kept across restarts (pr-watch-store.ts): read once at
+   *  creation, so the dashboard has the PRs before the first sweep reaches them; written when a
+   *  check changes what it knew. */
+  saved?: { load(): Array<[string, SessionCi]>; save(sessionId: string, ci: SessionCi): void };
   now?: () => number;
   /** Where its runs and decisions show (the Activity panel). */
   activity?: ActivityLog;
@@ -112,9 +135,11 @@ const CONCURRENCY = 3;
 export const RATE_LIMITED = /rate limit/i;
 /** How long the sweeps rest after GitHub said so. */
 export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
+/** How long a PR's review threads, read while some were open, are believed: resolving one doesn't move the PR's updatedAt. */
+export const THREADS_RECHECK_MS = 10 * 60_000;
 
 export function ciFixMessage(
-  failing: Array<{ repo: string; number: number; checks: string[] }>,
+  failing: Array<{ repo: string; number: number; checks: string[]; host?: string }>,
   isGroup: boolean,
   contextShare?: number | null,
 ): string {
@@ -124,8 +149,35 @@ export function ciFixMessage(
     'CI is failing:',
     ...lines,
     '',
-    'Look at the failures (`gh pr checks <n>`, `gh run view <run-id> --log-failed`), fix them, and push.',
+    `Look at the failures (${[...new Set(failing.map((f) => f.host))]
+      .map((h) => `\`${commandsFor(h).checks('<n>')}\`, \`${commandsFor(h).failedLog}\``)
+      .join('; ')}), fix them, and push.`,
     `If fixing one needs a decision from me — the check is right but the fix changes behaviour, or the check itself looks wrong — don't guess: start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
+    ...(hint ? [hint] : []),
+  ].join('\n');
+}
+
+/**
+ * The note for a PR that can't merge into its base any more. Merge, never rebase: the branch is
+ * pushed (a rebase needs a force push, which nothing here does), and a merge keeps what reviewers saw.
+ * A conflict that takes a choice — both sides changed the same behaviour — is the user's, not a guess.
+ */
+export function conflictMessage(
+  conflicts: Array<{ repo: string; number: number; base: string | null }>,
+  isGroup: boolean,
+  contextShare?: number | null,
+): string {
+  const lines = conflicts.map(
+    (c) =>
+      `- PR #${c.number}${isGroup ? ` (${c.repo})` : ''} can't merge into ${c.base ?? 'its base branch'}: ${c.base ? `\`git merge origin/${c.base}\`` : 'merge its base branch from origin'}`,
+  );
+  const hint = subAgentHint(contextShare);
+  return [
+    'Merge conflict on a pull request:',
+    ...lines,
+    '',
+    `Bring ${conflicts.length === 1 ? 'the branch' : 'each branch'} up to date: \`git fetch origin\`${isGroup ? ' in that repo' : ''}, then the merge above — a merge, not a rebase, and never a force push (the branch is pushed). Resolve the conflicts keeping what both sides meant, check that it builds and its tests pass, commit the merge and push.`,
+    `If a conflict needs a decision from me — both sides changed the same behaviour and it isn't clear which should win — don't guess: \`git merge --abort\`, and start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
     ...(hint ? [hint] : []),
   ].join('\n');
 }
@@ -153,21 +205,27 @@ export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSess
   return autoArchiveVerdict(pre, session, now)?.archive === true;
 }
 
+/** The checked-out commit is the merged PR's head, or behind it (ship.ts checkedOutMerged). */
+function checkedOutMerged(r: ShipPreflight['repos'][number]): boolean {
+  return !r.localSha || !r.pr?.headSha || r.localSha === r.pr.headSha || r.behindMergedHead === true;
+}
+
 /**
  * A repo the archive may take: done (ship.ts repoDone), or merged at the
- * checked-out commit with only uncommitted files left — archiving saves
+ * checked-out commit (or one after it: the PR got commits on GitHub the
+ * worktree never pulled) with only uncommitted files left — archiving saves
  * those and Restore puts them back (archive-uncommitted.ts).
  */
 function archivable(r: ShipPreflight['repos'][number]): boolean {
   if (r.done) return true;
-  return r.pr?.state === 'MERGED' && !r.ahead && (!r.localSha || !r.pr.headSha || r.localSha === r.pr.headSha);
+  return r.pr?.state === 'MERGED' && !r.ahead && checkedOutMerged(r);
 }
 
 /** What keeps a merged repo from being archived: work after the merge that only lives in commits. */
 function workBeyondMerge(r: ShipPreflight['repos'][number]): string | null {
   const parts: string[] = [];
   if (r.ahead) parts.push(`${r.ahead} unpushed commit${r.ahead === 1 ? '' : 's'}`);
-  if (r.localSha && r.pr?.headSha && r.localSha !== r.pr.headSha) parts.push('a commit checked out that the PR didn’t merge');
+  if (!checkedOutMerged(r)) parts.push('a commit checked out that the PR didn’t merge');
   return parts.length ? `${r.name}: PR merged, but ${parts.join(' and ')}` : null;
 }
 
@@ -187,6 +245,10 @@ export function autoArchiveVerdict(
   // anything: never archive on a guess.
   const unread = pre.repos.filter((r) => (!r.pr && r.ghError) || r.gitError);
   if (unread.length) return { archive: false, why: `couldn't read ${unread.map((r) => r.name).join(', ')}` };
+  // Work on another branch the session moved on to (commits not pushed, a PR open) is the session's too:
+  // archiving it would hide that work (session-branches.ts).
+  const elsewhere = workElsewhere(pre);
+  if (elsewhere.length) return { archive: false, why: `work on other branches: ${elsewhere.join('; ')}` };
   // A merged repo isn't done while there is work beyond the merge (repoDone):
   // say which, rather than "not merged" about a merged PR.
   // Every repo that holds it, each with its reason: one merged with work left in it must not hide another not merged at all.
@@ -240,15 +302,71 @@ export function withoutThread(ci: SessionCi, threadId: string): SessionCi {
   };
 }
 
+/**
+ * The saved checks worth showing: only of sessions the sweep checks (the rest would never be
+ * replaced, and a stage from weeks ago would stay in the Inbox), and made after the session was
+ * (one of the same id — target:branch — removed by a build that kept no checks leaves its row).
+ */
+export function savedChecks(
+  rows: Array<[string, SessionCi]>,
+  sessions: Array<{ id: string; session: WorktreeSession }>,
+): Array<[string, SessionCi]> {
+  const created = new Map(sessions.map((s) => [s.id, Date.parse(s.session.createdAt) || 0]));
+  return rows.filter(([id, ci]) => created.has(id) && (Date.parse(ci.checkedAt) || 0) >= created.get(id)!);
+}
+
+/** How long a session goes on being watched after it was last used. */
+export const WATCH_RECENT_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether the PR watch looks at a session: not archived, a folder of it
+ * still there, and used in the last 30 days. "Used" is its last `work tree`
+ * entry OR its agent's last write (`lastWriteMs`, read only when the entry
+ * is older): a session you entered five weeks ago and work in every day
+ * through the dashboard dropped out of the watch (reported: its new review
+ * threads were never read, so `work pr reply` refused them, and its PR
+ * stage, CI notes and auto-archive stopped too).
+ */
+export function watchable(
+  s: WorktreeSession,
+  now: number,
+  io: { exists: (p: string) => boolean; lastWriteMs: (s: WorktreeSession) => number },
+): boolean {
+  if (s.archivedAt || !s.paths.some(io.exists)) return false;
+  const cutoff = now - WATCH_RECENT_MS;
+  return (Date.parse(s.lastAccessedAt) || 0) >= cutoff || io.lastWriteMs(s) >= cutoff;
+}
+
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
-  const states = new Map<string, SessionCi>();
-  /** The last review feedback per session + repo, and the PR's updatedAt it was read at. */
-  const feedbackCache = new Map<string, { number: number; updatedAt: string; fb: ReviewFeedback }>();
+  const states = new Map<string, SessionCi>(deps.saved ? savedChecks(deps.saved.load(), deps.sessions()) : []);
+  /** Sessions checked since this watch was made: each one's first check is announced even when it
+   *  matches the saved one, so what listens (the stage tracker, the thread counts) sees it as before. */
+  const checked = new Set<string>();
+  /** The last review feedback per session + repo, the PR's updatedAt it was read at, and when. */
+  const feedbackCache = new Map<string, { number: number; updatedAt: string; at: number; fb: ReviewFeedback }>();
   /** A session's check in flight: a refresh joins it instead of starting another. */
   const inflight = new Map<string, Promise<SessionCi | null>>();
-  /** Sweeps skip until then: GitHub's API limit was spent (see check). */
-  let pausedUntil = 0;
+  /**
+   * Per host (its id; '' for the default, GitHub): asked nothing until then, its API limit spent (see check).
+   * Only that host rests: sessions on the others are checked as ever.
+   */
+  const restingUntil = new Map<string, number>();
+  const hostKey = (host: string | undefined) => host ?? '';
+  const resting = (host: string | undefined) => (restingUntil.get(hostKey(host)) ?? 0) > now();
+  /** Hosts the session's repos were on at its last preflight (else its saved check; empty: never checked). */
+  const hostsSeen = new Map<string, Array<string | undefined>>();
+  const knownHosts = (id: string) => hostsSeen.get(id) ?? (states.get(id)?.repos ?? []).map((r) => r.host);
+  /** Every host the session was last seen on rests: checking it would only ask a host that refused. */
+  const allResting = (id: string) => {
+    const hosts = knownHosts(id);
+    return hosts.length > 0 && hosts.every(resting);
+  };
+  const restingNames = () =>
+    [...restingUntil]
+      .filter(([, until]) => until > now())
+      .map(([h]) => hostName(h || undefined))
+      .join(', ');
   const sessionOf = (id: string) => deps.sessions().find((s) => s.id === id);
 
   /**
@@ -280,10 +398,23 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     return true;
   }
 
+  /** Its open PRs that can't merge into their base (GitHub's DIRTY, as the PR stage reads it). */
+  function conflictingOf(ci: SessionCi) {
+    return ci.repos
+      .filter((r) => r.pr?.state === 'OPEN' && r.pr.mergeStateStatus === 'DIRTY')
+      .map((r) => ({ repo: r.name, number: r.pr!.number, headSha: r.pr!.headSha, base: r.pr!.baseBranch ?? null }));
+  }
+
   function failingOf(ci: SessionCi) {
     return ci.repos
       .filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail')
-      .map((r) => ({ repo: r.name, number: r.pr!.number, headSha: r.pr!.headSha, checks: (r.pr!.failing ?? []).map((f) => f.name) }));
+      .map((r) => ({
+        repo: r.name,
+        number: r.pr!.number,
+        headSha: r.pr!.headSha,
+        checks: (r.pr!.failing ?? []).map((f) => f.name),
+        ...(r.host ? { host: r.host } : {}),
+      }));
   }
 
   /** One check per session at a time: a second asker gets the one running. */
@@ -300,52 +431,116 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const note = (text: string, level: 'info' | 'action' | 'warn' = 'info') => run?.note(`${name}: ${text}`, { level, sessionId: id });
     let pre: ShipPreflight;
     try {
-      pre = await deps.preflight(session);
+      pre = await deps.preflight(session, { resting });
+      hostsSeen.set(
+        id,
+        pre.repos.map((r) => r.host),
+      );
     } catch (err) {
       note(`couldn't check (${(err as Error).message}); keeping what it knew`, 'warn');
       return states.get(id) ?? null;
     }
     // GitHub refused: every PR reads as "none". Keep what we knew, act on
     // nothing, and let the sweeps rest (each would only spend more).
-    if (pre.repos.some((r) => r.ghError && RATE_LIMITED.test(r.ghError))) {
-      pausedUntil = now() + RATE_LIMIT_PAUSE_MS;
-      schedule?.pause(pausedUntil, "GitHub's API limit is spent");
-      note(`GitHub says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
+    const limitedBy = deps.rateLimited ?? ((_host: string | undefined, text: string) => RATE_LIMITED.test(text));
+    const limited = pre.repos.find((r) => r.ghError && limitedBy(r.host, r.ghError));
+    if (limited) {
+      const name = hostName(limited.host);
+      const until = now() + RATE_LIMIT_PAUSE_MS;
+      restingUntil.set(hostKey(limited.host), until);
+      schedule?.pause(until, `${name}'s API limit is spent`);
+      note(`${name} says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
+      return states.get(id) ?? null;
+    }
+    // A repo on a host that rests wasn't asked (it reads as no PR): keep what was known of the session, act on nothing.
+    const unasked = pre.repos.find((r) => resting(r.host));
+    if (unasked) {
+      note(`${hostName(unasked.host)}'s API limit is spent: keeping what it knew`);
       return states.get(id) ?? null;
     }
     const opts = deps.options();
     // Someone else's PR (a session working on it or reviewing it): its threads are for its
     // author, and its Claude was told to wait for what you want. Shown, never handed over.
-    const viewer = pre.repos.some((r) => r.pr?.author) ? await (deps.viewer?.() ?? Promise.resolve(null)).catch(() => null) : null;
+    // Who you are, per repo: on its host and its origin's server (deps.viewer asks each once).
+    const viewers = new Map<string, string | null>();
+    for (const r of pre.repos)
+      if (r.pr?.author) viewers.set(r.name, await (deps.viewer?.(r.host, r.path) ?? Promise.resolve(null)).catch(() => null));
+    const viewer =
+      pre.repos
+        .filter((r) => !r.host)
+        .map((r) => viewers.get(r.name))
+        .find((v) => !!v) ??
+      [...viewers.values()].find((v) => !!v) ??
+      null;
     const theirs = new Set(
-      pre.repos.filter((r) => r.pr?.author && viewer && r.pr.author.toLowerCase() !== viewer.toLowerCase()).map((r) => r.name),
+      pre.repos
+        .filter((r) => {
+          const me = viewers.get(r.name);
+          return r.pr?.author && me && r.pr.author.toLowerCase() !== me.toLowerCase();
+        })
+        .map((r) => r.name),
     );
+    // Who you are on its host couldn't be told this time (signed out, offline): mine or theirs is unknown, so
+    // nothing of it is handed over — its review threads, CI and conflicts wait for a check that can tell. The
+    // review read below says who you are too (its own viewer): when it does, that settles it. Never read as
+    // yours: someone else's would go to Claude.
+    const unsure = new Set(pre.repos.filter((r) => deps.viewer && r.pr?.author && !viewers.get(r.name)).map((r) => r.name));
+    const unknownOn = (repos: string[]) =>
+      [...new Set(repos.map((name) => hostName(pre.repos.find((r) => r.name === name)?.host)))].join(' / ');
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
-    const feedback: Array<{ repo: string; number: number; items: FeedbackItem[] }> = [];
+    const feedback: Array<{ repo: string; number: number; items: FeedbackItem[]; host?: string }> = [];
     const feedbackSeen = staged(id);
     const threads = new Map<string, number>();
     const threadList = new Map<string, OpenReviewThread[]>();
-    // Review text is other people's writing; a session running with
-    // permission checks off would act on it unreviewed. Count threads for the
-    // strip, but don't hand it over.
-    const deliverReviews = !session.launchedUnsafe && !deps.runsUnsafe?.(id);
+    // Review text is other people's writing; an agent still running with permission checks off from before --unsafe
+    // was retired would act on it unreviewed. Count threads for the strip, but don't hand them over, and say so in Activity (remove next release).
+    const unsafeFromBefore = deps.runsUnsafe?.(id) ?? null;
+    const deliverReviews = !unsafeFromBefore;
     if (deps.reviewFeedback && opts.reviewComments) {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN' || theirs.has(r.name)) continue;
         // Nothing new can have been said on a PR that hasn't changed since
-        // the last read (a comment or review moves its updatedAt).
+        // the last read (a comment or review moves its updatedAt). A resolve
+        // doesn't move it, though: a read with open threads goes stale after
+        // THREADS_RECHECK_MS, or a thread resolved on GitHub stays open here.
         const key = `${id}:${r.name}`;
         const cached = feedbackCache.get(key);
-        const fresh = cached && r.pr.updatedAt && cached.number === r.pr.number && cached.updatedAt === r.pr.updatedAt;
+        const fresh =
+          cached &&
+          r.pr.updatedAt &&
+          cached.number === r.pr.number &&
+          cached.updatedAt === r.pr.updatedAt &&
+          (openThreadCount(cached.fb) === 0 || now() - cached.at < THREADS_RECHECK_MS);
         const fb = fresh ? cached.fb : await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
-        if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, fb });
+        if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, at: now(), fb });
         if (!fb) {
           // gh couldn't say this time: keep the last count for the same PR rather than drop to none.
           const was = states.get(id)?.repos.find((p) => p.name === r.name);
           if (was?.pr?.number === r.pr.number && was.openThreads !== undefined) threads.set(r.name, was.openThreads);
           if (was?.pr?.number === r.pr.number && was.threads) threadList.set(r.name, was.threads);
+          // Who you are is unknown too (GitHub's read answers nothing without a viewer): its threads stay held.
+          if (act && deliverReviews && unsure.has(r.name))
+            note(
+              `couldn't read the review threads on #${r.pr.number}, and who you are on ${unknownOn([r.name])} is unknown: nothing of it is handed to its Claude until it can tell the PR is yours`,
+              'warn',
+            );
           continue;
+        }
+        // Who you are wasn't known on its host: the review read's own viewer says it, or it stays held.
+        let held = false;
+        if (unsure.has(r.name) && r.pr.author) {
+          // The read is made on the repo's own server (the host's adapter asks that one), so its viewer is
+          // who you are there. GitHub's read answers nothing without one (the `!fb` path above); an empty
+          // viewer is another host's way of saying it can't tell.
+          const me = fb.viewer.trim();
+          if (me) viewers.set(r.name, me);
+          if (me && me.toLowerCase() === r.pr.author.toLowerCase()) unsure.delete(r.name);
+          else if (me) {
+            unsure.delete(r.name);
+            theirs.add(r.name); // theirs: shown, never handed over (and not counted, as above)
+            continue;
+          } else held = true;
         }
         threads.set(r.name, openThreadCount(fb));
         const prNumber = r.pr.number;
@@ -353,11 +548,29 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           r.name,
           openThreadsOf(fb, opts.trustedBots ?? DEFAULT_TRUSTED_BOTS).map((t) => ({ ...t, repo: r.name, prNumber })),
         );
-        if (act && deliverReviews) {
+        if (act && deliverReviews && held) {
+          const open = fb.threads.filter((t) => !t.isResolved).length; // unresolved, whoever spoke last: unknown
+          if (open)
+            note(
+              `${open} open review thread${open === 1 ? '' : 's'} on #${r.pr.number}, but who you are on ${unknownOn([r.name])} is unknown: not handing ${open === 1 ? 'it' : 'them'} to its Claude until it can tell the PR is yours`,
+              'warn',
+            );
+        } else if (act && unsafeFromBefore) {
+          // What it would have been handed, read into a throwaway set: nothing is recorded as told, so it goes
+          // over once the agent was restarted.
+          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, staged(id), {
+            trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
+          });
+          if (items.length)
+            note(
+              `${items.length} new review comment${items.length === 1 ? '' : 's'} on #${r.pr.number} held: its agent still runs as started --unsafe, so review text waits until it is restarted — ${howToLift(unsafeFromBefore)}`,
+              'warn',
+            );
+        } else if (act) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {
             trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
           });
-          if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
+          if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items, ...(r.host ? { host: r.host } : {}) });
         }
       }
     }
@@ -366,7 +579,11 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       ...(viewer ? { viewer } : {}),
       repos: pre.repos.map((r) => ({
         name: r.name,
+        ...(r.host ? { host: r.host } : {}),
+        ...(viewers.get(r.name) ? { viewer: viewers.get(r.name)! } : {}),
         pr: r.pr,
+        ...(r.branch && r.branch !== 'HEAD' ? { branch: r.branch } : {}),
+        ...(otherPrsOf(r).length ? { otherPrs: otherPrsOf(r) } : {}),
         done: r.done,
         ...(threads.has(r.name) ? { openThreads: threads.get(r.name)! } : {}),
         ...(threadList.get(r.name)?.length ? { threads: threadList.get(r.name)! } : {}),
@@ -374,9 +591,20 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     };
     const before = JSON.stringify(states.get(id)?.repos);
     states.set(id, ci);
-    if (before !== JSON.stringify(ci.repos)) deps.broadcast('ci-changed', { sessionId: id });
+    const changed = before !== JSON.stringify(ci.repos);
+    if (changed) deps.saved?.save(id, ci);
+    if (changed || !checked.has(id)) deps.broadcast('ci-changed', { sessionId: id });
+    checked.add(id);
 
     if (!act) return ci;
+    // A draft for a thread resolved on GitHub (a bot resolves its own outdated ones) has nothing to
+    // answer: it went on saying "1 reply to post", and Post could only refuse.
+    const retired = (await deps.retireReplies?.(id, ci).catch(() => [] as string[])) ?? [];
+    if (retired.length)
+      note(
+        `${retired.length} repl${retired.length === 1 ? 'y' : 'ies'} dropped: ${retired.length === 1 ? 'its thread was' : 'their threads were'} resolved on their host`,
+        'action',
+      );
     if (feedback.length) {
       const n = feedback.reduce((k, f) => k + f.items.length, 0);
       const prs = feedback.map((f) => `#${f.number}`).join(', ');
@@ -395,6 +623,8 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
                 where: it.where ?? null,
                 reviewer: it.author,
                 excerpt: it.body.slice(0, 400),
+                body: it.body.slice(0, MAX_THREAD_BODY),
+                ...(it.code ? { code: it.code } : {}),
               })),
           ),
         );
@@ -402,7 +632,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       } else note(`couldn't hand ${what} to its Claude; trying again next time`, 'warn');
     } else feedbackSeen.commit(); // only history / baselines: nothing to deliver
     if (opts.fixCi) {
-      const fresh = failingOf(ci).filter((f) => !theirs.has(f.repo) && !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
+      const failing = failingOf(ci).filter((f) => !theirs.has(f.repo) && !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
+      const held = failing.filter((f) => unsure.has(f.repo));
+      if (held.length)
+        note(
+          `checks fail on ${held.map((f) => `#${f.number}`).join(', ')}, but who you are on ${unknownOn(held.map((f) => f.repo))} is unknown: not asking its Claude until it can tell the PR is yours`,
+          'warn',
+        );
+      const fresh = failing.filter((f) => !unsure.has(f.repo));
       if (fresh.length) {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
@@ -410,6 +647,28 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup, deps.contextShare?.(session)), ciSeen))
           note(`checks fail on ${what}: asked its Claude to fix them${await wakeNote(id)}`, 'action');
         else note(`checks fail on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
+      }
+    }
+    // A conflict: once per PR head (a push that conflicts again — the base moved on — is told again).
+    // Someone else's PR is theirs to bring up to date, as its CI is.
+    if (opts.fixConflicts !== false) {
+      const conflicting = conflictingOf(ci).filter(
+        (c) => !theirs.has(c.repo) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`),
+      );
+      const held = conflicting.filter((c) => unsure.has(c.repo));
+      if (held.length)
+        note(
+          `merge conflict on ${held.map((c) => `#${c.number}`).join(', ')}, but who you are on ${unknownOn(held.map((c) => c.repo))} is unknown: not asking its Claude until it can tell the PR is yours`,
+          'warn',
+        );
+      const fresh = conflicting.filter((c) => !unsure.has(c.repo));
+      if (fresh.length) {
+        const seen = staged(id);
+        for (const c of fresh) seen.add(`${id}:${c.repo}:conflict:${c.headSha}`);
+        const what = fresh.map((c) => `#${c.number}${c.base ? ` (into ${c.base})` : ''}`).join(', ');
+        if (await tellThenRecord(id, conflictMessage(fresh, session.isGroup, deps.contextShare?.(session)), seen))
+          note(`merge conflict on ${what}: asked its Claude to merge the base in and resolve it${await wakeNote(id)}`, 'action');
+        else note(`merge conflict on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
       }
     }
     if (opts.autoArchive) {
@@ -471,14 +730,16 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   let running: Promise<void> | null = null;
   const watch: PrWatch = {
     tick() {
-      if (now() < pausedUntil) {
-        deps.activity?.skip('pr-watch', 'Checking pull requests', "GitHub's API limit is spent; resting");
+      // Only sessions on a host that isn't resting are checked; when that's none of them, the sweep rests.
+      const due = deps.sessions().filter((q) => !allResting(q.id));
+      if (!running && !due.length && restingNames()) {
+        deps.activity?.skip('pr-watch', 'Checking pull requests', `${restingNames()}'s API limit is spent; resting`);
         return Promise.resolve();
       }
       // One sweep at a time: a slow gh must not stack sweeps up.
       running ??= (async () => {
-        schedule?.resume();
-        const queue = deps.sessions();
+        if (!restingNames()) schedule?.resume();
+        const queue = due;
         const ids = queue.map((q) => q.id);
         const run = deps.activity?.start('pr-watch', 'Checking pull requests');
         let done = 0;
@@ -512,6 +773,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       const ci = withoutThread(was, threadId);
       if (ci === was) return;
       states.set(id, ci);
+      deps.saved?.save(id, ci);
       deps.broadcast('ci-changed', { sessionId: id });
     },
     // Your click, not a sweep: a look-only watch does it too (the told-keys are shared, so no one repeats it).

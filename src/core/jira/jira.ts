@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { explainNotOnPath, programPath } from '../platform/program-path.js';
 
 export interface JiraIssue {
   key: string;
@@ -17,8 +18,8 @@ function execAsync(cmd: string, args: string[], timeout: number): Promise<string
     // Windows whenever the Jira pane refreshes (every 120 s when open).
     // Without it, opening the Jira pane in `work web` triggers a
     // visible terminal popup.
-    execFile(cmd, args, { encoding: 'utf-8', timeout, windowsHide: true }, (err, stdout) => {
-      if (err) reject(err);
+    execFile(programPath(cmd), args, { encoding: 'utf-8', timeout, windowsHide: true }, (err, stdout) => {
+      if (err) reject(explainNotOnPath(err));
       else resolve(stdout ?? '');
     });
   });
@@ -114,6 +115,13 @@ export async function issueIdOf(key: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+/** A numeric field of an issue (story points: a `customfield_…`); null when it has none. Throws when acli can't say. */
+export async function issueNumberField(key: string, field: string): Promise<number | null> {
+  const stdout = await execAsync('acli', ['jira', 'workitem', 'view', key, '--fields', field, '--json'], 15000);
+  const v = (JSON.parse(stdout) as { fields?: Record<string, unknown> }).fields?.[field];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
 let accountIdCache: string | null = null;

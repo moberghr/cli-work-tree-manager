@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useReview } from '../../state/ReviewProvider.js';
 import type { Comment } from '../../api/client.js';
 import { revealInScroller } from '../../utils/scroll.js';
@@ -18,6 +19,11 @@ interface Props {
 export function CommentsPanel({ repoName, onOpenRepo }: Props) {
   const review = useReview();
   const entries = review.comments.filter((c) => !c.parentId);
+  // Open ones first; the resolved ones under them, each in their own order.
+  const open: Comment[] = [];
+  const resolved: Comment[] = [];
+  for (const c of entries) (c.resolved ? resolved : open).push(c);
+  const repliesOf = (c: Comment) => review.comments.filter((r) => r.parentId === c.id);
 
   return (
     <div className="wd-comments-panel">
@@ -28,8 +34,16 @@ export function CommentsPanel({ repoName, onOpenRepo }: Props) {
         <p className="wd-comments-panel-empty">No comments yet.</p>
       ) : (
         <ul className="wd-comments-panel-list">
-          {entries.map((c) => (
-            <CommentsPanelRow key={c.id} comment={c} repoName={repoName} onOpenRepo={onOpenRepo} />
+          {open.map((c) => (
+            <CommentsPanelRow key={c.id} comment={c} replies={repliesOf(c)} repoName={repoName} onOpenRepo={onOpenRepo} />
+          ))}
+          {resolved.length > 0 && (
+            <li className="wd-comments-panel-divider" role="presentation">
+              Resolved · {resolved.length}
+            </li>
+          )}
+          {resolved.map((c) => (
+            <CommentsPanelRow key={c.id} comment={c} replies={repliesOf(c)} repoName={repoName} onOpenRepo={onOpenRepo} />
           ))}
         </ul>
       )}
@@ -37,16 +51,43 @@ export function CommentsPanel({ repoName, onOpenRepo }: Props) {
   );
 }
 
-function CommentsPanelRow({ comment, repoName, onOpenRepo }: { comment: Comment; repoName?: string; onOpenRepo?: (repo: string) => void }) {
+function CommentsPanelRow({
+  comment,
+  replies,
+  repoName,
+  onOpenRepo,
+}: {
+  comment: Comment;
+  replies: Comment[];
+  repoName?: string;
+  onOpenRepo?: (repo: string) => void;
+}) {
   const elsewhere = comment.side !== 'general' && !!comment.repo && comment.repo !== repoName;
+  // Not in the changes on screen (another range picked, or its file not among them): shown here instead, whole —
+  // a click used to do nothing at all (reported, for a resolved comment).
+  const [inline, setInline] = useState(false);
+  // The jump waiting for another repo's diff to draw: dropped if the panel goes first (it ran on a page torn down).
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (pending.current) clearTimeout(pending.current);
+    },
+    [],
+  );
   function onClick() {
+    if (inline) return setInline(false);
+    const go = () => {
+      pending.current = null;
+      if (!jumpTo(comment)) setInline(true);
+    };
     if (elsewhere) {
       // Its repo first; the jump once that diff is drawn.
       onOpenRepo?.(comment.repo!);
-      setTimeout(() => jumpTo(comment), 60);
+      if (pending.current) clearTimeout(pending.current);
+      pending.current = setTimeout(go, 60);
       return;
     }
-    jumpTo(comment);
+    go();
   }
   const loc =
     comment.side === 'general' ? 'General' : comment.side === 'file' ? `${comment.file} · whole file` : `${comment.file}:${comment.line}`;
@@ -56,34 +97,68 @@ function CommentsPanelRow({ comment, repoName, onOpenRepo }: { comment: Comment;
     <li className={'wd-comments-panel-row' + (comment.resolved ? ' wd-comments-panel-row-resolved' : '')} onClick={onClick}>
       <div className="wd-comments-panel-loc">
         {comment.resolved && (
-          <span className="wd-resolved-check" aria-hidden="true">
-            ✓{' '}
-          </span>
+          <>
+            <span className="wd-resolved-check" aria-hidden="true">
+              ✓{' '}
+            </span>
+            <span className="wd-visually-hidden">Resolved: </span>
+          </>
         )}
         {elsewhere && <span className="wd-comments-panel-repo">{comment.repo} · </span>}
         {loc}
       </div>
-      <div className="wd-comments-panel-body">{comment.body.split('\n')[0]}</div>
+      {inline ? (
+        <div className="wd-comments-panel-inline">
+          <p className="wd-comments-panel-why">
+            Not in the changes on screen, so here in full. Pick Since branch, or an earlier turn, to see it in the diff.
+          </p>
+          <div className="wd-comments-panel-full">{comment.body}</div>
+          {replies.map((r) => (
+            <div key={r.id} className="wd-comments-panel-reply">
+              <span className="wd-comments-panel-who">{r.author === 'claude' ? 'Claude' : 'You'}:</span> {r.body}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="wd-comments-panel-body">{comment.body.split('\n')[0]}</div>
+      )}
     </li>
   );
 }
 
-/** Scroll to a comment's place in the diff on screen (the general pane, or its file and line). */
-function jumpTo(comment: Comment) {
+/**
+ * Scroll to a comment's place in the diff on screen (the general pane, or its
+ * file and line), opening a resolved thread folded to one line. False when it
+ * isn't on screen (its file isn't in the changes picked): the panel shows it
+ * then.
+ */
+export function jumpTo(comment: Comment): boolean {
   if (comment.side === 'general') {
     const pane = document.querySelector('.wd-general-pane');
-    const details = pane?.querySelector('details');
+    if (!pane) return false;
+    const details = pane.querySelector('details');
     if (details && !details.open) details.open = true;
-    if (pane) revealInScroller(pane, { behavior: 'smooth' });
-    return;
+    revealInScroller(pane, { behavior: 'smooth' });
+    return true;
+  }
+  // The comment itself, when the diff shows it: a resolved thread folded to one line is opened first.
+  const el = document.querySelector<HTMLElement>(`[data-comment-id="${cssEscape(comment.id)}"]`);
+  if (el) {
+    if (el.classList.contains('wd-comment-resolved-bar')) el.click();
+    requestAnimationFrame(() => {
+      const shown = document.querySelector<HTMLElement>(`[data-comment-id="${cssEscape(comment.id)}"]`) ?? el;
+      revealInScroller(shown, { behavior: 'smooth', block: 'center' });
+    });
+    return true;
   }
   // Find the table row corresponding to this comment's anchor.
   const file = document.querySelector<HTMLElement>(`article.wd-file[data-path="${cssEscape(comment.file)}"]`);
-  if (!file) return;
+  if (!file) return false;
   // Scroll into view and flash the first matching row.
   revealInScroller(file, { behavior: 'smooth' });
   // Whole-file comments have no line to flash — the file scroll is enough.
   if (comment.side !== 'file') flashLine(file, comment.line, comment.side);
+  return true;
 }
 
 function flashLine(file: HTMLElement, line: number, side: 'left' | 'right' | 'general') {

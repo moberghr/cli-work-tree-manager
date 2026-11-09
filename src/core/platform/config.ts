@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { atomicWriteFile } from './fs-safe.js';
 import { validatePrompts } from '../sessions/saved-prompts.js';
 import { isIssueKey } from '../time/allocate.js';
+import { getConfigDir } from './config-dir.js';
 import type { SavedPrompt } from '../api-types.js';
 
 /**
@@ -39,13 +39,34 @@ export interface WorkConfig {
     tempo?: { tokenEnv?: string; accountId?: string };
     /** Outlook and Teams through Microsoft Graph: the app registration to sign in with (else GRAPH_CLIENT_ID / GRAPH_TENANT_ID). */
     graph?: { clientId?: string; tenantId?: string };
+    /** The Jira field holding story points (`customfield_…`, each site its own): read for tasks, they weigh the day's split. */
+    storyPointsField?: string;
   };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
   stacks?: { autoUpdate?: boolean };
+  /** Usage meters: `statusLine: false` leaves Claude's status line alone (work otherwise wraps it to read the rate limits). */
+  usage?: { statusLine?: boolean };
+  /** Claude Code accounts besides the default `~/.claude`: name → its config folder (`CLAUDE_CONFIG_DIR`), as written; agents/claude/accounts.ts checks them. */
+  claudeAccounts?: Record<string, string>;
+  /** The account new sessions and work's own Claude runs use: `default` or a key of `claudeAccounts`. */
+  claudeAccount?: string;
   /** The agent that writes work's own summaries — checkpoint names, catch-up, archive summaries, the Jira watch's choice (default `claude`; one without one-shot runs writes none). */
   internalAgent?: string;
   /** The agent the Ctrl+K assistant runs (an adapter's id; Claude Code by default). */
   assistantAgent?: string;
+  /**
+   * PR reviews prepared in the background (#64, core/review/): per project (a repo alias or a group) `all` open PRs
+   * (the default), only those `asked` of you, or `off`; the day's cap and the size above which a review waits for a
+   * click; and kind-of-change rules before the defaults (change-kinds.ts).
+   */
+  reviews?: { projects?: Record<string, 'all' | 'asked' | 'off'>; maxPerDay?: number; maxLines?: number; rules?: unknown[] };
+  /**
+   * The git host of an origin whose URL no adapter claims (core/hosts/index.ts): its hostname (lower case) → a host
+   * id. Only a host that can work with such a server needs it (one registered at run time); GitHub Enterprise needs
+   * no entry — an unclaimed origin is asked as GitHub already, and gh finds its server from the repo's folder. The
+   * registry reads it from the raw config.
+   */
+  gitHosts?: Record<string, string>;
   /** Environment variable names to keep for a session restored after a reboot (the launching shell's values; secret-looking names are never kept). */
   hostEnv?: string[];
   /** Writing session time to Jira as worklogs (jira-worklog.ts): the site, your email, and the API token (from the env var `tokenEnv`, default JIRA_API_TOKEN, or `token`). */
@@ -63,13 +84,18 @@ export interface WorkConfig {
    */
   launchViaHost?: boolean;
   /**
+   * Experimental, off by default: NEW sessions are made as a folder with one
+   * subfolder per repo — a single repo too (`<root>/<branch>-<id6>/<repo>/`, session-folder.ts) —
+   * and the agent runs in the folder, whose instructions file imports each
+   * repo's own. Existing sessions keep the layout they were made with.
+   */
+  sessionFolders?: boolean;
+  /**
    * Per-tool flag overrides. Defaults come from the preset matching the
    * binary in `aiCommand` (see AI_TOOL_PRESETS in core/ai-launcher.ts).
    * Set any value to an empty string to disable that flag for the configured tool.
    */
   aiCommandFlags?: {
-    /** Flag for skipping permission checks. */
-    unsafe?: string;
     /** Flag for resuming the most recent session. */
     resume?: string;
     /** Flag for passing an initial prompt as a file path. */
@@ -93,9 +119,16 @@ export interface WorkConfig {
   /**
    * Stop a session's Claude in the PTY host after this many minutes idle with
    * no window attached; opening the session resumes its conversation. Frees
-   * memory (each Claude holds a few hundred MB). Default 240; 0 = never.
+   * memory (each Claude holds a few hundred MB). Default 10, at least 5; 0 = never.
+   * Only a truly idle one: never working, waiting on you, or with background work still running (idle-sleep.ts).
    */
   sleepIdleAfterMinutes?: number;
+  /**
+   * Windows: start terminals on the ConPTY node-pty ships (`conpty.dll` + `OpenConsole.exe`, the one Windows Terminal
+   * uses) instead of the one built into Windows, whose console start can hang — and with it the PTY host. Read at
+   * each terminal start; nothing restarts. Default off (node-pty calls it experimental).
+   */
+  useBundledConpty?: boolean;
   /**
    * Archived conversations (archive-retention.ts): gzip them once this many
    * days old (default 30; 0 = never; lossless), and delete them after this
@@ -110,6 +143,9 @@ export interface WorkConfig {
   prWatch?: {
     autoArchive?: boolean;
     fixCi?: boolean;
+    /** A PR of the session's that turns conflicting: its Claude is asked to merge the base in and
+     *  resolve it (DECISION NEEDED when it isn't clear-cut). Default on. */
+    fixConflicts?: boolean;
     reviewComments?: boolean;
     /** Review bots whose comments go to Claude like a colleague's (logins,
      *  e.g. "copilot-pull-request-reviewer"). Default: Copilot and
@@ -159,13 +195,7 @@ export function validatePortRange(value: unknown): { start: number; end: number 
   return { start, end };
 }
 
-export function getConfigDir(): string {
-  const dir = path.join(os.homedir(), '.work');
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  return dir;
-}
+export { getConfigDir };
 
 /** An agent named in config (`internalAgent`, `assistantAgent`): an adapter's id, a plain word — never a path or a command line. */
 export function isAgentId(v: unknown): v is string {
@@ -203,6 +233,7 @@ export function validateTime(raw: unknown): WorkConfig['time'] {
   const hints = validateHints(t.hints);
   const catchUp = typeof t.catchUpDays === 'number' && t.catchUpDays >= 1 ? { catchUpDays: Math.min(92, Math.floor(t.catchUpDays)) } : {};
   const projects = stringList(t.projects)?.filter((p) => /^[A-Z][A-Z0-9]{1,9}$/.test(p));
+  const desk = stringList(t.deskProjects)?.filter((p) => /^[A-Z][A-Z0-9]{1,9}$/.test(p));
   const tempo = strs(t.tempo, ['tokenEnv', 'accountId']);
   const graph = strs(t.graph, ['clientId', 'tenantId']);
   return {
@@ -216,6 +247,14 @@ export function validateTime(raw: unknown): WorkConfig['time'] {
     ...(days ? { holidays: days } : {}),
     ...(vacation ? { vacation } : {}),
     ...(typeof t.effort === 'boolean' ? { effort: t.effort } : {}),
+    ...(desk ? { deskProjects: desk } : {}),
+    ...(t.taskMinHours === null || (typeof t.taskMinHours === 'number' && t.taskMinHours >= 0)
+      ? { taskMinHours: t.taskMinHours as number | null }
+      : {}),
+    ...num('pointsWeight', 0),
+    ...(typeof t.storyPointsField === 'string' && /^customfield_\d+$/.test(t.storyPointsField)
+      ? { storyPointsField: t.storyPointsField }
+      : {}),
     ...catchUp,
     ...(hints ? { hints } : {}),
     ...(projects ? { projects } : {}),
@@ -248,6 +287,21 @@ function stringList(raw: unknown): string[] | undefined {
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : undefined;
 }
 
+/** `default` is the account at `~/.claude` (a session that records no account runs on it); it can't be a configured name. */
+export const DEFAULT_ACCOUNT = 'default';
+
+/**
+ * `claudeAccounts` as written: the entries whose folder is a string. What makes one an account (a name, a folder that
+ * can be one) is Claude's to say (agents/claude/accounts.ts), which checks them where they are read.
+ */
+function stringRecord(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out = Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'),
+  );
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function loadConfig(): WorkConfig | null {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
@@ -271,9 +325,11 @@ export function loadConfig(): WorkConfig | null {
       notifications: parsed.notifications === true,
       statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
       launchViaHost: typeof parsed.launchViaHost === 'boolean' ? parsed.launchViaHost : undefined,
+      sessionFolders: typeof parsed.sessionFolders === 'boolean' ? parsed.sessionFolders : undefined,
       devCommands: validateDevCommands(parsed.devCommands),
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
+      useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,
       prompts: validatePrompts(parsed.prompts),
       time: validateTime(parsed.time),
       archive:
@@ -288,8 +344,36 @@ export function loadConfig(): WorkConfig | null {
             }
           : undefined,
       stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
+      usage: parsed.usage && typeof parsed.usage === 'object' ? { statusLine: parsed.usage.statusLine !== false } : undefined,
+      claudeAccounts: stringRecord(parsed.claudeAccounts),
+      claudeAccount: typeof parsed.claudeAccount === 'string' ? parsed.claudeAccount : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
+      reviews:
+        parsed.reviews && typeof parsed.reviews === 'object' && !Array.isArray(parsed.reviews)
+          ? {
+              ...(parsed.reviews.projects && typeof parsed.reviews.projects === 'object' && !Array.isArray(parsed.reviews.projects)
+                ? {
+                    projects: Object.fromEntries(
+                      Object.entries(parsed.reviews.projects as Record<string, unknown>).filter(
+                        (e): e is [string, 'all' | 'asked' | 'off'] => e[1] === 'all' || e[1] === 'asked' || e[1] === 'off',
+                      ),
+                    ),
+                  }
+                : {}),
+              ...(typeof parsed.reviews.maxPerDay === 'number' && parsed.reviews.maxPerDay >= 0
+                ? { maxPerDay: parsed.reviews.maxPerDay }
+                : {}),
+              ...(typeof parsed.reviews.maxLines === 'number' && parsed.reviews.maxLines > 0 ? { maxLines: parsed.reviews.maxLines } : {}),
+              ...(Array.isArray(parsed.reviews.rules) ? { rules: parsed.reviews.rules as unknown[] } : {}),
+            }
+          : undefined,
+      gitHosts:
+        parsed.gitHosts && typeof parsed.gitHosts === 'object' && !Array.isArray(parsed.gitHosts)
+          ? Object.fromEntries(
+              Object.entries(parsed.gitHosts as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'),
+            )
+          : undefined,
       hostEnv: Array.isArray(parsed.hostEnv)
         ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
         : undefined,
@@ -310,6 +394,7 @@ export function loadConfig(): WorkConfig | null {
           ? {
               autoArchive: parsed.prWatch.autoArchive !== false,
               fixCi: parsed.prWatch.fixCi !== false,
+              fixConflicts: parsed.prWatch.fixConflicts !== false,
               reviewComments: parsed.prWatch.reviewComments !== false,
               ...(Array.isArray(parsed.prWatch.trustedBots)
                 ? {

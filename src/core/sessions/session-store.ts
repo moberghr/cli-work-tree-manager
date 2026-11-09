@@ -10,6 +10,7 @@ import { dropSessionSaves } from '../archive/archive-uncommitted.js';
 import { scopeHashForPaths } from '../diff/scope-manager.js';
 import { loadConfig } from '../platform/config.js';
 import type { WorktreeSession } from './session-types.js';
+import { sessionAliases } from './session-repos.js';
 
 /**
  * Owner of a session's state beyond its `sessions` row. Everything
@@ -59,10 +60,10 @@ export function stopSessionDevServer(id: string): void {
  * (from the base checkouts: the worktree may already be gone) and the
  * manifest. Best-effort, logged.
  */
-export function clearSessionCheckpoints(s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths'> & { branch?: string }): void {
+export function clearSessionCheckpoints(s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths' | 'repos'> & { branch?: string }): void {
   try {
     const cfg = loadConfig();
-    const aliases = s.isGroup ? (cfg?.groups[s.target] ?? []) : [s.target];
+    const aliases = sessionAliases(s, cfg);
     const roots = aliases.map((a) => cfg?.repos[a]).filter((r): r is string => !!r && fs.existsSync(r));
     clearCheckpoints(scopeHashForPaths(s.paths), roots);
     // Uncommitted work an archive saved (archive-uncommitted.ts): its refs go like the checkpoints'.

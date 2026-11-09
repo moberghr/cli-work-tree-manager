@@ -125,4 +125,12 @@ describe('wantsDiffStat', () => {
     expect(wantsDiffStat(old, false)).toBe(false);
     expect(wantsDiffStat(old, true)).toBe(true);
   });
+
+  it('entered long ago but its agent wrote lately: in use (behind main is worked out for it)', () => {
+    const old = s({ lastAccessedAt: '2026-09-23T16:52:41Z' });
+    const now = Date.parse('2026-10-28T12:00:00Z');
+    expect(wantsDiffStat(old, false, now)).toBe(false);
+    expect(wantsDiffStat(old, false, now, Date.parse('2026-10-28T11:27:31Z'))).toBe(true);
+    expect(wantsDiffStat(old, false, now, Date.parse('2026-10-01T00:00:00Z'))).toBe(false);
+  });
 });

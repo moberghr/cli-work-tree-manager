@@ -9,6 +9,8 @@ import {
   type ShipPreflight,
   type ShipResult,
 } from '../../api/client.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { otherBranchFact } from '../../../../core/sessions/branch-view.js';
 
 interface Props {
   session: SessionSummary;
@@ -160,13 +162,10 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
   const disabled = busy !== null || loading;
   const multi = (pre?.repos.length ?? 0) > 1;
 
+  const backdrop = useBackdropClose(() => !busy && onClose());
+
   return (
-    <div
-      className="wd-modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose();
-      }}
-    >
+    <div className="wd-modal-backdrop" onMouseDown={backdrop.onMouseDown} onClick={backdrop.onClick}>
       <div className="wd-modal wd-ship-panel" role="dialog" aria-label="Ship session" aria-busy={loading || busy !== null}>
         <div className="wd-modal-header">
           <h2>
@@ -355,6 +354,20 @@ function RepoState({
           {r.ghError && <li className="wd-ship-bad">{r.ghError}</li>}
         </ul>
       )}
+      {r.otherBranches?.length ? (
+        // The other branches it worked on (Ship acts on the checked-out one): what's left on them keeps it from being done.
+        <ul className="wd-ship-facts wd-ship-other-branches" aria-label={`Other branches of ${r.name}`}>
+          {r.otherBranches.map((b) => (
+            <li
+              key={b.name}
+              className={(b.exists && b.unpushed) || b.pr?.state === 'OPEN' ? 'wd-ship-bad' : ''}
+              title="Another branch this session worked on: Ship acts on the one checked out, and the session isn't done while this one has work not pushed or a PR open."
+            >
+              also {otherBranchFact(b)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {r.mergeBlockers.length > 0 && (
         <ul className="wd-ship-blockers" aria-label={`Why ${r.name} can't merge`}>
           {r.mergeBlockers.map((b) => (

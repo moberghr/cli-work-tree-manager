@@ -197,3 +197,15 @@ describe("the browser diff page's comments on the Diff tab (one worktree, two st
     ).toEqual(['mine']);
   });
 });
+
+describe("noteThroughComments (work web's way to tell a session's Claude)", () => {
+  it('posts a published general comment through the real route, and throws when the route refuses', async () => {
+    const { noteThroughComments } = await import('../../../src/server/session-note.js');
+    const note = noteThroughComments(app);
+    await note('s1', 'Added repo web to this session.');
+    const posted = getCommentFileStore('s1').list();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ side: 'general', status: 'published', body: 'Added repo web to this session.' });
+    await expect(note('nope', 'x')).rejects.toThrow(/posting the note failed: 4\d\d/);
+  });
+});

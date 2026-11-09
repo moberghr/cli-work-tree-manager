@@ -154,6 +154,9 @@ describe('parentTipFor', () => {
       copyFiles: [],
     };
     expect(await parentTipFor(path.join(tmp, 'wt', 'web'), parent, config)).toBe('bbbb');
+    // A parent that records its repos: its own, though the group's config no longer names it.
+    const own = { ...parent, paths: ['/w/shop/gone-branch/web'], repos: ['other-web'] };
+    expect(await parentTipFor(path.join(tmp, 'wt', 'web'), own, config)).toBe('aaaa');
   });
 });
 

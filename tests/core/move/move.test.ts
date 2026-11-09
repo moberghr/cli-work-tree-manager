@@ -103,6 +103,34 @@ describe('moving to another computer (real git, two homes)', () => {
     git(wt, 'commit', '-q', '-m', 'feature');
     git(wt, 'push', '-q', '-u', 'origin', 'feat/x');
     session = loadHistory().find((s) => s.branch === 'feat/x')!;
+    // A repo with no origin (it can't come along), and a group session that holds it though its
+    // group doesn't name it (Add a repo): its own list, not the group's config, says it needs docs.
+    const docs = path.join(oldHome, 'src', 'docs');
+    fs.mkdirSync(docs, { recursive: true });
+    git(docs, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(docs, 'd'), 'd');
+    git(docs, 'add', 'd');
+    git(docs, 'commit', '-q', '-m', 'd');
+    // Two Claude accounts: one by its full folder, one written with ~ (both under the old home).
+    saveConfig({
+      ...config,
+      repos: { api: repo, docs },
+      groups: { shop: ['api'] },
+      claudeAccounts: { work: path.join(oldHome, '.claude-work'), spare: '~/.claude-spare' },
+    });
+    const shopFolder = path.join(oldHome, 'wt', 'shop', 'feat-y');
+    saveHistory([
+      ...loadHistory(),
+      {
+        target: 'shop',
+        isGroup: true,
+        branch: 'feat/y',
+        paths: [path.join(shopFolder, 'docs')],
+        repos: ['docs'],
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      },
+    ]);
     // Its conversation, where Claude keeps it, and work's own copy.
     const projects = path.join(claudeProjectsRoot(), encodeProjectDir(wt));
     fs.mkdirSync(projects, { recursive: true });
@@ -135,7 +163,7 @@ describe('moving to another computer (real git, two homes)', () => {
     const r = exportBundle(bundle);
     expect(fs.existsSync(path.join(bundle, 'archive', 'a1', 'archive.json'))).toBe(true);
     expect(fs.existsSync(path.join(bundle, 'archive', 'a1', 'ignored'))).toBe(false);
-    expect(r).toMatchObject({ sessions: 1, transcripts: 1 });
+    expect(r).toMatchObject({ sessions: 2, transcripts: 1 });
     const m = readManifest(bundle);
     expect(m.repos.api).toEqual({ path: path.join(oldHome, 'src', 'api'), origin });
     expect(m.from.home).toBe(oldHome);
@@ -146,8 +174,9 @@ describe('moving to another computer (real git, two homes)', () => {
   it('imports it on the other computer: repo cloned, worktree back from origin, conversation where Claude looks', async () => {
     home.mockReturnValue(newHome);
     const r = await importBundle(bundle, { clone: true });
-    expect(r.repos).toEqual({ cloned: ['api'], missing: [] });
-    expect(r.worktrees).toEqual({ created: ['api · feat/x'], failed: [] });
+    expect(r.repos).toEqual({ cloned: ['api'], missing: ['docs'] });
+    // The group session needs docs by its own list (its group names only api), so it says why it can't come back.
+    expect(r.worktrees).toEqual({ created: ['api · feat/x'], failed: [{ session: 'shop · feat/y', error: "its repo isn't here (docs)" }] });
     expect(r.transcripts).toBe(1);
 
     const config = loadConfig()!;
@@ -155,10 +184,17 @@ describe('moving to another computer (real git, two homes)', () => {
     expect(config.worktreesRoot).toBe(path.join(newHome, 'wt'));
     const s = loadHistory().find((x) => x.branch === 'feat/x')!;
     expect(s.paths[0].startsWith(newHome)).toBe(true);
+    expect(s.repos).toEqual(['api']); // its own repo list travels with it
     expect(fs.readFileSync(path.join(s.paths[0], 'feature.txt'), 'utf8')).toBe('the feature');
     expect(fs.existsSync(path.join(claudeProjectsRoot(), encodeProjectDir(s.paths[0]), 'conv.jsonl'))).toBe(true);
     expect(fs.existsSync(path.join(newHome, '.work', 'conversations', sessionIdFor(s), 'conv.jsonl'))).toBe(true);
     expect(withDb((d) => (d.prepare('SELECT COUNT(*) AS n FROM pty_sessions').get() as { n: number }).n)).toBe(0);
+    // Claude accounts' folders moved to the new home like the rest; the report names them to log in to again.
+    expect(config.claudeAccounts).toEqual({ work: path.join(newHome, '.claude-work'), spare: path.join(newHome, '.claude-spare') });
+    expect(r.accounts).toEqual([
+      { name: 'work', dir: path.join(newHome, '.claude-work') },
+      { name: 'spare', dir: path.join(newHome, '.claude-spare') },
+    ]);
   }, 120_000);
 
   it('refuses to import over sessions already here, unless forced; a folder that is no bundle says so', async () => {

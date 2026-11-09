@@ -1,7 +1,11 @@
+import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../server/web-server.js';
-import { knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
+import { agentAccountFolders, knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
+import { startAccountSync, type AccountSync } from '../core/agents/account-sync.js';
+import { setupAgentUsage } from '../core/usage/usage-setup.js';
+import { loadConfig } from '../core/platform/config.js';
 import { openUrl } from '../core/platform/launch.js';
 import { configurePtyPool, resumePersistedSessions } from '../core/pty/pty-pool.js';
 import { resolveWorkBinPath } from '../core/platform/work-bin.js';
@@ -61,6 +65,29 @@ export async function installAgentHooks(lean: boolean, onError: (agent: string) 
   }
 }
 
+/** The hooks and the usage readings again, in every account's settings: an account added while work web runs (account-sync.ts). */
+export async function reinstallAgentSetup(lean: boolean): Promise<void> {
+  await installAgentHooks(lean, (name) => swallow(`install ${name} hooks`));
+  await setupAgentUsage(knownAgents(), loadConfig(), lean);
+}
+
+/**
+ * Follow the accounts while work web runs (account-sync.ts): the set of account folders that exist — an account whose
+ * folder isn't there yet is set up once it is (installing into it would make it) — looked at every `everyMs`, and the
+ * hooks and the usage readings installed again when it changed. `apply` / `folders` are for tests.
+ */
+export function startAccountSetupSync(
+  lean: boolean,
+  o: { apply?: () => Promise<void>; folders?: () => string[]; everyMs?: number } = {},
+): AccountSync {
+  return startAccountSync({
+    folders: () => (o.folders ?? agentAccountFolders)().filter((dir) => fs.existsSync(dir)),
+    apply: o.apply ?? (() => reinstallAgentSetup(lean)),
+    onError: swallow('set up a changed Claude account'),
+    ...(o.everyMs !== undefined ? { everyMs: o.everyMs } : {}),
+  });
+}
+
 /** Remove them again, synchronously (shutdown). */
 export function removeAgentHooksSync(lean: boolean): void {
   const ours = (lean ? LEAN_HOOKS : FULL_HOOKS).map(({ owner, edge }) => ({ owner, edge }));
@@ -72,6 +99,9 @@ function info(message: string): void {
 }
 
 import { buildStamp } from '../core/platform/build-stamp.js';
+import { previousEnd, readWebLife, recordExit, startWebLife, stopOnSignals } from '../core/platform/web-life.js';
+import { VERSION } from '../version.js';
+import { ensureAgentPath } from '../core/agents/agent-path.js';
 
 export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive' | 'failed';
 
@@ -239,10 +269,24 @@ export const webCommand: CommandModule = {
     // our own.
     clearWebDiscovery();
 
+    // Started by the Mac app from the Dock, the PATH is the system's: `claude` wouldn't be found and
+    // every session would end at once ("exited with code 1"). Take the login shell's before the PTY
+    // host — which inherits it — is started (shell-path.ts). Not wd's lean server: it starts no agent,
+    // and wd waits only a few seconds for it.
+    if (!lean) ensureAgentPath();
+
     // The PTY host is spawned from the `work` binary, not the `wd` shim.
     configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });
-    let shutdown = () => {};
-    const handle = await startWebServer({ lean, onShutdownRequest: () => shutdown() });
+    let shutdown = (_how: string) => {};
+    // How the last one ended, when it couldn't say (killed outright: nothing in the log), and this one's record.
+    const before = previousEnd(readWebLife(), isPidAlive, process.pid);
+    if (before) info(chalk.yellow(`Note: ${before}`));
+    const life = startWebLife(VERSION);
+    recordExit(process, life);
+    const handle = await startWebServer({
+      lean,
+      onShutdownRequest: () => shutdown('asked to stop (work web --stop, or the app replacing it)'),
+    });
     bestEffort('write work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
 
     info(chalk.gray(`work web running at ${handle.url}${lean ? ' (lean — diff-only mode)' : ''}`));
@@ -265,25 +309,33 @@ export const webCommand: CommandModule = {
     // the full dashboard puts delivery, status and checkpoints in one hook
     // per turn edge; the lean `wd` server only needs the checkpoints.
     await installAgentHooks(lean, (name) => swallow(`install ${name} hooks`));
+    // Each agent's usage readings (Claude's come only through its status line, which this wraps; config
+    // usage.statusLine: false gives it back). Not undone on shutdown — the wrapper passes the user's own line through.
+    await setupAgentUsage(knownAgents(), loadConfig(), lean).catch(swallow('set up the usage readings'));
+    // An account added (or removed) while this runs gets the same, within seconds (account-sync.ts).
+    const accountSync = startAccountSetupSync(lean);
 
-    shutdown = () => {
-      info(chalk.gray('\nStopping work web.'));
+    shutdown = (how: string) => {
+      life.end(how);
+      accountSync.stop();
+      info(chalk.gray(`\nStopping work web (${how}).`));
       clearWebDiscovery(process.pid);
       removeAgentHooksSync(lean);
       void handle.stop().finally(() => process.exit(0));
     };
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+    stopOnSignals(process, (how) => shutdown(how));
     // Still the one? Two can start at once (a restart racing the desktop
     // app's watchdog); the one not in web.pid steps aside. It leaves the
     // Claude hooks alone — they are removed by owner, and the other server
     // installed the same ones — and the discovery files, which are the
     // other's. Nothing recorded: put ours back.
     const discoveryTimer = setInterval(() => {
+      life.beat(); // still alive: the next one can tell when this one was last seen
       void discoveryCheck({ pid: process.pid, url: handle.url }).then((d) => {
         if (d === 'reclaim') bestEffort('rewrite work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
         if (d !== 'retire') return;
         info(chalk.gray(`Another work web (${readWebUrl()}) is the running one; stopping this duplicate.`));
+        life.end(`stopped as a duplicate: ${readWebUrl()} is the running one`);
         clearInterval(discoveryTimer);
         void handle.stop().finally(() => process.exit(0));
       }, swallow('check work web discovery'));

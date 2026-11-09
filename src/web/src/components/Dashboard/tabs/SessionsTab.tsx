@@ -16,11 +16,22 @@ import {
 } from '../../../api/client.js';
 import { removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import { DISPLAY_LABEL, displayStatus, isArchived, statusBucket, CONTEXT_WARN, type StatusBucket } from '../../../state/session-display.js';
+import {
+  DISPLAY_LABEL,
+  displayStatus,
+  isArchived,
+  owedBadge,
+  owedClass,
+  sessionBucket,
+  waitingOnOthers,
+  CONTEXT_WARN,
+  type StatusBucket,
+} from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
 import { DiffStatChip, overlapTitle } from '../SessionBits.js';
+import { ARCHIVED_BY_SHORT, archivedAge, archivedLine, lastActiveLine, listTime } from '../../../state/archive-view.js';
 import { RowMenu, type MenuItem } from '../RowMenu.js';
 
 interface Props {
@@ -40,11 +51,13 @@ interface Props {
   viewToggle?: React.ReactNode;
   /** Archived sessions are fetched only while shown: told when "Show archived" is on (and off when the table goes). */
   onShowArchived?: (on: boolean) => void;
+  /** The archived rows have come (false while they're asked for): "Loading…", never "none" first. Absent: they're in `sessions`. */
+  archivedLoaded?: boolean;
 }
 
 /** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
 export const defaultBulk: BulkActions = {
-  archive: (s) => setArchived(s.id, true, () => false),
+  archive: (s) => setArchived(s.id, true, () => false, { asked: true }), // the bar asked once for all
   restore: (s) => setArchived(s.id, false, () => false),
   snooze: (s, choice) => snoozeSession(s, choice),
   send: (s, text) => sendPromptToSession(s.id, text),
@@ -61,13 +74,20 @@ type RailFilter = 'any' | 'pinned' | 'none' | `section:${string}`;
 const GROUPING_KEY = 'work-web:sessions-grouping';
 const ARCHIVED_KEY = 'work-web:sessions-show-archived';
 
-function readPref(key: string, on: string): boolean {
+/** Which sessions the table lists: the live ones, the archived ones (to restore one), or both. */
+export type ArchiveScope = 'live' | 'archived' | 'all';
+const SCOPE_LABEL: Record<ArchiveScope, string> = { live: 'Live', archived: 'Archived', all: 'All' };
+
+/** The remembered scope; a "Show archived" tick from before reads as All. */
+export function readScope(): ArchiveScope {
   try {
-    return localStorage.getItem(key) === on;
+    const v = localStorage.getItem(ARCHIVED_KEY);
+    return v === 'archived' || v === 'all' ? v : v === '1' ? 'all' : 'live';
   } catch {
-    return false;
+    return 'live';
   }
 }
+
 function writePref(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
@@ -101,6 +121,7 @@ export function SessionsTab({
   bulk = defaultBulk,
   viewToggle,
   onShowArchived,
+  archivedLoaded = true,
 }: Props) {
   // Ticked rows, for the bulk bar (kept across filters; acted on as they are now).
   // The checkboxes show only while selecting (View ▾ → Select several).
@@ -116,7 +137,9 @@ export function SessionsTab({
   const [actionError, setActionError] = useState<string | null>(null);
   const runArchive = (x: SessionSummary, archived: boolean) => {
     setActionError(null);
-    void setArchived(x.id, archived).catch((err: Error) => !archiveCancelled(err) && setActionError(err.message));
+    void setArchived(x.id, archived, undefined, { name: x.title ?? x.branch }).catch(
+      (err: Error) => !archiveCancelled(err) && setActionError(err.message),
+    );
   };
   const menuItems = (x: SessionSummary): MenuItem[] =>
     menuFor
@@ -186,14 +209,15 @@ export function SessionsTab({
   });
   // "Older" starts folded: with hundreds of worktrees it is most of the list.
   const [showOlder, setShowOlder] = useState(false);
-  const [showArchived, setShowArchivedState] = useState(() => readPref(ARCHIVED_KEY, '1'));
+  const [scope, setScopeState] = useState<ArchiveScope>(readScope);
+  const showArchived = scope !== 'live';
   const setGrouping = (g: Grouping) => {
     setGroupingState(g);
     writePref(GROUPING_KEY, g);
   };
-  const setShowArchived = (v: boolean) => {
-    setShowArchivedState(v);
-    writePref(ARCHIVED_KEY, v ? '1' : '0');
+  const setScope = (v: ArchiveScope) => {
+    setScopeState(v);
+    writePref(ARCHIVED_KEY, v);
   };
 
   useEffect(() => {
@@ -202,7 +226,8 @@ export function SessionsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the callback is the app's, stable in effect; only the toggle matters
   }, [showArchived]);
   const live = useMemo(() => sessions.filter((s) => !isArchived(s)), [sessions]);
-  const archivedCount = sessions.length - live.length;
+  const archivedOnly = useMemo(() => sessions.filter((s) => isArchived(s)), [sessions]);
+  const archivedCount = archivedOnly.length;
 
   const counts = useMemo(() => {
     const c: Record<AgeBucket, number> = { now: 0, week: 0, older: 0 };
@@ -211,19 +236,19 @@ export function SessionsTab({
   }, [live]);
 
   const filtered = useMemo(() => {
-    const pool = showArchived ? sessions : live;
-    const matched = pool.filter(
-      (s) => (filter === 'all' || statusBucket(displayStatus(s)) === filter) && inRail(s) && sessionMatches(s, query),
-    );
+    const pool = scope === 'archived' ? archivedOnly : scope === 'all' ? sessions : live;
+    const matched = pool.filter((s) => (filter === 'all' || sessionBucket(s) === filter) && inRail(s) && sessionMatches(s, query));
     return [...matched].sort((a, b) => {
       if (sort === 'name') {
         const an = (a.branch || a.target).toLowerCase();
         const bn = (b.branch || b.target).toLowerCase();
         return an.localeCompare(bn);
       }
-      return lastActiveAt(b).localeCompare(lastActiveAt(a));
+      // The column's own time, so it reads in order (the Archived view shows when each was archived).
+      const archivedView = scope === 'archived';
+      return listTime(b, lastActiveAt(b), archivedView).localeCompare(listTime(a, lastActiveAt(a), archivedView));
     });
-  }, [sessions, live, showArchived, sort, filter, query, inRail]);
+  }, [sessions, live, archivedOnly, scope, sort, filter, query, inRail]);
 
   const selected = filtered.filter((s) => picked.has(s.id));
   const hiddenTicked = tickedAll.length - selected.length;
@@ -250,9 +275,10 @@ export function SessionsTab({
   const ages = useMemo(() => {
     if (grouping !== 'age') return null;
     const by: Record<AgeBucket, SessionSummary[]> = { now: [], week: [], older: [] };
-    for (const s of filtered) by[ageBucket(s)].push(s);
+    // The Archived view by when each was archived, as its time column shows.
+    for (const s of filtered) by[scope === 'archived' && s.archivedAt ? archivedAge(s.archivedAt) : ageBucket(s)].push(s);
     return (Object.keys(by) as AgeBucket[]).map((k) => ({ key: k, sessions: by[k] })).filter((g) => g.sessions.length > 0);
-  }, [filtered, grouping]);
+  }, [filtered, grouping, scope]);
 
   const railTagFor = (s: SessionSummary): string | null => {
     const g = railGroupOf.get(s.id);
@@ -285,9 +311,10 @@ export function SessionsTab({
           )}
           <th className="wd-st-col-status">Status</th>
           <th>Session</th>
+          <th className="wd-st-col-project">Project</th>
           <th className="wd-st-col-summary">Summary</th>
           <th className="wd-st-col-changes">Changes</th>
-          <th className="wd-st-col-when">Active</th>
+          <th className="wd-st-col-when">{scope === 'archived' ? 'Archived' : 'Active'}</th>
           <th className="wd-st-col-more">
             <span className="wd-visually-hidden">Actions</span>
           </th>
@@ -298,12 +325,14 @@ export function SessionsTab({
           <SessionRow
             key={s.id}
             session={s}
+            archivedView={scope === 'archived'}
             onOpen={() => onOpenSession(s.id, 'term')}
             onMenu={(x, y) => setRowMenu({ s, x, y })}
             selecting={selecting}
             picked={picked.has(s.id)}
             onPick={(on) => toggle(s.id, on)}
             railTag={railTagFor(s)}
+            onRestore={() => runArchive(s, false)}
           />
         ))}
       </tbody>
@@ -324,16 +353,40 @@ export function SessionsTab({
         <h1>
           Sessions {viewToggle}{' '}
           <span className="wd-tab-header-muted">
-            {[
-              counts.now ? `${counts.now} now` : '',
-              counts.week ? `${counts.week} this week` : '',
-              counts.older ? `${counts.older} older` : '',
-            ]
-              .filter(Boolean)
-              .join(' · ')}
+            {scope === 'archived'
+              ? `${archivedCount} archived`
+              : [
+                  counts.now ? `${counts.now} now` : '',
+                  counts.week ? `${counts.week} this week` : '',
+                  counts.older ? `${counts.older} older` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
           </span>
         </h1>
         <div className="wd-tab-controls">
+          {/* Live / Archived / All: one click to the archived ones (to restore one), remembered. */}
+          <span className="wd-segmented" role="group" aria-label="Which sessions">
+            {(['live', 'archived', 'all'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={'wd-segmented-btn' + (scope === v ? ' wd-segmented-btn-on' : '')}
+                aria-pressed={scope === v}
+                onClick={() => setScope(v)}
+                title={
+                  v === 'live'
+                    ? 'The sessions you work on'
+                    : v === 'archived'
+                      ? 'Archived sessions, to look back or restore one'
+                      : 'Live and archived together'
+                }
+              >
+                {SCOPE_LABEL[v]}
+                {v === 'archived' && showArchived && archivedCount > 0 ? ` ${archivedCount}` : ''}
+              </button>
+            ))}
+          </span>
           <input
             className="wd-tab-search"
             type="search"
@@ -388,10 +441,6 @@ export function SessionsTab({
               </select>
             </label>
             <label className="wd-tab-check">
-              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived
-              {archivedCount > 0 ? ` (${archivedCount})` : ''}
-            </label>
-            <label className="wd-tab-check">
               <input type="checkbox" checked={selecting} onChange={(e) => setSelecting(e.target.checked)} /> Select several
             </label>
           </ViewMenu>
@@ -424,86 +473,103 @@ export function SessionsTab({
           </button>
         </p>
       )}
-      {filtered.length === 0 ? (
-        <div className="wd-tab-empty">
-          {sessions.length === 0
-            ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
-            : 'No sessions match the current filter.'}
-        </div>
-      ) : railGroups ? (
-        <div className="wd-session-groups">
-          {railGroups.map((g) => (
-            <section key={g.key} className="wd-session-group">
-              <h2 className="wd-session-group-header">
-                <span className="wd-session-group-name">{g.title ?? 'Not in a section'}</span>
-                <span className="wd-tab-header-muted">({g.sessions.length})</span>
-              </h2>
-              {renderTable(g.sessions)}
-            </section>
-          ))}
-        </div>
-      ) : ages ? (
-        <div className="wd-session-groups">
-          {ages.map((g, _i, all) => {
-            // A search shows its matches, the older ones too.
-            const folded = (x: { key: AgeBucket }) => x.key === 'older' && !showOlder && query.trim() === '';
-            if (folded(g)) {
-              return (
-                <button key={g.key} type="button" className="wd-link-button wd-session-older" onClick={() => setShowOlder(true)}>
-                  Show {g.sessions.length} older
-                </button>
-              );
-            }
-            return (
-              <section key={g.key} className={`wd-session-group wd-session-age wd-session-age-${g.key}`}>
-                {/* A heading only to tell two shown tables apart. */}
-                {all.filter((x) => !folded(x)).length > 1 && (
-                  <h2 className="wd-session-group-header">
-                    <span className="wd-session-group-name">{AGE_LABEL[g.key]}</span>
-                    <span className="wd-tab-header-muted">({g.sessions.length})</span>
-                    {g.key === 'older' && query.trim() === '' && (
-                      <button type="button" className="wd-link-button wd-session-age-toggle" onClick={() => setShowOlder(false)}>
-                        Hide
-                      </button>
-                    )}
-                  </h2>
-                )}
+      {/* One scroller for the tables and the conversation hits: side by side in the pane, the hits squeezed the tables to nothing. */}
+      <div className="wd-session-scroll">
+        {filtered.length === 0 ? (
+          <div className="wd-tab-empty">
+            {scope !== 'live' && !archivedLoaded && archivedCount === 0
+              ? 'Loading archived sessions…'
+              : scope === 'archived' && archivedCount === 0
+                ? 'No archived sessions.'
+                : sessions.length === 0
+                  ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
+                  : 'No sessions match the current filter.'}
+          </div>
+        ) : railGroups ? (
+          <div className="wd-session-groups">
+            {railGroups.map((g) => (
+              <section key={g.key} className="wd-session-group">
+                <h2 className="wd-session-group-header">
+                  <span className="wd-session-group-name">{g.title ?? 'Not in a section'}</span>
+                  <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                </h2>
                 {renderTable(g.sessions)}
               </section>
-            );
-          })}
-        </div>
-      ) : groups ? (
-        <div className="wd-session-groups">
-          {groups.map((g) => (
-            <section key={g.key} className="wd-session-group">
-              <h2 className="wd-session-group-header">
-                <span className="wd-session-group-name">{g.key}</span>
-                {g.isGroup && (
-                  <span className="wd-session-group-kind" title="Multi-repo group">
-                    group
-                  </span>
-                )}
-                {g.repos.length > 0 && (
-                  <ul className="wd-session-group-repos" aria-label="Repos in this group">
-                    {g.repos.map((r) => (
-                      <li key={r}>{r}</li>
-                    ))}
-                  </ul>
-                )}
-                <span className="wd-tab-header-muted">({g.sessions.length})</span>
-              </h2>
-              {renderTable(g.sessions)}
-            </section>
-          ))}
-        </div>
-      ) : (
-        <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
-      )}
-      <ConversationHits query={query} onOpen={(id) => onOpenSession(id, 'diff')} />
+            ))}
+          </div>
+        ) : ages ? (
+          <div className="wd-session-groups">
+            {ages.map((g, _i, all) => {
+              // A search shows its matches, the older ones too.
+              // Archived ones are mostly older: listing them is what that view is for.
+              const folded = (x: { key: AgeBucket }) => x.key === 'older' && !showOlder && query.trim() === '' && scope !== 'archived';
+              if (folded(g)) {
+                return (
+                  <button key={g.key} type="button" className="wd-link-button wd-session-older" onClick={() => setShowOlder(true)}>
+                    Show {g.sessions.length} older
+                  </button>
+                );
+              }
+              return (
+                <section key={g.key} className={`wd-session-group wd-session-age wd-session-age-${g.key}`}>
+                  {/* A heading only to tell two shown tables apart. */}
+                  {all.filter((x) => !folded(x)).length > 1 && (
+                    <h2 className="wd-session-group-header">
+                      <span className="wd-session-group-name">{AGE_LABEL[g.key]}</span>
+                      <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                      {g.key === 'older' && query.trim() === '' && scope !== 'archived' && (
+                        <button type="button" className="wd-link-button wd-session-age-toggle" onClick={() => setShowOlder(false)}>
+                          Hide
+                        </button>
+                      )}
+                    </h2>
+                  )}
+                  {renderTable(g.sessions)}
+                </section>
+              );
+            })}
+          </div>
+        ) : groups ? (
+          <div className="wd-session-groups">
+            {groups.map((g) => (
+              <section key={g.key} className="wd-session-group">
+                <h2 className="wd-session-group-header">
+                  <span className="wd-session-group-name">{g.key}</span>
+                  {g.isGroup && (
+                    <span className="wd-session-group-kind" title="Multi-repo group">
+                      group
+                    </span>
+                  )}
+                  {g.repos.length > 0 && (
+                    <ul className="wd-session-group-repos" aria-label="Repos in this group">
+                      {g.repos.map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                </h2>
+                {renderTable(g.sessions)}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
+        )}
+        <ConversationHits query={query} scope={scope} onOpen={(id) => onOpenSession(id, 'diff')} />
+      </div>
       {rowMenu && <RowMenu x={rowMenu.x} y={rowMenu.y} items={menuItems(rowMenu.s)} onClose={() => setRowMenu(null)} />}
     </div>
   );
+}
+
+/**
+ * The conversation hits a view lists: Archived's archived ones; Live and All
+ * every one — an archived conversation found from Live is how you get back
+ * to it (Restore).
+ */
+export function hitsInScope<H extends { archived: boolean }>(hits: H[], scope: ArchiveScope): H[] {
+  return scope === 'archived' ? hits.filter((h) => h.archived) : hits;
 }
 
 /**
@@ -512,8 +578,10 @@ export function SessionsTab({
  * the matching lines. work keeps the conversations (conversation-store.ts),
  * so this reaches back past Claude Code's own 30 days.
  */
-function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: string) => void }) {
-  const [hits, setHits] = useState<ConversationHit[]>([]);
+function ConversationHits({ query, scope, onOpen }: { query: string; scope: ArchiveScope; onOpen: (id: string) => void }) {
+  const [found, setHits] = useState<ConversationHit[]>([]);
+  // Archived lists only archived ones (hitsInScope).
+  const hits = useMemo(() => hitsInScope(found, scope), [found, scope]);
   const [restoring, setRestoring] = useState<string | null>(null);
   // Why a Restore was refused (its folder held by an editor, the branch gone…), under its hit — for this search only.
   const [refused, setRefused] = useState<{ id: string; text: string } | null>(null);
@@ -643,11 +711,16 @@ interface RowProps {
   selecting: boolean;
   picked: boolean;
   onPick: (on: boolean) => void;
+  /** An archived one's Restore, on the row: bringing one back is what the archived list is mostly for. */
+  onRestore?: () => void;
+  /** The Archived view: its time column is when each was archived. */
+  archivedView?: boolean;
 }
 
-/** One session: status, name, summary, changes, when. Click opens it; ⋯ (or right-click) for the rest. */
-function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag }: RowProps) {
+/** One session: status, name, project, summary, changes, when. Click opens it; ⋯ (or right-click) for the rest. */
+function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag, onRestore, archivedView = false }: RowProps) {
   const kind = displayStatus(s);
+  const owed = owedBadge(s);
   const archived = isArchived(s);
   const repos = groupRepoNames(s);
   const archiving = useArchivePending(s.id); // also one started elsewhere (the session header)
@@ -659,7 +732,7 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
       className={
         'wd-session-row' +
         (archived ? ' wd-session-row-archived' : '') +
-        (kind === 'needs_input' || kind === 'done' ? ' wd-session-row-unseen' : '')
+        (kind === 'needs_input' || (owed && !archived) ? ' wd-session-row-unseen' : '')
       }
       onClick={onOpen}
       onContextMenu={(e) => {
@@ -691,20 +764,21 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           <StatusIcon kind={kind} muted={!!s.snoozed} />
           <span className="wd-st-label">{DISPLAY_LABEL[kind]}</span>
         </span>
+        {/* What waits on you, beside what its Claude is doing (the rail's badge). */}
+        {owed && !archived ? (
+          <span className={owedClass(owed) + ' wd-st-owed'} title={owed.title}>
+            {owed.text}
+          </span>
+        ) : !archived && waitingOnOthers(s) ? (
+          <span className="wd-rail-slot-waiting wd-st-owed" title={s.prStage?.text}>
+            in review
+          </span>
+        ) : null}
       </td>
       <td className="wd-st-session">
         <span className="wd-st-branch" title={named ? `${s.title} (${s.branch})` : s.branch}>
           {named ? s.title : s.branch || '(base)'}
-        </span>{' '}
-        <span className="wd-st-target">{s.target}</span>
-        {s.isGroup && (
-          <span
-            className="wd-session-group-kind wd-session-group-kind-hint"
-            title={repos.length ? `Multi-repo group: ${repos.join(', ')}` : 'Multi-repo group'}
-          >
-            group
-          </span>
-        )}
+        </span>
         {railTag && (
           <span
             className={'wd-st-rail' + (railTag === '📌' ? ' wd-st-rail-pin' : '')}
@@ -725,16 +799,34 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           <span
             className="wd-archived-pill"
             title={
-              s.archive
-                ? s.archive.worktreeRemoved
-                  ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.${s.archive.kept ? ` Also kept: ${s.archive.kept}.` : ''}`
-                  : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}${s.archive.kept ? `. Also kept: ${s.archive.kept}.` : ''}`
-                : 'Archived'
+              [
+                archivedLine(s),
+                s.archive
+                  ? s.archive.worktreeRemoved
+                    ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.${s.archive.kept ? ` Also kept: ${s.archive.kept}.` : ''}`
+                    : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}${s.archive.kept ? `. Also kept: ${s.archive.kept}.` : ''}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || 'Archived'
             }
           >
+            archived
+            {s.archive?.by ? ` · ${ARCHIVED_BY_SHORT[s.archive.by]}` : ''}
             {s.archive?.worktreeRemoved
-              ? `archived · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
-              : 'archived'}
+              ? ` · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
+              : ''}
+          </span>
+        )}
+      </td>
+      <td className="wd-st-col-project">
+        <span className="wd-st-target">{s.target}</span>{' '}
+        {s.isGroup && (
+          <span
+            className="wd-session-group-kind wd-session-group-kind-hint"
+            title={repos.length ? `Multi-repo group: ${repos.join(', ')}` : 'Multi-repo group'}
+          >
+            group
           </span>
         )}
       </td>
@@ -758,10 +850,19 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           </span>
         ) : null}
       </td>
-      <td className="wd-st-col-when">
-        {archiving !== undefined ? (archiving ? 'archiving…' : 'restoring…') : relativeTime(lastActiveAt(s))}
+      <td
+        className="wd-st-col-when"
+        // An archived one: when it was archived and when it was last active, whichever the column shows.
+        title={archived ? [archivedLine(s), lastActiveLine(lastActiveAt(s))].filter(Boolean).join(' ') || undefined : undefined}
+      >
+        {archiving !== undefined ? (archiving ? 'archiving…' : 'restoring…') : relativeTime(listTime(s, lastActiveAt(s), archivedView))}
       </td>
       <td className="wd-st-col-more" onClick={(e) => e.stopPropagation()}>
+        {archived && onRestore && archiving === undefined && (
+          <button type="button" className="wd-st-restore" onClick={onRestore} title="Bring it back: its worktree, branch and conversation">
+            Restore
+          </button>
+        )}
         <button
           type="button"
           className="wd-st-more"

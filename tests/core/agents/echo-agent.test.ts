@@ -31,7 +31,6 @@ function echoAgent(): AgentAdapter {
       tool: () => ({
         cmd: 'echo-agent',
         baseArgs: [],
-        unsafeFlag: '--yolo',
         resumeFlag: '--again',
         promptFileFlag: '',
         promptFlag: '--say',
@@ -194,7 +193,7 @@ describe('a session on the echo agent, through the real modules — no Claude an
     expect(sessionWire(s).agent).toEqual({
       id: 'echo',
       name: 'Echo',
-      can: { read: true, hooks: true, live: true, answer: false },
+      can: { read: true, hooks: true, live: true, answer: false, accounts: false },
     });
   });
 

@@ -13,6 +13,7 @@ import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import type { CommandRunner } from '../../../src/core/pr/ship.js';
 import { rememberSent, saveDraft } from '../../../src/core/pr/pr-replies.js';
 import { saveConfig } from '../../../src/core/platform/config.js';
+import { readArchive } from '../../../src/core/archive/session-archive.js';
 
 const SHA = 'abcdef123456';
 let home: string;
@@ -127,6 +128,7 @@ describe('ship routes', () => {
     expect(disposePty).toHaveBeenCalledWith(id);
     expect(archivedAt()).toBeTruthy();
     expect(changed).toEqual([id]);
+    expect(readArchive(id)?.archivedBy).toBe('shipped');
   });
 
   it('a partial group merge does NOT archive — the rest of the group is still open', async () => {
@@ -196,6 +198,7 @@ describe('ship routes', () => {
     const id = sessionIdFor(session);
     expect((await post(app(), `/api/sessions/${id}/archive`, { archived: true })).status).toBe(200);
     expect(archivedAt()).toBeTruthy();
+    expect(readArchive(id)?.archivedBy).toBe('you');
     expect(disposePty).toHaveBeenCalledWith(id);
     await post(app(), `/api/sessions/${id}/archive`, { archived: false });
     expect(archivedAt()).toBeUndefined();
@@ -221,6 +224,26 @@ describe('ship routes', () => {
     expect(create).toHaveBeenCalledWith({ target: session.target, branch: session.branch }, expect.anything());
   });
 
+  it("a Restore's warnings (a repo not set up) come back with it, to be shown where you clicked", async () => {
+    const id = sessionIdFor(session);
+    const warned = ['not in your config any more, so not set up: docs'];
+    const create = vi.fn(async () => ({
+      ok: true as const,
+      branch: session.branch,
+      launchDir: session.paths[0],
+      paths: session.paths,
+      warnings: warned,
+    }));
+    const a = new Hono();
+    mountShipRoutes(a, { broadcast: (e) => events.push(e), onRepoChanged: () => {}, run, create });
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'api') }, groups: {}, copyFiles: [] });
+    fs.rmSync(session.paths[0], { recursive: true });
+    const res = await post(a, `/api/sessions/${id}/archive`, { archived: false });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, warnings: warned });
+  });
+
   it("a Restore that can't make the worktree says why, not 'unknown session'", async () => {
     const id = sessionIdFor(session);
     const create = vi.fn(async () => ({ ok: false as const, error: 'a file in it is in use: close it and try again' }));
@@ -232,6 +255,76 @@ describe('ship routes', () => {
     const res = await post(a, `/api/sessions/${id}/archive`, { archived: false });
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Couldn't restore it: a file in it is in use: close it and try again" });
+  });
+
+  it('a Restore held up by what still runs from the old folder names it (409), and stops it when asked to', async () => {
+    const id = sessionIdFor(session);
+    const create = vi.fn(async () => ({ ok: true as const, branch: session.branch, launchDir: session.paths[0], paths: session.paths }));
+    const dir = session.paths[0];
+    const vite = {
+      pid: 35464,
+      ppid: 1,
+      name: 'node.exe',
+      exe: null,
+      command: `node ${path.join(dir, 'node_modules', 'vite', 'bin', 'vite.js')} --mode demo`,
+    };
+    let running = true;
+    const holders = vi.fn(async () => ({ stoppable: running ? [vite] : [], others: [] }));
+    const stopHolders = vi.fn(async () => {
+      running = false;
+      return ['node … (PID 35464)'];
+    });
+    const a = new Hono();
+    mountShipRoutes(a, { broadcast: (e) => events.push(e), onRepoChanged: () => {}, run, create, holders, stopHolders });
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'api') }, groups: {}, copyFiles: [] });
+    fs.rmSync(path.join(dir, '.git')); // what git left: a folder with no git in it
+
+    const res = await post(a, `/api/sessions/${id}/archive`, { archived: false });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { holders: string[]; error: string };
+    expect(body.holders).toHaveLength(1);
+    expect(body.holders[0]).toContain('vite.js --mode demo (PID 35464)');
+    expect(body.error).toContain('still running from its old folder');
+    expect(create).not.toHaveBeenCalled();
+    expect(stopHolders).not.toHaveBeenCalled(); // never without being asked
+
+    expect((await post(a, `/api/sessions/${id}/archive`, { archived: false, stopHolders: true })).status).toBe(200);
+    expect(stopHolders).toHaveBeenCalledWith([dir]);
+    expect(create).toHaveBeenCalled();
+  });
+
+  it('a failed Restore looks at the processes once (a look takes seconds on Windows)', async () => {
+    const id = sessionIdFor(session);
+    const create = vi.fn(async () => ({ ok: false as const, error: 'in use' }));
+    const holders = vi.fn(async () => ({ stoppable: [], others: [] }));
+    const a = new Hono();
+    mountShipRoutes(a, { broadcast: (e) => events.push(e), onRepoChanged: () => {}, run, create, holders });
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'api') }, groups: {}, copyFiles: [] });
+    fs.rmSync(path.join(session.paths[0], '.git'));
+    expect((await post(a, `/api/sessions/${id}/archive`, { archived: false })).status).toBe(500);
+    expect(holders).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Restore that fails with the folder in use names what has it open (an editor: the user's to close)", async () => {
+    const id = sessionIdFor(session);
+    const create = vi.fn(async () => ({ ok: false as const, error: 'a file in it is in use: close it and try again' }));
+    const code = { pid: 500, ppid: 1, name: 'Code.exe', exe: 'C:\\VS Code\\Code.exe', command: `"Code.exe" "${session.paths[0]}"` };
+    const a = new Hono();
+    mountShipRoutes(a, {
+      broadcast: (e) => events.push(e),
+      onRepoChanged: () => {},
+      run,
+      create,
+      holders: async () => ({ stoppable: [], others: [code] }),
+    });
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'api') }, groups: {}, copyFiles: [] });
+    fs.rmSync(path.join(session.paths[0], '.git'));
+    const res = await post(a, `/api/sessions/${id}/archive`, { archived: false });
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/in use: close it and try again \(open there: code .*\(PID 500\)\)$/);
   });
 
   it('archive refuses with what is still waiting (409), and goes ahead with force', async () => {

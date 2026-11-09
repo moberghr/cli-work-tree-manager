@@ -12,6 +12,8 @@ interface Props {
   /** Served by the dev server: a DEV badge on the top bar. */
   dev?: boolean;
   route: DashboardRoute;
+  /** The session rail folded away (the Reviews tab's toggle): the main slot takes the width. */
+  railFolded?: boolean;
   sessions: SessionSummary[];
   onSelectTab: (tab: DashboardRoute['tab']) => void;
   onSelectSession: (id: string) => void;
@@ -24,6 +26,8 @@ interface Props {
   /** Opens / closes the Ctrl+K assistant (the top-nav button). */
   onAssistant?: () => void;
   assistantOpen?: boolean;
+  /** The top bar's plan-limit and token meter. */
+  usage?: React.ReactNode;
   /** The top bar's background-activity indicator. */
   activity?: React.ReactNode;
   /** The top bar's Help button: version, updates, what's new, shortcuts (HelpMenu). */
@@ -59,6 +63,7 @@ interface Props {
 export function DashboardLayout({
   dev = false,
   route,
+  railFolded = false,
   sessions,
   onSelectTab,
   onSelectSession,
@@ -68,6 +73,7 @@ export function DashboardLayout({
   prsFor,
   onAssistant,
   assistantOpen,
+  usage,
   activity,
   help,
   tasks,
@@ -111,13 +117,14 @@ export function DashboardLayout({
         railOpen={railOpen}
         onAssistant={onAssistant}
         assistantOpen={assistantOpen}
+        usage={usage}
         activity={activity}
         help={help}
         tasks={tasks}
       />
       <div
         ref={bodyRef}
-        className={'wd-dash-body' + (railOpen ? ' wd-dash-rail-open' : '')}
+        className={'wd-dash-body' + (railOpen ? ' wd-dash-rail-open' : '') + (railFolded ? ' wd-dash-rail-folded' : '')}
         style={{ [RAIL_SPEC.cssVar as string]: `${railWidth}px` }}
       >
         {railOpen && <div className="wd-dash-rail-backdrop" onClick={() => setRailOpen(false)} aria-hidden />}

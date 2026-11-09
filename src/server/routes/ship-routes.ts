@@ -1,3 +1,4 @@
+import { whileRestoring } from '../../core/archive/archiving.js';
 import type { Hono } from 'hono';
 import { findSession } from '../../core/sessions/web-state.js';
 import { setSessionArchived, setSessionTitle } from '../../core/sessions/history.js';
@@ -6,6 +7,8 @@ import { archiveSession, restoreArchivedTranscripts } from '../../core/archive/s
 import { defaultArchiveDeps } from '../../core/archive/session-archive-deps.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { isWorktreeFolder } from '../../core/worktree/leftover.js';
+import type { Holders } from '../../core/platform/running-from.js';
+import { freeLeftovers, leftoversOf, lookAtLeftovers, openInLeftovers } from '../../core/archive/restore-leftovers.js';
 import {
   mergeSelected,
   runShipAction,
@@ -25,6 +28,9 @@ export interface ShipRoutesOptions {
   release?: (sessionId: string) => Promise<void>;
   /** How a removed worktree is made again on Restore (work web: in a child process, setup-child.ts). */
   create?: CreateWorktree;
+  /** What runs from or names a folder, and stopping it (running-from.ts; tests swap them). */
+  holders?: (dirs: string[]) => Promise<Holders>;
+  stopHolders?: (dirs: string[]) => Promise<string[]>;
 }
 
 const ACTIONS = new Set<ShipAction>(['push', 'create-pr', 'merge']);
@@ -47,17 +53,35 @@ const METHODS = new Set<MergeMethod>(['squash', 'merge', 'rebase']);
  *                                    conversation put back)
  */
 export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
-  const archive = async (
+  // A Restore is listed again at once, as Restoring (archiving.ts), for as long as it runs.
+  const archive = (
     id: string,
     archived: boolean,
     force = false,
     merged = false,
-  ): Promise<{ ok: boolean; blocked?: string[]; message?: string; error?: string }> => {
+    stopHolders = false,
+  ): ReturnType<typeof archiveOrRestore> =>
+    archived
+      ? archiveOrRestore(id, true, force, merged, stopHolders)
+      : whileRestoring(id, () => archiveOrRestore(id, false, force, merged, stopHolders));
+  const archiveOrRestore = async (
+    id: string,
+    archived: boolean,
+    force = false,
+    merged = false,
+    stopHolders = false,
+  ): Promise<{ ok: boolean; blocked?: string[]; message?: string; error?: string; holders?: string[]; warnings?: string[] }> => {
     const session = findSession(id);
     if (!session) return { ok: false };
     let ok: boolean;
+    let warnings: string[] = [];
     if (archived) {
-      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), { force, merged });
+      // `merged`: Ship's merge archives it; otherwise it's your Archive (the button, its key, the bulk bar).
+      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), {
+        force,
+        merged,
+        by: merged ? 'shipped' : 'you',
+      });
       if (out.blocked) return { ok: false, blocked: out.blocked, message: out.message };
       ok = out.ok;
     } else if (session.paths.some((p) => !isWorktreeFolder(p))) {
@@ -66,16 +90,40 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       // (`work tree` / setupWorktree also puts the conversation back and un-archives it).
       const config = loadConfig();
       if (!config) return { ok: false, error: 'no config' };
+      // What's left of a folder git removed only in part has to be moved out of the way, and can't be while
+      // something runs from it (a dev server its Claude left): say what, and stop it when asked to.
+      const io = { holders: opts.holders, stop: opts.stopHolders };
+      const leftovers = leftoversOf(session.paths);
+      let stopped: string[] = [];
+      // One look at the processes serves both questions (on Windows a look takes a second or more).
+      let looked: Awaited<ReturnType<typeof lookAtLeftovers>> = null;
+      if (stopHolders) stopped = await freeLeftovers(leftovers, io);
+      else {
+        looked = await lookAtLeftovers(leftovers, io);
+        const running = looked?.running ?? [];
+        if (running.length) {
+          return { ok: false, holders: running, error: `Couldn't restore it: still running from its old folder: ${running.join(', ')}` };
+        }
+      }
       const made = await (opts.create ?? createInProcess)({ target: session.target, branch: session.branch }, config);
-      // A Restore that couldn't make the worktree says why (a folder in use, a branch gone…), not "unknown session".
-      if (!made.ok) return { ok: false, error: `Couldn't restore it: ${made.error}` };
+      // A Restore that couldn't make the worktree says why (a folder in use, a branch gone…), not "unknown session",
+      // and names what has the folder open when it can (an editor: yours to close).
+      if (!made.ok) {
+        // Asked again only when something was stopped since the look.
+        const open = looked && !stopped.length ? looked.open : await openInLeftovers(leftovers, io);
+        return {
+          ok: false,
+          error: `Couldn't restore it: ${made.error}${open.length ? ` (open there: ${open.join(', ')})` : ''}${stopped.length ? ` (stopped first: ${stopped.join(', ')})` : ''}`,
+        };
+      }
       ok = true;
+      warnings = made.warnings ?? [];
     } else {
       restoreArchivedTranscripts(session);
       ok = await setSessionArchived(session.target, session.branch, false);
     }
     opts.broadcast('sessions-changed', { ts: Date.now() });
-    return { ok };
+    return warnings.length ? { ok, warnings } : { ok };
   };
 
   // Name a session ({title}; empty = back to the automatic name).
@@ -139,13 +187,15 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
   });
 
   app.post('/api/sessions/:id/archive', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { archived?: unknown; force?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { archived?: unknown; force?: unknown; stopHolders?: unknown };
     if (typeof body.archived !== 'boolean') return c.json({ error: 'archived (boolean) required' }, 400);
-    const r = await archive(c.req.param('id'), body.archived, body.force === true);
+    const r = await archive(c.req.param('id'), body.archived, body.force === true, false, body.stopHolders === true);
     // Work still waiting in it: say what, and let the user decide (force).
     if (r.blocked) return c.json({ error: r.message, blocked: r.blocked }, 409);
+    // A Restore held up by what still runs from its old folder: say what, and let the user decide (stopHolders).
+    if (r.holders) return c.json({ error: r.error, holders: r.holders }, 409);
     if (r.error) return c.json({ error: r.error }, 500);
-    return r.ok ? c.json({ ok: true }) : c.json({ error: 'unknown session' }, 404);
+    return r.ok ? c.json({ ok: true, ...(r.warnings?.length ? { warnings: r.warnings } : {}) }) : c.json({ error: 'unknown session' }, 404);
   });
 }
 

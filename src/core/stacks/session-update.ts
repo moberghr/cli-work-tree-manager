@@ -8,6 +8,8 @@ import { sessionStacks } from './stack-sessions.js';
 import { parentTipFor, retargetOntoMain } from './stack-retarget.js';
 import type { CommandRunner } from '../pr/ship.js';
 import { shownState } from '../status/turn-activity.js';
+import { recordCheckedOutBranches } from '../sessions/session-branches.js';
+import { bestEffort } from '../platform/best-effort.js';
 
 /**
  * Bringing a session's branch up to date — the dashboard's Update from main /
@@ -45,6 +47,7 @@ export async function updateFromBase(s: WorktreeSession, run?: CommandRunner): P
     }
     results.push(await updateFromMain(p, run, parent));
   }
+  recordBranches(s);
   return { ok: true, results, how: parent ? 'parent' : 'main', ...(parent ? { base: parent } : {}) };
 }
 
@@ -66,8 +69,13 @@ export async function moveOntoMain(s: WorktreeSession, run?: CommandRunner): Pro
   );
   // On main now: no longer stacked on anything.
   if (r.ok && r.bases) await setSessionBase(s.target, s.branch, r.bases);
+  recordBranches(s);
   return { ok: true, results: r.results, how: 'onto-main', base: parent.branch };
 }
+
+/** Its repos' branches as they are after an update (session-branches.ts). */
+const recordBranches = (s: WorktreeSession) =>
+  bestEffort(`record the branches of ${s.target}:${s.branch}`, () => recordCheckedOutBranches(s));
 
 /** Whichever it needs: onto main when its parent merged, else from its parent or main (`work update`). */
 export async function updateSession(s: WorktreeSession, run?: CommandRunner): Promise<SessionUpdate> {

@@ -1,5 +1,6 @@
 import type { SessionAttention, ActivityState } from '../api-types.js';
-import { stageWaiting, stageWantsYou, type PrStageKind } from '../pr/pr-stage.js';
+import { stageWaiting, type PrStageKind } from '../pr/pr-stage.js';
+import { owedToYou, type Owed } from '../status/attention.js';
 
 /** What the status vocabulary reads from a session: a dashboard row or
  *  a `work sessions` row (both are SessionWire-shaped). */
@@ -10,8 +11,16 @@ export interface SessionLike {
   attention?: SessionAttention | null;
   /** Unresolved review threads on its open PRs (SessionWire). */
   openReviewThreads?: number;
+  /** Replies drafted to its review threads, waiting for your Post (SessionWire). */
+  replyDrafts?: number;
   /** Where its pull request stands (SessionWire, pr-stage.ts). */
-  prStage?: { kind: PrStageKind; text: string; seen?: boolean } | null;
+  prStage?: { kind: PrStageKind; text: string; seen?: boolean; prs?: ReadonlyArray<{ kind: PrStageKind; checks?: string }> } | null;
+  /** Being archived right now (SessionWire.archiving). */
+  archiving?: boolean;
+  /** Being restored right now (SessionWire.restoring). */
+  restoring?: boolean;
+  /** Its Claude was stopped while idle and hasn't run since (SessionWire.asleep). */
+  asleep?: boolean;
 }
 
 /**
@@ -21,14 +30,17 @@ export interface SessionLike {
  * back to the older transcript-activity signal, so a session never shows two
  * contradicting states in two places.
  *
+ *   archiving   — being archived right now (its Claude stopped, the rest
+ *                 being saved); it leaves the list when done
+ *   restoring   — being restored (its worktree made again, the conversation
+ *                 put back); in the rail again from the click
  *   needs_input — blocked on you (permission / question)
  *   done        — finished a turn you haven't looked at
  *   working     — mid-turn
- *   review      — nothing running for you to answer, but reviewers left
- *                 unresolved comments on its open PR(s)
- *   pr          — its PR wants you: approved with checks passing (ready
- *                 to merge), a merge conflict or failing checks; unseen
- *   in_review   — finished, its PR waits on reviewers or checks
+ *   background  — its turn ended, a background agent that turn started is
+ *                 still at it: still busy, but its prompt is free
+ *   asleep      — its Claude was stopped while idle (idle sleep, `work stop`)
+ *                 and hasn't run since: opening it starts it again
  *   quiet       — finished, and you've seen it
  *   active/open/recent/stale — no hook status yet (its Claude has not
  *     taken a turn since the dashboard's hooks went in, or runs a tool
@@ -36,7 +48,18 @@ export interface SessionLike {
  *     Idle (recent) within a day, Stale after that.
  */
 export type DisplayKind =
-  'needs_input' | 'done' | 'working' | 'review' | 'pr' | 'in_review' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
+  | 'archiving'
+  | 'restoring'
+  | 'needs_input'
+  | 'done'
+  | 'working'
+  | 'background'
+  | 'asleep'
+  | 'quiet'
+  | 'active'
+  | 'open'
+  | 'recent'
+  | 'stale';
 
 /** Used today = not stale, whatever the hooks know. */
 export const RECENT_MS = 24 * 3_600_000;
@@ -50,15 +73,16 @@ export function lastActiveAt(s: SessionLike): string {
 }
 
 export function displayStatus(s: SessionLike, now: number = Date.now()): DisplayKind {
+  if (s.archiving) return 'archiving';
+  if (s.restoring) return 'restoring';
   const a = s.attention;
   if (a) {
     if (a.state === 'needs_input') return 'needs_input';
-    if (a.state === 'working') return 'working';
-    if (!a.seen) return 'done';
+    if (a.state === 'working') return a.background ? 'background' : 'working';
   }
-  if ((s.openReviewThreads ?? 0) > 0) return 'review';
-  if (stageWantsYou(s.prStage)) return 'pr';
-  if (stageWaiting(s.prStage)) return 'in_review';
+  // A finished turn you haven't looked at is yours to review, not Claude's state: the blue "review" badge says it
+  // (owedToYou's 'turn'); the icon says what its Claude is — idle, or asleep.
+  if (s.asleep) return 'asleep';
   if (a) return 'quiet';
   if (s.activityState === 'active') return 'active';
   if (s.activityState === 'open') return 'open';
@@ -66,12 +90,13 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
 }
 
 export const DISPLAY_LABEL: Record<DisplayKind, string> = {
+  archiving: 'Archiving',
+  restoring: 'Restoring',
   needs_input: 'Needs your input',
   done: 'Done',
   working: 'Working',
-  review: 'Review comments',
-  pr: 'Pull request',
-  in_review: 'In review',
+  background: 'In background',
+  asleep: 'Asleep',
   quiet: 'Idle',
   active: 'Active',
   open: 'Open',
@@ -81,13 +106,17 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
 
 /** What each status means, in words — the legend and the dots' tooltips. */
 export const DISPLAY_MEANING: Record<DisplayKind, string> = {
+  archiving:
+    'Being archived: its Claude is stopped, its conversation and uncommitted files are saved, and its worktree goes once nothing would be lost. It leaves the list when done; Restore brings it back.',
+  restoring:
+    'Being restored: its worktree is made again from its branch, with its uncommitted files and conversation put back. Then it carries on where it was.',
   needs_input: 'Its Claude is waiting for you: a permission prompt or a question.',
-  done: "Its Claude finished a turn you haven't looked at yet.",
+  done: "Its Claude finished a turn you haven't looked at yet: the Inbox's Done section. On a row it's the blue review badge, beside what its Claude is now.",
   working: 'Its Claude is working on your last instruction right now.',
-  review: "Reviewers left comments on its pull request that you haven't answered or resolved.",
-  pr: 'Its pull request needs you: approved with checks passing (ready to merge), a merge conflict, or failing checks.',
-  in_review:
-    'Its pull request is open and waiting on reviewers or checks. It comes back to the Inbox when comments arrive, checks fail, or it is approved.',
+  background:
+    'Its Claude finished its turn, and a background agent that turn started is still at work. Its prompt is free: you can talk to it. The agent’s result comes back as a new turn.',
+  asleep:
+    'Its Claude was stopped to free memory: idle for a while, nothing attached, nothing of it still running. Opening the session starts it again, where it left off.',
   quiet: "Its Claude finished, and you've seen it. Nothing to do.",
   active: "Its Claude wrote in the last 30 seconds (it isn't reporting its status, so this is from its transcript).",
   open: 'Its Claude wrote in the last 5 minutes, or is open and idle at its prompt.',
@@ -99,10 +128,11 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
 export const LEGEND_KINDS: readonly DisplayKind[] = [
   'needs_input',
   'done',
-  'review',
-  'pr',
   'working',
-  'in_review',
+  'background',
+  'asleep',
+  'archiving',
+  'restoring',
   'active',
   'open',
   'quiet',
@@ -133,12 +163,14 @@ export const WEEK_MS = 7 * 24 * 3_600_000;
  *  used within 7 days. Older: everything else — cleanup material. */
 export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
   const kind = displayStatus(s, now);
+  if (owedToYou(s).length) return 'now';
   if (
     kind === 'needs_input' ||
     kind === 'done' ||
     kind === 'working' ||
-    kind === 'review' ||
-    kind === 'pr' ||
+    kind === 'background' ||
+    kind === 'archiving' ||
+    kind === 'restoring' ||
     kind === 'active' ||
     kind === 'open'
   )
@@ -155,19 +187,25 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
   switch (kind) {
     case 'needs_input':
     case 'done':
-    case 'review':
-    case 'pr':
       return 'needs';
     case 'working':
+    case 'background':
+    case 'archiving':
+    case 'restoring':
     case 'active':
       return 'working';
     case 'quiet':
-    case 'in_review':
+    case 'asleep':
     case 'open':
     case 'recent':
       return 'idle';
-    default:
+    case 'stale':
       return 'stale';
+    default: {
+      // Every kind is named above: a new one fails the type check here instead of landing in "stale" unasked.
+      const unknown: never = kind;
+      return unknown;
+    }
   }
 }
 
@@ -179,4 +217,58 @@ export const NO_HOOKS_HINT =
 /** The hint for a status that comes from activity only; undefined otherwise. */
 export function statusHint(kind: DisplayKind): string | undefined {
   return kind === 'active' || kind === 'open' || kind === 'recent' || kind === 'stale' ? NO_HOOKS_HINT : undefined;
+}
+
+/**
+ * The second signal: what waits on you about a session, beside what its
+ * Claude is doing (attention.ts `owedToYou`), in words. The rail's badge is
+ * the first thing ("1 reply", "merge"; "+1" when there's more), its tooltip
+ * all of them; the Sessions table and the Inbox say the same.
+ */
+export const OWED_SHORT: Record<Owed['kind'], (n: number) => string> = {
+  turn: () => 'review',
+  reply: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`,
+  thread: (n) => `${n} ${n === 1 ? 'thread' : 'threads'}`,
+  conflict: () => 'conflict',
+  checks: () => 'CI',
+  merge: () => 'merge',
+};
+export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
+  turn: () => 'a finished turn to review',
+  reply: (n) => `${n} ${n === 1 ? 'reply' : 'replies'} to post`,
+  thread: (n) => `${n} review ${n === 1 ? 'thread' : 'threads'} with no answer`,
+  conflict: (n) => (n === 1 ? 'a merge conflict' : `${n} PRs with merge conflicts`),
+  checks: (n) => (n === 1 ? 'checks failing' : `${n} PRs with checks failing`),
+  merge: () => 'ready to merge',
+};
+
+export interface OwedBadge {
+  /** "1 reply", "merge +1", "review". */
+  text: string;
+  /** What it leads with: a finished turn to review is blue (Done's colour), the rest pink. */
+  kind: Owed['kind'];
+  /** "Needs you: 1 reply to post · ready to merge". */
+  title: string;
+}
+
+/** The badge for what waits on you, or null when nothing does. */
+export function owedBadge(s: SessionLike): OwedBadge | null {
+  const owed = owedToYou(s);
+  if (!owed.length) return null;
+  const [first, ...more] = owed;
+  return {
+    kind: first.kind,
+    text: OWED_SHORT[first.kind](first.count) + (more.length ? ` +${more.length}` : ''),
+    title: `Needs you: ${owed.map((o) => OWED_LONG[o.kind](o.count)).join(' · ')}`,
+  };
+}
+
+/** Nothing waits on you, and its PR waits on others (reviewers, checks): "in review", said quietly. */
+export function waitingOnOthers(s: SessionLike): boolean {
+  return !owedToYou(s).length && stageWaiting(s.prStage);
+}
+
+/** The Sessions table's status filter: what waits on you counts as "needs you", whatever Claude is doing. */
+export function sessionBucket(s: SessionLike, now: number = Date.now()): StatusBucket {
+  return owedToYou(s).length ? 'needs' : statusBucket(displayStatus(s, now));
 }

@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { setUpAccounts } from './accounts.js';
 import { pendingToolUse } from './permission.js';
 import { contentBlocks, readTranscriptTail } from './transcript.js';
 import type { StatusEvent } from '../../status/status-event.js';
@@ -5,7 +7,8 @@ import type { AgentEvents, TurnEdge, WorkHook } from '../types.js';
 
 /**
  * Claude Code's side of work's hooks (types.ts `AgentEvents`): command hooks
- * in ~/.claude/settings.json (command-hook-installer.ts), and the JSON Claude
+ * in ~/.claude/settings.json — and each configured account's `<config dir>/settings.json`, since a Claude running on
+ * another account reads those, not ~/.claude's (command-hook-installer.ts) — and the JSON Claude
  * Code sends them on stdin. The command is `work hook <edge>` as before, so an
  * install changes nothing in a settings file already right.
  *
@@ -79,16 +82,24 @@ export function claudeStatusEvent(edge: TurnEdge, payload: unknown): StatusEvent
 
 const toClaude = (h: { owner: string; edge: TurnEdge }) => ({ owner: h.owner, event: CLAUDE_EVENT[h.edge] });
 
+/** Every account's settings file: the default's first (`~/.claude/settings.json`, as it always was); a configured account's
+ *  only once its folder exists (installing would make it; work web's account sync gets it when it appears). */
+const settingsFiles = (): string[] => setUpAccounts().map((a) => path.join(a.dir, 'settings.json'));
+
 export const claudeEvents: AgentEvents = {
-  install: async (hooks: WorkHook[], remove = []) =>
-    (await loadInstaller()).syncCommandHooks(
-      hooks.map((h) => ({ ...toClaude(h), command: h.command, ...(h.timeoutSec ? { timeoutSec: h.timeoutSec } : {}) })),
-      remove.map(toClaude),
-    ),
+  install: async (hooks: WorkHook[], remove = []) => {
+    const inst = await loadInstaller();
+    const add = hooks.map((h) => ({ ...toClaude(h), command: h.command, ...(h.timeoutSec ? { timeoutSec: h.timeoutSec } : {}) }));
+    // One account's file that can't be written is reported by the editor and doesn't keep the others from their hooks.
+    for (const file of settingsFiles()) await inst.syncCommandHooks(add, remove.map(toClaude), file);
+  },
   // A shutdown handler can't wait for an import: it uses the installer the
   // start-up install loaded (work web always installs first). Nothing loaded:
   // this process installed nothing, so there is nothing of its to remove.
-  removeSync: (hooks) => installer?.removeCommandHooksSync(hooks.map(toClaude)),
+  removeSync: (hooks) => {
+    if (!installer) return;
+    for (const file of settingsFiles()) installer.removeCommandHooksSync(hooks.map(toClaude), file);
+  },
   read: (edge, payload) => ({ cwd: str(asPayload(payload).cwd), status: claudeStatusEvent(edge, payload) }),
   // turn-start: stdout is added to the prompt. turn-end: `decision: block`
   // keeps Claude in the turn and feeds `reason` back to it.

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   keyText,
+  REVIEW_KEYS,
+  reviewActionFor,
   runSessionKey,
   SESSION_KEYS,
   sessionActionFor,
@@ -19,6 +21,9 @@ describe('the open session’s keys', () => {
     expect(sessionActionFor({ key: 'Delete', shiftKey: true })).toBe('delete');
     expect(sessionActionFor({ key: 'Delete' })).toBeNull();
     expect(sessionActionFor({ key: '2' })).toBe('tab-diff');
+    expect(sessionActionFor({ key: 'A', shiftKey: true })).toBe('add-repo');
+    expect(sessionActionFor({ key: 'a' })).toBeNull();
+    expect(sessionActionFor({ key: 'C', shiftKey: true })).toBe('account');
     expect(sessionActionFor({ key: 'e', ctrlKey: true })).toBeNull();
     expect(sessionActionFor({ key: 'e', altKey: true })).toBeNull();
   });
@@ -38,6 +43,8 @@ describe('the open session’s keys', () => {
     expect(sessionKey('archive')).toBe('e');
     expect(sessionKey('ship')).toBe('⇧S');
     expect(sessionKey('delete')).toBe('⇧Del');
+    expect(sessionKey('add-repo')).toBe('⇧A');
+    expect(sessionKey('account')).toBe('⇧C');
     expect(keyText({ key: '.' })).toBe('.');
   });
 
@@ -59,6 +66,8 @@ describe('runSessionKey', () => {
       openEditor: () => calls.push('editor'),
       copyBranch: () => calls.push('copy'),
       fork: () => calls.push('fork'),
+      addRepo: () => calls.push('add-repo'),
+      account: () => calls.push('account'),
       remove: () => calls.push('delete'),
       header: (a) => calls.push(`header ${a}`),
     };
@@ -73,7 +82,8 @@ describe('runSessionKey', () => {
       'tab term',
       'tab diff',
       'tab pr',
-      'tab timeline',
+      'tab code',
+      'header timeline',
       'archived true',
       'snooze',
       'block',
@@ -86,15 +96,19 @@ describe('runSessionKey', () => {
       'header reconnect',
       'editor',
       'copy',
+      'header copy-reply',
       'fork',
+      'add-repo',
+      'account',
       'header dev',
       'delete',
     ]);
   });
 
-  it('an archived session: e restores it; snooze, blocked by, editor and fork do nothing', () => {
+  it('an archived session: e restores it; snooze, blocked by, editor, fork and add a repo do nothing', () => {
     const { h, calls } = handlers();
-    for (const a of ['archive', 'snooze', 'block', 'editor', 'fork', 'copy'] as SessionAction[]) runSessionKey(a, { archived: true }, h);
+    for (const a of ['archive', 'snooze', 'block', 'editor', 'fork', 'add-repo', 'account', 'copy'] as SessionAction[])
+      runSessionKey(a, { archived: true }, h);
     expect(calls).toEqual(['archived false', 'copy']);
   });
 
@@ -102,6 +116,42 @@ describe('runSessionKey', () => {
     const header = vi.fn();
     const { h } = handlers();
     for (const a of all) runSessionKey(a, { archived: false }, { ...h, header });
-    expect(header.mock.calls.map((c) => c[0])).toEqual(['menu', 'prompt', 'catchup', 'notes', 'ship', 'terminal', 'reconnect', 'dev']);
+    expect(header.mock.calls.map((c) => c[0])).toEqual([
+      'timeline',
+      'menu',
+      'prompt',
+      'catchup',
+      'notes',
+      'ship',
+      'terminal',
+      'reconnect',
+      'copy-reply',
+      'dev',
+    ]);
+  });
+});
+
+describe('an open review’s keys', () => {
+  it('[ ] o s m; Shift, Ctrl, Alt and ⌘ are never ours', () => {
+    expect(reviewActionFor({ key: ']' })).toBe('next');
+    expect(reviewActionFor({ key: '[' })).toBe('prev');
+    expect(reviewActionFor({ key: 'o' })).toBe('overview');
+    expect(reviewActionFor({ key: 's' })).toBe('stories');
+    expect(reviewActionFor({ key: 'm' })).toBe('comments');
+    expect(reviewActionFor({ key: 'f' })).toBe('files');
+    expect(reviewActionFor({ key: 'M', shiftKey: true })).toBeNull();
+    expect(reviewActionFor({ key: 'o', ctrlKey: true })).toBeNull();
+    expect(reviewActionFor({ key: 'x' })).toBeNull();
+  });
+
+  it('none takes a key the dashboard uses on every page (c is New worktree, so the comments are m), and each is listed in ?', () => {
+    const anywhere = new Set(['c', 'n', 'j', 'k', 'g', '/', '?']);
+    const keys = Object.values(REVIEW_KEYS).map((d) => d.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const k of keys) expect(anywhere.has(k), k).toBe(false);
+    const listed = shortcutGroups()
+      .find((g) => g.title === 'An open review')!
+      .rows.map((r) => r.keys);
+    expect(listed).toEqual(['[', ']', 'o', 's', 'm', 'f']);
   });
 });

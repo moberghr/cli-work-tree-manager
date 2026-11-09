@@ -1,5 +1,7 @@
-import type { FailingCheck, OpenReviewThread, PrReply, SessionCi } from '../../../core/api-types.js';
-import { prsBeyondStage, stageOfPr, stagePhrase, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
+import type { FailingCheck, OpenReviewThread, PrReply, SessionCi, ThreadCode } from '../../../core/api-types.js';
+import { prsBeyondStage, stageOfPr, stagePhrase, stageRepos, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
+import type { ShipPr } from '../../../core/api-types.js';
+import { owedToYou } from '../../../core/status/attention.js';
 import type { PrInfo } from '../api/panes.js';
 
 /**
@@ -16,9 +18,11 @@ export interface PrSection {
   number: number;
   url: string;
   title: string | null;
-  /** Who opened it on GitHub, when known (the PR watch's `gh pr view`, else the dashboard's list). */
+  /** Who opened it, when known (the PR watch's look, else the dashboard's list). */
   author: string | null;
-  /** You did (the watch's viewer, else the list's isMine): its author isn't shown. */
+  /** The host it's on (absent: GitHub). */
+  host?: string;
+  /** You did (the watch's viewer for its repo — older: the session's one —, else the list's isMine): its author isn't shown. */
   mine: boolean;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   kind: PrStageKind;
@@ -27,6 +31,10 @@ export interface PrSection {
   mergedAt?: string;
   /** Only the dashboard's PR list knows it (a second PR from the branch): less is known about it. */
   fromListOnly: boolean;
+  /** The branch it's from, when the PR watch said (the session may have worked on several: session-branches.ts). */
+  branch?: string;
+  /** An earlier PR of its repo: the session moved on to a newer one (stageRepos), and this one folds under it. */
+  earlier?: true;
 }
 
 const LISTED_CHECKS: Record<PrInfo['checksStatus'], PrSection['checks']> = {
@@ -57,38 +65,42 @@ function kindOfListed(p: PrInfo): PrStageKind {
   });
 }
 
-/** Most wanting first: what wants you, then open ones, then merged and closed. */
-const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPEN' ? 1 : 2);
+/** Most wanting first: what wants you, then open ones, then merged and closed, then earlier PRs a newer one followed. */
+const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPEN' ? 1 : s.earlier ? 3 : 2);
 
 export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] {
-  const watched: PrSection[] = (ci?.repos ?? []).flatMap((r) =>
-    r.pr
-      ? [
-          {
-            key: r.pr.url,
-            repo: r.name,
-            number: r.pr.number,
-            url: r.pr.url,
-            ...fromList(
-              r.pr,
-              listed.find((p) => p.url === r.pr!.url),
-              ci?.viewer,
-            ),
-            state: r.pr.state,
-            kind: stageOfPr(r.pr),
-            checks: r.pr.checks,
-            failing: r.pr.failing ?? [],
-            ...(r.pr.mergedAt ? { mergedAt: r.pr.mergedAt } : {}),
-            fromListOnly: false,
-          },
-        ]
-      : [],
-  );
+  // Per repo, the PR its stage reads (the newest open one across the branches it worked on), then its earlier
+  // ones — a PR that merged before the session moved on to a new branch and a new PR.
+  const watched: PrSection[] = stageRepos(ci?.repos ?? []).flatMap((r, i) => {
+    const repo = ci!.repos[i];
+    const section = (pr: ShipPr, branch: string | undefined, earlier: boolean): PrSection => ({
+      key: pr.url,
+      repo: r.name,
+      number: pr.number,
+      url: pr.url,
+      ...(repo.host ? { host: repo.host } : {}),
+      ...fromList(
+        pr,
+        listed.find((p) => p.url === pr.url),
+        repo.viewer ?? ci?.viewer,
+      ),
+      state: pr.state,
+      kind: stageOfPr(pr),
+      checks: pr.checks,
+      failing: pr.failing ?? [],
+      ...(pr.mergedAt ? { mergedAt: pr.mergedAt } : {}),
+      fromListOnly: false,
+      ...(branch ? { branch } : {}),
+      ...(earlier ? { earlier: true as const } : {}),
+    });
+    return r.pr ? [section(r.pr, r.branch, false), ...r.earlier.map((e) => section(e.pr, e.branch, true))] : [];
+  });
   const others: PrSection[] = prsBeyondStage({ prs: watched }, listed).map((p) => ({
     key: p.url,
     repo: p.repoAlias,
     number: p.number,
     url: p.url,
+    ...(p.host ? { host: p.host } : {}),
     title: p.title,
     author: p.author || null,
     mine: p.isMine,
@@ -167,18 +179,71 @@ export function prTabButton(s: SessionPrFacts, listed: PrInfo[]): { label: strin
 }
 
 /**
- * The header's one line for what waits on you on GitHub: "6 open review
- * threads · 2 replies to post · #1927 checks failing"; null when nothing does.
- * It points into the PR tab, where all of it is.
+ * The header's one line for what waits on you on GitHub: "2 replies to post
+ * · 6 open review threads · #1927 checks failing · #212 ready to merge";
+ * null when nothing does. The same list as the rail's badge (attention.ts
+ * `owedToYou`), with each PR named. It points into the PR tab, where all of
+ * it is.
  */
 export function prNeedsLine(s: SessionPrFacts): string | null {
-  const parts: string[] = [];
-  const threads = s.openReviewThreads ?? 0;
-  if (threads) parts.push(`${threads} open review thread${threads === 1 ? '' : 's'}`);
-  const drafts = s.replyDrafts ?? 0;
-  if (drafts) parts.push(`${drafts} ${drafts === 1 ? 'reply' : 'replies'} to post`);
-  for (const p of s.prStage?.prs ?? []) {
-    if (pressingPr(p)) parts.push(`${prName(p, !!s.isGroup)} ${stagePhrase(p.kind === 'conflict' ? 'conflict' : 'checks_failing')}`);
-  }
+  const prs = s.prStage?.prs ?? [];
+  const named = (want: (p: PrStage['prs'][number]) => boolean, kind: PrStageKind) => {
+    const these = prs.filter(want);
+    return these.length ? these.map((p) => `${prName(p, !!s.isGroup)} ${stagePhrase(kind)}`) : [stagePhrase(kind)];
+  };
+  const parts = owedToYou(s).flatMap((o) => {
+    switch (o.kind) {
+      case 'turn':
+        return []; // a finished turn is the Diff's, not GitHub's
+      case 'reply':
+        return [`${o.count} ${o.count === 1 ? 'reply' : 'replies'} to post`];
+      case 'thread':
+        return [`${o.count} open review thread${o.count === 1 ? '' : 's'}`];
+      case 'conflict':
+        return named((p) => p.kind === 'conflict', 'conflict');
+      case 'checks':
+        return named((p) => p.kind !== 'conflict' && pressingPr(p), 'checks_failing');
+      case 'merge':
+        return named((p) => p.kind === 'ready', 'ready');
+    }
+  });
   return parts.length ? parts.join(' · ') : null;
+}
+
+/** A line of the code a review thread is on, as the PR tab draws it. */
+export interface ThreadCodeLine {
+  kind: 'add' | 'del' | 'ctx';
+  /** Its number in the old / new file (none for the side it isn't on). */
+  oldNo: number | null;
+  newNo: number | null;
+  text: string;
+  /** One of the lines the comment is on. */
+  commented: boolean;
+}
+
+/**
+ * The end of a thread's diff hunk, numbered: the lines the comment is on
+ * (the hunk's last `lines`) and a few before them for context — GitHub's
+ * hunk ends at the commented line. `skipped`: lines of the hunk not shown
+ * above. Pure.
+ */
+export function threadCodeLines(code: ThreadCode, before = 4): { lines: ThreadCodeLine[]; skipped: number } {
+  const [header, ...body] = code.hunk.replace(/\r/g, '').split('\n');
+  if (body[body.length - 1] === '') body.pop(); // the hunk ended with a newline: no line after it
+  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(header ?? '');
+  let oldNo = m ? Number(m[1]) : 0;
+  let newNo = m ? Number(m[2]) : 0;
+  const all: ThreadCodeLine[] = [];
+  for (const raw of body) {
+    if (raw.startsWith('\\')) continue; // "\ No newline at end of file"
+    const sign = raw[0];
+    const text = raw.slice(1);
+    if (sign === '+') all.push({ kind: 'add', oldNo: null, newNo: newNo++, text, commented: false });
+    else if (sign === '-') all.push({ kind: 'del', oldNo: oldNo++, newNo: null, text, commented: false });
+    else all.push({ kind: 'ctx', oldNo: oldNo++, newNo: newNo++, text, commented: false });
+  }
+  const commented = Math.min(code.lines, all.length);
+  for (let i = all.length - commented; i < all.length; i++) all[i].commented = true;
+  const from = Math.max(0, all.length - commented - before);
+  return { lines: all.slice(from), skipped: from };
 }

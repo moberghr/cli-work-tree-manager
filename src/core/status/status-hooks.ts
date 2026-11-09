@@ -13,6 +13,8 @@
 
 import { spawn } from 'node:child_process';
 import type { StatusHook } from '../platform/config.js';
+import { detachHere } from '../platform/process.js';
+import { shellEnv } from '../platform/shell-env.js';
 
 /**
  * Run every configured status hook whose `on` matches `kind`, fire-and-forget.
@@ -39,13 +41,16 @@ export function runStatusHooks(kind: 'idle' | 'needs_input', cwd: string, sessio
       const child = spawn(command, {
         cwd,
         shell: true,
-        detached: true,
+        // Its output goes nowhere anyway: a console window would only flash up on Windows.
+        detached: detachHere(),
         stdio: 'ignore',
-        env: {
+        windowsHide: true,
+        // Windows: cmd.exe never takes the hook's program from the worktree (shell-env.ts).
+        env: shellEnv({
           ...process.env,
           WORK_SESSION: sessionName,
           WORK_STATUS: kind,
-        },
+        }),
       });
       // Swallow async spawn errors (e.g. ENOENT); without a handler these
       // would surface as an uncaught exception.

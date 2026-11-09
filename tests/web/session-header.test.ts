@@ -102,7 +102,7 @@ describe('session header', () => {
     expect(buttonsIn(header())).toEqual(['Restore', '⋯']);
     act(() => more().click());
     // Each with its key (state/shortcuts.ts).
-    expect(menuItems()).toEqual(['Catch me upr', 'Notes⇧N', 'RenameF2', 'Delete…⇧Del']);
+    expect(menuItems()).toEqual(['Catch me upr', 'Copy Claude’s last reply⇧Y', 'Timelinel', 'Notes⇧N', 'RenameF2', 'Delete…⇧Del']);
   });
 
   it('⋯ lists the rest, with how full the context is at the bottom; a second click closes it', async () => {
@@ -114,6 +114,8 @@ describe('session header', () => {
       'Open in terminal⇧T',
       'Ship (push, PR, merge)…⇧S',
       'Catch me upr',
+      'Copy Claude’s last reply⇧Y',
+      'Timelinel',
       'Send a prompt…p',
       'Notes⇧N',
       'Start dev server:3017 · ⇧D',
@@ -224,7 +226,7 @@ describe('Needs you', () => {
   it('one line from the session row, and a button into the PR tab — nothing unfolds over the terminal', async () => {
     await render(withPr);
     const bar = container.querySelector('.wd-needs-you')!;
-    expect(bar.textContent).toBe('Needs you2 open review threads · 1 reply to post · #212 checks failingPR tab ▸');
+    expect(bar.textContent).toBe('Needs you1 reply to post · 2 open review threads · #212 checks failingPR tab ▸');
     expect(container.querySelector('.wd-replies')).toBeNull();
     act(() => bar.querySelector('button')!.click());
     expect(onSelectSubTab).toHaveBeenLastCalledWith('pr');
@@ -240,16 +242,16 @@ describe('Needs you', () => {
 });
 
 describe('sub-tabs', () => {
-  it('Terminal, Diff (with how many files and comments), Timeline; PR only with a PR (its stage, what wants you)', async () => {
+  it('Terminal, Diff (with how many files and comments), Code; PR only with a PR (its stage, what wants you)', async () => {
     await render({ ...base, diffStat: { files: 2, added: 10, deleted: 1 }, commentCount: 3 } as SessionSummary);
     const tabs = () => [...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
-    expect(tabs()).toEqual(['Terminal', 'Diff· 2 files3', 'Timeline']);
+    expect(tabs()).toEqual(['Terminal', 'Diff· 2 files3', 'Code']);
     await render({
       ...base,
       openReviewThreads: 2,
       prStage: { kind: 'in_review', text: '', key: 'k', prs: [{ repo: 'repo', number: 212, url: 'u', kind: 'in_review' }] },
     } as unknown as SessionSummary);
-    expect(tabs()).toEqual(['Terminal', 'Diff', 'PR· #212 waiting for review2', 'Timeline']);
+    expect(tabs()).toEqual(['Terminal', 'Diff', 'PR· #212 waiting for review2', 'Code']);
   });
 
   it('the keys the dashboard hands it: . opens ⋯, ⇧T a terminal, ⇧D the dev server — only for its own session, not when archived', async () => {

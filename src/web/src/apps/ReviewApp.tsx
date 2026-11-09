@@ -365,7 +365,6 @@ export function ReviewApp({ context, scopeHash }: Props) {
   }, [activeRepo, activeStart]);
 
   const scopeKey = activeRepo ? `scope:${context.scopeLabel}:${activeRepo.name}` : `scope:${context.scopeLabel}:_pending`;
-  const hunkScopeKey = activeRepo ? `scope:${context.scopeLabel}:${activeRepo.name}:hunks` : '';
   const { viewedPaths, viewedAnchors, toggle: toggleViewed, setMany: markViewed } = useViewedFiles(scopeKey, pathToAnchor);
   const activeAnchor = useScrollspy(activeRepo?.name ?? '_pending');
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
@@ -605,7 +604,6 @@ export function ReviewApp({ context, scopeHash }: Props) {
                 review={!readOnly}
                 viewedPaths={viewedPaths}
                 onToggleViewed={toggleViewed}
-                hunkScopeKey={hunkScopeKey}
               />
             </>
           )}

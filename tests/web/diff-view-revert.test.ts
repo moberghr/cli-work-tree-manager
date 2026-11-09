@@ -147,19 +147,15 @@ const button = (label: RegExp) =>
   [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => label.test(b.getAttribute('aria-label') ?? ''));
 
 describe('DiffView revert', () => {
-  it('offers file and hunk revert on the Uncommitted diff, and reloads after', async () => {
+  it('offers Revert file on the Uncommitted diff (a hunk has none, nor a reviewed checkbox: as on GitHub), and reloads after', async () => {
     await render();
-    const hunk = button(/^Revert hunk: uncommitted.txt lines 1–1$/)!;
-    expect(button(/^Revert file: uncommitted.txt$/)).toBeTruthy();
+    expect(button(/^Revert hunk/)).toBeUndefined();
+    expect(container.querySelector('.wd-hunk-row input[type="checkbox"]')).toBeNull();
     const before = h.calls.length;
-    await act(async () => hunk.click());
+    await act(async () => button(/^Revert file: uncommitted.txt$/)!.click());
     await flush();
-    expect(h.reverts).toEqual([{ sessionId: 's1', req: { repo: 'repo', path: 'uncommitted.txt', lines: { start: 1, end: 1 } } }]);
+    expect(h.reverts).toEqual([{ sessionId: 's1', req: { repo: 'repo', path: 'uncommitted.txt', lines: undefined } }]);
     expect(h.calls.length).toBeGreaterThan(before);
-
-    await act(async () => button(/^Revert file/)!.click());
-    await flush();
-    expect(h.reverts.at(-1)?.req).toEqual({ repo: 'repo', path: 'uncommitted.txt', lines: undefined });
   });
 
   it('does nothing when the confirm is declined', async () => {

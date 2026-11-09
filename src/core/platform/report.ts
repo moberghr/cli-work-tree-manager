@@ -54,3 +54,18 @@ export function collectingReporter(): Reporter & { entries: Array<{ level: Repor
   r.errors = () => entries.filter((e) => e.level === 'error').map((e) => e.text);
   return r;
 }
+
+/**
+ * Run `fn` with its reports going where they went before, and its warnings
+ * also kept: for a run whose caller can only be told in its answer (work web's
+ * child, a route).
+ */
+export async function keepingWarnings<T>(fn: () => Promise<T>): Promise<{ value: T; warnings: string[] }> {
+  const outer = scope.getStore() ?? debugReporter;
+  const warnings: string[] = [];
+  const value = await scope.run((level, text) => {
+    if (level === 'warn' && text.trim()) warnings.push(text.trim());
+    outer(level, text);
+  }, fn);
+  return { value, warnings };
+}

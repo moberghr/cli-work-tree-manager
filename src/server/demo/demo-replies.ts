@@ -21,6 +21,11 @@ export function mountDemoReplies(app: Hono, scenario: DemoScenario, emit: (sessi
         where: 'src/schema.ts:14',
         reviewer: 'dana',
         excerpt: 'zod 4 changed `.nonempty()` — does this still reject empty arrays?',
+        body: 'zod 4 changed `.nonempty()` — does this still reject empty arrays?\n\nIf not, this would do it:\n\n```suggestion\n  items: z.array(Item).min(1),\n```',
+        code: {
+          hunk: '@@ -10,6 +10,6 @@ export const Order = z.object({\n   id: z.string().uuid(),\n   customer: Customer,\n   currency: z.enum(["EUR", "USD"]),\n-  items: z.array(Item).min(1),\n+  items: z.array(Item).nonempty(),\n   note: z.string().optional(),',
+          lines: 1,
+        },
         status: 'draft',
         draft: 'Yes — switched to `.min(1)`, which zod 4 keeps, and added a test for the empty case (a1b2c3d).',
         sentAt: at,

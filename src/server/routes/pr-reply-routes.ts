@@ -3,11 +3,14 @@ import { findSession } from '../../core/sessions/web-state.js';
 import {
   discardReply,
   listReplies,
+  withThreadContext,
   markPostedAnswered,
   MAX_REPLY_CHARS,
   postReply,
-  saveDraft,
-  THREAD_ID,
+  replyFolder,
+  draftReply,
+  sessionRepoRefs,
+  isThreadId,
 } from '../../core/pr/pr-replies.js';
 import { defaultRunner, type CommandRunner } from '../../core/pr/ship.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
@@ -60,16 +63,23 @@ export function mountPrReplyRoutes(
   app.get('/api/sessions/:id/replies', (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    const replies = listReplies(id);
-    return c.json({ replies, waiting: threadsWithoutDraft(opts.openThreads?.(id) ?? [], replies) } satisfies RepliesWire);
+    const open = opts.openThreads?.(id) ?? [];
+    // A row from before it carried the comment's whole text and code: from the watch's last check.
+    const replies = withThreadContext(listReplies(id), open);
+    return c.json({ replies, waiting: threadsWithoutDraft(open, replies) } satisfies RepliesWire);
   });
 
   app.put('/api/sessions/:id/replies/:thread', async (c) => {
     const id = c.req.param('id');
-    if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const session = findSession(id);
+    if (!session) return c.json({ error: 'unknown session' }, 404);
     const b = await body(c);
     if (typeof b.body !== 'string') return c.json({ error: 'body: string' }, 400);
-    const r = saveDraft(id, c.req.param('thread'), b.body);
+    // What work knows, else the thread as GitHub has it now (draftReply): never stuck on a stale check.
+    const r = await draftReply(id, c.req.param('thread'), b.body, {
+      repos: () => sessionRepoRefs(session),
+      run,
+    });
     if (!r.ok) return c.json({ error: r.error }, 400);
     changed(id);
     return c.json({ reply: r.reply });
@@ -78,7 +88,7 @@ export function mountPrReplyRoutes(
   app.delete('/api/sessions/:id/replies/:thread', (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    if (!THREAD_ID.test(c.req.param('thread'))) return c.json({ error: 'not a review thread id' }, 400);
+    if (!isThreadId(c.req.param('thread'))) return c.json({ error: 'not a review thread id' }, 400);
     const gone = discardReply(id, c.req.param('thread'));
     changed(id);
     return c.json({ ok: gone });
@@ -92,7 +102,7 @@ export function mountPrReplyRoutes(
     if (typeof b.body !== 'string' || !b.body.trim() || b.body.length > MAX_REPLY_CHARS)
       return c.json({ error: 'body: the reply text' }, 400);
     const thread = c.req.param('thread');
-    const cwd = session.paths.find((p) => p) ?? process.cwd();
+    const cwd = replyFolder(session, listReplies(id).find((r) => r.threadId === thread)?.repo);
     const r = await postReply(id, thread, b.body, { resolve: b.resolve === true, cwd, run });
     if (!r.ok) return c.json({ error: r.error }, 502);
     const act = opts.activity?.start('pr-watch', 'Posting a review reply');

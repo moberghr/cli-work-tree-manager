@@ -1,4 +1,5 @@
 import type { AttentionLike } from './status/attention.js';
+import type { AgentUsage, UsageAccount } from './usage/usage.js';
 
 /**
  * Wire types shared by the server (core) and the browser SPA — ONE
@@ -54,6 +55,8 @@ export interface SessionAgentWire {
     live: boolean;
     /** Its permission prompts can be answered from the dashboard. */
     answer: boolean;
+    /** It runs on one of several logins, and a session can be moved between them (absent: a server from before accounts). */
+    accounts?: boolean;
   };
 }
 
@@ -67,10 +70,19 @@ export interface SessionAttention extends AttentionLike {
   stale: boolean;
   /** needs_input on a permission prompt: what it wants to run. */
   request?: PermissionRequest;
+  /** Working because a background agent its turn started is still at it: its turn ended, its prompt is free. `what`:
+   *  the agent's own description ("/mtk:code-review-and-quality Re-review…"), when it gives one. Absent: an older server. */
+  background?: { what: string | null };
 }
+
+/** Who archived a session: you (Archive, its key, the bulk bar), Ship's merge, the PR watch once its PR merged, or Clean up. */
+export const ARCHIVED_BY = ['you', 'shipped', 'pr-merged', 'cleanup'] as const;
+export type ArchivedBy = (typeof ARCHIVED_BY)[number];
 
 /** An archived session: whether its folder went, and what it was about. */
 export interface SessionArchiveInfo {
+  /** Who archived it (none: archived before work recorded it). */
+  by?: ArchivedBy;
   worktreeRemoved: boolean;
   keptBecause: string | null;
   promptCount: number;
@@ -228,7 +240,8 @@ export interface UpdateWire {
 
 /** A tool work leans on, and whether it answers here. */
 export interface ToolCheck {
-  id: 'git' | 'claude' | 'gh' | 'acli';
+  /** The tool's command: git, claude, each git host's CLI (gh, az), acli. */
+  id: string;
   label: string;
   /** work can't do without it (git, Claude Code); the others add features. */
   needed: boolean;
@@ -284,13 +297,53 @@ export interface SessionCommit {
   subject: string;
   /** Committer date, ISO: commits and turns are listed in time order. */
   at: string;
+  /** Another branch the session worked on (session-branches.ts): its commits since its base, listed under it.
+   *  Absent: the checked-out branch's. */
+  branch?: string;
 }
 
 /** GET /api/sessions/:id/checkpoints: its turns, and (additive) its commits since the branch's base. */
 export interface SessionHistoryWire {
   scopeHash: string;
-  entries: Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }>;
+  /** `branches`: each repo's checked-out branch when the turn was taken (by repo root; absent on turns from before) —
+   *  a turn whose branch differs from the one before it crossed a switch. */
+  entries: Array<{
+    id: number;
+    ts: string;
+    label?: string;
+    repos: Record<string, string | null>;
+    branches?: Record<string, string | null>;
+  }>;
   commits?: SessionCommit[];
+}
+
+/**
+ * One branch a session's repo has been on (session-branches.ts), with what the background look found
+ * (branch-facts.ts) and its PR (the PR watch's last check). The session header's Branches line, the Diff
+ * picker's groups, `work sessions --json`.
+ */
+export interface SessionBranchWire {
+  /** The repo as the session names it (a group's folder, a single repo's target). */
+  repo: string;
+  name: string;
+  /** Checked out in that repo now. */
+  current: boolean;
+  firstSeen: string;
+  lastSeen: string;
+  /** What it was made from (`origin/dev`), when the reflog said. */
+  from?: string;
+  /** The facts: absent until the background look has been. */
+  exists?: boolean;
+  /** `origin/<name>` exists. */
+  pushed?: boolean;
+  /** Commits on it its base (origin/HEAD) doesn't have; null: unknown. */
+  commits?: number | null;
+  /** Commits on it origin doesn't have (all of them when it was never pushed); null: unknown. */
+  unpushed?: number | null;
+  /** Its work is in main (its commits, or its PR merged). */
+  merged?: boolean;
+  /** Its newest PR, as the PR watch last saw it. */
+  pr?: { number: number; url: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; kind: import('./pr/pr-stage.js').PrStageKind };
 }
 
 // ---- New worktree: is the branch new? (branch-check.ts) -------------------
@@ -323,6 +376,10 @@ export interface AssistantView {
   note?: string;
   /** The Time tab's day on screen (`YYYY-MM-DD`). */
   day?: string;
+  /** The Time tab's Month view on screen (`YYYY-MM`): described in place of a day. */
+  month?: string;
+  /** The Reviews tab's PR on screen: its prepared review is described (#64). */
+  review?: { repo: string; number: number };
 }
 
 // ---- cleanup --------------------------------------------------------------
@@ -471,6 +528,13 @@ export interface SessionOverlap {
  *  work web and the demo) sends. */
 export interface SessionWire {
   id: string;
+  /** Being archived right now (archiving.ts: the button, Ship, the PR watch, cleanup): shown as Archiving until it's gone. */
+  archiving?: true;
+  /** Its Claude was stopped by work while idle (idle sleep, `work stop`) and hasn't run since: Asleep —
+   *  opening the session starts it again, conversation and all (session-wire.ts `isAsleep`). */
+  asleep?: true;
+  /** Being restored right now (archiving.ts): listed with the live sessions meanwhile, still `archivedAt` until it's done. */
+  restoring?: true;
   /** Snoozed out of the Inbox right now (snooze.ts): until when, or null for "until it changes". */
   snoozed?: { until: string | null };
   /** Behind its main branch (behind-main.ts, as of the last fetch) — or, when stacked, behind the
@@ -489,11 +553,20 @@ export interface SessionWire {
   target: string;
   /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;
+  /** Every branch it worked on (session-branches.ts), the checked-out ones first: present only when some repo
+   *  has been on more than one (merged ones deleted a while ago left out). Absent from a server before this. */
+  branches?: SessionBranchWire[];
   /** Repos whose checkout is on another branch now (Claude switched, or you did); null = detached HEAD. */
   /** `noGit`: its folder has no git left in it (a removal that stopped halfway): `work tree` makes it again. */
   onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
   isGroup: boolean;
   paths: string[];
+  /** Its repos' aliases, one per path in the same order (session-repos.ts `sessionRepos`: the recorded list,
+   *  else a group's config members by folder name, a single repo's target). Absent from a server before this. */
+  repos?: string[];
+  /** A session folder (a group's, or one made with `sessionFolders`): its agent runs in the folder and a repo
+   *  can be added to it (POST …/repos). Absent from a server before this. */
+  folder?: boolean;
   baseBranch?: string;
   jiraKey?: string;
   createdAt: string;
@@ -518,6 +591,10 @@ export interface SessionWire {
   claudes?: SessionClaudes;
   /** The agent it runs, and what work can do with it (a feature it can't is hidden, not shown broken). */
   agent?: SessionAgentWire;
+  /** The account (login) its agent runs on, by its config name; absent = the default account. */
+  account?: string;
+  /** The account a switch waiting for its turn to end will move it to (kept in work web's memory). */
+  accountPending?: string;
   /** What its archive kept (archived sessions; session-archive.ts). */
   archive?: SessionArchiveInfo;
   /** Its name: the one you gave it, else its first prompt, else its Jira key. */
@@ -654,6 +731,8 @@ export interface TimeDayWire {
   posted: { at: string; entries: TimeEntryWire[] } | null;
   /** A vacation day (config `time.vacation`): a day off whatever was ticked. */
   vacation: boolean;
+  /** How each row got its hours, by key: the suggestion's arithmetic and what it came from, or "your hours". */
+  why: Record<string, string>;
   /** Rows whose ticket Jira had as done when the day was gathered. */
   resolved: string[];
   /** Rows whose ticket is a placeholder (`time.hints`): create it in Jira before posting. */
@@ -704,6 +783,64 @@ export interface TimeDaysWire {
   settings: TimeSettingsWire;
 }
 
+/** A day of the Month view: what will be posted for it. */
+export interface TimeMonthDay {
+  day: string;
+  status: TimeDayStatus;
+  workday: boolean;
+  dayOff: boolean;
+  /** Today: still going, never posted with the month. */
+  today: boolean;
+  /** Your rows, not the suggestion. */
+  edited: boolean;
+  /** How each row got its hours (TimeDayWire.why). */
+  why: Record<string, string>;
+  entries: TimeEntryWire[];
+  total: number;
+  /** Its rows whose ticket is a placeholder (`time.hints`): it can't be posted until they're made in Jira. */
+  placeholders: string[];
+}
+
+/** Why a day of the month isn't posted with it. */
+export type TimeMonthLeftOut = 'today' | 'placeholder' | 'posted' | 'empty' | 'not-gathered' | 'not-workday';
+
+/** A ticket's hours across days. */
+export interface TimeMonthTicket {
+  key: string;
+  title: string;
+  hours: number;
+  /** On how many days. */
+  days: number;
+  placeholder: boolean;
+}
+
+/** GET /api/time/month/:month (YYYY-MM): the month up to today as a grid, and what "Post the month" would do. */
+export interface TimeMonthWire {
+  month: string;
+  /** Oldest first: every workday, and a weekend or holiday when something happened on it. */
+  days: TimeMonthDay[];
+  /** The month's tickets with their totals: most hours first, time off and the gap ticket last. */
+  tickets: TimeMonthTicket[];
+  /** Posting the month: the days that go, oldest first, and the rest with why. */
+  plan: {
+    days: string[];
+    leftOut: Array<{ day: string; why: TimeMonthLeftOut }>;
+    /** What goes, per ticket. */
+    tickets: TimeMonthTicket[];
+    total: number;
+    /** Days that go with less or more than the day's hours. */
+    short: Array<{ day: string; total: number }>;
+  };
+  /** Past days never gathered, or gathered before they ended (Gather these days). */
+  missing: number;
+  settings: TimeSettingsWire;
+  /** Set by the server: a gather of the month under way, and how the last one failed. */
+  gathering?: boolean;
+  gatherError?: string | null;
+  /** Set by the server: whether it can post (a Tempo token and your account id), or why not. */
+  posting?: { ready: boolean; why: string | null };
+}
+
 // ---- start on a PR ---------------------------------------------------------
 
 /** The PR a session is started on, as the lookup found it (core/pr/pr-start.ts). */
@@ -718,6 +855,8 @@ export interface PrToStart {
   /** Where it merges into. */
   base: string;
   author: string;
+  /** The host it's on; absent for GitHub (and from a server before hosts). */
+  host?: string;
 }
 
 /** GET /api/pr-start?ref=&target=: the PR, or (400) why not — a fork, closed, not one of your repos. */
@@ -747,6 +886,8 @@ export interface ShipPr {
   reviewDecision?: string;
   /** Its author's login: a session on someone else's PR (work on it, review it) isn't handed its threads or CI notes. */
   author?: string;
+  /** The branch it merges into (gh's baseRefName): what a conflict is resolved against. */
+  baseBranch?: string;
 }
 
 export interface FailingCheck {
@@ -757,10 +898,15 @@ export interface FailingCheck {
 export interface RepoShipState {
   /** Repo alias (group sub-repo folder, or the target for a single repo). */
   name: string;
+  /** The host its PRs are on (`github`, `azure`; absent from a server before hosts: GitHub). */
+  host?: string;
   path: string;
   branch: string;
   /** Local HEAD commit. */
   localSha: string;
+  /** Its PR is merged at a later commit that contains HEAD — commits added on GitHub (a bot's
+   *  "Update branch") the worktree never pulled — so everything checked out is in the merge. */
+  behindMergedHead?: boolean;
   /** Uncommitted (incl. untracked) files — shipping needs a clean tree. */
   dirtyFiles: number;
   /** git couldn't read the working tree (a timeout under load): its facts are unknown, so it's never done. */
@@ -784,6 +930,24 @@ export interface RepoShipState {
   ghError?: string;
   /** Commits the remote's default branch doesn't have (null = unknown). */
   commitsVsBase?: number | null;
+  /** The other branches this repo worked on (session-branches.ts), as they stand: a session isn't done
+   *  while one has work that isn't pushed or a PR still open (`workElsewhere`). Absent: none recorded. */
+  otherBranches?: OtherBranchState[];
+}
+
+/** Another branch a repo of the session worked on: the facts (branch-facts.ts) and its PR. */
+export interface OtherBranchState {
+  name: string;
+  exists: boolean;
+  /** Its tip, when it exists: a merged PR at it leaves nothing unpushed, its origin branch deleted or not. */
+  sha?: string | null;
+  pushed: boolean;
+  commits: number | null;
+  unpushed: number | null;
+  merged: boolean;
+  pr: ShipPr | null;
+  /** The host couldn't say (its PR unknown: never read as none). */
+  ghError?: string;
 }
 
 export interface ShipPreflight {
@@ -870,11 +1034,23 @@ export interface DevServerState {
 /** GET /api/sessions/:id/ci — what GitHub says about the session's PRs. */
 export interface SessionCi {
   checkedAt: string;
-  /** Who gh is signed in as, when the watch knew it: tells your PRs from others' (the PR tab's "by @…"). */
+  /**
+   * Who gh is signed in as, when the watch knew it: tells your PRs from others' (the PR tab's "by @…"). One
+   * repo's (a github.com one's first): each repo's own is `repos[].viewer`; kept for older readers.
+   */
   viewer?: string;
   repos: Array<{
     name: string;
+    /** The host its PR is on (absent: GitHub). */
+    host?: string;
+    /** Who you are on its host and server (a GitHub Enterprise login isn't github.com's). Absent: unknown, or an older server. */
+    viewer?: string;
     pr: ShipPr | null;
+    /** The branch `pr` is for: the one checked out (absent from a check before this). */
+    branch?: string;
+    /** PRs of the other branches this repo worked on (session-branches.ts), newest first: the stage
+     *  prefers the newest open one across them (pr-stage.ts `stageRepos`). */
+    otherPrs?: Array<{ branch: string; pr: ShipPr }>;
     done: boolean;
     /** Unresolved review threads waiting on the author (open PRs). */
     openThreads?: number;
@@ -895,6 +1071,20 @@ export interface OpenReviewThread {
   /** Its text is from someone with write access or a trusted review bot (the PR watch's rule); only
    *  such threads go to Claude in one "Ask Claude about all". Missing (an older server): not known. */
   trusted?: boolean;
+  /** The reviewer's whole comment, Markdown (`excerpt` is its start, for notes). Absent from an older server. */
+  body?: string;
+  /** The code it's on. Absent for a comment on no line, or from an older server. */
+  code?: ThreadCode;
+}
+
+/** The code a review thread is on: the end of the diff hunk GitHub keeps with it, and how many of its last lines the comment covers. */
+export interface ThreadCode {
+  /** Unified-diff lines from its `@@ … @@` header to the commented line (GitHub's `diffHunk`). */
+  hunk: string;
+  /** How many of the hunk's last lines are commented on (1 for a single line). */
+  lines: number;
+  /** The code has changed since: the comment is on an older version. */
+  outdated?: boolean;
 }
 
 /** GET /api/sessions/:id/replies: the threads handed to its Claude and its drafts, and the open threads that have no draft. */
@@ -941,6 +1131,93 @@ export interface NoteWire {
   note: { text: string; updatedAt: string } | null;
 }
 
+// ---- the Code tab: a session's files, read only (code-browse.ts) ------------------
+
+/** One repo of a session: its files as git lists them (tracked, and new ones not ignored). */
+export interface CodeRepoWire {
+  /** Its folder's name (a group's repos are folders of the group's). */
+  name: string;
+  /** Paths relative to the repo, `/`-separated, sorted. */
+  files: string[];
+  /** Changed on this branch: committed since it left its base, or not committed. */
+  changed: string[];
+  /** More files than are listed (MAX_CODE_FILES). */
+  truncated: boolean;
+}
+
+/** GET /api/sessions/:id/files */
+export interface CodeFilesWire {
+  /** A group: its repos are folders, beside the group folder's own files (`rootFiles`, its CLAUDE.md…). */
+  group: boolean;
+  rootFiles: string[];
+  repos: CodeRepoWire[];
+}
+
+/** A line with what was searched for in it (code-search.ts). */
+export interface CodeTextHit {
+  repo: string;
+  path: string;
+  line: number;
+  text: string;
+}
+
+export type CodeSymbolKind = 'class' | 'interface' | 'record' | 'struct' | 'enum' | 'type' | 'function' | 'method' | 'property' | 'const';
+
+/** A declaration: a type or member, where it is. */
+export interface CodeSymbol {
+  name: string;
+  kind: CodeSymbolKind;
+  repo: string;
+  path: string;
+  line: number;
+  /** Its line, trimmed. */
+  text: string;
+}
+
+/** GET /api/sessions/:id/code-search?q= — by name and inside the files. */
+export interface CodeSearchWire {
+  query: string;
+  symbols: CodeSymbol[];
+  text: CodeTextHit[];
+  /** More lines matched than came back. */
+  truncated: boolean;
+}
+
+/** GET /api/sessions/:id/file?repo=&path= — one file as it is in the worktree now. */
+export interface CodeFileWire {
+  repo: string;
+  path: string;
+  size: number;
+  /** null with `reason`: not shown as text. */
+  text: string | null;
+  reason?: 'binary' | 'too-large';
+}
+
+// ---- agent usage (core/usage/) -----------------------------------------------------
+
+/** Tokens, with what was read from the prompt cache apart: `input` is the rest of the prompt. */
+export interface TokenTotals {
+  input: number;
+  cached: number;
+  output: number;
+}
+
+/** One agent in GET /api/usage: its readings, one `UsageAccount` per account, aged to the answer's time. */
+export type UsageAgentWire = AgentUsage;
+
+/** GET /api/usage: each agent's plan limits as last read, and the tokens work saw in the sessions' transcripts. */
+export interface UsageWire {
+  agents: UsageAgentWire[];
+  tokens: {
+    today: TokenTotals;
+    /** The last 7 local days, today included. */
+    week: TokenTotals;
+    byModel: Array<{ model: string; today: TokenTotals; week: TokenTotals }>;
+    topSessions: Array<{ id: string; label: string; week: TokenTotals }>;
+  };
+  at: string;
+}
+
 // ---- time per session (work-time.ts) ---------------------------------------------
 
 /** GET /api/sessions/:id/time: how long its Claude worked (approximate: see work-time.ts). */
@@ -971,6 +1248,24 @@ export interface ForkWire {
   summarized: boolean;
   /** The worktree exists, but its Claude didn't start (the Terminal tab can). */
   startError?: string;
+}
+
+// ---- add a repo to a session folder (add-repo.ts) ----------------------------------
+
+/** POST /api/sessions/:id/repos: the repo was checked out into the session folder. */
+export interface AddRepoWire {
+  ok: true;
+  /** The new checkout: `<session folder>/<repo folder>`. */
+  path: string;
+  branch: string;
+  /** Its branch was made for it (false: the repo's existing branch of that name). */
+  created: boolean;
+  /** The branch a new one was made from. */
+  from?: string;
+  /** The session folder's instructions file imports the repo's own now (absent from an older server). */
+  imported?: boolean;
+  /** What didn't go as it should once the repo was in (the turns, the instructions file, telling its Claude): it stands. */
+  warnings?: string[];
 }
 
 // ---- behind main (behind-main.ts) -------------------------------------------------
@@ -1027,6 +1322,7 @@ export interface JiraWatchState {
 /** What work does in the background (core/activity.ts), for the Activity panel. */
 export type ActivityKind =
   | 'pr-watch'
+  | 'reviews'
   | 'pr-list'
   | 'jira'
   | 'idle-sleep'
@@ -1042,7 +1338,8 @@ export type ActivityKind =
   | 'groups'
   | 'updates'
   | 'time'
-  | 'agents';
+  | 'agents'
+  | 'accounts';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {
@@ -1103,6 +1400,10 @@ export interface PrReply {
   where: string | null;
   reviewer: string;
   excerpt: string;
+  /** The reviewer's whole comment, Markdown. Absent from a row from before. */
+  body?: string;
+  /** The code the thread is on. */
+  code?: ThreadCode;
   /** sent: Claude has it; draft: Claude wrote a reply; posted: on GitHub (your click, or `work pr post` on your yes). */
   status: 'sent' | 'draft' | 'posted';
   draft: string | null;
@@ -1143,6 +1444,64 @@ export interface AgentControlWire {
   how: 'started' | 'running' | 'stopped' | 'not-running';
 }
 
+/** One account of the agent new sessions run (accounts.ts): a login with its own folder. */
+export interface AccountWire {
+  name: string;
+  /** Its config folder. */
+  dir: string;
+  /** The one new sessions use. */
+  isDefault: boolean;
+  /** Logged in; null: unknown (the keychain on macOS). */
+  loggedIn: boolean | null;
+  /** The live sessions on it ("target · branch"); absent from an older server. */
+  liveSessions?: string[];
+  /** The archived sessions on it (their Restore would need it); absent from an older server. */
+  archivedSessions?: string[];
+  /** Its last usage reading as recorded (windows not aged: the page ages them); null: none yet. Absent from an older server. */
+  usage?: UsageAccount | null;
+}
+
+/** GET /api/accounts. */
+export interface AccountsWire {
+  accounts: AccountWire[];
+  /** The name new sessions use. */
+  default: string;
+  /** Accounts can be added, removed and logged in to from the dashboard (the agent's accounts are managed by work, and
+   *  this server acts: not the dev server). Absent from an older server: the page then only lists them. */
+  canManage?: boolean;
+  /** Why they can't (the dev server's, or the agent's), when `canManage` is false. */
+  manageNote?: string;
+}
+
+/** POST /api/accounts {name, folder?}: the account recorded, its folder made. */
+export interface AccountAddWire {
+  ok: true;
+  name: string;
+  dir: string;
+}
+
+/** POST /api/accounts/:name/login: its login terminal runs in the PTY host under `id` (`/ws/sessions/<id>/terminal`). */
+export interface AccountLoginWire {
+  ok: true;
+  id: string;
+}
+
+/** A refused account change (400 / 409): the reason, and for a removal the sessions on it — `kind: 'archived'` can be
+ *  forced (`?force=1`), `live` never. */
+export interface AccountRefusalWire {
+  error: string;
+  sessions?: string[];
+  kind?: 'live' | 'archived';
+}
+
+/** POST /api/sessions/:id/account {to}: `switched` (its Claude restarted on it), `queued` (when its turn ends), `recorded` (not running: its next start). */
+export interface AccountSwitchWire {
+  ok: true;
+  outcome: 'switched' | 'queued' | 'recorded';
+  /** How many conversation entries went across to the new account's folders. */
+  moved?: number;
+}
+
 /** GET /api/agents: the agents in the PTY host still running a version from before their tool was updated (agent-restart.ts). */
 export interface AgentsWire {
   /** When the newest of their tools was installed (ISO): what a "Later" is for. Null when none is on PATH. */
@@ -1167,4 +1526,308 @@ export interface RestartWire {
 /** GET /api/sessions/:id/screen: its terminal as plain text (null: no terminal in the PTY host). */
 export interface ScreenWire {
   text: string | null;
+}
+
+/** GET /api/sessions/:id/last-reply: its agent's newest message as written (last-reply.ts); null when there is none. */
+export interface LastReplyWire {
+  text: string | null;
+}
+
+/** POST /api/pty-host/restart: the host was stopped (or none ran) and a new one started; it restores the sessions. */
+export interface PtyHostRestartWire {
+  outcome: 'stopped' | 'not-running' | 'stale-file';
+  pid: number;
+}
+
+// ---- Reviews (#64: PR reviews prepared in the background, core/review/) ----
+
+/** Where a PR's prepared review stands. */
+export type ReviewStatus = 'queued' | 'running' | 'ready' | 'waiting' | 'failed';
+
+/** A file of the PR: its kind of change and why (change-kinds.ts). */
+export interface ReviewFileWire {
+  path: string;
+  oldPath?: string;
+  status: string;
+  added: number;
+  deleted: number;
+  kind: import('./review/change-kinds.js').ChangeKind;
+  why: string;
+  by: 'rule' | 'git';
+  /**
+   * The lines of the new side a review comment can go on (the diff's added and context lines), as [first, last]
+   * ranges. Absent on a review prepared before they were recorded: then nothing is checked.
+   */
+  lines?: Array<[number, number]>;
+  /**
+   * What changed in it and why it matters, in a few sentences (the AI step's, for a schema, API, logic or wiring file).
+   * Absent: none given, a review without the AI step, or one from before.
+   */
+  summary?: string;
+}
+
+/** A draft that couldn't stay on the review (its line isn't in the diff any more, or never was), kept so its text isn't lost. */
+export interface ReviewDroppedWire {
+  path: string;
+  line: number;
+  body: string;
+  by: 'ai' | 'you';
+  why: string;
+}
+
+/** A submit whose outcome isn't known (the host's call timed out): what may have gone out. Nothing is sent again until you say. */
+export interface ReviewInDoubtWire {
+  at: string;
+  event: ReviewEvent;
+  /** The drafts that may have gone out, with the text sent. */
+  drafts: Array<{ id: string; body: string }>;
+  /** The summary that may have gone out; null when it wasn't part of it. */
+  summary: string | null;
+  error: string;
+  /**
+   * The steps after the doubtful one weren't tried (Azure DevOps: the comments after it, the summary, the vote): if it
+   * went out, the review went out only in part. Absent: the doubtful call was the whole rest of it.
+   */
+  partial?: boolean;
+}
+
+/**
+ * A submit under way (the durable claim in the `pr_reviews` row): a second submit — another window, the dev server on
+ * the same state.db — is refused while it stands. One left by a work web that stopped is taken as in doubt.
+ */
+export interface ReviewSubmittingWire {
+  at: string;
+  /** The process submitting it. */
+  pid: number;
+  event: ReviewEvent;
+  /** The drafts it sends, with the text sent. */
+  drafts: Array<{ id: string; body: string }>;
+  /** The summary it sends; null when none. */
+  summary: string | null;
+  /**
+   * Left over by a work web that stopped while submitting (said on read, never stored): it may have gone out — shown
+   * as in doubt, and saying whether it went settles it (`POST …/in-doubt`).
+   */
+  stale?: true;
+}
+
+/** Fix it myself under way (the durable claim in the `pr_reviews` row): its drafts are spoken for until it ends. */
+export interface ReviewFixingWire {
+  at: string;
+  /** The drafts it takes off. */
+  drafts: string[];
+}
+
+/** A draft review comment — the AI step's note (`by: 'ai'`) or yours — on a line of the PR's new side; it goes out only in a review you submit. */
+export interface ReviewDraftWire {
+  id: string;
+  path: string;
+  line: number;
+  body: string;
+  state: 'draft' | 'posted';
+  url?: string;
+  /** Who wrote it: the AI step, or you (added on the diff). Absent: the AI step (from before). */
+  by?: 'ai' | 'you';
+}
+
+/** One comment of a PR's existing discussion on its host: someone else's words (or yours), read only. */
+export interface PrDiscussionCommentWire {
+  author: string;
+  /** How the host relates them to the repo (GitHub's authorAssociation: OWNER, MEMBER, CONTRIBUTOR…); absent: it doesn't say. */
+  association?: string;
+  /** Markdown, as written (cut at `MAX_DISCUSSION_BODY`). */
+  body: string;
+  /** When (ISO); '' when the host doesn't say. */
+  at: string;
+  /** Its link on the host. */
+  url?: string;
+}
+
+/** A review thread already on the PR (the host's), on a line of a file — read only here. */
+export interface PrDiscussionThreadWire {
+  /** The host's id. */
+  id: string;
+  path: string | null;
+  /** The line it's on now (null: outdated, its line gone, or a thread on the whole file). */
+  line: number | null;
+  /** The line it was written on (an outdated one's place, said beside it). */
+  originalLine?: number | null;
+  /** The side of the diff: the new code (right) or the old (left). */
+  side: 'right' | 'left';
+  /** The code moved on under it since: its line may be gone. */
+  outdated: boolean;
+  resolved: boolean;
+  /** Its first comment's link on the host. */
+  url?: string;
+  comments: PrDiscussionCommentWire[];
+}
+
+/** A review someone submitted on the PR: their verdict. */
+export interface PrDiscussionReviewWire extends PrDiscussionCommentWire {
+  state: 'approved' | 'changes-requested' | 'commented' | 'dismissed';
+}
+
+/**
+ * The PR's discussion as its host has it (#64): the review threads on its lines, the submitted reviews, the
+ * conversation comments. Read when the review is prepared, refreshed when the PR moves (`updatedAt`) or on open;
+ * shown read only, given to the AI step as data. work never answers or resolves anything here.
+ */
+export interface PrDiscussionWire {
+  /** When it was read (ISO). */
+  at: string;
+  /** The PR's `updatedAt` on the host when it was read (absent: the host's list doesn't say — Azure DevOps). */
+  updatedAt?: string;
+  threads: PrDiscussionThreadWire[];
+  reviews: PrDiscussionReviewWire[];
+  comments: PrDiscussionCommentWire[];
+  /** The host's lists stopped at their limits: there is more on the host. */
+  more?: true;
+}
+
+/** How a submitted review is cast. */
+export type ReviewEvent = 'comment' | 'approve' | 'request-changes';
+
+/** POST /api/reviews/:repo/:number/submit — the drafts to send (each with its body as you left it), the verdict, a summary. */
+export interface ReviewSubmitInput {
+  event: ReviewEvent;
+  body: string;
+  drafts: Array<{ id: string; body: string }>;
+}
+
+/** GET /api/reviews/:repo/:number — a PR's review, as prepared for its head. */
+export interface PrReviewWire {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  branch: string;
+  base: string;
+  headSha: string;
+  /**
+   * The head the host's PR list named when this was written: what a sweep compares (a fetch can land on a newer
+   * push, and an Azure DevOps merge ref is another commit). Absent: `headSha`.
+   */
+  listedHead?: string;
+  /** The host it's on (absent: GitHub). */
+  host?: string;
+  status: ReviewStatus;
+  /** Why it waits: today's cap (picked up when the day allows), or its size (only your click). */
+  held?: 'cap' | 'size';
+  /** Why it waits, failed, or was prepared without the AI step. */
+  why: string | null;
+  /** When the status last changed (ISO). */
+  at: string;
+  size: { files: number; added: number; deleted: number };
+  files: ReviewFileWire[];
+  tests: {
+    list: import('./review/test-breakdown.js').FoundTest[];
+    counts: Record<import('./review/test-breakdown.js').TestChange, number>;
+    /** Production files (logic, schema, API) no test of the PR touches. */
+    gaps: string[];
+    /** A test file → the production files it covers. */
+    covers: Record<string, string[]>;
+    unitOnlyForSchema: boolean;
+  };
+  /** What the PR does in two or three sentences (the AI step's; absent: none ran, or a review from before). */
+  summary?: string;
+  stories: import('./review/review-plan.js').Story[];
+  /** Logic files no story names (never hidden). */
+  unstoried: string[];
+  drafts: ReviewDraftWire[];
+  /** A test's name → what it actually asserts (the AI step's word). */
+  asserts: Record<string, string>;
+  /** The AI step: ran, none (no agent, or too big), or failed (stories by folder then). */
+  aiStep: 'done' | 'none' | 'failed';
+  /** The commit its diff starts from (the merge-base with its base branch), for the diff view. */
+  mergeBase?: string;
+  /** When it was prepared (counts against the day's cap). */
+  preparedAt?: string;
+  /**
+   * Your submitted review: when, how, and its link. `partial`: it stopped part way (some comments went out, the rest
+   * are still drafts); `summary`: the summary that went out, not sent again.
+   */
+  submitted?: { at: string; event: ReviewEvent; url?: string; partial?: boolean; summary?: string };
+  /** Drafts that couldn't stay (off the diff's lines, or on a file the new push no longer changes): their text, and why. */
+  dropped?: ReviewDroppedWire[];
+  /** A submit that may or may not have gone out: you say which (POST …/in-doubt) before anything is sent again. */
+  inDoubt?: ReviewInDoubtWire;
+  /** A submit under way: nothing else is sent until it ends. */
+  submitting?: ReviewSubmittingWire;
+  /**
+   * The highest number a draft id (`d<n>`, `u<n>`) of this review has had: ids are never handed out twice, so an id a
+   * submit in doubt names is never a newer draft's. Absent: the highest id it holds.
+   */
+  lastDraft?: number;
+  /** The PR comes from a fork: its branch isn't on origin, so Fix it myself can't open a session on it. */
+  fork?: true;
+  /** Drafts you took off the review to fix yourself (Fix it myself), each batch with the session it went to. */
+  fixingMyself?: ReviewFixWire[];
+  /** Fix it myself making its session: a submit, and a second Fix it myself, wait (stale after `FIX_CLAIM_STALE_MS`). */
+  fixing?: ReviewFixingWire;
+  /** What's already discussed on the PR (its host's threads, reviews and comments); absent: not read yet, or from before. */
+  discussion?: PrDiscussionWire;
+}
+
+/** Draft comments you took off a review to fix yourself, in a session on the PR's branch. */
+export interface ReviewFixWire {
+  /** When (ISO). */
+  at: string;
+  /** The session they went to (made for them, or one already on the branch). */
+  sessionId: string;
+  /** The PR's branch the session is on. */
+  branch: string;
+  comments: Array<{ path: string; line: number; body: string; by?: 'ai' | 'you' }>;
+}
+
+/** POST /api/reviews/:repo/:number/fix-myself — the drafts (ids) to fix yourself instead of posting them. */
+export interface ReviewFixInput {
+  drafts: string[];
+}
+
+/** What Fix it myself did: the session the comments went to (`created`: made for them), and the review now. */
+export interface ReviewFixResultWire {
+  sessionId: string;
+  created: boolean;
+  review: PrReviewWire;
+  /** Something that went wrong after the session had the instruction (a draft that couldn't be taken off, a start that fell back to a note). */
+  warnings?: string[];
+}
+
+/** One row of the Reviews list. */
+export interface ReviewSummaryWire {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  host?: string;
+  status: ReviewStatus;
+  why: string | null;
+  at: string;
+  size: { files: number; added: number; deleted: number };
+  stories: number;
+  /** Flags across its stories (no tests, a public contract changed, …). */
+  flags: number;
+  /** Production changes no test touches. */
+  gaps: number;
+}
+
+/** GET /api/reviews */
+export interface ReviewsWire {
+  reviews: ReviewSummaryWire[];
+  /** Reviews prepared today, against the day's cap (null: none). */
+  today: number;
+  maxPerDay: number | null;
+}
+
+/** A project's setting for automatic reviews: every open PR, only those asking you, or none. */
+export type ReviewMode = 'all' | 'asked' | 'off';
+
+/** GET /api/reviews/settings — each repo and group, its automatic-review mode, and the limits. PUT {project, mode} sets one. */
+export interface ReviewSettingsWire {
+  projects: Array<{ name: string; kind: 'repo' | 'group'; mode: ReviewMode; from: 'repo' | 'group' | 'default'; group?: string }>;
+  /** null: no daily cap. */
+  maxPerDay: number | null;
+  maxLines: number;
 }

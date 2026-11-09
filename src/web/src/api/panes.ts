@@ -30,6 +30,8 @@ export interface PrInfo {
   author?: string;
   /** It comes from a fork: its branch isn't on origin, so no one can work on it here. */
   fork?: boolean;
+  /** The host it's on (`github`, `azure`); absent: GitHub (and from a server before hosts). */
+  host?: string;
 }
 
 export interface JiraIssue {
@@ -92,9 +94,24 @@ type TimeDaysWire = import('../../../core/api-types.js').TimeDaysWire;
 type TimeDayWire = import('../../../core/api-types.js').TimeDayWire;
 type TimeEntryWire = import('../../../core/api-types.js').TimeEntryWire;
 
-/** The Time tab's days (two weeks back by default). */
-export function fetchTimeDays(): Promise<TimeDaysWire> {
-  return getJson<TimeDaysWire>('/api/time');
+/** The Time tab's days: from `from` to `to` (both given), else this month or `catchUpDays` back. */
+export function fetchTimeDays(range?: { from: string; to: string }): Promise<TimeDaysWire> {
+  return getJson<TimeDaysWire>(range ? `/api/time?from=${range.from}&to=${range.to}` : '/api/time');
+}
+
+type TimeMonthWire = import('../../../core/api-types.js').TimeMonthWire;
+
+/** A month (YYYY-MM) up to today: tickets × days, and what posting it would do. */
+export function fetchTimeMonth(month: string): Promise<TimeMonthWire> {
+  return getJson<TimeMonthWire>(`/api/time/month/${encodeURIComponent(month)}`);
+}
+
+/** Gather the month's days the keeper didn't reach (in the background: `time-changed` as each is done). */
+export async function gatherTimeMonth(month: string): Promise<TimeMonthWire> {
+  const res = await fetch(`/api/time/month/${encodeURIComponent(month)}/gather`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as TimeMonthWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body;
 }
 
 export function fetchTimeDay(day: string): Promise<TimeDayWire> {
@@ -177,6 +194,7 @@ export function fetchJira(): Promise<{
 
 export type { JiraDecision, JiraWatchState } from '../../../core/api-types.js';
 import type { AgentsWire, JiraWatchState, RestartWire } from '../../../core/api-types.js';
+import { announceWarnings } from './client.js';
 
 /** The server's error text, from a JSON `{error}` body when there is one. */
 function reason(err: unknown): Error {
@@ -233,6 +251,8 @@ export interface CreateWorktreeRequest {
   prompt?: string;
   /** A name for the session, shown instead of the branch. */
   name?: string;
+  /** The Claude account it runs on (absent: the default one). */
+  account?: string;
 }
 
 export interface CreateWorktreeResponse {
@@ -244,6 +264,8 @@ export interface CreateWorktreeResponse {
   started?: 'started' | 'queued';
   /** With a prompt: why Claude could not be started. */
   startError?: string;
+  /** What setting it up warned about (a repo not in your config any more, a pull that failed…). */
+  warnings?: string[];
 }
 
 export function createWorktree(req: CreateWorktreeRequest): Promise<CreateWorktreeResponse> {
@@ -301,8 +323,27 @@ export function openInTerminal(sessionId: string): Promise<{ ok: true }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-terminal`, {});
 }
 
-export function openInEditor(sessionId: string): Promise<{ ok: true; opened: string }> {
-  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, {});
+/** The session's worktree in the editor; with `file`, that one of the Code tab's files, at `line` where the editor takes one. */
+export function openInEditor(
+  sessionId: string,
+  file?: { repo: string; path: string; line?: number },
+): Promise<{ ok: true; opened: string }> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, file ?? {});
+}
+
+/**
+ * Add a repo to a session folder (add-repo.ts): checked out into the folder on the session's
+ * branch (the branch it has, else made from `base`). Throws with the server's reason when refused.
+ */
+export function addRepoToSession(
+  sessionId: string,
+  alias: string,
+  base?: string,
+): Promise<import('../../../core/api-types.js').AddRepoWire> {
+  return postJson<import('../../../core/api-types.js').AddRepoWire>(`/api/sessions/${encodeURIComponent(sessionId)}/repos`, {
+    alias,
+    ...(base?.trim() ? { base: base.trim() } : {}),
+  }).catch((e) => Promise.reject(reason(e)));
 }
 
 // ---- Repos and groups (the Repos page; repo-admin.ts) ----------------------
@@ -388,4 +429,100 @@ export function fetchAgents(): Promise<AgentsWire> {
 export const restartAgents = (which: { outdated: true } | { ids: string[] }) => postUpdates<RestartWire>('/api/agents/restart', which);
 export function fetchReleaseNotes(): Promise<{ releases: ReleaseNote[]; checkError: string | null }> {
   return getJson('/api/updates/notes');
+}
+
+// ---- Reviews (#64: PR reviews prepared in the background) ----
+
+type PrReviewWire = import('../../../core/api-types.js').PrReviewWire;
+type ReviewsWire = import('../../../core/api-types.js').ReviewsWire;
+type ReviewSettingsWire = import('../../../core/api-types.js').ReviewSettingsWire;
+type ParsedFile = import('../../../core/diff/diff-parse.js').ParsedFile;
+
+const reviewPath = (repo: string, n: number) => `/api/reviews/${encodeURIComponent(repo)}/${n}`;
+
+export function fetchReviews(): Promise<ReviewsWire> {
+  return getJson('/api/reviews');
+}
+export function fetchReview(repo: string, n: number): Promise<PrReviewWire> {
+  return getJson(reviewPath(repo, n));
+}
+export function fetchReviewDiff(repo: string, n: number): Promise<{ files: ParsedFile[] }> {
+  return getJson(`${reviewPath(repo, n)}/diff`);
+}
+/** The review was opened: its PR's discussion read again from the host (when due; the review as it stands otherwise). */
+export function refreshReviewDiscussion(repo: string, n: number): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/discussion`, {});
+}
+/** Prepare it now (your click: whatever its size or the day's count). */
+export function prepareReview(repo: string, n: number): Promise<PrReviewWire> {
+  return postJson(reviewPath(repo, n), {});
+}
+/** A draft of your own on a line of the PR's new side. */
+export function addReviewDraft(repo: string, n: number, d: { path: string; line: number; body: string }): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/drafts`, d);
+}
+/** A submit the server refused or that failed part way: its reason, and the review as it now stands (what went out). */
+export class ReviewSubmitError extends Error {
+  constructor(
+    message: string,
+    readonly review: PrReviewWire | null,
+  ) {
+    super(message);
+  }
+}
+
+/** Submit the review — the drafts you kept, a verdict, a summary — in your name, on your click. */
+export async function submitReview(
+  repo: string,
+  n: number,
+  input: import('../../../core/api-types.js').ReviewSubmitInput,
+): Promise<PrReviewWire> {
+  const res = await fetch(`${reviewPath(repo, n)}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => null)) as (PrReviewWire & { error?: string; review?: PrReviewWire }) | null;
+  if (res.ok && body) return body;
+  throw new ReviewSubmitError(body?.error ?? `${res.status} ${res.statusText}`, body?.review ?? null);
+}
+/**
+ * Fix it myself: these drafts leave the review for a session on the PR's branch (made for them, or the live one on it,
+ * told by a note). The server's reason when it refuses.
+ */
+export async function fixReviewMyself(
+  repo: string,
+  n: number,
+  drafts: string[],
+): Promise<import('../../../core/api-types.js').ReviewFixResultWire> {
+  const res = await fetch(`${reviewPath(repo, n)}/fix-myself`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drafts }),
+  });
+  const body = (await res.json().catch(() => null)) as
+    (import('../../../core/api-types.js').ReviewFixResultWire & { error?: string }) | null;
+  if (res.ok && body) {
+    // Its warnings outlive the tab that asked (it unmounts as the session opens): the dashboard's toast shows them.
+    if (body.warnings?.length) announceWarnings('Fix it myself', body.warnings);
+    return body;
+  }
+  throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+}
+/** After a submit that may have gone out: you looked at the PR — it went, or it didn't. */
+export function settleReviewInDoubt(repo: string, n: number, went: boolean): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/in-doubt`, { went });
+}
+/** Forget the drafts set aside (off the diff, or dropped by a new push). */
+export function clearReviewDropped(repo: string, n: number): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/dropped`, {}, 'DELETE');
+}
+export function discardReviewDraft(repo: string, n: number, id: string): Promise<PrReviewWire> {
+  return postJson(`${reviewPath(repo, n)}/drafts/${encodeURIComponent(id)}`, {}, 'DELETE');
+}
+export function fetchReviewSettings(): Promise<ReviewSettingsWire> {
+  return getJson('/api/reviews/settings');
+}
+export function saveReviewMode(project: string, mode: 'all' | 'asked' | 'off'): Promise<ReviewSettingsWire> {
+  return postJson('/api/reviews/settings', { project, mode }, 'PUT');
 }

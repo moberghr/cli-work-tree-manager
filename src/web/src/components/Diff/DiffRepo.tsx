@@ -13,11 +13,9 @@ interface Props {
   viewedPaths?: Set<string>;
   /** Called when the user toggles a file's viewed checkbox. */
   onToggleViewed?: (path: string, next: boolean) => void;
-  /** Scope key for per-hunk reviewed state. Threaded down to each file. */
-  hunkScopeKey?: string;
 }
 
-export function DiffRepo({ repo, startIndex, review, viewedPaths, onToggleViewed, hunkScopeKey }: Props) {
+export function DiffRepo({ repo, startIndex, review, viewedPaths, onToggleViewed }: Props) {
   // Render files in the same directory-grouped, alphabetical order the
   // sidebar tree uses (GitHub-style) so the left tree and the right diff
   // list read top-to-bottom in lockstep. Each leaf keeps its ORIGINAL anchor
@@ -48,7 +46,6 @@ export function DiffRepo({ repo, startIndex, review, viewedPaths, onToggleViewed
           repo={repo.name}
           viewed={viewedPaths?.has(leaf.file.path)}
           onToggleViewed={onToggleViewed ? (next: boolean) => onToggleViewed(leaf.file.path, next) : undefined}
-          hunkScopeKey={hunkScopeKey}
         />
       ))}
     </div>

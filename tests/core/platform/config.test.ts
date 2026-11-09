@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { withReporter } from '../../../src/core/platform/report.js';
 import { loadConfig, saveConfig, getConfigDir, validatePortRange, type WorkConfig } from '../../../src/core/platform/config.js';
 
 let tmpDir: string;
@@ -54,6 +55,17 @@ describe('loadConfig', () => {
     expect(loaded).toEqual({ ...data, notifications: false });
   });
 
+  it('prWatch.fixConflicts is on unless set to false (asking Claude to resolve a merge conflict)', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (prWatch: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', prWatch }));
+    write({});
+    expect(loadConfig()?.prWatch?.fixConflicts).toBe(true);
+    write({ fixConflicts: false });
+    expect(loadConfig()?.prWatch?.fixConflicts).toBe(false);
+  });
+
   it('loads launchViaHost only as a real boolean, so an absent key keeps the default (host)', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
@@ -69,6 +81,38 @@ describe('loadConfig', () => {
     expect(loadConfig()?.launchViaHost).toBeUndefined();
     write(undefined);
     expect(loadConfig()?.launchViaHost).toBeUndefined();
+  });
+
+  it('loads usage.statusLine: off only for false, on for anything else in a usage object', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (usage: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', usage }));
+    write({ statusLine: false });
+    expect(loadConfig()?.usage).toEqual({ statusLine: false });
+    write({ statusLine: true });
+    expect(loadConfig()?.usage).toEqual({ statusLine: true });
+    write({ statusLine: 'no' });
+    expect(loadConfig()?.usage).toEqual({ statusLine: true });
+    write({});
+    expect(loadConfig()?.usage).toEqual({ statusLine: true });
+    write(undefined);
+    expect(loadConfig()?.usage).toBeUndefined();
+  });
+
+  it('loads sessionFolders only as a real boolean (the switch is off unless it is true)', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (v: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', sessionFolders: v }));
+    write(true);
+    expect(loadConfig()?.sessionFolders).toBe(true);
+    write(false);
+    expect(loadConfig()?.sessionFolders).toBe(false);
+    write('true');
+    expect(loadConfig()?.sessionFolders).toBeUndefined();
+    write(undefined);
+    expect(loadConfig()?.sessionFolders).toBeUndefined();
   });
 
   it('loads the opt-in notifications flag', () => {
@@ -299,5 +343,37 @@ describe('saveConfig', () => {
     const loaded = loadConfig();
     expect(loaded?.worktreesRoot).toBe('/second');
     expect(loaded?.repos).toEqual({ x: '/x' });
+  });
+});
+
+describe('claudeAccounts / claudeAccount', () => {
+  const load = (cfg: Record<string, unknown>) => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', ...cfg }));
+    return loadConfig();
+  };
+
+  // What makes an entry an account is Claude's (agents/claude/accounts.ts, tested there): config passes them through.
+  it('keeps them as written: string folders only, no rules applied, nothing said', () => {
+    const warnings: string[] = [];
+    const config = withReporter(
+      (level, text) => {
+        if (level === 'warn') warnings.push(text);
+      },
+      () => load({ claudeAccounts: { work: '~/.claude-work', 'Bad Name': 'relative', num: 5 }, claudeAccount: 'gone' }),
+    );
+    expect(config?.claudeAccounts).toEqual({ work: '~/.claude-work', 'Bad Name': 'relative' });
+    expect(config?.claudeAccount).toBe('gone');
+    expect(warnings).toEqual([]);
+  });
+
+  it('leaves both unset when absent or not of their type', () => {
+    const bare = load({});
+    expect(bare?.claudeAccounts).toBeUndefined();
+    expect(bare?.claudeAccount).toBeUndefined();
+    const odd = load({ claudeAccounts: ['x'], claudeAccount: 3 });
+    expect(odd?.claudeAccounts).toBeUndefined();
+    expect(odd?.claudeAccount).toBeUndefined();
   });
 });

@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 12;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS diff_seen (session_id TEXT PRIMARY KEY, data TEXT NOT
 -- The Time tab: each workday's evidence, suggested hours and your edits (core/time/time-store.ts). (v9)
 CREATE TABLE IF NOT EXISTS time_days (day TEXT PRIMARY KEY, data TEXT NOT NULL);
 
+-- The PR watch's last check of each session, so a restart shows its PRs at once (pr-watch-store.ts). (v10)
+CREATE TABLE IF NOT EXISTS pr_watch_state (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- Prepared PR reviews, one per PR (repo alias + number), redone when its head moves (core/review/review-store.ts). (v11)
+CREATE TABLE IF NOT EXISTS pr_reviews (key TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- Every branch a session's repos have been on (core/sessions/session-branches.ts). (v12)
+CREATE TABLE IF NOT EXISTS session_branches (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.
 INSERT OR IGNORE INTO meta (key, value) VALUES ('rev:sessions', '0'), ('rev:tasks', '0');
@@ -129,6 +138,9 @@ CREATE TRIGGER IF NOT EXISTS rail_rev_i AFTER INSERT ON rail_place BEGIN UPDATE 
 CREATE TRIGGER IF NOT EXISTS rail_rev_u AFTER UPDATE ON rail_place BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
 CREATE TRIGGER IF NOT EXISTS rail_rev_d AFTER DELETE ON rail_place BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
 CREATE TRIGGER IF NOT EXISTS rail_sections_rev_i AFTER INSERT ON meta WHEN NEW.key = 'ui:rail-sections' BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
+-- A branch new to a session shows in its row (the header's Branches line). (v12)
+CREATE TRIGGER IF NOT EXISTS branches_rev_i AFTER INSERT ON session_branches BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS branches_rev_u AFTER UPDATE ON session_branches BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
 CREATE TRIGGER IF NOT EXISTS rail_sections_rev_u AFTER UPDATE ON meta WHEN NEW.key = 'ui:rail-sections' BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
 `;
 
@@ -303,6 +315,8 @@ export function purgeSessionRows(d: Db, sessionId: string): void {
     'session_blocks',
     'worklogs',
     'diff_seen',
+    'pr_watch_state',
+    'session_branches',
   ]) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }

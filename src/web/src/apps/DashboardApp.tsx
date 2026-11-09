@@ -5,15 +5,18 @@ import { UpdateStrip } from '../components/Dashboard/UpdateStrip.js';
 import { WhatsNew } from '../components/Dashboard/WhatsNew.js';
 import { useUpdates } from '../hooks/use-updates.js';
 import { useOutdatedAgents } from '../hooks/use-outdated-agents.js';
+import { useTaskbar } from '../hooks/use-taskbar.js';
 import { AgentsRestartCard } from '../components/Dashboard/AgentsRestartCard.js';
+import { outdatedNames } from '../state/agent-restart-view.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
+import { useMarkArchiving } from '../api/archive-pending.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
 import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
 import type { SnoozeFor } from '../../../core/rail/snooze.js';
-import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession } from '../api/client.js';
+import { ACTION_WARNINGS, changeRailSections, fetchHostHealth, fetchRailLayout, placeSession, RESTORE_WARNINGS } from '../api/client.js';
 import type { HostHealth } from '../../../core/pty/host-health.js';
 import { HostHealthBanner } from '../components/Dashboard/HostHealthBanner.js';
 import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail/rail-layout.js';
@@ -32,13 +35,14 @@ import {
 } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
-import { compareInbox, needsAttention, prWantsYou, wantsYou } from '../../../core/status/attention.js';
+import { compareInbox, needsAttention, prWantsYou, waitsOnYou, wantsYou } from '../../../core/status/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { ReposTab } from '../components/Dashboard/tabs/ReposTab.js';
 import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
 import { TimeTab } from '../components/Dashboard/tabs/TimeTab.js';
+import { ReviewsTab } from '../components/Dashboard/tabs/ReviewsTab.js';
 import { WelcomeTab } from '../components/Dashboard/tabs/WelcomeTab.js';
 import { fetchSetup } from '../api/panes.js';
 import { needsSetup } from '../state/setup.js';
@@ -47,6 +51,7 @@ import { isArchived, prsForSession, railGroups, type PrLookup } from '../state/s
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
+import { UsageMeter } from '../components/Dashboard/UsageMeter.js';
 import { HelpMenu } from '../components/Dashboard/HelpMenu.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
 import { StartTab } from '../components/Dashboard/tabs/StartTab.js';
@@ -64,6 +69,11 @@ import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../sta
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
+import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
+import { AccountDialog } from '../components/Dashboard/AccountDialog.js';
+import { accountAction, cancelledText, switchText } from '../state/accounts.js';
+import { AccountsTab } from '../components/Dashboard/tabs/AccountsTab.js';
+import { addedRepoText, canAddRepo, withWarnings } from '../state/add-repo.js';
 import { SnoozeUntilDialog } from '../components/Dashboard/SnoozeUntilDialog.js';
 import { BlockedByDialog } from '../components/Dashboard/BlockedBy.js';
 import {
@@ -74,9 +84,11 @@ import {
   toHash,
   type DashboardRoute,
   type DashboardTab,
+  type ReviewRoute,
   type SessionSubTab,
 } from '../state/dashboard-route.js';
-import { modalOpen as aModalIsOpen } from '../state/modal-open.js';
+import { readRailFolded, writeRailFolded } from '../state/review-prefs.js';
+import { dashboardDialogOpen, modalOpen as aModalIsOpen } from '../state/modal-open.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
   inbox: 'Inbox',
@@ -85,8 +97,10 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   sessions: 'Sessions',
   start: 'Start',
   jira: 'Jira',
+  reviews: 'Reviews',
   time: 'Time',
   repos: 'Repos',
+  accounts: 'Claude accounts',
   welcome: 'Welcome',
 };
 
@@ -120,7 +134,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     return parseHash(hash);
   });
   useEffect(() => saveLastRoute(route, safeLocalStorage()), [route]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionRows, setSessions] = useState<SessionSummary[]>([]);
+  // Archiving shows from the click (archive-pending.ts), before the server's own flag comes.
+  const sessions = useMarkArchiving(sessionRows);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   // Archived sessions come only while something on screen shows them (wantsArchived):
@@ -143,11 +159,14 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const withArchivedRef = useRef(withArchived);
   withArchivedRef.current = withArchived;
   const [archivedLoaded, setArchivedLoaded] = useState(false);
+  // The list has come once: before it, an empty list says nothing (the taskbar waits for it).
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const loadSessions = useCallback(() => {
     const asked = withArchivedRef.current;
     return fetchSessions(asked).then((data) => {
       setSessions(data);
       setArchivedLoaded(asked);
+      setSessionsLoaded(true);
     });
   }, []);
 
@@ -172,6 +191,19 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [assistantMounted, setAssistantMounted] = useState(false);
   // The Time tab's day on screen: the assistant is told about it.
   const [timeDay, setTimeDay] = useState<string | null>(null);
+  const [timeMonth, setTimeMonth] = useState<string | null>(null);
+  // The Reviews tab's PR on screen: told to the Ctrl+K assistant with the view.
+  const [reviewShown, setReviewShown] = useState<{ repo: string; number: number } | null>(null);
+  // The session rail folded on the Reviews tab (per browser): a review wants the room.
+  const [reviewsRailFolded, setReviewsRailFolded] = useState(readRailFolded);
+  const toggleReviewsRail = useCallback(
+    () =>
+      setReviewsRailFolded((f) => {
+        writeRailFolded(!f);
+        return !f;
+      }),
+    [],
+  );
   const toggleAssistant = useCallback(() => {
     setAssistantMounted(true);
     setAssistantOpen((o) => !o);
@@ -197,11 +229,35 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
   // Session being forked (the Fork dialog).
   const [forking, setForking] = useState<SessionSummary | null>(null);
+  // Session folder a repo is being added to (Add a repo…).
+  const [addingRepo, setAddingRepo] = useState<SessionSummary | null>(null);
+  const [switchingAccount, setSwitchingAccount] = useState<SessionSummary | null>(null);
+  // The Accounts page opens with its Add form (Claude account…'s "Add another account…", New worktree's link).
+  const [addingAccount, setAddingAccount] = useState(false);
   // Session being snoozed until a time of your choosing.
   const [snoozingUntil, setSnoozingUntil] = useState<SessionSummary | null>(null);
   // Session being marked as waiting on other work.
   const [blocking, setBlocking] = useState<SessionSummary | null>(null);
   const { toast, show: showToast, hide: hideToast } = useToast();
+
+  // What a Restore warned about (a repo not in your config any more…), from whichever button restored it.
+  useEffect(() => {
+    const onWarnings = (e: Event) => {
+      const warnings = (e as CustomEvent<{ warnings?: string[] }>).detail?.warnings ?? [];
+      if (warnings.length) showToast(withWarnings('Restored', warnings));
+    };
+    // Another action's, told after its view went away (Fix it myself opens its session).
+    const onAction = (e: Event) => {
+      const d = (e as CustomEvent<{ what?: string; warnings?: string[] }>).detail;
+      if (d?.warnings?.length) showToast(withWarnings(d.what ?? 'Done', d.warnings));
+    };
+    window.addEventListener(RESTORE_WARNINGS, onWarnings);
+    window.addEventListener(ACTION_WARNINGS, onAction);
+    return () => {
+      window.removeEventListener(RESTORE_WARNINGS, onWarnings);
+      window.removeEventListener(ACTION_WARNINGS, onAction);
+    };
+  }, [showToast]);
   // `?`: every shortcut. And the menu a key opened (z: snooze), where the header is.
   const [helpOpen, setHelpOpen] = useState(false);
   // Updates and release notes: the strip, the Activity panel's line, What's new —
@@ -227,12 +283,22 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     setWhatsNew(null);
   };
   const [keyMenu, setKeyMenu] = useState<{ items: MenuItem[]; x: number; y: number } | null>(null);
+  // Claude account… on a session (a menu, the header, ⇧C): the dialog, or why not (state/accounts.ts).
+  const openAccount = useCallback(
+    (x: SessionSummary) => {
+      const a = accountAction(x);
+      if (a.kind === 'open') setSwitchingAccount(x);
+      else showToast({ text: a.text, kind: 'error' });
+    },
+    [showToast],
+  );
   // What a rail row's menu does — the same for the keys on the open session.
   const menuActions = useMemo(
     () => ({
       setArchived: (x: SessionSummary, archived: boolean) =>
-        void setArchived(x.id, archived).then(
-          () => showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
+        void setArchived(x.id, archived, undefined, { name: x.title ?? x.branch }).then(
+          // A Restore with warnings is toasted by the RESTORE_WARNINGS listener (for every Restore button).
+          (r) => !r.warnings?.length && showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
           (err: Error) => !archiveCancelled(err) && showToast({ text: err.message, kind: 'error' }),
         ),
       openTerminal: (x: SessionSummary) =>
@@ -246,6 +312,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         ),
       remove: (x: SessionSummary) => setDeleting(x),
       fork: (x: SessionSummary) => setForking(x),
+      addRepo: (x: SessionSummary) =>
+        canAddRepo(x)
+          ? setAddingRepo(x)
+          : showToast({ text: 'A repo can be added only to a session folder (a group’s, or one made with sessionFolders)', kind: 'error' }),
+      account: (x: SessionSummary) => openAccount(x),
       snooze: (x: SessionSummary, choice: SnoozeFor) =>
         void snoozeSession(x, choice).then(
           () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
@@ -255,7 +326,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       snoozeUntil: (x: SessionSummary) => setSnoozingUntil(x),
       blockBy: (x: SessionSummary) => setBlocking(x),
     }),
-    [showToast],
+    [showToast, openAccount],
   );
   // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
   const sessionMenu = useCallback((s: SessionSummary) => sessionMenuItems(s, menuActions), [menuActions]);
@@ -340,7 +411,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const takePrs = useCallback((r: Awaited<ReturnType<typeof fetchPrs>>) => {
     setPrs(r.prs ?? []);
     setPrsLoaded(true);
-    setPrsNote(r.available === false ? 'gh isn’t installed or logged in (gh auth login).' : (r.error ?? null));
+    setPrsNote(
+      r.available === false
+        ? 'Couldn’t list pull requests: is your git host’s CLI installed and signed in? (Welcome checks it.)'
+        : (r.error ?? null),
+    );
   }, []);
   const prsFailed = useCallback((err: Error) => {
     setPrsLoaded(true);
@@ -390,6 +465,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     },
     [navigate],
   );
+  // The Accounts page with its Add form showing.
+  const openAddAccount = useCallback(() => {
+    setAddingAccount(true);
+    goTab('accounts');
+  }, [goTab]);
   // First run: nothing set up, or no repo and no session yet — open on
   // Welcome (once, at load; a link to a session wins).
   const routeAtLoad = useRef(route);
@@ -522,7 +602,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     [navigate, route.sessionId, route.tab],
   );
 
-  const modalOpen = newOpen || deleting !== null || forking !== null || snoozingUntil !== null || blocking !== null;
+  const modalOpen = dashboardDialogOpen({ newOpen, deleting, forking, addingRepo, switchingAccount, snoozingUntil, blocking });
 
   // Keyboard shortcuts. `g s/p/j/t` chord for tabs (gmail/github style);
   // `j/k` walks the rail. Ignore when typing in an input.
@@ -551,9 +631,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           s: 'sessions',
           w: 'start',
           r: 'repos',
+          a: 'accounts',
           c: 'cleanup',
           j: 'jira',
           h: 'time',
+          v: 'reviews',
           // The old chord for the PRs page: they're on Start.
           p: 'start',
         };
@@ -646,6 +728,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           openEditor: () => menuActions.openEditor(s),
           copyBranch: () => menuActions.copyBranch(s),
           fork: () => menuActions.fork(s),
+          addRepo: () => menuActions.addRepo(s),
+          account: () => openAccount(s),
           remove: () => menuActions.remove(s),
           header: (a) =>
             window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: s.id, action: a } })),
@@ -659,6 +743,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     };
   }, [
     goTab,
+    showToast,
     openSession,
     hopTo,
     walkTo,
@@ -672,6 +757,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     setSubTab,
     menuActions,
     sessionMenu,
+    openAccount,
   ]);
 
   // Archived sessions while they're wanted (see wantArchived): the switcher lists
@@ -701,9 +787,13 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     if (!assistantOpen) return;
     const view = route.sessionId
       ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId }
-      : { tab: route.tab, ...(route.tab === 'time' && timeDay ? { day: timeDay } : {}) };
+      : {
+          tab: route.tab,
+          ...(route.tab === 'time' && timeMonth ? { month: timeMonth } : route.tab === 'time' && timeDay ? { day: timeDay } : {}),
+          ...(route.tab === 'reviews' && reviewShown ? { review: reviewShown } : {}),
+        };
     void reportAssistantView(view).catch(() => {});
-  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay]);
+  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay, timeMonth, reviewShown]);
 
   // Opening a session that wanted you counts as having seen it — once per
   // unseen episode (keyed by when it entered that state), and only while
@@ -730,6 +820,21 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   useEffect(() => {
     document.title = inboxCount > 0 ? `(${inboxCount}) work` : 'work';
   }, [inboxCount]);
+  // In the desktop app, the same count on its taskbar / Dock icon, and a flash when a session newly waits on you.
+  // Sorted: the set, not the rail's order, says whether it changed.
+  const needingYouKey = useMemo(
+    () =>
+      sessions
+        .filter((s) => !isArchived(s) && waitsOnYou(s))
+        .map((s) => s.id)
+        .sort()
+        .join(','),
+    [sessions],
+  );
+  const needingYou = useMemo(() => new Set(needingYouKey ? needingYouKey.split(',') : []), [needingYouKey]);
+  // Which sessions still run the old Claude Code, by name (the card and the version menu list them).
+  const agentNames = useMemo(() => outdatedNames(outdatedAgents.agents, sessions), [outdatedAgents.agents, sessions]);
+  const taskbar = useTaskbar(inboxCount, needingYou, { ready: sessionsLoaded });
 
   // -- Render --------------------------------------------------------------
   let body: React.ReactNode;
@@ -750,6 +855,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           subTab={route.sessionSubTab}
           onSelectSubTab={setSubTab}
           onDelete={() => setDeleting(activeSession)}
+          onAddRepo={() => menuActions.addRepo(activeSession)}
+          onAccount={menuActions.account ? () => menuActions.account!(activeSession) : undefined}
           prs={prsFor(activeSession)}
           onShipped={backFromSession}
         />
@@ -786,6 +893,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           <SessionsTab
             sessions={sessions}
             onShowArchived={(on) => wantArchived('sessions-table', on)}
+            archivedLoaded={archivedLoaded}
             onOpenSession={openSession}
             onNewWorktree={() => openNew(null)}
             onDeleteSession={setDeleting}
@@ -820,11 +928,35 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           />
         );
         break;
+      case 'reviews':
+        body = (
+          <ReviewsTab
+            route={route.review ?? null}
+            onRoute={(review: ReviewRoute | null) =>
+              navigate({ tab: 'reviews', sessionId: null, sessionSubTab: 'term', ...(review ? { review } : {}) })
+            }
+            railFolded={reviewsRailFolded}
+            onToggleRail={toggleReviewsRail}
+            onShown={setReviewShown}
+            onAsk={() => {
+              setAssistantMounted(true);
+              setAssistantOpen(true);
+            }}
+            // Fix it myself: the session with the comments, on its terminal.
+            onOpenSession={hopTo}
+            sessionName={(id) => {
+              const s = sessions.find((x) => x.id === id);
+              return s ? (s.titleIsYours && s.title ? s.title : `${s.target} · ${s.branch}`) : null;
+            }}
+          />
+        );
+        break;
       case 'time':
         body = (
           <TimeTab
             onOpenSession={(id) => openSession(id)}
             onDayChange={setTimeDay}
+            onMonthChange={setTimeMonth}
             onAsk={() => {
               setAssistantMounted(true);
               setAssistantOpen(true);
@@ -834,6 +966,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         break;
       case 'repos':
         body = <ReposTab onBack={() => goTab('start')} />;
+        break;
+      case 'accounts':
+        body = <AccountsTab startAdding={addingAccount} onAddingShown={() => setAddingAccount(false)} />;
         break;
       case 'welcome':
         body = <WelcomeTab onNewWorktree={() => openNew(null)} onDone={() => goTab('start')} />;
@@ -846,6 +981,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       <DashboardLayout
         dev={dev}
         route={route}
+        railFolded={route.tab === 'reviews' && !route.sessionId && reviewsRailFolded}
         sessions={sessions}
         onSelectTab={goTab}
         onSelectSession={hopTo}
@@ -861,6 +997,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         inboxCount={inboxCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
+        usage={<UsageMeter onOpenSession={(id) => openSession(id)} onAccounts={() => goTab('accounts')} />}
         activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
         help={
           <HelpMenu
@@ -870,11 +1007,15 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             note={desk ? desk.note : upd.note}
             onWhatsNew={() => setWhatsNew({ focus: null })}
             onShortcuts={() => setHelpOpen(true)}
+            onAccounts={() => goTab('accounts')}
             onRestart={() => void restartToUpdate()}
             agents={outdatedAgents.agents}
             onRestartAgents={outdatedAgents.restart}
             restartingAgents={outdatedAgents.restarting}
             agentsNote={outdatedAgents.note}
+            agentNames={agentNames}
+            onOpenSession={(id) => openSession(id)}
+            taskbarFlash={taskbar.inApp ? { on: taskbar.flashOn, set: taskbar.setFlashOn } : undefined}
             // In the app: its own version against the work web this window shows (the server's own `running`).
             mismatch={desk ? versionMismatch(desk.update.appVersion, upd.updates?.running) : null}
           />
@@ -893,9 +1034,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       {newOpen && (
         <NewWorktreeModal
           initial={newInitial ?? undefined}
-          onCreated={(id, _result) => {
+          onCreated={(id, result) => {
             setNewOpen(false);
             setNewInitial(null);
+            // What setting it up warned about (a repo not in your config any more…): said, not lost.
+            if (result?.warnings?.length) showToast(withWarnings('Created', result.warnings));
             // A new worktree has no diff yet: land on its terminal.
             openSession(id, 'term');
           }}
@@ -907,6 +1050,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             setNewOpen(false);
             setNewInitial(null);
             goTab('repos');
+          }}
+          onAddAccount={() => {
+            setNewOpen(false);
+            setNewInitial(null);
+            openAddAccount();
           }}
         />
       )}
@@ -923,6 +1071,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       {/* One card at a time in that corner: work's own update first. */}
       {!updates?.available && (
         <AgentsRestartCard
+          names={agentNames}
+          onOpen={(id) => openSession(id)}
           agents={outdatedAgents.agents}
           onRestart={outdatedAgents.restart}
           restarting={outdatedAgents.restarting}
@@ -971,6 +1121,37 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
                 ? { text: `Forked ${from}, but its Claude didn't start: ${info.startError}`, kind: 'error' }
                 : { text: `Forked ${from}${info.summarized ? ', with a summary of the conversation' : ''}` },
             );
+          }}
+        />
+      )}
+      {addingRepo && (
+        <AddRepoDialog
+          session={addingRepo}
+          onClose={() => setAddingRepo(null)}
+          onAdded={(alias, w) => {
+            setAddingRepo(null);
+            refetch.trigger();
+            showToast(addedRepoText(alias, w));
+          }}
+        />
+      )}
+      {switchingAccount && (
+        <AccountDialog
+          session={switchingAccount}
+          onClose={() => setSwitchingAccount(null)}
+          onSwitched={(to, w) => {
+            setSwitchingAccount(null);
+            refetch.trigger();
+            showToast({ text: switchText(w.outcome, to) });
+          }}
+          onCancelled={(to) => {
+            setSwitchingAccount(null);
+            refetch.trigger();
+            showToast({ text: cancelledText(to) });
+          }}
+          onAddAccount={() => {
+            setSwitchingAccount(null);
+            openAddAccount();
           }}
         />
       )}

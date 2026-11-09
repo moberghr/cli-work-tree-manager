@@ -14,6 +14,8 @@ import { PROTOCOL_VERSION } from '../../../src/core/pty/pty-host-protocol.js';
 
 let configDir: string;
 vi.mock('../../../src/core/platform/config.js', () => ({ getConfigDir: () => configDir }));
+// The logger finds the folder through config-dir.js (not config.js, which reports through the logger).
+vi.mock('../../../src/core/platform/config-dir.js', () => ({ getConfigDir: () => configDir }));
 
 const servers: http.Server[] = [];
 const spawnCalls: string[][] = [];

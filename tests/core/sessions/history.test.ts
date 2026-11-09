@@ -12,8 +12,13 @@ import {
   getRecentSessions,
   pruneStaleEntries,
   upsertSessionWithPort,
+  mergeHydratedSessions,
+  appendSessionRepo,
+  setOwnRepos,
+  touchSession,
   type WorktreeSession,
 } from '../../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 
 let tmpDir: string;
 
@@ -436,5 +441,189 @@ describe('forgetOtherBaseCheckoutEntries', () => {
         .map((s) => `${s.target}:${s.branch}`)
         .sort(),
     ).toEqual(['api:feat/worktree', 'api:main', 'web:feat/old']);
+  });
+});
+
+describe("a session's own repos (repos)", () => {
+  const paths = ['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs'];
+
+  it('an upsert given repos records them; one without keeps what the row has', async () => {
+    await upsertSessionWithPort('shop', true, 'feat', paths, {}, undefined, undefined, undefined, { repos: ['api', 'web', 'docs'] });
+    expect(findSession(loadHistory(), 'shop', 'feat')?.repos).toEqual(['api', 'web', 'docs']);
+    await upsertSession('shop', true, 'feat', paths); // `work resume`, `work recent`: the same paths, no repos
+    expect(findSession(loadHistory(), 'shop', 'feat')?.repos).toEqual(['api', 'web', 'docs']);
+    await upsertSessionWithPort('shop', true, 'feat', paths, {});
+    expect(findSession(loadHistory(), 'shop', 'feat')?.repos).toEqual(['api', 'web', 'docs']);
+    // A writer that knew only two of them (a copy read before docs was added) doesn't drop the third.
+    await upsertSession('shop', true, 'feat', paths.slice(0, 2), undefined, undefined, undefined, ['api', 'web']);
+    expect(findSession(loadHistory(), 'shop', 'feat')).toMatchObject({ paths, repos: ['api', 'web', 'docs'] });
+  });
+
+  it('a row from before stays without repos when upserted without them', async () => {
+    await upsertSession('api', false, 'feat', ['/tmp/wt']);
+    expect(findSession(loadHistory(), 'api', 'feat')).not.toHaveProperty('repos');
+  });
+
+  it("hydrating keeps a recorded session's order and repos, and adds a folder found on disk at the end", async () => {
+    saveHistory([
+      { target: 'shop', isGroup: true, branch: 'feat', paths, repos: ['api', 'web', 'docs'], createdAt: 'c', lastAccessedAt: 'l' },
+    ]);
+    // The disk scan finds only two of them (docs' folder name sorts first), and one more.
+    const found = {
+      target: 'shop',
+      isGroup: true,
+      branch: 'feat',
+      paths: ['/w/shop/feat/admin', '/w/shop/feat/api'],
+      repos: ['admin', 'api'],
+      createdAt: 'x',
+      lastAccessedAt: 'x',
+    };
+    expect(await mergeHydratedSessions([found])).toEqual({ added: 0, updated: 1 });
+    expect(findSession(loadHistory(), 'shop', 'feat')).toMatchObject({
+      paths: [...paths, '/w/shop/feat/admin'],
+      repos: ['api', 'web', 'docs', 'admin'],
+      createdAt: 'c',
+    });
+    // Nothing new: nothing changes.
+    expect(await mergeHydratedSessions([{ ...found, paths: [paths[1]], repos: ['web'] }])).toEqual({ added: 0, updated: 0 });
+  });
+
+  it('hydrating a row from before replaces its paths as it always did', async () => {
+    saveHistory([{ target: 'shop', isGroup: true, branch: 'feat', paths, createdAt: 'c', lastAccessedAt: 'l' }]);
+    const found = { target: 'shop', isGroup: true, branch: 'feat', paths: ['/w/shop/feat/api'], createdAt: 'x', lastAccessedAt: 'x' };
+    expect(await mergeHydratedSessions([found])).toEqual({ added: 0, updated: 1 });
+    expect(findSession(loadHistory(), 'shop', 'feat')?.paths).toEqual(['/w/shop/feat/api']);
+    expect(findSession(loadHistory(), 'shop', 'feat')).not.toHaveProperty('repos');
+  });
+});
+
+describe('appendSessionRepo (a repo added to a session)', () => {
+  const config = {
+    worktreesRoot: '/w',
+    repos: { api: '/r/api', web: '/r/web', docs: '/r/docs' },
+    groups: { shop: ['api', 'web'] },
+    copyFiles: [],
+  };
+  const id = sessionIdFor({ target: 'shop', branch: 'feat' });
+
+  it('appends the path, the alias and its base; a second add of the same alias changes nothing', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web'], undefined, undefined, undefined, ['api', 'web']);
+    const r = appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'main', config);
+    // `before`: the paths it had, read in the same transaction (the scope its turns move from).
+    expect(r?.before).toEqual(['/w/shop/feat/api', '/w/shop/feat/web']);
+    expect(r?.session.paths).toEqual(['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs']);
+    expect(r?.session.repos).toEqual(['api', 'web', 'docs']);
+    expect(r?.session.baseBranches).toEqual({ '/w/shop/feat/docs': 'main' });
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs-again', 'dev', config);
+    expect(findSession(loadHistory(), 'shop', 'feat')?.paths).toHaveLength(3);
+  });
+
+  it('one base for the group stands only while every repo has it: a repo on its own branch makes it per repo', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web'], undefined, 'main', undefined, ['api', 'web']);
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', undefined, config);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.baseBranch).toBeUndefined();
+    // The ones that had it keep it, each; the added one has none (no base known: detected).
+    expect(s?.baseBranches).toEqual({ '/w/shop/feat/api': 'main', '/w/shop/feat/web': 'main' });
+  });
+
+  it('an added repo made from the same base keeps the one base', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api'], undefined, 'main', undefined, ['api']);
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'main', config);
+    expect(findSession(loadHistory(), 'shop', 'feat')).toMatchObject({ baseBranch: 'main', baseBranches: { '/w/shop/feat/docs': 'main' } });
+  });
+
+  it('an added repo made from another base: each repo its own', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api'], undefined, 'main', undefined, ['api']);
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'dev', config);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.baseBranch).toBeUndefined();
+    expect(s?.baseBranches).toEqual({ '/w/shop/feat/api': 'main', '/w/shop/feat/docs': 'dev' });
+  });
+
+  it('a row from before with a folder no repo of its group has: refused, nothing written (no made-up alias)', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/mystery']);
+    expect(() => appendSessionRepo(id, 'docs', '/w/shop/feat/docs', undefined, config)).toThrow(/mystery/);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.repos).toBeUndefined();
+    expect(s?.paths).toHaveLength(2);
+  });
+
+  it('a row from before gets its list recorded (as derived) before the new repo', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web']);
+    expect(findSession(loadHistory(), 'shop', 'feat')?.repos).toBeUndefined();
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', undefined, config);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.repos).toEqual(['api', 'web', 'docs']);
+    expect(s?.baseBranches).toBeUndefined();
+  });
+
+  it('a session that is gone: null', () => {
+    expect(appendSessionRepo(id, 'docs', '/w/x', undefined, config)).toBeNull();
+  });
+});
+
+describe("a writer's stale copy never drops a repo added meanwhile (setOwnRepos, touchSession)", () => {
+  const rec = (): WorktreeSession => ({
+    target: 'shop',
+    isGroup: true,
+    branch: 'feat',
+    paths: ['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs'],
+    repos: ['api', 'web', 'docs'],
+    createdAt: 'c',
+    lastAccessedAt: 'l',
+  });
+
+  it('a writer that knew two of the three repos: the third (added since) stays, after them', () => {
+    const s = rec();
+    setOwnRepos(s, ['/w/shop/feat/api', '/w/shop/feat/web'], ['api', 'web']);
+    expect(s.paths).toEqual(['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs']);
+    expect(s.repos).toEqual(['api', 'web', 'docs']);
+  });
+
+  it('a writer that knows only the folders: same number, the recorded aliases by place; fewer, the row as it is', () => {
+    const s = rec();
+    setOwnRepos(s, ['/x/api', '/x/web', '/x/docs']);
+    expect(s.paths).toEqual(['/x/api', '/x/web', '/x/docs']);
+    expect(s.repos).toEqual(['api', 'web', 'docs']);
+    const t = rec();
+    setOwnRepos(t, ['/w/shop/feat/api']);
+    expect(t.paths).toEqual(rec().paths);
+    expect(t.repos).toEqual(rec().repos);
+  });
+
+  it('a row from before (no list) takes what it is given, as always', () => {
+    const { repos: _r, ...legacy } = rec();
+    const s: WorktreeSession = legacy;
+    setOwnRepos(s, ['/w/shop/feat/api']);
+    expect(s.paths).toEqual(['/w/shop/feat/api']);
+    expect(s).not.toHaveProperty('repos');
+  });
+
+  it('upsert from a copy read before an add keeps the added repo (the row as it is now wins)', async () => {
+    saveHistory([rec()]);
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web'], undefined, undefined, undefined, ['api', 'web']);
+    expect(findSession(loadHistory(), 'shop', 'feat')).toMatchObject({ paths: rec().paths, repos: rec().repos });
+  });
+
+  it('touchSession marks it used (and un-archives it), its folders as they are', () => {
+    saveHistory([{ ...rec(), archivedAt: 'a' }]);
+    touchSession('shop', 'feat');
+    const s = findSession(loadHistory(), 'shop', 'feat')!;
+    expect(s.lastAccessedAt).not.toBe('l');
+    expect(s).not.toHaveProperty('archivedAt');
+    expect(s.paths).toEqual(rec().paths);
+    touchSession('nope', 'x'); // a session that is gone: nothing
+  });
+});
+
+describe('upsertSessionWithPort keeps a repo added meanwhile (the writer that races with Add a repo)', () => {
+  it("re-entry's copy knew two of the three: the third stays, after them", async () => {
+    const paths = ['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs'];
+    saveHistory([
+      { target: 'shop', isGroup: true, branch: 'feat', paths, repos: ['api', 'web', 'docs'], createdAt: 'c', lastAccessedAt: 'l' },
+    ]);
+    await upsertSessionWithPort('shop', true, 'feat', paths.slice(0, 2), {}, undefined, undefined, undefined, { repos: ['api', 'web'] });
+    expect(findSession(loadHistory(), 'shop', 'feat')).toMatchObject({ paths, repos: ['api', 'web', 'docs'] });
   });
 });

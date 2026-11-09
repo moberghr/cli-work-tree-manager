@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { ProjectSummary } from '../../api/panes.js';
 
 /**
@@ -36,6 +36,8 @@ export function ProjectPicker({
   const [query, setQuery] = useState<string | null>(null); // null: not typing, show the value
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  // What pressed last ('mouse', 'touch', 'pen'): pointerdown comes before the mousedown it leads to.
+  const pointerType = useRef('mouse');
   const shown = useMemo(() => matchProjects(projects, query ?? ''), [projects, query]);
   const label = (p: ProjectSummary) => (p.kind === 'group' ? `${p.name} (group)` : p.name);
   const current = projects.find((p) => p.name === value);
@@ -59,8 +61,32 @@ export function ProjectPicker({
         value={query ?? (current ? label(current) : value)}
         placeholder={projects.length ? 'Type to find a project…' : '(loading…)'}
         disabled={disabled}
+        // Focus selects the name (type to replace it), and opens the list only when there's none yet: the dialog
+        // focuses this field when it opens, and a list dropped open over a project already picked had to be
+        // clicked away. A click, typing or ↓ opens it.
         onFocus={(e) => {
           e.target.select();
+          if (!value) setOpen(true);
+        }}
+        onPointerDown={(e) => {
+          pointerType.current = e.pointerType;
+        }}
+        // The click that opens the list selects the name too, so typing replaces it. Selecting on focus alone
+        // didn't hold: the click's own caret replaces that selection, and a field already focused isn't focused
+        // again. As in a browser's address bar, the next click places the caret (editing what you typed), except
+        // a double- or triple-click on the name, which keeps it all selected rather than picking one word of it.
+        // Only the main button's press: a right-click (its menu, Paste) and a middle-click (paste on Linux) are
+        // the browser's. Only a mouse: a tap's own focus is what brings up a phone's keyboard, so a tap is left to
+        // the browser, and onFocus selects.
+        onMouseDown={(e) => {
+          if (e.button !== 0) return;
+          const mouse = pointerType.current === 'mouse';
+          if (mouse && (!open || (query === null && e.detail > 1))) {
+            e.preventDefault();
+            const el = e.currentTarget;
+            if (document.activeElement === el) el.select();
+            else el.focus(); // onFocus selects
+          }
           setOpen(true);
         }}
         onChange={(e) => {

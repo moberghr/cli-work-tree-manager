@@ -5,6 +5,7 @@ import { atomicWriteFile } from '../platform/fs-safe.js';
 import type { AssistantView, SessionWire } from '../api-types.js';
 import { DISPLAY_LABEL, displayStatus } from '../sessions/session-view.js';
 import type { AgentAdapter, AllowRule, WorkHook } from './types.js';
+import { branchesText } from '../sessions/branch-view.js';
 
 /**
  * The dashboard assistant (Ctrl+K): a persistent agent session in the PTY
@@ -20,7 +21,7 @@ import type { AgentAdapter, AllowRule, WorkHook } from './types.js';
  * one blocked?" need no explaining. An agent without a workspace gets the
  * instructions only (it asks before every command, and sees no view).
  *
- * It runs in the agent's normal permission mode, never --unsafe: anything
+ * It runs in the agent's normal permission mode, as every session does: anything
  * not pre-allowed — `work cleanup --apply`, `work remove`, git — asks first,
  * in the panel (and the Inbox).
  */
@@ -52,6 +53,7 @@ export const ASSISTANT_ALLOW: AllowRule[] = [
   { command: 'work recent', prefix: true },
   // The Time tab's day, read only (set / reset / off / gather / post ask first).
   { command: 'work timesheet show', prefix: true },
+  { command: 'work timesheet month', prefix: true },
 ];
 
 /** Its hook: what the dashboard shows, added at the start of each turn. */
@@ -72,6 +74,7 @@ Use the \`work\` CLI with \`--json\` (see the work-sessions skill) and parse it;
 - \`work overlaps --json\` — live sessions changing the same files.
 - \`work cleanup --json\` — which worktrees can go, and why.
 - \`work timesheet show [day] --json\` — the Time tab's day: hours per ticket, and why (sessions' Claude minutes, commits, Jira, meetings, chats). On the Time tab, the day on screen is described to you with each message.
+- \`work timesheet month [YYYY-MM] --json\` — a month: every day's rows with how each got its hours, the month's tickets, and what posting it would do. On the Month view, the month on screen is described to you with each message.
 - \`work search <words> --json\` — sessions whose conversation (live or archived, also older than the agent keeps) mentions it, with the matching lines: "what did we do about X?".
 
 Each prompt comes with what the user is looking at in the dashboard (the tab, the selected session). When they say "this", "these" or "here", that is what they mean.
@@ -80,10 +83,10 @@ Each prompt comes with what the user is looking at in the dashboard (the tab, th
 
 Ask before you change anything, and say exactly what will happen:
 - Removing, archiving or forgetting worktrees: \`work cleanup --apply <id>… --action delete|archive|forget --json\`. Each is checked again right before it runs; report what was refused and why. Never \`--force\` unless the user asked for exactly that.
-- A day's hours: \`work timesheet set <day> KEY=HOURS …\` (all its rows; quarter hours, the day's total as the user wants it), \`reset <day>\`, \`off <day>\`. Explain the change first. Posting to Tempo (\`work timesheet post <day>\`) only when the user asks for it.
+- A day's hours: \`work timesheet set <day> KEY=HOURS …\` (all its rows; quarter hours, the day's total as the user wants it), \`reset <day>\`, \`off <day>\`; several days: one command per day. Explain the change first. To look at a day again (its sessions, commits, Jira, meetings): \`work timesheet gather <day>\`, or \`gather <YYYY-MM>\` for a month's days not gathered yet. Posting to Tempo (\`work timesheet post <day>\`) only when the user asks for it.
 - Anything else (\`work remove\`, git, files in a worktree): only when asked, and show the command first.
 
-Don't post on GitHub, and don't send prompts to other sessions, unless the user asks. Keep answers short: the user is in the middle of something.
+Don't post on a git host (comments, reviews, replies), and don't send prompts to other sessions, unless the user asks. Keep answers short: the user is in the middle of something.
 `;
 
 /** What work wrote in the folder last time (relative paths), so files an earlier agent's setup left can go. */
@@ -130,6 +133,10 @@ interface StoredContext {
   text: string;
   /** The Time tab's day on screen: described afresh at each prompt (rows change by Save, Post, a rebuild). */
   day?: string;
+  /** The Time tab's Month view on screen (`YYYY-MM`), described afresh the same way. */
+  month?: string;
+  /** The Reviews tab's PR on screen: its review described afresh at each prompt (a re-prepare, a submit change it). */
+  review?: { repo: string; number: number };
 }
 
 /**
@@ -150,6 +157,7 @@ export function describeView(view: AssistantView, session: SessionWire | null, n
         ? [`  Changes the same files as: ${session.overlaps.map((o) => `${o.target} · ${o.branch}`).join(', ')}.`]
         : []),
       ...(session.context ? [`  Its conversation is ${Math.round((session.context.used / session.context.window) * 100)}% full.`] : []),
+      ...(session.branches?.length ? [`  It has worked on more than one branch: ${branchesText(session.branches, session.isGroup)}.`] : []),
       ...(session.archivedAt ? ['  It is archived.'] : []),
       `  Worktree: ${session.paths.join(', ')}`,
     );
@@ -158,9 +166,21 @@ export function describeView(view: AssistantView, session: SessionWire | null, n
   return lines.join('\n');
 }
 
-export function writeAssistantContext(text: string, now = Date.now(), day?: string): void {
+export function writeAssistantContext(
+  text: string,
+  now = Date.now(),
+  day?: string,
+  month?: string,
+  review?: { repo: string; number: number },
+): void {
   fs.mkdirSync(assistantDir(), { recursive: true });
-  const stored: StoredContext = { at: new Date(now).toISOString(), text, ...(day ? { day } : {}) };
+  const stored: StoredContext = {
+    at: new Date(now).toISOString(),
+    text,
+    ...(day ? { day } : {}),
+    ...(month ? { month } : {}),
+    ...(review ? { review } : {}),
+  };
   atomicWriteFile(contextFile(), JSON.stringify(stored));
 }
 
@@ -168,6 +188,20 @@ export function writeAssistantContext(text: string, now = Date.now(), day?: stri
 export function assistantContextDay(now = Date.now()): string | null {
   const s = readStored(now);
   return s && typeof s.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.day) ? s.day : null;
+}
+
+/** The month on screen, if the Time tab's Month view is: for the hook to describe as it is now. */
+export function assistantContextMonth(now = Date.now()): string | null {
+  const s = readStored(now);
+  return s && typeof s.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(s.month) ? s.month : null;
+}
+
+/** The PR on screen, if the Reviews tab is: for the hook to describe its review as it is now. */
+export function assistantContextReview(now = Date.now()): { repo: string; number: number } | null {
+  const r = readStored(now)?.review as { repo?: unknown; number?: unknown } | undefined;
+  return r && typeof r.repo === 'string' && r.repo && typeof r.number === 'number' && Number.isInteger(r.number) && r.number > 0
+    ? { repo: r.repo, number: r.number }
+    : null;
 }
 
 function readStored(now: number): Partial<StoredContext> | null {

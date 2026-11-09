@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { DEFAULT_HOST, hostForRepo, knownHosts } from '../hosts/index.js';
 import os from 'node:os';
 import path from 'node:path';
 import { getConfigDir, getConfigPath, loadConfig } from '../platform/config.js';
@@ -6,6 +7,7 @@ import { atomicWriteFile, withFileLock } from '../platform/fs-safe.js';
 import { loadHistory } from '../sessions/history.js';
 import { defaultRunner, type CommandRunner } from '../pr/ship.js';
 import type { SetupWire, ToolCheck } from '../api-types.js';
+import { makeFolder } from '../worktree/worktrees-root.js';
 
 /**
  * First run (the dashboard's Welcome page, `work init`): where your repos
@@ -55,7 +57,8 @@ export async function saveFolders(req: { worktreesRoot: string; reposFolder: str
   if (rf) throw new Error(`Repos folder: ${rf}`);
   const worktreesRoot = path.resolve(req.worktreesRoot.trim());
   const reposFolder = path.resolve(req.reposFolder.trim());
-  fs.mkdirSync(worktreesRoot, { recursive: true });
+  const cantMake = makeFolder(worktreesRoot);
+  if (cantMake) throw new Error(`Worktrees folder: ${cantMake} — pick a folder you own, e.g. under ${os.homedir()}`);
   getConfigDir();
   const file = getConfigPath();
   if (!fs.existsSync(file)) fs.writeFileSync(file, '{}', { flag: 'wx' });
@@ -80,6 +83,8 @@ interface ToolSpec {
   missing: string;
   /** A failure that isn't "not installed" (gh logged out). */
   failing?: string;
+  /** Checked first, each with its own line when it fails (az's azure-devops extension). */
+  requires?: Array<{ args: string[]; failing: string }>;
 }
 
 const TOOLS: ToolSpec[] = [
@@ -93,15 +98,6 @@ const TOOLS: ToolSpec[] = [
     missing: 'Install Claude Code (npm install -g @anthropic-ai/claude-code) and sign in once in a terminal.',
   },
   {
-    id: 'gh',
-    label: 'GitHub CLI',
-    needed: false,
-    cmd: 'gh',
-    args: ['auth', 'status'],
-    missing: 'Optional: install gh to see your pull requests, CI and review comments.',
-    failing: 'Optional: run `gh auth login` so work can see your pull requests.',
-  },
-  {
     id: 'acli',
     label: 'Atlassian CLI',
     needed: false,
@@ -111,20 +107,40 @@ const TOOLS: ToolSpec[] = [
   },
 ];
 
+/** Each git host's CLI, after git and Claude Code: optional, it adds that host's pull requests. */
+function toolsNow(): ToolSpec[] {
+  const repos = Object.values(loadConfig()?.repos ?? {});
+  const used = new Set(repos.map((p) => hostForRepo(p).host.id));
+  const hosts = knownHosts()
+    .filter((h) => h.id === DEFAULT_HOST || used.has(h.id))
+    .map((h): ToolSpec => ({
+      id: h.cli.cmd,
+      label: h.cli.label,
+      needed: false,
+      cmd: h.cli.cmd,
+      args: h.cli.checkArgs,
+      missing: h.cli.missing,
+      failing: h.cli.failing,
+      ...(h.cli.requires ? { requires: h.cli.requires } : {}),
+    }));
+  return [TOOLS[0], TOOLS[1], ...hosts, ...TOOLS.slice(2)];
+}
+
 /** Whether each tool answers. A command not found is "missing"; one that runs and fails says why. */
 export async function checkTools(run: CommandRunner = defaultRunner): Promise<ToolCheck[]> {
   return Promise.all(
-    TOOLS.map(async (t): Promise<ToolCheck> => {
-      const r = await run(t.cmd, t.args, os.tmpdir()).catch(() => ({ code: 127, stdout: '', stderr: '' }));
+    toolsNow().map(async (t): Promise<ToolCheck> => {
+      const ask = (args: string[]) => run(t.cmd, args, os.tmpdir()).catch(() => ({ code: 127, stdout: '', stderr: '' }));
+      const notFound = (r: { code: number; stderr: string }) => r.code === 127 || /not (found|recognized)|ENOENT/i.test(r.stderr);
+      const result = (ok: boolean, detail: string): ToolCheck => ({ id: t.id, label: t.label, needed: t.needed, ok, detail });
+      // What it needs beyond itself first (az's azure-devops extension): `az account show` passes without it.
+      for (const pre of t.requires ?? []) {
+        const r = await ask(pre.args);
+        if (r.code !== 0) return result(false, notFound(r) ? t.missing : pre.failing);
+      }
+      const r = await ask(t.args);
       const ok = r.code === 0;
-      const notFound = r.code === 127 || /not (found|recognized)|ENOENT/i.test(r.stderr);
-      return {
-        id: t.id,
-        label: t.label,
-        needed: t.needed,
-        ok,
-        detail: ok ? (r.stdout || r.stderr).split('\n')[0].trim() : notFound ? t.missing : (t.failing ?? t.missing),
-      };
+      return result(ok, ok ? (r.stdout || r.stderr).split('\n')[0].trim() : notFound(r) ? t.missing : (t.failing ?? t.missing));
     }),
   );
 }

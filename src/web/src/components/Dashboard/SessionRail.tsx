@@ -18,7 +18,10 @@ import { StatusLegend } from './StatusLegend.js';
 import {
   DISPLAY_LABEL,
   displayStatus,
+  owedBadge,
+  owedClass,
   railGroups,
+  waitingOnOthers,
   railSessions,
   sessionMatches,
   type DisplayKind,
@@ -28,6 +31,7 @@ import { relativeTime } from '../../utils/time.js';
 import { moveSession } from '../../../../core/rail/session-order.js';
 import { lastActiveAt } from '../../state/session-display.js';
 import { modalOpen } from '../../state/modal-open.js';
+import { accountLabel, pendingLabel } from '../../state/accounts.js';
 import { snoozeLabel } from '../../../../core/rail/snooze.js';
 
 interface Props {
@@ -60,36 +64,50 @@ interface Props {
   onShownChange?: (ids: string[]) => void;
 }
 
+/** "in background: /mtk:code-review-and-quality Re-review…" — what's running while its prompt is free. Pure. */
+export function backgroundLine(b: { what: string | null }): string {
+  return b.what ? `in background: ${b.what}` : 'a background agent is at work';
+}
+
 /**
- * What a rail row doesn't show on its face, for its tooltip: until when
- * it's snoozed, what it waits on, where its PRs stand (the pills show which
+ * What a rail row doesn't show on its face, for its tooltip: what runs in
+ * the background while its prompt is free, until when it's snoozed, what it waits on, where its PRs stand (the pills show which
  * are open), notes waiting for Claude, your note, where its Claude runs.
  * Not its +/− lines: those are the Diff tab's. Pure (`now` for the snooze's wording).
  */
 export function railDetails(s: SessionSummary, now = new Date()): string {
   const c = s.agents ?? s.claudes;
   const bits = [
+    s.attention?.background ? backgroundLine(s.attention.background) : '',
     s.snoozed ? `snoozed ${snoozeLabel(s.snoozed, now)}` : '',
     s.blockedBy?.length ? `waits on ${s.blockedBy.map((b) => b.label).join(', ')}` : '',
     s.prStage?.text ?? '',
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
     s.hasNote ? 'has notes' : '',
+    accountLabel(s.account),
+    pendingLabel(s.accountPending),
     c?.duplicate ? 'two Claudes on one conversation' : c?.inTerminal ? 'running in a terminal' : '',
   ].filter(Boolean);
   return bits.length ? `\n${bits.join(' · ')}` : '';
 }
 
-/** Right-hand status slot: the one thing worth saying about this row. The
- *  status icon on the left says what it is; this says how long, or how many. */
-function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string } {
-  const since = s.attention?.since ?? s.lastAccessedAt;
+/**
+ * The right-hand slot: what waits on you about it first (the pink badge:
+ * "1 reply", "merge", "CI" — the icon says only what its Claude is doing),
+ * else how long its Claude has been at what the icon shows, else "in review"
+ * when its PR waits on others, else when it was last used.
+ */
+function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string; title?: string } {
+  if (kind === 'archiving') return { text: 'archiving…', cls: 'wd-rail-slot-archiving' };
+  if (kind === 'restoring') return { text: 'restoring…', cls: 'wd-rail-slot-archiving' };
   if (s.snoozed) return { text: 'snoozed', cls: 'wd-rail-slot-snoozed' };
+  const owed = owedBadge(s);
+  if (owed) return { text: owed.text, cls: owedClass(owed), title: owed.title };
+  const since = s.attention?.since ?? s.lastAccessedAt;
   if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs' };
-  if (kind === 'done') return { text: relativeTime(since), cls: 'wd-rail-slot-done' };
   if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
-  if (kind === 'review') return { text: String(s.openReviewThreads), cls: 'wd-rail-slot-review' };
-  if (kind === 'pr')
-    return { text: s.prStage!.kind === 'ready' ? 'merge' : s.prStage!.kind === 'conflict' ? 'conflict' : 'CI', cls: 'wd-rail-slot-review' };
+  if (kind === 'background') return { text: relativeTime(since), cls: 'wd-rail-slot-background' };
+  if (waitingOnOthers(s)) return { text: 'in review', cls: 'wd-rail-slot-waiting', title: s.prStage?.text };
   return { text: relativeTime(lastActiveAt(s)), cls: '' };
 }
 
@@ -322,7 +340,7 @@ export function SessionRail({
           className={
             'wd-dash-rail-item' +
             (isActive ? ' wd-dash-rail-item-active' : '') +
-            ((kind === 'needs_input' || kind === 'done' || kind === 'review') && !s.snoozed ? ' wd-dash-rail-item-unseen' : '')
+            ((kind === 'needs_input' || !!owedBadge(s)) && !s.snoozed ? ' wd-dash-rail-item-unseen' : '')
           }
           onClick={() => onSelect(s.id)}
           onContextMenu={(e) => {
@@ -353,7 +371,9 @@ export function SessionRail({
           <span className="wd-dash-rail-lines">
             <span className="wd-dash-rail-line">
               <span className="wd-dash-rail-name">{label}</span>
-              <span className={'wd-dash-rail-slot ' + slot.cls}>{slot.text}</span>
+              <span className={'wd-dash-rail-slot ' + slot.cls} title={slot.title}>
+                {slot.text}
+              </span>
             </span>
             {/* Every row the same two lines: the name and its time (or count), then
                 its project (and branch, when you named it) and its PRs on the right.

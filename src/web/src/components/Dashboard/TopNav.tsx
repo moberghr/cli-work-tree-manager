@@ -16,6 +16,8 @@ interface Props {
   /** Opens / closes the Ctrl+K assistant. */
   onAssistant?: () => void;
   assistantOpen?: boolean;
+  /** Plan limits and token use (UsageMeter): a small button with the nearest limit. */
+  usage?: React.ReactNode;
   /** What work is doing in the background (ActivityIndicator): a small dot. */
   activity?: React.ReactNode;
   /** The Tasks button and its panel (TasksPanel). */
@@ -39,6 +41,7 @@ const TABS: TabDef[] = [
   { key: 'sessions', label: 'Sessions', hotkey: 's' },
   { key: 'start', label: 'Start', hotkey: 'w' },
   { key: 'jira', label: 'Jira', hotkey: 'j' },
+  { key: 'reviews', label: 'Reviews', hotkey: 'v' },
   { key: 'time', label: 'Time', hotkey: 'h' },
 ];
 
@@ -65,6 +68,7 @@ export function TopNav({
   railOpen = false,
   onAssistant,
   assistantOpen = false,
+  usage,
   activity,
   tasks,
   help,
@@ -126,6 +130,7 @@ export function TopNav({
           Ask <kbd>Ctrl K</kbd>
         </button>
       )}
+      {usage}
       {activity}
       {help}
       <ThemeToggle />

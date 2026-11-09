@@ -3,6 +3,432 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **Click the project field and type.** In New worktree, a click on the
+  project field selects the project in it, so what you type replaces it and
+  searches. The click used to leave the cursor after the name, and what you
+  typed was added to it. A double-click keeps the whole name selected, a
+  right- or middle-click is the browser's again (menu, paste), and a tap on a
+  phone or tablet still brings up its keyboard.
+- **New worktree no longer closes while you edit the prompt.** Selecting text
+  in "What should Claude do?" with a drag that ended outside the dialog closed
+  it, and what you had typed was lost. Only a click that starts and ends on
+  the backdrop closes it now.
+
+## 2.9.3 — 2026-11-02
+
+- **No more two Claudes on one session.** A PTY host that hung (stuck starting
+  a terminal) was taken for gone when it reset a connection, so a second host
+  started and resumed every session again beside the first. Only a refused
+  connection now means no host.
+- **A terminal that can't start says so, and tries again.** Instead of
+  "Starting Claude… resuming conversation" for good, the Terminal tab shows why
+  the start failed and tries again after 3, 10, 30 and 60 seconds, with Try now.
+- **Restart the PTY host from the dashboard.** The host outlives updates; when
+  it runs an older release than work, or stops answering, the banner says so
+  and has **Restart it**. Sessions come back with their conversations.
+  `work pty-host --restart --force` does the same from a terminal: a host that
+  doesn't answer is stopped too, once its process proves to be work's.
+- **No freeze after each turn.** A turn's checkpoint ran git while holding up
+  every request (terminals, statuses) until it finished; it now runs alongside.
+- **How work web ended is recorded.** A work web that stops says how (a signal,
+  `--stop`, an exit code), and one killed from outside is named at the next
+  start with when it was last alive; the desktop app logs how its work web
+  exited.
+- **Optional: Windows Terminal's console for terminals.** Config
+  `"useBundledConpty": true` starts terminals on the console node-pty ships
+  instead of Windows' own, whose start hung a host once. Off by default. A
+  terminal start that takes over 5 seconds is now logged as a warning.
+- **The terminal's last row shows.** A session's terminal sized its grid 16px
+  too tall and wide, so its bottom row (Claude's status line) was cut off, and
+  what the rows didn't cover showed as a black bar under it and down the right
+  edge. It now fits its box, in the terminal's own colour.
+
+## 2.9.2 — 2026-11-02
+
+- **PR tab: review comments on their code, as Markdown.** Each review
+  thread shows the lines of code it is about (numbered, added and removed
+  lines coloured, the commented lines marked; "Outdated" when the code has
+  changed since), then the reviewer's whole comment rendered as Markdown —
+  code, lists, links, and GitHub's suggestion blocks labelled "Suggested
+  change". Before, it was the first 400 characters as plain text. Threads
+  already handed over get theirs at the PR watch's next check.
+- **New worktrees don't copy `cdk.out`.** The AWS CDK's build output is left
+  out when copying config files into a worktree.
+- **Questions work in the macOS app.** "Are you sure?" questions (Archive, "It's
+  not running — start it here…", Revert, Discard drafts, leaving an unsaved day
+  on the Time tab) are now a dialog in the page. The macOS app's webview shows
+  no browser pop-up and answered "no", so those buttons did nothing there.
+
+## 2.9.1 — 2026-10-30
+
+- **Time: each row says how it got its hours.** Under every ticket in a
+  day (and on hover over a cell of the Month view): the Claude minutes and
+  the multiplier ("51 min of Claude × 5 = 4.25 h"), meetings, the minimum
+  for a ticket only touched, a cut when the tickets came to more than the
+  day has room for, and what it came from — the sessions, commits and
+  meetings, and whether the AI step placed them because none named the
+  ticket. Rows you changed say "Your hours", with what work had suggested.
+  The Ctrl+K assistant sees it too when you ask about a day.
+- **Time: tasks and service desk.** Set `time.deskProjects` (e.g.
+  `["SSD"]`) and `time.taskMinHours` (e.g. `2`): any other project's ticket
+  is a task, and a task's row on a day is at least that many hours (when
+  the day can't fit them all, the smallest go, and the rest-of-day row says
+  which). With `time.storyPointsField` (your Jira's story points field,
+  e.g. `customfield_10010`), a task's story points weigh its share of the
+  day — × (1 + 0.25 × (points − 1)), `time.pointsWeight` to change it — and
+  its row says so. Off until you set them.
+- **Time: edit in the Month view.** Click a cell and type the hours (empty
+  or 0 takes the ticket off that day); Enter saves the day as your rows.
+  The tab remembers whether you left it on Days or Month.
+- **Time: ask the assistant about the month.** On the Month view, Ask about
+  this month (or Ctrl+K) opens the assistant with every day's rows and how
+  each got its hours. It can change days (`work timesheet set`) and gather
+  them again (`work timesheet gather <day>` or `gather 2026-10`), asking
+  you first; posting stays yours. `work timesheet month [YYYY-MM]` prints
+  a month in a terminal.
+
+## 2.9.0 — 2026-10-30
+
+- **Time: post a whole month at once.** The Time tab now has the whole
+  month, not only the last two weeks: work gathers every day from the 1st
+  (or further back when `time.catchUpDays` says so), Claude minutes
+  included. ‹ › steps between months, and **Days | Month** switches the
+  view. Month shows every ticket against every day, with each ticket's
+  total and each day's (amber when it isn't the full day), a dot per day
+  for where it stands (in Tempo, changed since, edited, suggested); a
+  day's column opens it. **Post N days to Tempo…** shows the hours per
+  ticket across the days that go, then posts them one after another, each
+  as its own Post does (Tempo's day read first, your hand-made worklogs left
+  alone), with progress, Stop after this day, and a line naming anything
+  Tempo refused. Left out, with the reason: today, days already in Tempo,
+  days with a placeholder ticket, days not gathered yet, and weekends or
+  holidays you haven't saved rows for (their suggestion would be a whole
+  day). For an earlier month, **Gather N days** fetches the days work never
+  looked at.
+
+## 2.8.0 — 2026-10-30
+
+- After updating, run `work pty-host --restart` once: a PTY host from before this release refuses sessions on another account, and says so.
+
+- **Claude accounts:** use more than one Claude Code login from work, for
+  when the first one's weekly limit runs out. Add one with `work account
+  add <name>` (it starts `claude` on the new account's own folder so you
+  `/login` once); `work account list` shows each account, whether it is
+  logged in and its last usage reading, `work account default <name>` picks
+  the one new sessions use. New sessions can take another account with
+  `work tree … --account <name>` or New worktree's "More options". To move a
+  running session, use ⋯ → Claude account… (⇧C, or the rail's right-click
+  menu) or `work account switch --to <name>`: its conversation moves to the
+  new account and its Claude starts again where it was, in the same
+  terminal — after its current turn when it is working. A session on another
+  account shows "account: <name>" in its header, and the Usage panel names
+  each account. Without a second account nothing changes. With accounts
+  set up, a session on the default account no longer picks up a
+  `CLAUDE_CONFIG_DIR` from the shell you started it in: it runs on
+  `~/.claude`, as its account says. `work account remove` also refuses an
+  account archived sessions still use (`--force` removes it anyway).
+
+## 2.7.0 — 2026-10-29
+
+- **Usage on the top bar:** a small meter shows the plan limit nearest its
+  end ("Claude wk 18%", amber from 70%, red from 90%). Click it for every
+  window with its reset time, how old the reading is, the tokens your
+  sessions used today and this week (per model), and the sessions that used
+  most. The limits are read from Claude Code's status line: work web puts
+  itself in front of it and passes your own status line through, so it looks
+  the same. The wrapper stays in place when work web stops (it is a plain
+  `work hook statusline` call, with your own command after `||`, so your
+  line still shows should `work` ever be uninstalled); `usage.statusLine:
+  false` in config (applied at the next work web start) or `work usage
+  --restore` gives your status line back. `work usage` prints the same in a
+  terminal.
+
+## 2.6.4 — 2026-10-28
+
+- **A finished turn to review is a badge, not the status.** The status icon
+  now says only what its Claude is doing: a session that finished a turn
+  you haven't looked at reads Idle (or Asleep, "z z"), with a blue
+  **review** pill on the right, beside the pink ones for what waits on you
+  on GitHub. The Inbox's Done section, bold rows, `n` and Review all are
+  as they were.
+
+## 2.6.3 — 2026-10-28
+
+- **Idle Claudes sleep after 10 minutes, and only when truly idle.** The
+  default was 2 hours (at least 30 minutes); it's now 10 (at least 5). A
+  Claude is stopped only when nothing is attached, it printed nothing for
+  that long, and nothing of it is still at work: not working or waiting on
+  you, no background agent, no background command it started still running,
+  nothing running from its folder. When a check can't tell, it stays awake,
+  and the Activity panel says why. Opening a slept session starts it again
+  at once (it used to say "running in another terminal" for half an hour).
+- **Asleep:** a session whose Claude was put to sleep shows a grey "z z"
+  instead of the idle ring.
+- **The Ctrl+K assistant runs only when you use it:** it's no longer
+  brought back by every PTY host restart, and it sleeps like a session.
+- **Diff colours:** a hunk starting inside a raw string or a comment was
+  coloured from the middle — the closing `"""` read as an opening one, and
+  everything after it as a string. Each file is now coloured whole, hunks
+  and the lines you expand alike.
+- **Comments in the diff's side panel:** a click on one that isn't in the
+  changes on screen (a resolved one, often) used to do nothing; it now opens
+  there, in full with its replies. One on screen that's resolved is unfolded.
+- More room between text boxes and their buttons: the Submit review
+  summary, line comments, the general note, notes and reply drafts.
+
+## 2.6.2 — 2026-10-28
+
+- **PR replies never get stuck.** A session entered with `work tree` more
+  than 30 days ago dropped out of the PR watch, even when you worked in it
+  every day: its new review threads were never read, so Claude's
+  `work pr reply` refused them, and the session got no PR stage, CI notes or
+  auto-archive. The watch now counts the agent's work too. `work pr reply`
+  also asks GitHub itself when work's last check doesn't have a thread
+  (accepted on the same terms: open, on this session's PR, last word not
+  yours). And a draft whose thread was resolved on GitHub (a bot resolves
+  its own outdated ones) is cleared, instead of saying "1 reply to post"
+  forever.
+- **Bold and italic copy from the terminal**, and paragraphs keep a blank
+  line between them when pasted into Teams or Outlook.
+
+## 2.6.1 — 2026-10-28
+
+- **One update, not two.** When an update had downloaded and was waiting
+  for Restart, the desktop app stopped looking for a newer one: with 2.5.3
+  waiting and 2.6.0 out, you restarted into 2.5.3, then updated again. It now
+  keeps looking and downloads the newer release in its place, so Restart goes
+  straight to the newest. (It takes effect from the update after this one.)
+
+## 2.6.0 — 2026-10-28
+
+- **Two signals per session: what its Claude is doing, and what waits on
+  you.** The status icon now says only what Claude is doing (working, needs
+  your input, done, idle…). What waits on *you* is a pink badge on the right
+  of its row — "1 reply", "2 threads", "merge", "CI", "conflict" (hover for
+  all of it) — whatever Claude is doing. A session with nothing left but a
+  reply to post used to read Idle and stayed out of the Inbox; it now shows
+  the badge and is in the Inbox's **Needs you** section. A PR that only waits
+  on reviewers says "in review", quietly. The header's Needs you line, the
+  Sessions table and `work sessions` read the same list, and now include
+  "ready to merge".
+- **Copying from the terminal comes out clean.** Lines Claude Code wrapped at
+  the screen's edge are joined back, and its indent, padding and markers are
+  gone. A table you select pastes into Teams, Outlook or Word as a table.
+- **Copy Claude's last reply** (⋯ menu, or ⇧Y): the reply as Claude wrote it,
+  from the conversation, not the screen — and formatted, so tables, lists and
+  code paste into Teams as such.
+
+## 2.5.3 — 2026-10-28
+
+- **Archiving and restoring show.** A session being archived — by you, by
+  Ship, by a merged pull request or by Clean up — shows **Archiving** (a grey
+  turning icon, "archiving…" on the rail) everywhere until it's gone. A
+  session you restore is back on the rail at once as **Restoring**, until it's
+  ready. Both show in every open window.
+- **Searching Sessions no longer hides the list.** The matches in
+  conversations squeezed the table above them away a few seconds into a
+  search; they now come after it, in one scrolling list. Archived shows only
+  archived conversations.
+- The CHANGELOG's 2.5.1 entry is put right (it repeated 2.5.2's).
+
+## 2.5.2 — 2026-10-27
+
+- **A review thread resolved on GitHub leaves the dashboard.** Resolving a
+  thread doesn't change the pull request's last-updated time, which is what
+  the PR watch went by, so a thread you resolved on GitHub stayed "open" in
+  work until something else happened on the PR. A PR with open threads is now
+  read again every 10 minutes.
+- **Ask Claude to reply works.** A reply Claude drafted for a thread you
+  handed it with Ask Claude to reply was refused ("wasn't handed to this
+  session"). It's accepted now, as is a new reply to a thread the reviewer
+  answered after your last one.
+- **A pull request that's ready to merge keeps its icon.** Once you had
+  looked at an approved, ready-to-merge PR (or one with a conflict or failing
+  checks), its session went back to a plain Idle ring on the rail. It now
+  keeps the Pull request icon until it's merged; looking only takes it out of
+  the Inbox.
+- More room between a PR's failing checks and Ask Claude to fix.
+## 2.5.1 — 2026-10-26
+
+- **Archive asks first.** Archiving a session from the dashboard (its button,
+  `e`, the rail's menu, a Sessions row) now asks before it goes, naming the
+  session; the bulk bar asks once for all the ticked ones. Restore doesn't ask,
+  and nothing asks when work archives a session itself (a merged pull request,
+  Ship, Clean up).
+
+## 2.5.0 — 2026-10-26
+
+- **In background.** A session whose turn ended while a background agent it
+  started (a review, a long check) is still at work now says so: the same
+  turning arc in teal, "In background", and what the agent is in the rail's
+  tooltip. Its Claude's prompt is free, so you can talk to it meanwhile.
+- **Background work is seen sooner and longer.** An agent started just as the
+  turn ended counts right away (it read Idle until it wrote again), and one
+  waiting on a long run stays counted for an hour instead of 15 minutes.
+
+## 2.4.1 — 2026-10-26
+
+- **C# raw strings are coloured right.** An interpolated raw string
+  (`$"""…"""`, `$$"""…"""`) is now one string in the Diff and Code tabs. Before,
+  a JSON body in one came out coloured as code, and a URL in it as a comment
+  from its `//`.
+- **zod 4.6.7**, past a high-severity advisory (GHSA-mrhx-c7xc-m3w5: memory
+  exhausted validating oversized collections).
+
+## 2.4.0 — 2026-10-22
+
+- **The branch field starts empty.** In New worktree, the suggested branch
+  is only shown greyed out: type your own without deleting anything first.
+  Left empty with a prompt, the suggestion is used.
+- **Add a repo to a session** (⋯ → Add a repo…, `⇧A`, or `work add-repo
+  <alias>`). A group session's folder gets another repo, checked out on the
+  session's branch. Its Claude is told, and the Diff tab keeps its turns.
+- **Session folders, opt in** (`"sessionFolders": true` in config.json,
+  experimental). Every new session is a folder of repos, a single repo's
+  too, so a repo can be added to any new session. Its folder is named after
+  its branch with a short id (`worktrees/fix-login-a3f9c2/<repo>/`), so the
+  same branch name in two projects never shares a folder. Its instructions file
+  imports each repo's own instead of a generated summary. Sessions you
+  already have keep their layout and instructions, whatever the switch says.
+- **A session keeps its own repo list.** New sessions record which repos
+  they hold; sessions from before go on following their group's config as
+  they always did. One visible change with the switch off: removing a repo
+  that a live group session records now asks first (**Do it anyway**), and
+  the Repos page counts those sessions.
+
+## 2.3.2 — 2026-10-20
+
+- **Only the changed files, in the Code tab.** **Changed · N** under the
+  file filter shows just the files changed on the branch, as a tree with
+  their folders open. With a filter typed, it searches among them.
+- **Filter matches as a tree.** While you filter, **List | Tree** shows the
+  matching files flat, as before, or in their folders. The choice is
+  remembered.
+
+## 2.3.1 — 2026-10-20
+
+- **Merge conflicts go to the session's Claude.** When one of a session's
+  pull requests gets a merge conflict, its Claude is asked to merge the base
+  branch in (never a rebase or force push), resolve it, check the build and
+  tests, and push. A conflict that takes a decision comes to you as a
+  question instead of a guess. On by default; `prWatch.fixConflicts: false`
+  turns it off.
+- **Sessions start on a Mac app opened from the Dock.** The app got the
+  system's minimal PATH, so `claude` wasn't found and every session ended at
+  once with "session exited with code 1". work now takes the PATH your login
+  shell sets up when it can't find the agent. If you hit this before, run
+  `work pty-host --restart` once in Terminal after updating.
+- **A worktrees folder you can't create is refused in words.** `work init`
+  now creates the folder as you enter it (and expands `~`), and asks again
+  when it can't. Creating a worktree under one says what's wrong and where
+  to change it (`worktreesRoot`, `work config edit`), instead of a
+  permission error's stack trace.
+
+## 2.3.0 — 2026-10-16
+
+- **A session that handed its work to a background agent reads Working.**
+  When Claude ends its turn by starting a background agent, the session no
+  longer shows Idle while that agent works: it reads Working until the
+  agent's result comes back as a new turn. One whose agent has been quiet
+  for 15 minutes is taken as finished.
+- **Pull requests show right after a restart.** work keeps each session's
+  last pull-request check, so after work web or the app restarts the rail
+  and the session header show its PRs at once, instead of after the first
+  check reaches it a minute or two later.
+- **A worktree on another branch finds its PR.** When Claude (or you)
+  switched a session's worktree to another branch, its pull request on that
+  branch now shows in the rail and the header, and Start links that PR to
+  the session.
+- **No more console windows flashing on Windows.** Open in editor, desktop
+  notifications, status hooks and opening a link each flashed a console
+  window for a moment; they no longer do.
+
+## 2.2.1 — 2026-10-15
+
+- **A space in a branch name becomes a dash.** In New worktree's and
+  Fork's branch field, `fix login bug` becomes `fix-login-bug` as you type
+  or paste; several spaces (and dashes around them) become one dash, and the
+  cursor stays where you were typing.
+- A new README and [website](https://moberghr.github.io/cli-work-tree-manager/):
+  the app first, with every feature and what it does for you.
+
+## 2.2.0 — 2026-10-15
+
+- **Code tab.** A session has a fourth tab, **Code** (key `4`): its files,
+  read only. The tree lists what git does (tracked files and new ones that
+  aren't ignored), a group's repos as folders. Files changed on the branch
+  have a dot, with **See the change** to the Diff. A file Claude changes
+  while you read it isn't swapped under you: "File changed · Reload".
+  **Open in editor** opens the file in your editor at the line you're
+  reading (VS Code in the worktree's window; JetBrains and Sublime at the
+  line too).
+- **Search the code (Ctrl+T).** As in Visual Studio: one box for types and
+  members by name (C#, TypeScript/JavaScript, Python; `GPJ` finds
+  `GetPendingJobs`), files by path, and lines with the text in them, across
+  a group's repos. Enter opens the place in the Code tab at its line. Ctrl+T
+  works from any tab in the desktop app; in a browser tab, which keeps
+  Ctrl+T for itself, use the Code tab's search button.
+- **Archived sessions in the Sessions list.** **Live · Archived · All** in
+  its header, **Restore** on each archived row, and a Project column. An
+  archived session says who archived it: you, Ship's merge, its pull
+  request merging (the PR watch), or Clean up. The Archived list's time
+  column shows when it was archived.
+- **A group's repos in the Diff toolbar.** The repo switch moved from above
+  the diff to the start of the toolbar. It's always there, listing every
+  repo with its file count. Before, picking one repo's commit hid the other
+  repos, and the only way back was through Uncommitted.
+- **Archive stops what still runs from the worktree.** A dev server or
+  `vite` that Claude left running held files open, so the worktree was only
+  partly removed. Archive now stops processes whose program is in the
+  worktree, and says what it stopped. Never your editor, its language
+  servers, or a tool of yours that was only handed a file there. The PR
+  watch's automatic archive stops nothing: a worktree with something still
+  running is kept. Restore names what still holds a half-removed folder and
+  offers to stop it.
+- **New worktree names the branch from what you ask.** A Jira key gives
+  `feat/<KEY>`, a pasted exception `fix/<its name>`, a question `tmp/…`,
+  then a few words from your prompt. Instant, no Claude call.
+- **The Inbox uses the whole width** of the window, so names and summaries
+  aren't cut short on a wide screen.
+- The Diff tab no longer has a reviewed checkbox or Revert on each hunk;
+  **Revert file** stays.
+- Timeline moved to the session's ⋯ menu.
+- A restored session's Claude is no longer reported as "running in another
+  terminal".
+- Restore brings conversations back in the order they happened.
+- What's new opens wider.
+
+## 2.1.0 — 2026-10-14
+
+- **The Inbox count on the taskbar.** In the desktop app, the taskbar icon
+  (the Dock icon on macOS) shows how many sessions want you, and the taskbar
+  button flashes when a session starts waiting on your answer, unless the
+  window is already in front. The flash can be turned off in the version
+  menu.
+- **Since branch is right for a new branch.** A branch just made from `dev`,
+  with nothing committed yet, showed every commit `dev` has that `main`
+  doesn't. It now shows nothing until you commit, then only your commits. New
+  worktrees remember the branch they were made from, and the diff measures
+  from the freshest copy of it (yours or `origin`'s), so changes you merged
+  in from it aren't counted as the branch's own.
+- **Only new.** When Claude changes files while you read a diff, the "New
+  changes" chip in the Diff tab now has **Only new** beside Show and Reload:
+  just what changed since the diff on screen, from Claude's last turn before
+  it.
+- **Review comments in the diff.** A resolved comment you opened folds back
+  with **Hide**, top right, where its Show was. Reply, Resolve and Delete
+  are proper buttons; Delete asks once more (and says how many replies go
+  with it). A reply you're writing on a resolved thread stays open. The
+  comment list on the left puts resolved comments last, under their own
+  heading.
+- The restart card and the version menu name the sessions still running an
+  old Claude Code; click one to open it.
+
+Update the desktop app for the taskbar count (its Restart, or the next
+start).
+
 ## 2.0.13 — 2026-10-13
 
 - **Restart Claude sessions after Claude Code updates.** A running Claude

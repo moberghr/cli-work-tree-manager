@@ -4,6 +4,7 @@ import type { GroupRow, RepoRow, ReposWire } from '../api-types.js';
 import { getConfigDir, getConfigPath, type WorkConfig } from '../platform/config.js';
 import { atomicWriteFile, withFileLock } from '../platform/fs-safe.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
+import { recordedRepos } from '../sessions/session-repos.js';
 import { enrollProblem, groupProblem, samePathKey, scanForRepos, suggestAlias, type FoundRepo } from './repo-scan.js';
 
 /**
@@ -32,6 +33,9 @@ export function scanRootsOf(config: Pick<WorkConfig, 'scanRoots' | 'worktreesRoo
 }
 
 const live = (history: WorktreeSession[], target: string) => history.filter((s) => !s.archivedAt && s.target === target);
+/** Live sessions on a repo: its own (target), and any that records it among its repos (a group's, say). */
+const liveOnRepo = (history: WorktreeSession[], alias: string) =>
+  history.filter((s) => !s.archivedAt && (s.target === alias || (recordedRepos(s)?.some((r) => r.alias === alias) ?? false)));
 const label = (s: WorktreeSession) => `${s.target} · ${s.branch}`;
 
 /**
@@ -62,7 +66,7 @@ export function repoInventory(
       alias,
       ...(others.length ? { sharedWith: others } : {}),
       groups: groupsOf(alias),
-      sessions: live(history, alias).length,
+      sessions: liveOnRepo(history, alias).length,
     };
   });
   const taken = (a: string) => a in config.repos || a in config.groups;
@@ -143,7 +147,7 @@ export async function enrollRepo(alias: string, repoPath: string): Promise<void>
  * also leaves every group it was in.
  */
 export async function removeRepo(alias: string, history: WorktreeSession[], opts: { force?: boolean } = {}): Promise<void> {
-  const sessions = live(history, alias);
+  const sessions = liveOnRepo(history, alias);
   if (sessions.length && !opts.force)
     throw new RepoAdminError(`${sessions.length} live session${sessions.length === 1 ? '' : 's'} on ${alias}`, sessions.map(label));
   await editConfig((raw) => {
@@ -197,4 +201,16 @@ export async function deleteGroup(name: string, history: WorktreeSession[], opts
     delete raw.groups![name];
   });
   fs.rmSync(path.join(getConfigDir(), `${name}.claude.md`), { force: true });
+}
+
+/** A project's automatic reviews (#64): `all`, `asked` or `off`, for a repo alias or a group name in config. */
+export async function setReviewMode(project: string, mode: 'all' | 'asked' | 'off'): Promise<void> {
+  await editConfig((raw) => {
+    if (!raw.repos?.[project] && !raw.groups?.[project]) throw new RepoAdminError(`${project} isn't one of your repos or groups`);
+    const reviews = (raw.reviews && typeof raw.reviews === 'object' && !Array.isArray(raw.reviews) ? raw.reviews : {}) as {
+      projects?: Record<string, string>;
+    };
+    reviews.projects = { ...(reviews.projects ?? {}), [project]: mode };
+    raw.reviews = reviews;
+  });
 }

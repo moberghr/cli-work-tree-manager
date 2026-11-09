@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import { agentFor } from '../agents/index.js';
+import { DEFAULT_ACCOUNT, getConfigDir } from '../platform/config.js';
 import { restoreArchivedIgnored, restoreArchivedUncommitted } from '../archive/archive-restore.js';
 import { isLeftover, putLeftoverBack, setLeftoverAside, takeLeftover } from './leftover.js';
 import path from 'node:path';
 import { debug } from '../platform/logger.js';
 import type { WorkConfig } from '../platform/config.js';
-import { getConfigDir } from '../platform/config.js';
+import type { WorktreeSession } from '../sessions/session-types.js';
 import { resolveProjectTarget } from './resolve.js';
 import {
   findSession,
@@ -16,6 +17,10 @@ import {
   forgetOtherBaseCheckoutEntries,
 } from '../sessions/history.js';
 import { bestEffort } from '../platform/best-effort.js';
+import { recordCheckedOutBranches } from '../sessions/session-branches.js';
+import { isFolderSession, recordedRepos, sessionRepos, type SessionRepo } from '../sessions/session-repos.js';
+import { hasInstructionsBlock, writeSessionInstructions } from './session-instructions.js';
+import { sessionFolderPath } from './session-folder.js';
 import { readArchive, restoreArchivedTranscripts } from '../archive/session-archive.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import {
@@ -33,6 +38,7 @@ import {
 import { copyConfigFiles } from './copy-files.js';
 import { type BaseSpec, baseForAlias, baseSpecOverrideAliases, isEmptyBaseSpec, toBaseSpec } from '../git/base-spec.js';
 import { report } from '../platform/report.js';
+import { makeFolder, worktreeFolderMessage } from './worktrees-root.js';
 
 /**
  * Pull latest changes for a checkout we're switching into (a worktree that
@@ -148,6 +154,8 @@ export function createSingleWorktree(
   pull = true,
   /** Its repo was fetched just now (a group fetches every repo at once first). */
   fetched = false,
+  /** Told which branch a new branch was made from when no base was given (the main checkout's), so the session can record it. */
+  created?: { from?: string },
 ): boolean {
   debug('createSingleWorktree', { repoPath, worktreePath, branchName, baseBranch });
 
@@ -164,7 +172,7 @@ export function createSingleWorktree(
       return false;
     }
   }
-  const made = makeSingleWorktree(repoPath, worktreePath, branchName, config, baseBranch, pull, fetched);
+  const made = makeSingleWorktree(repoPath, worktreePath, branchName, config, baseBranch, pull, fetched, created);
   // It couldn't be made: the leftover goes back where it was, not stranded beside it.
   if (!made && aside && !fs.existsSync(worktreePath)) {
     try {
@@ -185,13 +193,15 @@ function makeSingleWorktree(
   baseBranch: string | undefined,
   pull: boolean,
   fetched: boolean,
+  created: { from?: string } | undefined,
 ): boolean {
   // Check if the worktree already exists at the target path (idempotent re-run)
   if (fs.existsSync(worktreePath)) {
     if (isGitRepo(worktreePath)) {
       const currentBranch = getCurrentBranch(worktreePath);
       if (currentBranch === branchName) {
-        report('warn', `  Worktree already exists at: ${worktreePath}`);
+        // Coming back to it is the common case, not a warning (the dashboard shows warnings).
+        report('info', `  Worktree already exists at: ${worktreePath}`);
         if (pull) pullLatestForBranch(worktreePath, branchName);
         return true;
       }
@@ -222,7 +232,11 @@ function makeSingleWorktree(
 
   // Create parent directory
   const parentDir = path.dirname(worktreePath);
-  fs.mkdirSync(parentDir, { recursive: true });
+  const cantMake = makeFolder(parentDir);
+  if (cantMake) {
+    report('error', worktreeFolderMessage(parentDir, config.worktreesRoot, cantMake));
+    return false;
+  }
 
   // Fetch remote refs first so origin/* is up to date even if pull fails below
   if (!fetched) git(['fetch', '--quiet'], repoPath);
@@ -245,7 +259,8 @@ function makeSingleWorktree(
     const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
     report('info', `  Pulling latest changes for main repo (on ${baseBranchLabel})...`);
     if (baseRepoBranch && !['master', 'main', 'dev'].includes(baseRepoBranch)) {
-      report('warn', `  ⚠ Warning: base repo is on '${baseRepoBranch}', not master/main/dev`);
+      // Where the new branch comes from, said; not a warning (a team on `develop` would see it on every worktree).
+      report('detail', `  Note: base repo is on '${baseRepoBranch}', not master/main/dev`);
     }
     const baseRepoPull = git(['pull', '--quiet'], repoPath);
     baseRepoPullFailed = baseRepoPull.exitCode !== 0;
@@ -318,7 +333,8 @@ function makeSingleWorktree(
   } else if (baseBranch) {
     report('step', `  Created new branch ${branchName} from ${baseBranch}`);
   } else {
-    report('step', `  Created new branch ${branchName}`);
+    report('step', `  Created new branch ${branchName}${baseRepoBranch ? ` from ${baseRepoBranch}` : ''}`);
+    if (created && baseRepoBranch) created.from = baseRepoBranch;
   }
 
   report('success', `  Created worktree: ${worktreePath}`);
@@ -458,6 +474,18 @@ export interface WorktreeSetupOptions {
   checkoutFor?: Record<string, string>;
   /** Name the session (its title, shown instead of the branch); empty keeps what it has. */
   name?: string;
+  /**
+   * A NEW session's repos (aliases), instead of its group's config: a fork of
+   * a session folder takes the parent's own list, which may hold a repo the
+   * group doesn't name. Given, the session is made as a folder. An existing
+   * session keeps the repos (and layout) it records.
+   */
+  repos?: string[];
+  /**
+   * The Claude account a NEW session runs on (a name from config `claudeAccounts`, or `default`); unset: the configured
+   * default. An unknown name is refused before anything is made. An existing session keeps the account it has.
+   */
+  account?: string;
 }
 
 /**
@@ -472,6 +500,17 @@ export interface WorktreeSetupResult {
   isGroup: boolean;
   /** Stable dev-server port allocated to this worktree, if allocation succeeded. */
   port?: number;
+}
+
+/**
+ * Why a new session can't run on `account` (a message), or null: the name must be one of the configured agent's
+ * accounts (its adapter's `accounts` part); an agent without accounts takes only the default (a fork of one passes it).
+ */
+export function accountRefusal(account: string | undefined, config: WorkConfig): string | null {
+  if (account === undefined) return null;
+  const agent = agentFor(config);
+  if (!agent.accounts) return account === DEFAULT_ACCOUNT ? null : `${agent.name} has no accounts: “${account}” can't be used`;
+  return agent.accounts.has(account) ? null : `Unknown ${agent.name} account: ${account} (see \`work account list\`)`;
 }
 
 /**
@@ -496,26 +535,49 @@ export async function setupWorktree(
     return null;
   }
 
+  // A name that isn't an account is refused first, before any git: a session recorded on it couldn't start.
+  const accountRefused = accountRefusal(opts.account, config);
+  if (accountRefused) {
+    report('error', accountRefused);
+    return null;
+  }
+
   const workTreeDirName = branchName.replace(/\//g, '-');
+  const sessionTarget = target.isGroup ? target.name : targetName;
+  // A repo's session made as a folder (config `sessionFolders`, or one recorded so): set
+  // up as a group of its own repos, in its session folder (session-folder.ts: `<root>/<branch>-<id6>/<repo-folder>/`).
+  const explicit = explicitRepos(sessionTarget, branchName, opts.repos, config);
+  if (explicit && 'error' in explicit) {
+    report('error', explicit.error);
+    return null;
+  }
+  const asFolder = target.isGroup || !!explicit || folderSessionFor(targetName, branchName, config);
+  // Its repos: coming back to a session that records its own (it may hold a repo its
+  // group's config doesn't name, or one the group lost), those; else the ones asked
+  // for (a new session's), else the group's config.
+  const repoAliases = asFolder
+    ? groupReposFor(sessionTarget, branchName, explicit?.repos ?? target.repoAliases, config)
+    : target.repoAliases;
+  if (asFolder && repoAliases.length === 0) {
+    report('error', `none of this session's repos are in your config: add them back (work config add) to open it`);
+    return null;
+  }
 
   // Coming back to an archived session whose merged branch archiving
   // deleted: put the branch back at the tip it had, so the worktree is that
   // work (branch resolution would otherwise start a new branch from base).
-  bestEffort('recreate the archived branch', () =>
-    recreateArchivedBranches(target.isGroup ? target.name : targetName, branchName, target.repoAliases, config),
-  );
+  bestEffort('recreate the archived branch', () => recreateArchivedBranches(sessionTarget, branchName, repoAliases, config));
   // And its worktree comes back on the branch it was on (Claude may have
   // switched from the session's), not a new one of the session's name.
-  const checkoutFor = opts.checkoutFor ?? archivedHeads(target.isGroup ? target.name : targetName, branchName);
+  const checkoutFor = opts.checkoutFor ?? archivedHeads(sessionTarget, branchName);
   if (checkoutFor) opts = { ...opts, checkoutFor };
 
-  const result = target.isGroup
-    ? await setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts)
+  const result = asFolder
+    ? await setupGroupWorktree(sessionTarget, repoAliases, branchName, config, spec, jiraKey, opts)
     : await setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
   // Coming back to an archived session: put its conversation back where
   // Claude looks for it (only files that aren't there), so it continues.
   if (result) {
-    const sessionTarget = target.isGroup ? target.name : targetName;
     const session = findSession(loadHistory(), sessionTarget, branchName);
     if (session) bestEffort('restore the archived conversation', () => restoreArchivedTranscripts(session), 0);
     // And the uncommitted work archiving saved when it removed the worktree.
@@ -530,8 +592,8 @@ export async function setupWorktree(
     const tips = session ? (readArchive(sessionIdFor(session))?.tips ?? {}) : {};
     for (const p of result.paths) {
       // Its repo: a group's worktrees are named after the repo's folder, a single repo's is the target.
-      const alias = target.isGroup
-        ? target.repoAliases.find((a) => path.basename(config.repos[a] ?? '').toLowerCase() === path.basename(p).toLowerCase())
+      const alias = asFolder
+        ? repoAliases.find((a) => path.basename(config.repos[a] ?? '').toLowerCase() === path.basename(p).toLowerCase())
         : targetName;
       putBackLeftover(p, alias ? tips[alias] : undefined);
     }
@@ -539,6 +601,61 @@ export async function setupWorktree(
   }
   return result;
 }
+
+/**
+ * Whether a repo's session (`work tree <alias> <branch>`) is a session folder:
+ * an existing session as it was made (a folder session records its repos and
+ * `isGroup`; a single one keeps its layout whatever the switch says); a new one
+ * when config `sessionFolders` is on — unless a worktree of the branch is there
+ * already (made outside a session), which is reused as it always was.
+ */
+function folderSessionFor(alias: string, branch: string, config: WorkConfig): boolean {
+  const known = findSession(loadHistory(), alias, branch);
+  if (known) return isFolderSession(known);
+  if (config.sessionFolders !== true) return false;
+  const repoPath = config.repos[alias];
+  // Not there: the single-repo setup says so, as always.
+  if (!repoPath || !fs.existsSync(repoPath)) return false;
+  return !parseWorktreeList(repoPath).some((wt) => wt.branch === branch && path.resolve(wt.path) !== path.resolve(repoPath));
+}
+
+/**
+ * The repos asked for a new session (`opts.repos`), checked against the
+ * config; undefined when none were asked for, or the session exists already
+ * (it keeps what it records — and its layout).
+ */
+function explicitRepos(
+  sessionTarget: string,
+  branch: string,
+  repos: string[] | undefined,
+  config: WorkConfig,
+): { repos: string[] } | { error: string } | undefined {
+  if (!repos?.length || findSession(loadHistory(), sessionTarget, branch)) return undefined;
+  const unique = [...new Set(repos)];
+  const unknown = unique.filter((a) => !config.repos[a]);
+  if (unknown.length) return { error: `not in your config: ${unknown.join(', ')}` };
+  const folders = unique.map((a) => path.basename(config.repos[a]).toLowerCase());
+  if (new Set(folders).size !== folders.length) return { error: `two of these repos have the same folder name: ${unique.join(', ')}` };
+  return { repos: unique };
+}
+
+/**
+ * A group session's repos to set up: the ones an existing session records
+ * (sessionRepos), else — a new session, or a row from before — the group's
+ * config. A recorded repo no longer in the config can't be checked out: said, and skipped.
+ */
+function groupReposFor(sessionTarget: string, branch: string, configured: string[], config: WorkConfig): string[] {
+  const known = findSession(loadHistory(), sessionTarget, branch);
+  // A list that is there but damaged is matched by folder name (listedRepos), never replaced by the config.
+  const own = known ? listedRepos(known, config) : null;
+  if (!own) return configured;
+  const gone = own.filter((r) => !config.repos[r.alias]).map((r) => r.alias);
+  if (gone.length) report('warn', `not in your config any more, so not set up: ${gone.join(', ')}`);
+  return own.map((r) => r.alias).filter((a) => !gone.includes(a));
+}
+
+/** The same aliases, in any order (a new session made with the group's repos, or another list: a fork's). */
+const sameRepos = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
 /** Copy a leftover set aside for this worktree (createSingleWorktree) back into it, and say how it went. */
 function putBackLeftover(worktree: string, tip: string | undefined): void {
@@ -604,13 +721,19 @@ async function setupGroupWorktree(
   groupName: string,
   repoAliases: string[],
   branchName: string,
-  workTreeDirName: string,
   config: WorkConfig,
   spec: BaseSpec,
   jiraKey?: string,
   opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
-  const groupWorktreePath = path.join(config.worktreesRoot, groupName, workTreeDirName);
+  // `<root>/<branch>-<id6>/` for a new one with `sessionFolders` on, else `<root>/<group>/<branch>/`; an existing one where it is.
+  const groupWorktreePath = sessionFolderPath(
+    groupName,
+    branchName,
+    config,
+    findSession(loadHistory(), groupName, branchName),
+    fs.existsSync,
+  );
 
   // Pre-validate --base across all repos before creating anything. Each repo
   // resolves its own base: a per-repo override (`alias=branch`) if present,
@@ -650,11 +773,16 @@ async function setupGroupWorktree(
     }
   }
 
-  report('step', `Creating group worktree: ${groupName}/${branchName}`);
+  const isConfiguredGroup = Object.prototype.hasOwnProperty.call(config.groups, groupName);
+  report('step', `Creating ${isConfiguredGroup ? 'group worktree' : 'session folder'}: ${groupName}/${branchName}`);
   report('detail', `Directory: ${groupWorktreePath}`);
   report('info', '');
 
-  fs.mkdirSync(groupWorktreePath, { recursive: true });
+  const cantMake = makeFolder(groupWorktreePath);
+  if (cantMake) {
+    report('error', worktreeFolderMessage(groupWorktreePath, config.worktreesRoot, cantMake));
+    return null;
+  }
 
   const createdWorktrees: Array<{ repoPath: string; worktreePath: string }> = [];
   // Per-repo fork point, keyed by worktree path (matches the session `paths`).
@@ -684,6 +812,7 @@ async function setupGroupWorktree(
     const repoName = path.basename(repoPath);
     const subWorktreePath = path.join(groupWorktreePath, repoName);
     const repoBase = baseForAlias(spec, alias);
+    const created: { from?: string } = {};
 
     report('step', `[${alias}] (${repoName}):`);
     const success = createSingleWorktree(
@@ -694,11 +823,14 @@ async function setupGroupWorktree(
       repoBase,
       opts.pull !== false,
       fetched.has(alias),
+      created,
     );
 
     if (success) {
       createdWorktrees.push({ repoPath, worktreePath: subWorktreePath });
-      if (repoBase) baseBranches[subWorktreePath] = repoBase;
+      // No --base: where its new branch came from (the main checkout's branch), so "Since branch" needn't guess.
+      const from = repoBase ?? created.from;
+      if (from) baseBranches[subWorktreePath] = from;
     } else {
       // Rollback
       report('info', '');
@@ -721,25 +853,85 @@ async function setupGroupWorktree(
   // Copy the group's instructions file, under the name its agent reads (CLAUDE.md, AGENTS.md…).
   const configDir = getConfigDir();
   const claudeMdSrc = path.join(configDir, `${groupName}.claude.md`);
-  const instructionsFile = agentFor(config, findSession(loadHistory(), groupName, branchName)).instructionsFile;
+  const known = findSession(loadHistory(), groupName, branchName);
+  const agent = agentFor(config, known);
+  const instructionsFile = agent.instructionsFile;
   const claudeMdDest = path.join(groupWorktreePath, instructionsFile);
+  // A session folder imports each repo's own file instead, when its agent can import
+  // (`instructionsImport`): a session recorded so (`instructions`; one a repo was added to
+  // keeps its group's summary above the block), or one whose file has work's block; a new
+  // one that is a repo's folder session (no group to copy from), made with config
+  // `sessionFolders` on, or with other repos than its group's. A session from before keeps
+  // the group's copy, whatever the switch says now.
+  const wantsImports = known
+    ? !!known.instructions || hasInstructionsBlock(claudeMdDest) || !isConfiguredGroup
+    : !isConfiguredGroup || config.sessionFolders === true || !sameRepos(config.groups[groupName], repoAliases);
+  const importLine = agent.instructionsImport;
+  const byImport = wantsImports && !!importLine;
 
-  if (fs.existsSync(claudeMdSrc)) {
+  if (byImport && importLine) {
+    // A Restore of a group session a repo was added to: its summary first, as it had it.
+    if (known?.instructions === 'summary+imports' && !fs.existsSync(claudeMdDest) && fs.existsSync(claudeMdSrc))
+      fs.copyFileSync(claudeMdSrc, claudeMdDest);
+    const imports = writeSessionInstructions(
+      groupWorktreePath,
+      createdWorktrees.map((wt) => path.basename(wt.worktreePath)),
+      instructionsFile,
+      importLine,
+    );
+    report('info', '');
+    report('success', `${instructionsFile} in the session folder imports ${imports.length} repo file(s)`);
+  } else if (wantsImports && !isConfiguredGroup) {
+    // No group summary to copy, and an agent that can't import: each repo's file is in its folder.
+    report('info', '');
+    report('warn', `${agent.name} can't import files into ${instructionsFile}: each repo's own is in its folder`);
+  } else if (fs.existsSync(claudeMdSrc)) {
     fs.copyFileSync(claudeMdSrc, claudeMdDest);
     report('info', '');
     report('success', `Copied the group's ${instructionsFile} to the worktree root`);
   } else {
     report('info', '');
     report('warn', `Warning: the group's ${instructionsFile} not found at ${claudeMdSrc}`);
-    report('warn', `Run 'work config regengroup ${groupName}' to generate it.`);
+    report('warn', `Run 'work config group regen ${groupName}' to generate it.`);
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
   // Representative base for the single-line "vs X" badge: the explicit
   // default, else a per-repo value only when every repo shares it.
   const distinctBases = [...new Set(Object.values(baseBranches))];
-  const representativeBase = spec.default ?? (distinctBases.length === 1 ? distinctBases[0] : undefined);
-  const { port } = await upsertSessionWithPort(groupName, true, branchName, allPaths, config, jiraKey, representativeBase, baseBranches);
+  // One for the whole group only when every repo has it: it is the fallback for a repo with none of its own.
+  const everyRepo = Object.keys(baseBranches).length === allPaths.length;
+  const representativeBase = spec.default ?? (distinctBases.length === 1 && everyRepo ? distinctBases[0] : undefined);
+  // What it owns: a new session records its repos (and how its instructions are made); one
+  // that records them keeps them — a repo no longer in the config, not set up, stays listed with
+  // its folder rather than forgotten. A row from before is left as it was: it goes on following
+  // its group's config, as it always did.
+  const own = known ? listedRepos(known, config) : null;
+  // (A folder of a damaged list matched to no repo isn't recorded under a made-up alias.)
+  const gone = (own ?? []).filter((r) => !config.repos[r.alias] && !r.guessed);
+  const owns = !known || !!own;
+  const { port } = await upsertSessionWithPort(
+    groupName,
+    true,
+    branchName,
+    owns ? [...allPaths, ...gone.map((r) => r.path)] : allPaths,
+    config,
+    jiraKey,
+    representativeBase,
+    baseBranches,
+    {
+      ...(owns
+        ? { repos: [...repoAliases, ...gone.map((r) => r.alias)], ...(byImport && !known ? { instructions: 'imports' as const } : {}) }
+        : {}),
+      account: opts.account,
+    },
+  );
+
+  // The branch each repo is on now joins the session's record (session-branches.ts): a re-entry onto a branch
+  // Claude switched to, a Restore that checked its branch out again.
+  bestEffort(`record the branches of ${groupName}:${branchName}`, () =>
+    recordCheckedOutBranches({ target: groupName, branch: branchName, isGroup: true, paths: allPaths }),
+  );
 
   report('info', '');
   report('info', `Branch: ${branchName}`);
@@ -768,6 +960,8 @@ async function setupSingleWorktree(
     return null;
   }
   const baseBranch = baseForAlias(spec, targetName);
+  // No --base: where a new branch came from (the main checkout's branch), recorded so "Since branch" needn't guess.
+  const created: { from?: string } = {};
 
   if (!fs.existsSync(repoPath)) {
     report('error', `Repository path does not exist: ${repoPath}`);
@@ -794,10 +988,15 @@ async function setupSingleWorktree(
       config,
       baseBranch,
       opts.pull !== false,
+      false,
+      created,
     );
     if (!success) return null;
   }
 
+  const base = baseBranch ?? created.from;
+  // A new session records its repo; a row from before is left as it was (it reads the same).
+  const isNew = !findSession(loadHistory(), targetName, branchName);
   const { port } = await upsertSessionWithPort(
     targetName,
     false,
@@ -805,8 +1004,13 @@ async function setupSingleWorktree(
     [workTreePath],
     config,
     jiraKey,
-    baseBranch,
-    baseBranch ? { [workTreePath]: baseBranch } : undefined,
+    base,
+    base ? { [workTreePath]: base } : undefined,
+    { ...(isNew ? { repos: [targetName] } : {}), account: opts.account },
+  );
+
+  bestEffort(`record the branches of ${targetName}:${branchName}`, () =>
+    recordCheckedOutBranches({ target: targetName, branch: branchName, isGroup: false, paths: [workTreePath] }),
   );
 
   report('info', `Branch: ${branchName}`);
@@ -842,18 +1046,35 @@ export function teardownWorktree(
    *  have switched branches inside it). Without them, found by branch. */
   paths?: string[],
 ): boolean {
-  const workTreeDirName = branch.replace(/\//g, '-');
+  // A group session that records its repos is torn down over exactly those (its own
+  // list, sessionRepos), at its recorded folders; a row from before over the group's config.
+  // A repo's session folder (config `sessionFolders`) is one too, though its target is a repo
+  // and a caller that resolved the target (`work remove <alias> <branch>`) says it isn't a group.
+  const own = isGroup || recordedFolderSession(target, branch) ? ownGroupRepos(target, branch, paths, config) : null;
 
-  if (isGroup && config.groups[target]) {
-    const aliases = config.groups[target];
-    const groupWorktreePath = path.join(config.worktreesRoot, target, workTreeDirName);
+  if ((isGroup || own) && (own || config.groups[target])) {
+    // No row (forgotten, or history lost): the caller's folders say where, else what's on disk.
+    const known = findSession(loadHistory(), target, branch) ?? (paths?.length ? { paths } : null);
+    const groupWorktreePath = sessionFolderPath(target, branch, config, known, fs.existsSync);
+    const repos =
+      own ??
+      config.groups[target].map((alias) => ({
+        alias,
+        path: config.repos[alias] ? path.join(groupWorktreePath, path.basename(config.repos[alias])) : '',
+      }));
     let allRemoved = true;
 
-    for (const alias of aliases) {
+    for (const { alias, path: subWorktreePath } of repos) {
       const repoPath = config.repos[alias];
-      if (!repoPath) continue;
+      if (!repoPath) {
+        // Not in the config any more: git can't be asked to remove its worktree. Kept, and said.
+        if (subWorktreePath && fs.existsSync(subWorktreePath)) {
+          report('warn', `[${alias}] isn't in your config any more: ${subWorktreePath} is left as it is`);
+          allRemoved = false;
+        }
+        continue;
+      }
       const repoName = path.basename(repoPath);
-      const subWorktreePath = path.join(groupWorktreePath, repoName);
       report('step', `[${alias}] (${repoName}):`);
       if (!removeSingleWorktree(repoPath, subWorktreePath, branch, force)) {
         allRemoved = false;
@@ -893,6 +1114,46 @@ export function teardownWorktree(
   }
 }
 
+/** The session for target + branch is recorded as a folder with its own repos (a group, or a repo's session folder). */
+function recordedFolderSession(target: string, branch: string): boolean {
+  const s = findSession(loadHistory(), target, branch);
+  return !!s && isFolderSession(s) && Array.isArray(s.repos);
+}
+
+/**
+ * The repos a session lists, at its folders: as recorded; a list that is
+ * there but doesn't line up with its paths (a damaged row), each folder
+ * matched by name (sessionRepos) — never the group's config in its place.
+ * Null for a row from before (no list at all).
+ */
+function listedRepos(s: WorktreeSession, config: WorkConfig): SessionRepo[] | null {
+  const recorded = recordedRepos(s);
+  if (recorded) return recorded;
+  return Array.isArray(s.repos) && s.isGroup ? sessionRepos(s, config) : null;
+}
+
+/**
+ * The repos a group session records (sessionRepos), at its folders — the
+ * session found by target and branch; null for a row from before, or none.
+ * The caller's folders, when given and the same in number, are the ones torn down.
+ */
+function ownGroupRepos(
+  target: string,
+  branch: string,
+  paths: string[] | undefined,
+  config: WorkConfig,
+): Array<{ alias: string; path: string }> | null {
+  const s = findSession(loadHistory(), target, branch);
+  const own = s ? listedRepos(s, config) : null;
+  if (!own) return null;
+  // The caller's folder for each repo: the same folder (by path, never by place in the list), else the recorded one.
+  const given = paths ?? [];
+  return own.map((r) => ({
+    alias: r.alias,
+    path: given.find((p) => normalizeWorktreePath(p) === normalizeWorktreePath(r.path)) ?? r.path,
+  }));
+}
+
 /** What opening a repo's own checkout gave: the session it is, or why not. */
 export type BaseCheckoutResult = { ok: true; repoPath: string; branch: string; dropped: string[] } | { ok: false; error: string };
 
@@ -907,8 +1168,10 @@ export type BaseCheckoutResult = { ok: true; repoPath: string; branch: string; d
 export async function openBaseCheckout(
   targetName: string,
   config: WorkConfig,
-  opts: { pull?: boolean; jiraKey?: string; name?: string } = {},
+  opts: { pull?: boolean; jiraKey?: string; name?: string; account?: string } = {},
 ): Promise<BaseCheckoutResult> {
+  const accountRefused = accountRefusal(opts.account, config);
+  if (accountRefused) return { ok: false, error: accountRefused };
   const target = resolveProjectTarget(targetName, config);
   if (!target) return { ok: false, error: `Project or group not found: ${targetName}` };
   if (target.isGroup) return { ok: false, error: `${targetName} is a group: give it a branch (a group has no one checkout to open)` };
@@ -918,7 +1181,7 @@ export async function openBaseCheckout(
   const branch = getCurrentBranch(repoPath) ?? '(detached)';
   // Detached HEAD has no upstream to pull from — skip rather than warn.
   if (opts.pull !== false && branch && branch !== '(detached)') pullLatestForBranch(repoPath, branch);
-  await upsertSession(targetName, false, branch, [repoPath], opts.jiraKey);
+  await upsertSession(targetName, false, branch, [repoPath], opts.jiraKey, undefined, undefined, undefined, opts.account);
   if (opts.name?.trim()) await setSessionTitle(targetName, branch, opts.name);
   const dropped = await forgetOtherBaseCheckoutEntries(targetName, branch, repoPath);
   return { ok: true, repoPath, branch, dropped };

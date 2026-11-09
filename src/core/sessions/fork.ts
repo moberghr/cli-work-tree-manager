@@ -1,7 +1,8 @@
 import path from 'node:path';
 import type { BaseSpec } from '../git/base-spec.js';
-import type { WorkConfig } from '../platform/config.js';
+import { DEFAULT_ACCOUNT, type WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from './session-types.js';
+import { recordedRepos } from './session-repos.js';
 
 /**
  * Fork a session: a new branch, in a new worktree, from where this session's
@@ -89,8 +90,8 @@ export function forkPrompt(
 
 export interface ForkDeps {
   config: () => WorkConfig | null;
-  /** Each repo of a target: alias and base checkout. */
-  repos: (target: string, config: WorkConfig) => Array<{ alias: string; repoPath: string }> | null;
+  /** Each repo of a target — of the parent session, when given (its own list) —: alias and base checkout. */
+  repos: (target: string, config: WorkConfig, parent?: WorktreeSession) => Array<{ alias: string; repoPath: string }> | null;
   branchOf: (checkout: string) => string | null;
   branchExists: (repoPath: string, branch: string) => boolean;
   /** git check-ref-format --branch. */
@@ -102,6 +103,10 @@ export interface ForkDeps {
     config: WorkConfig,
     base: BaseSpec,
     name?: string,
+    /** A session folder's repos (the parent's own list): the fork holds the same ones, not its group's config. */
+    repos?: string[],
+    /** The Claude account the fork runs on: the parent's, whatever the configured default is now. */
+    account?: string,
   ) => Promise<{ paths: string[] } | { error: string }>;
   /** A few sentences on where the parent stands; null: nothing to go on. */
   summarize: (parent: WorktreeSession) => Promise<string | null>;
@@ -123,15 +128,32 @@ export async function forkSession(parent: WorktreeSession, req: ForkRequest, dep
   if (!deps.validBranch(branch)) return { ok: false, status: 400, error: `${branch} is not a valid branch name` };
   const config = deps.config();
   if (!config) return { ok: false, status: 400, error: 'no config' };
-  const repos = deps.repos(parent.target, config);
+  const repos = deps.repos(parent.target, config, parent);
   if (!repos) return { ok: false, status: 400, error: `${parent.target} is no longer in the config` };
+  // A session that records its repos is forked whole: one of them no longer in the config would be left out unsaid.
+  const missing = (recordedRepos(parent) ?? []).map((r) => r.alias).filter((a) => !repos.some((r) => r.alias === a));
+  if (missing.length)
+    return {
+      ok: false,
+      status: 409,
+      error: `not in your config any more: ${missing.join(', ')} — add it back first, or the fork would leave it out`,
+    };
   // An existing branch would be checked out as it is, not forked.
   const taken = repos.filter((r) => deps.branchExists(r.repoPath, branch)).map((r) => r.alias);
   if (taken.length) return { ok: false, status: 409, error: `${branch} already exists (${taken.join(', ')}): pick another name` };
   const bases = forkBases(parent, repos, deps.branchOf);
   if (!bases.ok) return { ok: false, status: 409, error: bases.error };
 
-  const created = await deps.setup(parent.target, branch, config, bases.spec, req.name);
+  const created = await deps.setup(
+    parent.target,
+    branch,
+    config,
+    bases.spec,
+    req.name,
+    parent.isGroup ? repos.map((r) => r.alias) : undefined,
+    // A fork goes on where its parent runs (a row from before accounts: the default account, which it ran on).
+    parent.account || DEFAULT_ACCOUNT,
+  );
   if ('error' in created) return { ok: false, status: 400, error: created.error };
   const sessionId = deps.sessionIdFor({ target: parent.target, branch });
   // The worktree exists from here on: a summary or a start that fails is reported, not fatal.

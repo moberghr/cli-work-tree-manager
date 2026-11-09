@@ -12,7 +12,8 @@ const RECENT = 12;
 const MAX = 30;
 
 /** Your name for it when you gave one, else its branch. */
-export const switcherLabel = (s: SessionSummary): string => (s.titleIsYours && s.title ? s.title : s.branch || s.target);
+export const switcherLabel = (s: Pick<SessionSummary, 'title' | 'titleIsYours' | 'branch' | 'target'>): string =>
+  s.titleIsYours && s.title ? s.title : s.branch || s.target;
 
 export function switcherResults(sessions: SessionSummary[], query: string): SessionSummary[] {
   const q = query.trim().toLowerCase();

@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import { mountSessionControlRoutes } from './routes/session-control-routes.js';
-import os from 'node:os';
 import { defaultRunner } from '../core/pr/ship.js';
 import type { NotifyEvent } from '../core/api-types.js';
 import { sessionStacks } from '../core/stacks/stack-sessions.js';
@@ -8,24 +7,39 @@ import { retargetChildrenOf, syncStacksAfterTurn } from '../core/stacks/stack-sy
 import { logSwallowed } from '../core/platform/best-effort.js';
 import { shownState } from '../core/status/turn-activity.js';
 import { BehindCache } from '../core/stacks/behind-main.js';
+import { createSessionBranches } from '../core/stacks/branch-facts.js';
+import {
+  allSessionBranches,
+  BRANCH_WATCH_MS,
+  otherBranchesToWatch,
+  readSessionBranches,
+  repoNameOf,
+} from '../core/sessions/session-branches.js';
+import { checkedOutBranch } from '../core/git/git-head.js';
 import { mountUpdateRoutes } from './routes/update-routes.js';
 import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
 import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
 import { catchUp } from '../core/conversations/catch-up.js';
 import { mountForkRoutes } from './routes/fork-routes.js';
+import { mountSessionRepoRoutes, scopeReleaser } from './routes/session-repo-routes.js';
+import { noteThroughComments } from './session-note.js';
+import { addRepoInChild } from '../core/worktree/add-repo-child.js';
 import { defaultForkDeps } from '../core/sessions/fork-deps.js';
-import { createInChild, oneAtATime, type CreateWorktree } from '../core/worktree/setup-child.js';
+import { createInChild, keyedQueue, oneAtATime, type CreateWorktree } from '../core/worktree/setup-child.js';
 import { allSnoozes } from '../core/rail/snooze-store.js';
 import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
+import { mountCodeRoutes } from './routes/code-routes.js';
 import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
 import { mountDiffPageRoutes } from './routes/diff-page-routes.js';
 import { mountSetupRoutes } from './routes/setup-routes.js';
 import { mountAppUpdateRoutes } from './routes/app-update-routes.js';
+import { wireUsage } from './routes/usage-routes.js';
+import { buildUsage, realUsageDeps } from '../core/usage/usage-source.js';
 import { createUpdates, desktopUpdatePath, lookForUpdates } from '../core/updates/update-source.js';
 import { mountRepoRoutes } from './routes/repo-routes.js';
 import { mountTimelineRoutes } from './routes/timeline-routes.js';
-import { allBlocks, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from '../core/rail/session-blocks.js';
+import { allBlocks, blockedPrState, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from '../core/rail/session-blocks.js';
 import { mountBlockRoutes } from './routes/block-routes.js';
 import { mountJiraWatchRoutes } from './routes/jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
@@ -47,6 +61,7 @@ import { mountShipRoutes } from './routes/ship-routes.js';
 import { mountSessionOrderRoutes } from './routes/session-order-routes.js';
 import { mountRailRoutes } from './routes/rail-routes.js';
 import { onArchived } from '../core/archive/session-archive.js';
+import { isRestoring, onArchivingChange } from '../core/archive/archiving.js';
 import { defaultArchiveDeps, archiveMergedSession } from '../core/archive/session-archive-deps.js';
 import { agentsBySession, summarizeAgents } from '../core/sessions/live-agents.js';
 import { liveAgents, activityRoots } from '../core/agents/index.js';
@@ -59,8 +74,8 @@ import { afterArchive } from '../core/archive/after-archive.js';
 import { devPresence } from './presence.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { VERSION } from '../version.js';
-import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
-import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
+import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire, withRestoring } from '../core/sessions/session-wire.js';
+import { createStageTracker, prStageOf, stageRepos } from '../core/pr/pr-stage.js';
 import { createSeenStores } from '../core/pr/pr-watch-store.js';
 import { createDigestSource } from '../core/conversations/digest-source.js';
 import { report } from '../core/platform/report.js';
@@ -75,6 +90,10 @@ import { applyArchiveRetention } from '../core/archive/archive-retention.js';
 import { defaultTimeDeps } from '../core/time/time-deps.js';
 import { createTimeKeeper, TIME_EVERY_MS } from '../core/time/time-keeper.js';
 import { mountTimeRoutes } from './routes/time-routes.js';
+import { mountReviewRoutes } from './routes/review-routes.js';
+import { realFixIo, realReviewQueue, realReviewRouteIo } from '../core/review/review-deps.js';
+import { startReviewSweeps } from '../core/review/review-keeper.js';
+import { tidyLeftOverSubmits } from '../core/review/review-submit-flow.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
 import { bestEffort } from '../core/platform/best-effort.js';
@@ -112,10 +131,18 @@ import {
 } from '../core/pty/pty-pool.js';
 import { busyForRestart, createRestarter, installedAtCache, QUEUE_RECHECK_MS, restartNotesSummary } from '../core/pty/agent-restart.js';
 import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
+import { mountAccountRoutes } from './routes/account-routes.js';
+import { defaultAccountLogins } from '../core/sessions/account-login-deps.js';
+import { accountSwitchNote, createAccountSwitcher } from '../core/sessions/account-switch.js';
+import { defaultAccountSwitchDeps } from '../core/sessions/account-switch-deps.js';
+import { createAccountSwitchLink } from '../core/sessions/account-switch-link.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
-import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from '../core/pty/idle-sleep.js';
+import { restartHost } from '../core/pty/host-control.js';
+import { mountPtyHostRoutes } from './routes/pty-host-routes.js';
+import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates, sleepPlan } from '../core/pty/idle-sleep.js';
+import { sleepChecks } from '../core/pty/sleep-checks.js';
 import { loadConfig } from '../core/platform/config.js';
-import { readStatus } from '../core/status/session-status.js';
+import { markAgentStopped, readStatus } from '../core/status/session-status.js';
 import { resolveWebRoot } from '../core/platform/web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -330,8 +357,12 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // Behind main, per session: slow refresh (main moves slowly), a broadcast when it changes.
   // Making a worktree runs git synchronously: in a child `work tree --setup-only`,
   // so a slow fetch doesn't hold up every request (setup-child.ts).
-  const makeWorktree: CreateWorktree = oneAtATime((req, config) => createInChild(getWorkBin())(req, config));
+  // One creation (or add of a repo to a session) at a time per project or repo: they fetch and add worktrees in the same repos.
+  const worktreeQueue = keyedQueue();
+  const makeWorktree: CreateWorktree = oneAtATime((req, config) => createInChild(getWorkBin())(req, config), worktreeQueue);
   const behindCache = new BehindCache({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
+  // Every branch a session worked on, with what each holds: looked at in the background (branch-facts.ts).
+  const sessionBranches = createSessionBranches({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
   const diffStats = new DiffStatCache({
     onChange: () => {
       if (diffStatBroadcast) return;
@@ -373,45 +404,52 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       const snoozes = allSnoozes();
       const noted = sessionsWithNotes();
       const blocks = allBlocks();
+      const branchRecords = allSessionBranches();
       const live = new Set(history.filter((x) => !x.archivedAt).map((x) => sessionIdFor(x)));
       // Stacked sessions (stack.ts): behind and Update measure against the parent.
       const stacks = sessionStacks(history, loadConfig());
       const sessions = history
-        .filter((s) => withArchived || !s.archivedAt)
+        // One being restored is listed with the live ones at once (Restoring), before it's back.
+        .filter((s) => withArchived || !s.archivedAt || isRestoring(sessionIdFor(s)))
         .map((s) =>
-          archivedRow(s, { hasNote: noted.has(sessionIdFor(s)) }, () =>
-            sessionWire(s, {
-              diffStatFor,
-              claudesFor,
-              liveKnown: !!table && table.size > 0,
-              snoozeFor: (id) => snoozes.get(id) ?? null,
-              behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
-              stackFor: (id) => {
-                const p = stacks.parentOf.get(id);
-                const m = stacks.mergedParentOf.get(id);
-                return {
-                  parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
-                  children: stacks.children.get(id) ?? 0,
-                  merged: m ? { id: m.id, branch: m.branch } : null,
-                };
-              },
-              hostedLive: (id) => peekPty(id),
-              outputStatusFor: (id) => outputStatus(id),
-              shadowed: (id) => shadow.has(id),
-              reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
-              prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
-              replyDraftsFor: (id) => drafts.get(id) ?? 0,
-              hasNote: (id) => noted.has(id),
-              blockedByFor: (id) =>
-                (blocks.get(id)?.by ?? [])
-                  .filter((b) => !blockerDone(b, (x) => !live.has(x)))
-                  .map((b) => ({
-                    key: blockKey(b),
-                    kind: b.kind,
-                    label: b.label,
-                    ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
-                  })),
-            }),
+          withRestoring(
+            archivedRow(s, { hasNote: noted.has(sessionIdFor(s)) }, () =>
+              sessionWire(s, {
+                diffStatFor,
+                claudesFor,
+                liveKnown: !!table && table.size > 0,
+                snoozeFor: (id) => snoozes.get(id) ?? null,
+                behindFor: (id, s, lastActivity) =>
+                  wantsDiffStat(s, false, Date.now(), lastActivity) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null,
+                stackFor: (id) => {
+                  const p = stacks.parentOf.get(id);
+                  const m = stacks.mergedParentOf.get(id);
+                  return {
+                    parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
+                    children: stacks.children.get(id) ?? 0,
+                    merged: m ? { id: m.id, branch: m.branch } : null,
+                  };
+                },
+                hostedLive: (id) => peekPty(id),
+                outputStatusFor: (id) => outputStatus(id),
+                shadowed: (id) => shadow.has(id),
+                reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
+                prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
+                branchesFor: (id, s) => sessionBranches.wire(s, branchRecords.get(id), prWatch.state(id)),
+                replyDraftsFor: (id) => drafts.get(id) ?? 0,
+                hasNote: (id) => noted.has(id),
+                accountPendingFor: (id) => accountLink.pendingFor(id),
+                blockedByFor: (id) =>
+                  (blocks.get(id)?.by ?? [])
+                    .filter((b) => !blockerDone(b, (x) => !live.has(x)))
+                    .map((b) => ({
+                      key: blockKey(b),
+                      kind: b.kind,
+                      label: b.label,
+                      ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
+                    })),
+              }),
+            ),
           ),
         );
       // Sessions changing the same files — from the same background cache
@@ -438,6 +476,18 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // scope exists — the manifest on disk survives restarts, the in-memory
   // registration doesn't — and hide scopes from the SPA.
   let scopeApi: ReturnType<typeof mountScopeRoutes> | null = null;
+  // A session's other recent branches, for its commit list (session-history.ts).
+  const otherBranchRefs = (session: WorktreeSession) => {
+    const rec = readSessionBranches(sessionIdFor(session));
+    const now = Date.now();
+    return session.paths.flatMap((p) => {
+      const repo = repoNameOf(session, p);
+      return otherBranchesToWatch(rec, repo, checkedOutBranch(p), now, BRANCH_WATCH_MS).map((name) => {
+        const from = rec?.branches.find((b) => b.repo === repo && b.name === name)?.from;
+        return { path: p, name, ...(from ? { from } : {}) };
+      });
+    });
+  };
   const sessionScope = (session: WorktreeSession) =>
     bestEffort(
       `checkpoint scope for ${session.target}:${session.branch}`,
@@ -453,8 +503,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     const session = findSession(c.req.param('id'));
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const hash = scopeHashForPaths(session.paths);
-    // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read).
-    const commits = bestEffort('list the session commits', () => sessionCommits(session), []);
+    // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read) —
+    // and those of the other branches it worked on (session-branches.ts), under each.
+    const commits = bestEffort('list the session commits', () => sessionCommits(session, otherBranchRefs(session)), []);
     return c.json({ scopeHash: hash, entries: loadManifest(hash).entries, commits } satisfies SessionHistoryWire);
   });
 
@@ -523,7 +574,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       const n = reviewThreadsOf(prWatch.state(id));
       const threadsMoved = n !== (threadsShown.get(id) ?? 0);
       threadsShown.set(id, n);
-      const stage = prStageOf(prWatch.state(id)?.repos ?? []);
+      const stage = prStageOf(stageRepos(prWatch.state(id)?.repos ?? []));
       const news = stageNewsFor(id, stage);
       if (threadsMoved || news !== 'none') broadcast('sessions-changed', { ts: Date.now() });
       // The real work web notifies; the dev server would say it twice.
@@ -566,7 +617,11 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // are looked at again every QUEUE_RECHECK_MS while any wait (the Activity panel's schedule).
   // Not in the dev server, which restarts nothing (its route says so).
   const restartSchedule = dev ? null : activity.schedule('agents', 'Agents waiting to restart', QUEUE_RECHECK_MS);
+  // The restarter and the account switcher, tied so a turn's end and the sweep reach both, and one agent is never
+  // restarted twice for the same turn (account-switch-link.ts).
+  const accountLink = createAccountSwitchLink();
   const restarter = createRestarter({
+    foldedInto: accountLink.foldedInto,
     restart: restartPty,
     busy: restartBusy,
     running: peekPty,
@@ -589,25 +644,61 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     // The dev server shares the real PTY host and acts on nothing: the real work web restarts.
     lookOnly: dev ? 'the dev server restarts nothing: use the real work web (the app, or `work restart`)' : undefined,
   });
+  // Moving a session to another Claude account (account-switch.ts): idle now, working or waiting after its turn,
+  // through the same queue rule as a restart. Not in the dev server, which acts on nothing.
+  const accountSchedule = dev ? null : activity.schedule('accounts', 'Account switches waiting for a turn', QUEUE_RECHECK_MS);
+  const accountSwitcher = createAccountSwitcher(
+    defaultAccountSwitchDeps({
+      busy: restartBusy,
+      note: accountSwitchNote(activity, (id) => {
+        const s = findSession(id);
+        return s ? `${s.target} ${s.branch}` : null;
+      }),
+      changed: () => broadcast('sessions-changed', { ts: Date.now() }),
+      scheduled: (nextAt) => accountSchedule?.next(nextAt),
+      cancelRestart: accountLink.cancelRestart,
+    }),
+  );
+  accountLink.connect(restarter, accountSwitcher);
+  mountAccountRoutes(app, {
+    switcher: accountSwitcher,
+    broadcast,
+    lookOnly: dev ? 'the dev server changes no account: use the real work web (the app, or `work account`)' : undefined,
+    // The Accounts page's login terminals, in the PTY host (not the dev server's: it starts nothing there).
+    logins: dev ? undefined : defaultAccountLogins({ activity, workBin: getWorkBin }),
+  });
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
     // A restart waiting on a turn whose end no hook reported (an interrupt): try again.
-    await restarter.retry().catch(() => {});
+    await accountLink.retry();
     const minutes = loadConfig()?.sleepIdleAfterMinutes ?? DEFAULT_SLEEP_AFTER_MINUTES;
     if (sleepAfterMs(minutes) === 0)
       return activity.skip('idle-sleep', 'Looking for idle Claudes', 'turned off (sleepIdleAfterMinutes: 0)');
     const run = activity.start('idle-sleep', 'Looking for idle Claudes');
     const ptys = await listHostPtys().catch(() => []);
-    const ids = sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), agentBusy);
+    // Quiet and unattended (sleepCandidates), and nothing still at work: idle means idle (stillAtWork).
+    const quiet = new Set(sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), agentBusy));
+    const plan = await sleepPlan(
+      ptys.filter((p) => quiet.has(p.id)),
+      sleepChecks(),
+    );
+    for (const { id, why } of plan.awake) {
+      const s = findSession(id);
+      run.note(`${s ? `${s.target} ${s.branch}` : id}: kept awake: ${why}`, { sessionId: s ? id : undefined });
+    }
+    const ids = plan.sleep;
     for (const id of ids) {
       report('detail', `[sleep] ${id}: idle ${minutes} min with nothing attached; stopping its Claude (opening the session resumes it)`);
       const s = findSession(id);
+      // Recorded, so opening it starts it again rather than taking it for one open in another terminal.
       await disposePty(id).then(
-        () =>
+        async () => {
+          await markAgentStopped(id).catch(() => {});
           run.note(
-            `${s ? `${s.target} ${s.branch}` : id}: put its Claude to sleep (printed nothing for ${Math.max(minutes, 30)} min, nothing attached; opening it resumes the conversation)`,
+            `${s ? `${s.target} ${s.branch}` : id}: put its Claude to sleep (printed nothing for ${sleepAfterMs(minutes) / 60_000} min, nothing attached; opening it resumes the conversation)`,
             { level: 'action', sessionId: id },
-          ),
+          );
+        },
         (err: Error) => run.note(`${id}: couldn't stop its Claude: ${err.message}`, { level: 'warn', sessionId: id }),
       );
     }
@@ -632,6 +723,26 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   timeSchedule?.next(Date.now() + 90_000);
   const timeTimer = !jobs ? null : setInterval(keepTime, TIME_EVERY_MS);
   timeTimer?.unref?.();
+
+  // PR reviews prepared in the background (#64, core/review/; when: review-keeper.ts). The dev server serves them
+  // but prepares none (it acts on nothing; your clicks still do).
+  const reviewQueue = realReviewQueue({ activity, changed: () => broadcast('reviews-changed', {}) });
+  const reviewIo = realReviewRouteIo();
+  const reviewSweeps = startReviewSweeps({
+    queue: reviewQueue,
+    activity,
+    jobs,
+    // A submit a stopped work web left mid-way: in doubt, for you to say whether it went (never "Submitting…" for good).
+    tidy: () => tidyLeftOverSubmits(reviewIo, activity, (r) => broadcast('reviews-changed', r)),
+  });
+  mountReviewRoutes(app, {
+    ...reviewIo,
+    runNow: (repo, n) => reviewQueue.runNow(repo, n),
+    refreshDiscussion: (repo, n) => reviewQueue.refreshDiscussion(repo, n),
+    broadcast,
+    // Fix it myself: a session on the PR's branch, made as New worktree makes one, or the live one told by a note.
+    fixMyself: realFixIo({ create: makeWorktree, note: noteThroughComments(app), activity }),
+  });
 
   // Old archived conversations get compressed (archive-retention.ts): a few
   // minutes after start, then daily.
@@ -759,19 +870,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     config: loadConfig,
     invalidate: (sid: string) => {
       behindCache.invalidate(sid);
+      sessionBranches.invalidate(sid);
       diffStats.invalidate(sid);
     },
     startRun: () => activity.start('stacks', 'Updating stacked sessions'),
     busy: stackSyncing,
     shownState,
-    tell: async (s: WorktreeSession, body: string) => {
-      const res = await app.request(`/api/sessions/${encodeURIComponent(sessionIdFor(s))}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ side: 'general', status: 'published', body }),
-      });
-      if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
-    },
+    tell: (s: WorktreeSession, body: string) => noteThroughComments(app)(sessionIdFor(s), body),
   };
   const syncStacksAfter = async (id: string) => {
     if (readStatus(id)?.state !== 'idle') return;
@@ -802,14 +907,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
         sessionGone: (id) => !live.has(id),
         prState: async (url) => {
           if (Date.now() < ghRestUntil) return null;
-          const r = await defaultRunner('gh', ['pr', 'view', url, '--json', 'state', '-q', '.state'], os.tmpdir());
-          if (r.code !== 0 && /rate limit/i.test(r.stderr)) {
+          const r = await blockedPrState(url, defaultRunner);
+          if (r && 'rateLimited' in r) {
             ghRestUntil = Date.now() + 10 * 60_000; // as the PR watch rests
-            run.note('GitHub API limit reached: resting 10 minutes', { level: 'warn' });
+            run.note(`${r.host} API limit reached: resting 10 minutes`, { level: 'warn' });
             return null;
           }
-          const st = r.code === 0 ? r.stdout.trim() : '';
-          return st === 'OPEN' || st === 'MERGED' || st === 'CLOSED' ? st : null;
+          return r?.state ?? null;
         },
         unblocked: async (id, done) => {
           const s = history.find((x) => sessionIdFor(x) === id);
@@ -849,12 +953,15 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
           ...(jobs ? { sweepBlocks: sweepBlocksNow } : {}),
         }),
       );
+  // Archiving takes a while (stop Claude, copy the conversation, save the files, remove the worktree): every view shows it meanwhile.
+  const offArchiving = onArchivingChange(() => broadcast('sessions-changed', { ts: Date.now() }));
 
   // Update from main (behind-main.ts): its numbers move, so look again.
   mountUpdateRoutes(app, {
     broadcast,
     changed: (id) => {
       behindCache.invalidate(id);
+      sessionBranches.invalidate(id);
       diffStats.invalidate(id);
     },
   });
@@ -914,7 +1021,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       : {}),
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
-      restarter.turnEnded(id); // a restart that waited for this turn to end (after its hooks have run)
+      sessionBranches.invalidate(id); // a turn may have committed, pushed or made a branch
+      accountLink.turnEnded(id); // a restart, or a switch of account, that waited for this turn to end
       timeKeeper?.soon(); // today's hours, after this turn
       if (jobs) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)
@@ -935,6 +1043,20 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     if (s) scopeApi?.releaseSessionScope(s.paths, false);
   };
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession, create: makeWorktree });
+  // Add a repo to a session folder (add-repo.ts): in a child, its scope released first, its Claude told.
+  mountSessionRepoRoutes(app, {
+    broadcast,
+    run: addRepoInChild(getWorkBin),
+    queue: worktreeQueue,
+    // The scope only: the session stays, and its file watcher keeps serving whoever listens.
+    release: scopeReleaser(scopeApi),
+    invalidate: (id) => {
+      diffStats.invalidate(id);
+      behindCache.invalidate(id);
+      sessionBranches.invalidate(id);
+    },
+    note: noteThroughComments(app),
+  });
 
   // The Time tab (core/time): each day's hours per ticket, kept current as you go.
   mountTimeRoutes(app, { deps: timeDeps, broadcast, onGraphChanged: () => void timeKeeper?.run() });
@@ -945,6 +1067,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountRailRoutes(app, { broadcast });
   // Your notes on a session.
   mountNoteRoutes(app, { broadcast });
+  mountCodeRoutes(app);
   // How far you have looked at a session's diff (its Diff tab's "Since you looked").
   mountDiffSeenRoutes(app);
   // A session's diff on a page of its own (the one wd opens), for a browser window beside the app.
@@ -974,15 +1097,24 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const desktopFile = desktopUpdatePath();
   const onDesktopUpdate = () => broadcast('updates-changed', { ts: Date.now() });
   if (jobs) fs.watchFile(desktopFile, { interval: 3000 }, onDesktopUpdate); // the installed app's: not the dev server's business
-  // How the PTY host is doing (host-health.ts): the dashboard warns when it's slow or not answering.
-  app.get('/api/pty-host/health', (c) => c.json(hostHealth(hostBeat()) satisfies HostHealth));
-  let lastHostState = hostHealth(hostBeat()).state;
+  // Agent usage (core/usage/): plan limits the status-line hook recorded, and token counts. Reads only, so every mode serves it.
+  const usageWatcher = wireUsage(app, { broadcast, build: () => buildUsage(realUsageDeps()) });
+  // How the PTY host is doing (host-health.ts), and its Restart (the banner's button). Not the dev server's restart: it
+  // never starts a host (the installed work owns it).
+  mountPtyHostRoutes(app, {
+    dev: !!dev,
+    health: () => hostHealth(hostBeat(), Date.now(), VERSION),
+    restart: () => restartHost(getWorkBin(), { force: true }),
+    broadcast,
+  });
+  const hostKey = (h: HostHealth) => `${h.state}:${h.outdated ?? ''}`;
+  let lastHostState = hostKey(hostHealth(hostBeat(), Date.now(), VERSION));
   const hostTick = lean
     ? null
     : setInterval(() => {
-        const h = hostHealth(hostBeat());
-        if (h.state === lastHostState) return;
-        lastHostState = h.state;
+        const h = hostHealth(hostBeat(), Date.now(), VERSION);
+        if (hostKey(h) === lastHostState) return;
+        lastHostState = hostKey(h);
         broadcast('host-health', h);
         if (h.state === 'unresponsive') report('warn', `[web] PTY host not answering: ${h.error ?? 'no reply'}`);
       }, 5_000);
@@ -1041,6 +1173,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     stop: async () => {
       clearInterval(revPoll);
       offArchived();
+      offArchiving();
       if (blocksTimer) clearInterval(blocksTimer);
       if (hostTick) clearInterval(hostTick);
       loop.stop();
@@ -1051,11 +1184,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       if (conversationsTimer) clearInterval(conversationsTimer);
       if (conversationsFirst) clearTimeout(conversationsFirst);
       if (updatesFirst) clearTimeout(updatesFirst);
+      reviewSweeps.stop();
       if (updatesTimer) clearInterval(updatesTimer);
       if (timeFirst) clearTimeout(timeFirst);
       if (timeTimer) clearInterval(timeTimer);
       timeKeeper?.stop();
       fs.unwatchFile(desktopFile, onDesktopUpdate);
+      usageWatcher.stop();
       for (const t of conversationSyncs.values()) clearTimeout(t);
       clearTimeout(sweepTimer);
       activityWatcher?.stop();

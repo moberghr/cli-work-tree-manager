@@ -11,3 +11,4 @@ npm-shrinkwrap.json
 *.md
 docs/
 .claude/
+.mtk/

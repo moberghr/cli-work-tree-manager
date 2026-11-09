@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { loadedBy } from './source-scan.js';
 
 /**
  * Architecture rules from CLAUDE.md / .claude/rules, enforced as tests so
@@ -46,6 +47,44 @@ function violations(pred: (f: SourceFile, spec: string) => boolean): string[] {
   for (const f of files) for (const s of f.imports) if (pred(f, s)) out.push(`${f.rel} → ${s}`);
   return out;
 }
+
+/** Core modules the browser SPA may import (bundled for the browser: shared wire types and pure logic). */
+const SPA_SHARED = new Set([
+  'src/core/sessions/account-names.js', // pure: an account name's rules (the Add account form)
+  'src/core/comments/comment-types.js',
+  'src/core/status/attention.js',
+  'src/core/api-types.js',
+  'src/core/diff/diff-parse.js',
+  'src/core/sessions/saved-prompts.js',
+  'src/core/sessions/branch-view.js', // pure: a session's branches in words (Ship's dialog)
+  'src/core/conversations/digest-view.js',
+  'src/core/sessions/session-view.js',
+  'src/core/rail/session-order.js',
+  'src/core/jira/jira-board.js',
+  'src/core/jira/jira-prompt.js',
+  'src/core/rail/snooze.js',
+  'src/core/rail/rail-layout.js',
+  'src/core/conversations/work-time-view.js',
+  'src/core/rail/blocks.js',
+  'src/core/hosts/commands.js',
+  'src/core/hosts/links.js',
+  'src/core/review/change-kinds.js',
+  'src/core/review/review-plan.js',
+  'src/core/review/review-submit.js', // pure: submit rules (a review left preparing, drafts on the diff)
+  'src/core/review/review-discussion.js', // pure: a PR's discussion on its host — placed on lines, counted, its prompt
+  'src/core/review/review-fix-rules.js', // pure, import-free: when Fix it myself may take drafts (the button's rule is the server's)
+  'src/core/conversations/timeline.js',
+  'src/core/pty/host-health.js',
+  'src/core/pty/restart-view.js', // pure: how a restart of agents is said
+  'src/core/worktree/repo-rules.js',
+  'src/core/pr/pr-stage.js',
+  'src/core/updates/updates.js',
+  'src/core/pr/review-quote.js',
+  'src/core/diff/diff-points.js',
+  'src/core/pr/pr-ref.js',
+  'src/core/usage/usage.js', // pure: plan-limit windows, the meter's pick, token wording
+  'src/core/time/time-month.js', // pure: the Time tab's months (range, next / previous)
+]);
 
 describe('architecture boundaries', () => {
   it('scans a meaningful number of files (guards against a broken walker)', () => {
@@ -152,31 +191,7 @@ describe('architecture boundaries', () => {
 
   it('the browser SPA reaches into src/core only for the shared comment types', () => {
     // Shared wire types + pure logic: one definition for server and SPA.
-    const allowed = new Set([
-      'src/core/comments/comment-types.js',
-      'src/core/status/attention.js',
-      'src/core/api-types.js',
-      'src/core/diff/diff-parse.js',
-      'src/core/sessions/saved-prompts.js',
-      'src/core/conversations/digest-view.js',
-      'src/core/sessions/session-view.js',
-      'src/core/rail/session-order.js',
-      'src/core/jira/jira-board.js',
-      'src/core/jira/jira-prompt.js',
-      'src/core/rail/snooze.js',
-      'src/core/rail/rail-layout.js',
-      'src/core/conversations/work-time-view.js',
-      'src/core/rail/blocks.js',
-      'src/core/conversations/timeline.js',
-      'src/core/pty/host-health.js',
-      'src/core/pty/restart-view.js', // pure: how a restart of agents is said
-      'src/core/worktree/repo-rules.js',
-      'src/core/pr/pr-stage.js',
-      'src/core/updates/updates.js',
-      'src/core/pr/review-quote.js',
-      'src/core/diff/diff-points.js',
-      'src/core/pr/pr-ref.js',
-    ]);
+    const allowed = SPA_SHARED;
     expect(
       violations(
         (f, s) =>
@@ -188,40 +203,16 @@ describe('architecture boundaries', () => {
     ).toEqual([]);
   });
 
-  it('core modules the SPA may import are pure (no imports at all)', () => {
-    // Anything in the SPA allowlist above gets bundled for the browser, so
-    // it must not reach Node — keep them dependency-free.
-    for (const rel of [
-      'src/core/comments/comment-types.ts',
-      'src/core/status/attention.ts',
-      'src/core/api-types.ts',
-      'src/core/diff/diff-parse.ts',
-      'src/core/sessions/saved-prompts.ts',
-      'src/core/conversations/digest-view.ts',
-      'src/core/sessions/session-view.ts',
-      'src/core/rail/session-order.ts',
-      'src/core/jira/jira-board.ts',
-      'src/core/jira/jira-prompt.ts',
-      'src/core/rail/snooze.ts',
-      'src/core/rail/rail-layout.ts',
-      'src/core/conversations/work-time-view.ts',
-      'src/core/rail/blocks.ts',
-      'src/core/conversations/timeline.ts',
-      'src/core/pty/host-health.ts',
-      'src/core/worktree/repo-rules.ts',
-      'src/core/pr/pr-stage.ts',
-      'src/core/updates/updates.ts',
-      'src/core/pr/review-quote.ts',
-      'src/core/diff/diff-points.ts',
-      'src/core/pr/pr-ref.ts',
-    ]) {
-      const f = files.find((x) => x.rel === rel);
-      expect(f, rel).toBeDefined();
-      expect(
-        f!.imports.filter((s) => !s.startsWith('.')),
-        rel,
-      ).toEqual([]);
-    }
+  it('core modules the SPA may import are pure, all the way down (no package, no Node builtin, at any depth)', () => {
+    // Anything the SPA imports from core is bundled for the browser, with everything it imports in turn
+    // (hosts/commands.ts brings each host's command table): none of it may reach Node or a package.
+    const entries = [...SPA_SHARED].map((js) => js.replace(/\.js$/, '.ts'));
+    for (const e of entries) expect(fs.existsSync(path.resolve(SRC, '..', e)), e).toBe(true);
+    const { files: reached, packages } = loadedBy(entries);
+    expect(reached.has('src/core/hosts/github/commands.ts')).toBe(true); // the walk does go past the first level
+    expect([...packages].map(([pkg, by]) => `${by} → ${pkg}`)).toEqual([]);
+    for (const heavy of ['src/core/hosts/index.ts', 'src/core/platform/db.ts', 'src/core/hosts/github/adapter.ts'])
+      expect(reached.has(heavy), heavy).toBe(false);
   });
 
   it('the browser SPA never imports Node-only modules', () => {

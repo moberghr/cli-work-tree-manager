@@ -1,4 +1,5 @@
 import type { BranchCandidate } from '../api-types.js';
+import { hostForRepo } from '../hosts/index.js';
 import { defaultRunner, type CommandRunner } from '../pr/ship.js';
 
 /**
@@ -83,22 +84,11 @@ export async function findMergedBranches(deps: BranchTidyDeps, only?: Array<{ re
       let prNumber: number | undefined;
       if (merged.has(branch)) reason = 'merged';
       else if ((track ?? '').includes('gone')) {
-        const pr = await run(
-          'gh',
-          ['pr', 'list', '--state', 'merged', '--head', branch, '--json', 'number,headRefOid', '--limit', '5'],
-          repo.path,
-        );
-        if (pr.code === 0) {
-          try {
-            const list = JSON.parse(pr.stdout) as Array<{ number: number; headRefOid: string }>;
-            const hit = list.find((p) => p.headRefOid === tip);
-            if (hit) {
-              reason = 'squash-merged';
-              prNumber = hit.number;
-            }
-          } catch {
-            /* not JSON: not certain, not offered */
-          }
+        // A squash merge git can't see: the repo's host has a MERGED PR whose head is exactly this tip.
+        const hit = await hostForRepo(repo.path).host.mergedPr(run, repo.path, branch, tip);
+        if (typeof hit === 'number') {
+          reason = 'squash-merged';
+          prNumber = hit;
         }
       }
       if (!reason) continue;

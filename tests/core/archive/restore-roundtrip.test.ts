@@ -97,6 +97,52 @@ describe('Restore brings a session back as it was before Archive', () => {
   });
 });
 
+describe("a group session over its own repos: one its group's config doesn't name comes back too", () => {
+  it('archive removes all three worktrees (saving the uncommitted file in docs); Restore brings all three back', async () => {
+    const repos: Record<string, string> = {};
+    for (const name of ['api', 'web', 'docs']) {
+      const dir = path.join(tmp, 'src', name);
+      fs.mkdirSync(dir, { recursive: true });
+      git(['init', '-b', 'main'], dir);
+      git(['config', 'user.email', 't@t.t'], dir);
+      git(['config', 'user.name', 'T'], dir);
+      write(path.join(dir, 'README.md'), `# ${name}\n`);
+      git(['add', '.'], dir);
+      git(['commit', '-m', 'init', '--no-gpg-sign'], dir);
+      repos[name] = dir;
+    }
+    let config: WorkConfig = { worktreesRoot: path.join(tmp, 'worktrees'), repos, groups: { shop: ['api', 'web', 'docs'] }, copyFiles: [] };
+    saveConfig(config);
+    const made = await setupWorktree('shop', 'feat/docs', config, undefined, undefined, { pull: false });
+    const paths = made!.paths;
+    expect(paths).toHaveLength(3);
+    // The group's config no longer names docs; the session still holds it.
+    config = { ...config, groups: { shop: ['api', 'web'] } };
+    saveConfig(config);
+    const docs = paths[2];
+    write(path.join(docs, 'README.md'), '# docs, edited\n');
+
+    const s = findSession(loadHistory(), 'shop', 'feat/docs')!;
+    expect(s.repos).toEqual(['api', 'web', 'docs']);
+    const out = await archiveSession(s, {
+      ...defaultArchiveDeps(),
+      stopClaude: async () => {},
+      transcripts: () => [],
+      removable: async () => ({ ok: true, reason: '' }),
+    });
+    expect(out).toMatchObject({ ok: true, worktreeRemoved: true });
+    for (const p of paths) expect(fs.existsSync(p)).toBe(false);
+    expect(readArchive(sessionIdFor(s))?.uncommitted?.docs).toBeTruthy();
+
+    const back = await setupWorktree('shop', 'feat/docs', config, undefined, undefined, { pull: false });
+    expect(back?.paths).toEqual(paths);
+    for (const p of paths) expect(getCurrentBranch(p)).toBe('feat/docs');
+    expect(read(path.join(docs, 'README.md'))).toBe('# docs, edited\n');
+    expect(findSession(loadHistory(), 'shop', 'feat/docs')).toMatchObject({ paths, repos: ['api', 'web', 'docs'] });
+    expect(findSession(loadHistory(), 'shop', 'feat/docs')?.archivedAt).toBeUndefined();
+  }, 120_000);
+});
+
 describe('the copy of git-ignored files', () => {
   const repoWith = (files: Record<string, string>) => {
     const repo = path.join(tmp, 'r');

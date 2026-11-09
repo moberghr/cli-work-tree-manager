@@ -49,4 +49,41 @@ describe('removing a session clears its checkpoints', () => {
     expect(git(repo, 'for-each-ref', `refs/wd/${hash}`)).toBe('');
     expect(fs.existsSync(manifestPath(hash))).toBe(false);
   }, 60_000);
+
+  it("a group session's refs go from every repo it records, one its group's config doesn't name included", async () => {
+    const repos: Record<string, string> = {};
+    const paths: string[] = [];
+    for (const name of ['api', 'docs']) {
+      const repo = path.join(home, name);
+      fs.mkdirSync(repo);
+      git(repo, 'init', '-q', '-b', 'main');
+      fs.writeFileSync(path.join(repo, 'a'), 'a');
+      git(repo, 'add', 'a');
+      git(repo, 'commit', '-q', '-m', 'a');
+      const wt = path.join(home, 'wt', name);
+      git(repo, 'worktree', 'add', '-q', '-b', 'feat/x', wt);
+      repos[name] = repo;
+      paths.push(wt);
+    }
+    saveConfig({ worktreesRoot: home, repos, groups: { shop: ['api'] }, copyFiles: [] } as WorkConfig);
+    const s: WorktreeSession = {
+      target: 'shop',
+      branch: 'feat/x',
+      isGroup: true,
+      paths,
+      repos: ['api', 'docs'],
+      createdAt: 'x',
+      lastAccessedAt: 'x',
+    };
+    saveHistory([s]);
+    const hash = scopeHashForPaths(s.paths);
+    await takeCheckpoint(hash, [
+      { name: 'api', root: paths[0] },
+      { name: 'docs', root: paths[1] },
+    ]);
+    expect(git(repos.docs, 'for-each-ref', `refs/wd/${hash}`)).not.toBe('');
+    await removeSession('shop', 'feat/x');
+    expect(git(repos.api, 'for-each-ref', `refs/wd/${hash}`)).toBe('');
+    expect(git(repos.docs, 'for-each-ref', `refs/wd/${hash}`)).toBe('');
+  }, 60_000);
 });

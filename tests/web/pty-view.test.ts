@@ -26,6 +26,12 @@ const h = vi.hoisted(() => {
     disposed = false;
     /** The hidden input xterm types into (paste and focus arrive on it). */
     textarea = document.createElement('textarea');
+    /** Its root (the browser's copy event arrives on it). */
+    element = document.createElement('div');
+    /** Its cells (none here: the copy falls back to the plain selection, as it does when they disagree). */
+    buffer = { active: { getLine: () => undefined } };
+    /** Where the selection starts (its column: the first line's text began there). */
+    selectionStart = { x: 0, y: 0 };
     constructor(readonly opts: unknown) {
       terms.push(this);
     }
@@ -62,6 +68,9 @@ const h = vi.hoisted(() => {
     }
     getSelection() {
       return this.selection;
+    }
+    getSelectionPosition() {
+      return this.selection ? { start: this.selectionStart, end: this.selectionStart } : undefined;
     }
     clearSelection() {
       this.selection = '';
@@ -286,6 +295,7 @@ describe('PtyView', () => {
   it('on an unexpected close offers reconnect; Enter reconnects', () => {
     const { ws, term } = mount();
     ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
     act(() => ws.serverClose());
     expect(term.writes.join('')).toMatch(/connection closed.*press Enter to reconnect/);
     act(() => term.type('\r'));
@@ -344,19 +354,77 @@ describe('PtyView', () => {
     }
   });
 
-  it('when it is only a guess from activity, starting here needs a confirmation', () => {
+  it('when it is only a guess from activity, starting here needs a confirmation', async () => {
     const { ws } = mount();
     act(() => ws.control({ type: 'elsewhere', lastActivity: Date.now() - 40_000, state: 'idle' }));
     const start = buttons().find((b) => /start it here/.test(b.textContent ?? ''))!;
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
     const count = FakeWebSocket.instances.length;
-    act(() => start.click());
+    await act(async () => start.click());
     expect(confirm).toHaveBeenCalled();
     expect(FakeWebSocket.instances.length).toBe(count); // declined: nothing started
 
     confirm.mockReturnValueOnce(true);
-    act(() => start.click());
+    await act(async () => start.click());
     expect(FakeWebSocket.instances.at(-1)!.url).toMatch(/\/terminal\?force=1$/);
+  });
+
+  it("a start that fails says why over the pane, tries again by itself, a little later each time (the PTY host didn't answer, reported)", () => {
+    vi.useFakeTimers();
+    try {
+      const { ws } = mount();
+      ws.serverOpen();
+      act(() => ws.control({ type: 'error', message: 'The PTY host is running but not answering (busy?)' }));
+      act(() => ws.serverClose());
+      const cover = () => container.querySelector('.wd-pty-failed');
+      // Not "Starting Claude…" for ever: the reason, the countdown, a button.
+      expect(container.textContent).not.toContain('Starting Claude');
+      expect(cover()!.textContent).toContain("Couldn't start Claude: The PTY host is running but not answering (busy?).");
+      expect(cover()!.textContent).toContain('Trying again in 3 s');
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      expect(cover()).toBeNull(); // connecting again
+      // It fails again: the next wait is longer.
+      const again = FakeWebSocket.instances[1];
+      act(() => again.serverClose());
+      expect(cover()!.textContent).toContain('the connection closed before it started');
+      expect(cover()!.textContent).toContain('Trying again in 10 s');
+      // Once it starts, the next failure begins from the shortest wait again.
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      const third = FakeWebSocket.instances[2];
+      act(() => third.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
+      expect(cover()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('after the last try it waits for a click; Try now / Try again starts at once', () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      for (let i = 0; i < 5; i++) {
+        const ws = FakeWebSocket.instances.at(-1)!;
+        act(() => ws.serverClose());
+        act(() => {
+          vi.advanceTimersByTime(60_000);
+        });
+      }
+      const tries = FakeWebSocket.instances.length;
+      expect(tries).toBe(5); // the first, then four on its own
+      expect(container.querySelector('.wd-pty-failed')!.textContent).toContain('Stopped trying on its own.');
+      const button = [...container.querySelectorAll('.wd-pty-failed button')].find(
+        (b) => b.textContent === 'Try again',
+      ) as HTMLButtonElement;
+      act(() => button.click());
+      expect(FakeWebSocket.instances).toHaveLength(tries + 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('prints an error control frame', () => {
@@ -395,6 +463,30 @@ describe('PtyView', () => {
     expect(writeText).toHaveBeenCalledWith('copied text');
     expect(term.hasSelection()).toBe(false);
     expect(ws.sent.length).toBe(sent);
+  });
+
+  it("what's copied is put back together: Claude Code's wrapping, indent and padding taken out (Ctrl+C and the browser's copy)", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { term } = mount();
+    // Claude's reply as drawn on an 80-column terminal, selected from just after its "● ".
+    const drawn = ['A sentence that Claude Code wrapped at the edge of the screen, right before   ', '  the end.', '  - a list item'].join(
+      '\n',
+    );
+    const whole = ['A sentence that Claude Code wrapped at the edge of the screen, right before the end.', '- a list item'].join('\n');
+    term.selection = drawn;
+    term.selectionStart = { x: 2, y: 0 };
+    term.cols = 80;
+    term.keyHandler!(key({ key: 'c', ctrlKey: true }));
+    expect(writeText).toHaveBeenCalledWith(whole);
+    term.selection = drawn;
+    const data = new Map<string, string>();
+    const ev = Object.assign(new Event('copy', { bubbles: true, cancelable: true }), {
+      clipboardData: { setData: (t: string, v: string) => data.set(t, v) },
+    });
+    term.element.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(data.get('text/plain')).toBe(whole);
   });
 
   it('leaves Ctrl+V to the browser (it pastes; xterm would have sent ^V and swallowed the key)', () => {

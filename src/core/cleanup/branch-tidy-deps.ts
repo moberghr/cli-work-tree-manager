@@ -4,6 +4,7 @@ import { loadHistory } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import type { BranchTidyDeps } from './branch-tidy.js';
+import { sessionAliases } from '../sessions/session-repos.js';
 
 /**
  * Which branches sessions use, per repo alias. A repo + branch can belong to
@@ -16,7 +17,8 @@ export function sessionBranchUse(
 ): Map<string, Map<string, { id: string; archived: boolean }>> {
   const out = new Map<string, Map<string, { id: string; archived: boolean }>>();
   for (const s of sessions) {
-    const aliases = s.isGroup ? (groups[s.target] ?? []) : [s.target];
+    // Its own repos (a row from before: the group's config members).
+    const aliases = sessionAliases(s, { groups });
     for (const a of aliases) {
       const m = out.get(a) ?? new Map<string, { id: string; archived: boolean }>();
       if (m.get(s.branch)?.archived !== false) m.set(s.branch, { id: sessionIdFor(s), archived: !!s.archivedAt });

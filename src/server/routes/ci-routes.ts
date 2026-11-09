@@ -2,23 +2,26 @@ import fs from 'node:fs';
 import type { Hono } from 'hono';
 import { loadConfig } from '../../core/platform/config.js';
 import { isOwnCheckout } from '../../core/worktree/own-checkout.js';
-import { createSeenStores } from '../../core/pr/pr-watch-store.js';
+import { createCiStore, createSeenStores } from '../../core/pr/pr-watch-store.js';
 import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { findSession } from '../../core/sessions/web-state.js';
 import { defaultRunner, shipPreflight } from '../../core/pr/ship.js';
-import { fetchReviewFeedback, viewerLogin } from '../../core/pr/pr-review.js';
-import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
+import { branchFactsOf, prWatchHostDeps, watchAskGh, watchBranchOptions } from '../../core/pr/pr-watch-hosts.js';
+import { noteBranchFacts, readSessionBranches } from '../../core/sessions/session-branches.js';
+import { bestEffort } from '../../core/platform/best-effort.js';
 import { readStatus, turnInProgress } from '../../core/status/session-status.js';
-import { createPrWatch, type PrWatch } from '../../core/pr/pr-watch.js';
+import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
+import { lastConversationWriteMs } from '../../core/sessions/session-activity.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
 import type { WakeResult } from '../../core/pr/pr-watch.js';
-import { rememberSent } from '../../core/pr/pr-replies.js';
+import { rememberSent, replyFolderOnDisk, retireResolvedReplies } from '../../core/pr/pr-replies.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
 import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import { readContextUsage } from '../../core/conversations/context-usage.js';
 import { ensurePty, peekPty, ptyPids } from '../../core/pty/pty-pool.js';
 import { agentsBySession } from '../../core/sessions/live-agents.js';
+import { legacyUnsafeCheck } from '../../core/sessions/legacy-unsafe-io.js';
 import { liveAgents } from '../../core/agents/index.js';
 
 /** The first message of a Claude started for a PR note: the note itself
@@ -43,6 +46,9 @@ async function wakeForNote(id: string): Promise<WakeResult> {
   return url ? 'started' : 'failed';
 }
 
+/** The PR watch's `runsUnsafe`: an agent from before --unsafe was retired (legacy-unsafe.ts; remove next release). */
+export const watchRunsUnsafe = legacyUnsafeCheck(ptyPids);
+
 /**
  * The PR watch (pr-watch.ts) wired to real sessions, gh and the comment
  * route, plus its endpoints:
@@ -53,7 +59,6 @@ async function wakeForNote(id: string): Promise<WakeResult> {
 
 // Sessions checked: used in the last 30 days (a PR is often merged days after
 // you last touched the session — that is when it should archive itself).
-const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const FRESH_MS = 60_000;
 
 /** The PR watch's `busy`: its Claude is in the middle of a turn — working, or at a permission dialog mid-turn (turnInProgress). A finished turn's question for you doesn't hold merged work back (the archive keeps it). */
@@ -74,22 +79,36 @@ export function mountCiRoutes(
   const watch = createPrWatch({
     lookOnly: opts.lookOnly,
     sessions: () => {
-      const cutoff = Date.now() - RECENT_MS;
+      const now = Date.now();
+      // Used lately: entered with `work tree`, or its agent wrote (watchable).
       return loadHistory()
-        .filter((s) => !s.archivedAt && Date.parse(s.lastAccessedAt) >= cutoff && s.paths.some((p) => fs.existsSync(p)))
+        .filter((s) => watchable(s, now, { exists: (p) => fs.existsSync(p), lastWriteMs: lastConversationWriteMs }))
         .map((session) => ({ id: sessionIdFor(session), session }));
     },
     // Never-pushed branches can't have a PR: don't ask GitHub about them,
     // unless the watch already knows one (a merged PR whose branch is gone).
-    preflight: (s) => {
+    // A host resting after its API limit isn't asked at all (the watch keeps what it knew).
+    // The session's other branches too (session-branches.ts): their PRs and unpushed work, recent ones only.
+    preflight: async (s, o) => {
       const id = sessionIdFor(s);
-      return shipPreflight(s, defaultRunner, {
-        askGh: (r) => r.hasUpstream || !!watch.state(id)?.repos.find((x) => x.name === r.name)?.pr,
+      const repoOf = (name: string) => watch.state(id)?.repos.find((x) => x.name === name);
+      const pre = await shipPreflight(s, defaultRunner, {
+        askGh: watchAskGh(o?.resting, (name) => !!repoOf(name)?.pr),
+        ...watchBranchOptions(
+          readSessionBranches(id),
+          Date.now(),
+          o?.resting,
+          (name, branch) => !!repoOf(name)?.otherPrs?.some((p) => p.branch === branch),
+        ),
       });
+      const facts = branchFactsOf(pre);
+      if (facts.length) bestEffort(`keep the branch facts of ${id}`, () => noteBranchFacts(id, facts));
+      return pre;
     },
-    reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
-    viewer: viewerLogin(defaultRunner),
-    runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
+    // Who you are, review feedback and API-limit words: each repo asked of its own host.
+    ...prWatchHostDeps(defaultRunner),
+    // An agent from before --unsafe was retired (legacy-unsafe.ts; remove next release).
+    runsUnsafe: watchRunsUnsafe,
     ...(opts.activity ? { activity: opts.activity } : {}),
     busy: midTurn,
     // A repo's own checkout isn't archived when its PR merges: you go on working there.
@@ -110,9 +129,16 @@ export function mountCiRoutes(
       return {
         autoArchive: w?.autoArchive !== false,
         fixCi: w?.fixCi !== false,
+        fixConflicts: w?.fixConflicts !== false,
         reviewComments: w?.reviewComments !== false,
         ...(w?.trustedBots ? { trustedBots: w.trustedBots } : {}),
       };
+    },
+    retireReplies: async (id, ci) => {
+      const s = findSession(id);
+      const gone = await retireResolvedReplies(id, ci, (repo) => replyFolderOnDisk(s, repo), defaultRunner);
+      if (gone.length) opts.broadcast('replies-changed', { sessionId: id });
+      return gone;
     },
     rememberThreads: (id, threads) => {
       rememberSent(id, threads);
@@ -125,6 +151,8 @@ export function mountCiRoutes(
       return u && u.window > 0 ? u.used / u.window : null;
     },
     told: createSeenStores(),
+    // The dev server reads what the real one saved, and writes none of it (its build's shape may differ).
+    saved: opts.lookOnly ? { load: createCiStore().load, save: () => {} } : createCiStore(),
   });
 
   app.get('/api/sessions/:id/ci', async (c) => {

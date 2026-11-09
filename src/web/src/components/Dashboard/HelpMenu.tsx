@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentsWire, UpdateWire } from '../../../../core/api-types.js';
-import { outdatedText, queuedText, restartLabel } from '../../state/agent-restart-view.js';
+import { outdatedText, queuedText, restartLabel, type OutdatedName } from '../../state/agent-restart-view.js';
+import { OutdatedList } from './AgentsRestartCard.js';
 import { VERSION } from '../../version.js';
 import { ProgressBar } from './UpdateStrip.js';
 import { mismatchText, type VersionMismatch } from '../../../../core/updates/updates.js';
@@ -13,6 +14,8 @@ export interface HelpMenuProps {
   note?: string | null;
   onWhatsNew?: () => void;
   onShortcuts?: () => void;
+  /** The Accounts page (Claude logins). */
+  onAccounts?: () => void;
   /** The desktop app has an update downloaded: restart onto it. */
   onRestart?: () => void;
   /** The app and the work web its window shows are different versions (updates.ts versionMismatch). */
@@ -22,6 +25,11 @@ export interface HelpMenuProps {
   onRestartAgents?: () => void;
   restartingAgents?: boolean;
   agentsNote?: string | null;
+  /** Which sessions are outdated (outdatedNames), and opening one. */
+  agentNames?: OutdatedName[];
+  onOpenSession?: (id: string) => void;
+  /** In the desktop app: flash its taskbar button when a session newly needs you (use-taskbar.ts). */
+  taskbarFlash?: { on: boolean; set: (on: boolean) => void };
 }
 
 /** Where an update stands, in a few words ("2.1.0 is ready to install"), or null when there's nothing to say. Pure. */
@@ -50,12 +58,16 @@ export function HelpMenu({
   note,
   onWhatsNew,
   onShortcuts,
+  onAccounts,
   onRestart,
   mismatch,
   agents,
   onRestartAgents,
   restartingAgents,
   agentsNote,
+  agentNames = [],
+  onOpenSession,
+  taskbarFlash,
 }: HelpMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -120,6 +132,18 @@ export function HelpMenu({
             </button>
           )}
           {agentsText && <p className="wd-help-note">{agentsText}</p>}
+          {agentsText && (
+            <OutdatedList
+              names={agentNames}
+              onOpen={
+                onOpenSession &&
+                ((id) => {
+                  setOpen(false);
+                  onOpenSession(id);
+                })
+              }
+            />
+          )}
           {agentsLabel && (
             <button type="button" className="wd-row-menu-item" disabled={restartingAgents} onClick={onRestartAgents}>
               {restartingAgents ? 'Restarting…' : `${agentsLabel} — each picks up its conversation`}
@@ -136,6 +160,17 @@ export function HelpMenu({
           {onWhatsNew && (
             <button type="button" className="wd-row-menu-item" onClick={pick(onWhatsNew)}>
               What&apos;s new
+            </button>
+          )}
+          {taskbarFlash && (
+            <label className="wd-help-toggle">
+              <input type="checkbox" checked={taskbarFlash.on} onChange={(e) => taskbarFlash.set(e.target.checked)} />
+              <span>Flash the taskbar when a session needs you</span>
+            </label>
+          )}
+          {onAccounts && (
+            <button type="button" className="wd-row-menu-item" onClick={pick(onAccounts)}>
+              Claude accounts <kbd>g a</kbd>
             </button>
           )}
           {onShortcuts && (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { hostName } from '../../../../core/hosts/commands.js';
 import { askClaudeToFixCi, fetchSessionCi, sendPromptToSession, type SessionCi, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
@@ -192,7 +193,8 @@ function PrSectionView({
   // Folded by what's in it (open or wanting you: unfolded) until you click — so
   // one whose draft loads after the first look still opens; then it's yours.
   const [chosen, setChosen] = useState<boolean | null>(null);
-  const unfolded = chosen ?? (open || wants > 0);
+  // An earlier PR a newer one of its repo followed (the session moved on to a new branch) starts folded too.
+  const unfolded = chosen ?? ((open && !s.earlier) || wants > 0);
   return (
     <section className={'wd-pr-section' + (wants ? ' wd-pr-section-wants' : '')} aria-label={`Pull request ${prName(s, isGroup)}`}>
       <div className="wd-pr-section-head">
@@ -200,9 +202,14 @@ function PrSectionView({
           {unfolded ? '▾' : '▸'}
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
+        {s.earlier && (
+          <span className="wd-pr-earlier" title="An earlier pull request of this session: it moved on to a newer branch and PR since.">
+            earlier{s.branch ? ` · ${s.branch}` : ''}
+          </span>
+        )}
         {s.title && <span className="wd-pr-title">{s.title}</span>}
         {s.author && !s.mine && (
-          <span className="wd-pr-author" title={`Opened on GitHub by @${s.author}`}>
+          <span className="wd-pr-author" title={`Opened on ${hostName(s.host)} by @${s.author}`}>
             by @{s.author}
           </span>
         )}
@@ -211,7 +218,7 @@ function PrSectionView({
           {s.state === 'MERGED' && s.mergedAt ? ` ${relativeTime(s.mergedAt)} ago` : ''}
         </span>
         {wants > 0 && <span className="wd-session-subtab-badge">{wants}</span>}
-        <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title="Open it on GitHub">
+        <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title={`Open it on ${hostName(s.host)}`}>
           ↗
         </a>
       </div>

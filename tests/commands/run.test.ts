@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { selectSessions, expandRunUnits, anyFailed, type RunResult, type RunUnit } from '../../src/core/sessions/fleet.js';
-import { extractRun, stripRunToken, runPool } from '../../src/commands/run.js';
+import { extractRun, stripRunToken, runPool, shellInvocation } from '../../src/commands/run.js';
+import { NO_CWD_LOOKUP } from '../../src/core/platform/shell-env.js';
 import type { WorktreeSession } from '../../src/core/sessions/history.js';
 
 function session(target: string, branch: string, paths: string[], isGroup = false): WorktreeSession {
@@ -197,4 +198,40 @@ describe('runPool interruption', () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+});
+
+describe('shellInvocation: the command line, and cmd.exe never taking its program from the worktree', () => {
+  it('on Windows cmd.exe /c with NoDefaultCurrentDirectoryInExePath set; sh -c elsewhere, the environment as given', () => {
+    expect(shellInvocation('npm test', 'win32', { PATH: 'C:\\bin' })).toEqual({
+      bin: 'cmd.exe',
+      args: ['/c', 'npm test'],
+      env: { PATH: 'C:\\bin', [NO_CWD_LOOKUP]: '1' },
+    });
+    expect(shellInvocation('npm test', 'linux', { PATH: '/usr/bin' })).toEqual({
+      bin: 'sh',
+      args: ['-c', 'npm test'],
+      env: { PATH: '/usr/bin' },
+    });
+  });
+
+  it.runIf(process.platform === 'win32')(
+    "a worktree's own probex.bat doesn't run for a bare `probex` (Windows, echo-only file)",
+    async () => {
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'run-cwd-'));
+      try {
+        fs.writeFileSync(path.join(cwd, 'probex.bat'), '@echo FROM-CWD\r\n');
+        const { default: spawn } = await import('../../src/core/platform/spawn.js');
+        const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toLowerCase() !== NO_CWD_LOOKUP.toLowerCase()));
+        const inv = shellInvocation('probex', 'win32', env);
+        const r = spawn.sync(inv.bin, inv.args, { cwd, env: inv.env, encoding: 'utf8', windowsHide: true });
+        expect(String(r.stdout)).not.toContain('FROM-CWD');
+        const byPath = shellInvocation('.\\probex', 'win32', env);
+        expect(String(spawn.sync(byPath.bin, byPath.args, { cwd, env: byPath.env, encoding: 'utf8', windowsHide: true }).stdout)).toContain(
+          'FROM-CWD',
+        );
+      } finally {
+        fs.rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
 });

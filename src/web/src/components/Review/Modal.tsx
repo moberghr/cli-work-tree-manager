@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 interface Props {
   title: string;
@@ -28,14 +29,10 @@ export function Modal({ title, children, actions, onClose, primaryRef }: Props) 
     const primary = backdropRef.current?.querySelector<HTMLButtonElement>('.wd-btn-primary');
     primary?.focus();
   }, [primaryRef]);
+  const backdrop = useBackdropClose(onClose);
+
   return (
-    <div
-      className="wd-modal-backdrop"
-      ref={backdropRef}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <div className="wd-modal-backdrop" ref={backdropRef} onMouseDown={backdrop.onMouseDown} onClick={backdrop.onClick}>
       <div className="wd-modal">
         <h2>{title}</h2>
         {children}

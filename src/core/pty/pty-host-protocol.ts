@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir } from '../platform/config.js';
 import type { AiToolSpec } from '../platform/ai-launcher.js';
+import { isEnvDelta, type EnvDelta } from '../platform/env-delta.js';
 
 /**
  * Wire contract between the PTY host (`work pty-host`, the long-lived
@@ -16,6 +17,14 @@ import type { AiToolSpec } from '../platform/ai-launcher.js';
  *    (adoptLegacyRestoreList).
  */
 export const PROTOCOL_VERSION = 2;
+
+/**
+ * What this host can do beyond PROTOCOL_VERSION, answered by `/health` (additive: a host from before answers none).
+ * `agentEnv`: it applies a spawn's / restart's / resume's `agentEnv` (a session's Claude account); `halt`: halt / resume.
+ * A client asks before sending something an older host would silently drop (pty-pool.ts).
+ */
+export const HOST_FEATURES = ['agentEnv', 'halt'] as const;
+export type HostFeature = (typeof HOST_FEATURES)[number];
 
 /** Discovery file: where the running host listens and its auth token. */
 export interface HostInfo {
@@ -34,9 +43,11 @@ export interface SpawnSpec {
   port?: number;
   cols?: number;
   rows?: number;
-  /** `--unsafe`: the tool's skip-permissions flag. Persisted, so a restore
-   *  comes back with the same permission mode. */
-  unsafe?: boolean;
+  // No `unsafe` any more: every agent starts in its own permission mode. An older client may still send
+  // `unsafe: true`, and a restore list written by an older host may hold it (and its tool an `unsafeFlag`): extra
+  // fields, so no PROTOCOL_VERSION bump. A current host starts nothing from them and drops both when it restores or
+  // restarts a session (pty-registry.ts); for one release legacy-unsafe.ts reads an entry's `unsafe: true` as "an
+  // older host still runs this agent without permission prompts" and keeps its guards (REMOVE IN THE NEXT RELEASE).
   /** `--fresh`: start a new conversation even if one exists. First spawn
    *  only — a restore always continues. */
   fresh?: boolean;
@@ -46,6 +57,13 @@ export interface SpawnSpec {
    *  persisted — it can hold secrets; a restore after reboot uses the
    *  host's own environment. */
   env?: Record<string, string>;
+  /**
+   * What the agent's environment differs by for this session (its account's `CLAUDE_CONFIG_DIR`: set, or `null` = taken
+   * out), applied over whatever environment the process starts with — the shell's, or the host's own. Persisted (a
+   * folder path is no secret), so a restore keeps it. Additive, no PROTOCOL_VERSION bump: a host from before ignores
+   * it and starts the agent on the environment it inherits (`work pty-host --restart` after upgrading).
+   */
+  agentEnv?: EnvDelta;
 }
 
 /** One entry of the host's restore list: how to respawn a session. The
@@ -63,11 +81,16 @@ const SECRET_NAME =
 /** Values that carry a password whatever their name: `scheme://user:pass@host`. */
 const SECRET_VALUE = /:\/\/[^/\s:@]+:[^/\s@]+@/;
 
-/** The variables of `env` to keep for a restore: the ones named, that exist, and look like neither a secret nor a URL with a password in it. Pure. */
+/** Always kept for a restore, whatever `hostEnv` says: the agent's account folder (a path, not a secret — SECRET_VALUE still applies). */
+export const ALWAYS_KEPT_ENV = ['CLAUDE_CONFIG_DIR'] as const;
+
+/** The variables of `env` to keep for a restore: the ones named (and `ALWAYS_KEPT_ENV`), that exist, and look like neither a secret nor a URL with a password in it. Pure. */
 export function keepEnv(env: Record<string, string> | undefined, names: readonly string[]): Record<string, string> | undefined {
   if (!env) return undefined;
   const kept = Object.fromEntries(
-    names.filter((n) => !SECRET_NAME.test(n) && typeof env[n] === 'string' && !SECRET_VALUE.test(env[n])).map((n) => [n, env[n]]),
+    [...new Set([...names, ...ALWAYS_KEPT_ENV])]
+      .filter((n) => !SECRET_NAME.test(n) && typeof env[n] === 'string' && !SECRET_VALUE.test(env[n]))
+      .map((n) => [n, env[n]]),
   );
   return Object.keys(kept).length ? kept : undefined;
 }
@@ -82,6 +105,7 @@ export function isPersistedPty(x: unknown): x is PersistedPty {
     typeof e.cwd === 'string' &&
     !!e.tool &&
     typeof e.tool === 'object' &&
+    (e.agentEnv === undefined || isEnvDelta(e.agentEnv)) &&
     (e.keptEnv === undefined ||
       (!!e.keptEnv && typeof e.keptEnv === 'object' && Object.values(e.keptEnv).every((v) => typeof v === 'string')))
   );

@@ -3,9 +3,11 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { findSessionForCwd } from '../core/comments/pending-delivery.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
-import { listReplies, postDrafts, saveDraft } from '../core/pr/pr-replies.js';
+import { draftReply, listReplies, postDrafts, sessionRepoRefs } from '../core/pr/pr-replies.js';
 import { defaultRunner } from '../core/pr/ship.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
+import { stillUnsafeMessage } from '../core/sessions/legacy-unsafe.js';
+import { runsUnsafeFromBefore } from '../core/sessions/legacy-unsafe-io.js';
 
 /** Tell a running work web a draft changed, so the session header shows it. Best effort. */
 async function nudgeWeb(sessionId: string): Promise<void> {
@@ -26,6 +28,15 @@ function sessionHere() {
     process.exit(1);
   }
   return s;
+}
+
+/** An agent still running without permission prompts from before --unsafe was retired drafts and posts nothing
+ *  (legacy-unsafe.ts). REMOVE IN THE NEXT RELEASE. */
+function refuseStillUnsafe(s: ReturnType<typeof sessionHere>): void {
+  const unsafe = runsUnsafeFromBefore(sessionIdFor(s), s);
+  if (!unsafe) return;
+  console.error(chalk.red(stillUnsafeMessage(unsafe)));
+  process.exit(1);
 }
 
 /**
@@ -52,11 +63,16 @@ export const prCommand: CommandModule = {
             .option('body-file', { type: 'string', describe: 'Read the reply from this file instead' }),
         async (argv) => {
           const s = sessionHere();
+          refuseStillUnsafe(s);
           const text = argv['body-file']
             ? fs.readFileSync(String(argv['body-file']), 'utf8')
             : ((argv.text as string[] | undefined) ?? []).join(' ');
           const id = sessionIdFor(s);
-          const r = saveDraft(id, String(argv.thread), text);
+          // What work knows, else the thread as GitHub has it now: never stuck on a stale check.
+          const r = await draftReply(id, String(argv.thread), text, {
+            repos: () => sessionRepoRefs(s),
+            run: defaultRunner,
+          });
           if (!r.ok) {
             console.error(chalk.red(r.error));
             process.exit(1);
@@ -69,7 +85,7 @@ export const prCommand: CommandModule = {
       )
       .command(
         'post [threads..]',
-        'Post drafted replies from your GitHub account — for Claude, only once the user has said yes to them',
+        'Post drafted replies from your account on the PR host — for Claude, only once the user has said yes to them',
         (b) =>
           b
             .positional('threads', { type: 'string', array: true, describe: 'Thread ids (PRRT_…) whose drafts to post' })
@@ -81,6 +97,7 @@ export const prCommand: CommandModule = {
             }),
         async (argv) => {
           const s = sessionHere();
+          refuseStillUnsafe(s);
           const id = sessionIdFor(s);
           const asked = (argv.threads as string[] | undefined) ?? [];
           const drafts = listReplies(id).filter((r) => r.status === 'draft' && (argv.all || asked.includes(r.threadId)));

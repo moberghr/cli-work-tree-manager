@@ -2,16 +2,32 @@ import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
 import { requestTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { TimelineView } from './TimelineView.js';
+import { CodeView } from '../Code/CodeView.js';
+import { CodeSearch } from '../Code/CodeSearch.js';
+import { isSearchKey, type CodePlace } from '../../state/code-search-view.js';
+import { inDesktopApp } from '../../hooks/use-desktop.js';
+import { modalOpen } from '../../state/modal-open.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
 import { WorkTimeChip } from './WorkTimeChip.js';
 import { BehindChip, MergedParentChip } from './BehindChip.js';
 import { AwayLink, CatchUpPanel, useCatchUp } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
-import { archiveCancelled, renameSession, setArchived, type SessionSummary } from '../../api/client.js';
+import { archiveCancelled, fetchLastReply, renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrChips, PrStageChip, StatusLine } from './SessionBits.js';
+import {
+  AccountChip,
+  ClaudesChip,
+  ContextChip,
+  OtherBranchChip,
+  BranchesLine,
+  OverlapChip,
+  StackChip,
+  PrChips,
+  PrStageChip,
+  StatusLine,
+} from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip, useDevState } from './DevChip.js';
@@ -24,6 +40,9 @@ import { PtyView } from '../Terminal/LazyPtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
 import { openInTerminal } from '../../api/panes.js';
+import { markdownHtml, writeRich } from '../../state/rich-copy.js';
+import { ARCHIVED_BY_SHORT, archivedLine } from '../../state/archive-view.js';
+import { headerRepos } from '../../state/add-repo.js';
 
 interface Props {
   session: SessionSummary;
@@ -31,6 +50,10 @@ interface Props {
   onSelectSubTab: (sub: SessionSubTab) => void;
   /** Opens the delete-session confirmation. */
   onDelete: () => void;
+  /** Opens Add a repo… (a session folder; the dashboard's dialog). */
+  onAddRepo?: () => void;
+  /** Opens Claude account… (given while more than one account exists). */
+  onAccount?: () => void;
   /** Open PRs for this session (PRs pane data). */
   prs?: PrInfo[];
   /** A merge from the Ship panel went through (session now archived). */
@@ -60,11 +83,16 @@ interface Props {
  * (the bare `ReviewApp`) — this is the dashboard's per-session view,
  * not the bare reviewer. Same data underneath; different chrome.
  */
+/** Ctrl+T picks, counted for the page: a pick after switching sessions is never taken for an old one. */
+let pickSeq = 0;
+
 export function SessionDetail({
   session,
   subTab,
   onSelectSubTab,
   onDelete,
+  onAddRepo,
+  onAccount,
   prs = [],
   onShipped,
   startOnLastTurn = false,
@@ -78,8 +106,32 @@ export function SessionDetail({
   const [prFor, setPrFor] = useState<string | null>(null);
   // The diff filling the window; another session opens as usual.
   const [diffFull, setDiffFull] = useState(false);
+  // A branch the header's Branches line asked the Diff tab to show (once per ask: seq).
+  const [branchAsk, setBranchAsk] = useState<{ name: string; repo: string; seq: number; sessionId: string } | null>(null);
   // Left (another session, or another of its tabs): full screen is over, and doesn't come back by itself.
   useEffect(() => setDiffFull(false), [session.id, subTab]);
+  // Ctrl+T, as Visual Studio's: search the session's code from any of its tabs (a terminal too: the capture
+  // phase). A pick opens the Code tab at its line. Not over another dialog; not in a browser tab, which keeps
+  // Ctrl+T for itself (the Code tab's button opens it there).
+  const [searching, setSearching] = useState(false);
+  // Whose pick it is: another session's Code tab (j/k keep the tab) mounts before a reset here would run.
+  const [goto, setGoto] = useState<(CodePlace & { seq: number; sessionId: string }) | null>(null);
+  useEffect(() => setGoto(null), [session.id]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isSearchKey(e, { inApp: inDesktopApp(), archived: isArchived(session), modal: modalOpen(), searching })) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSearching((o) => !o);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [session, searching]);
+  const openPlace = (p: CodePlace) => {
+    // Never the same number twice for the page (CodeView applies each pick once, remembered per session).
+    setGoto({ ...p, seq: ++pickSeq, sessionId: session.id });
+    onSelectSubTab('code');
+  };
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
   // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
   const openShip = () =>
@@ -93,10 +145,17 @@ export function SessionDetail({
         session={session}
         prs={prs}
         onDelete={onDelete}
+        onAddRepo={onAddRepo}
+        onAccount={onAccount}
         onShipped={onShipped}
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
         onShowTerminal={() => onSelectSubTab('term')}
+        onShowTimeline={() => onSelectSubTab('timeline')}
+        onShowBranch={(repo, name) => {
+          setBranchAsk((a) => ({ name, repo, seq: (a?.seq ?? 0) + 1, sessionId: session.id }));
+          onSelectSubTab('diff');
+        }}
       />
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
@@ -117,11 +176,17 @@ export function SessionDetail({
             onClick={() => onSelectSubTab('pr')}
           />
         )}
-        <SubTabButton label="Timeline" active={subTab === 'timeline'} onClick={() => onSelectSubTab('timeline')} />
+        <SubTabButton label="Code" active={subTab === 'code'} onClick={() => onSelectSubTab('code')} />
       </nav>
       <div className={'wd-session-subtab-body' + (subTab === 'diff' && diffFull ? ' wd-diff-full' : '')}>
         {subTab === 'diff' && (
-          <DiffView session={session} startOnLastTurn={startOnLastTurn} fullScreen={diffFull} onFullScreen={setDiffFull} />
+          <DiffView
+            session={session}
+            startOnLastTurn={startOnLastTurn}
+            fullScreen={diffFull}
+            onFullScreen={setDiffFull}
+            showBranch={branchAsk?.sessionId === session.id ? branchAsk : null}
+          />
         )}
         {subTab === 'term' &&
           (onTermSlot ? (
@@ -136,9 +201,21 @@ export function SessionDetail({
             <PrTab key={session.id} session={session} prs={prs} onShip={openShip} />
           </div>
         )}
+        {subTab === 'code' && (
+          <CodeView
+            key={session.id}
+            session={session}
+            onShowDiff={() => onSelectSubTab('diff')}
+            goto={goto?.sessionId === session.id ? goto : null}
+            onSearch={isArchived(session) ? undefined : () => setSearching(true)}
+          />
+        )}
+        {searching && <CodeSearch sessionId={session.id} onPick={openPlace} onClose={() => setSearching(false)} />}
+        {/* From the ⋯ menu (and old links): no tab of its own, so it says what it is. */}
         {subTab === 'timeline' && (
           <div className="wd-timeline-tab">
             <div className="wd-timeline-head">
+              <h2 className="wd-timeline-title">Timeline</h2>
               <WorkTimeChip session={session} />
             </div>
             <TimelineView session={session} />
@@ -153,16 +230,34 @@ interface HeaderProps {
   session: SessionSummary;
   prs: PrInfo[];
   onDelete: () => void;
+  onAddRepo?: () => void;
+  onAccount?: () => void;
   onShipped?: () => void;
   onOpenSession?: (id: string) => void;
   /** Open the PR tab (absent while it's the one shown). */
   onOpenPr?: () => void;
   /** Show the Terminal tab (Reconnect terminal). */
   onShowTerminal?: () => void;
+  /** Show its timeline (⋯ → Timeline). */
+  onShowTimeline?: () => void;
+  /** Show another branch it worked on in the Diff tab (the Branches line). */
+  onShowBranch?: (repo: string, name: string) => void;
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
-function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpenPr, onShowTerminal }: HeaderProps) {
+function SessionHeader({
+  session,
+  prs,
+  onDelete,
+  onAddRepo,
+  onAccount,
+  onShipped,
+  onOpenSession,
+  onOpenPr,
+  onShowTerminal,
+  onShowTimeline,
+  onShowBranch,
+}: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [shipOpen, setShipOpen] = useState(false);
@@ -193,6 +288,19 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
       (err: Error) => setNote({ text: err.message, error: true }),
     );
   };
+  // Its Claude's last reply as it wrote it — the terminal's copy of it is wrapped at the screen's width.
+  const copyReply = () => {
+    setNote({ text: 'Copying Claude’s last reply…' });
+    fetchLastReply(session.id)
+      .then(async (text) => {
+        if (!text) return setNote({ text: 'Claude hasn’t replied in this session yet.' });
+        // Its Markdown rendered too: Teams, Outlook and Word paste tables, lists and code as such.
+        await writeRich({ text, html: markdownHtml(text) });
+        setNote({ text: 'Copied Claude’s last reply.' });
+        setTimeout(() => setNote((n) => (n?.text === 'Copied Claude’s last reply.' ? null : n)), 3000);
+      })
+      .catch((err: Error) => setNote({ text: `Couldn't copy it: ${err.message}`, error: true }));
+  };
   // The keys the dashboard hands to the open session's header (state/shortcuts.ts): what its buttons and ⋯ menu do.
   const moreRef = useRef<HTMLButtonElement>(null);
   const act = useRef<(a: SessionAction) => void>(() => {});
@@ -203,6 +311,8 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
       if (r) setMenu({ x: r.right, y: r.bottom + 4 });
     } else if (a === 'prompt' && live) setPromptsOpen(true);
     else if (a === 'catchup') catchUp.run();
+    else if (a === 'copy-reply') copyReply();
+    else if (a === 'timeline') onShowTimeline?.();
     else if (a === 'notes') setNotesOpen((o) => !o);
     else if (a === 'ship' && live) setShipOpen(true);
     else if (a === 'terminal' && live) openTerminal();
@@ -223,13 +333,19 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
     reconnectTerminal,
     ship: () => setShipOpen(true),
     catchUp: catchUp.run,
+    copyReply,
+    timeline: () => onShowTimeline?.(),
     sendPrompt: () => setPromptsOpen(true),
     notes: () => setNotesOpen((o) => !o),
     devStart: () => dev.act('start'),
     devStop: () => dev.act('stop'),
     rename: () => setRenameKey((k) => k + 1),
     remove: onDelete,
+    ...(onAddRepo ? { addRepo: onAddRepo } : {}),
+    ...(onAccount ? { account: onAccount } : {}),
   });
+  // A session folder's repos, beside its name (a single repo's session: its target says it).
+  const repos = headerRepos(session);
 
   return (
     <>
@@ -241,7 +357,16 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
           <OtherBranchChip session={session} />
           <SessionTitle key={renameKey} session={session} autoEdit={renameKey > 0} />
         </h1>
-        {archived && <span className="wd-archived-pill">archived</span>}
+        {repos.length > 0 && (
+          <span className="wd-session-repos" title={`Its repos: ${repos.join(', ')}`}>
+            {repos.join(' · ')}
+          </span>
+        )}
+        {archived && (
+          <span className="wd-archived-pill" title={archivedLine(session)}>
+            archived{session.archive?.by ? ` · ${ARCHIVED_BY_SHORT[session.archive.by]}` : ''}
+          </span>
+        )}
         <div className="wd-session-actions">
           {note && (
             <span
@@ -259,6 +384,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
           <PromptsMenu session={session} open={promptsOpen} onOpenChange={setPromptsOpen} />
           <ArchiveButton
             sessionId={session.id}
+            name={session.title ?? session.branch}
             archived={archived}
             // Why it didn't work, where the header says how things went (a Restore refused: what holds its folder).
             onStart={() => setArchiveNote(null)}
@@ -298,10 +424,12 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ClaudesChip session={session} quiet />
         <ContextChip session={session} quiet />
+        <AccountChip session={session} onOpen={onAccount} />
         {session.prStage ? <PrStageChip session={session} prs={prs} /> : <PrChips prs={prs} link />}
         <DevChip dev={dev} />
         {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}
       </div>
+      <BranchesLine session={session} onShow={onShowBranch} />
       <CatchUpPanel catchUp={catchUp} />
       {notesOpen && <SessionNotes session={session} onClose={() => setNotesOpen(false)} />}
       {needs && <NeedsYouBar text={needs} onOpen={onOpenPr} />}
@@ -372,11 +500,14 @@ export function SessionTitle({ session, autoEdit = false }: { session: SessionSu
  *  conversation; it drops off the rail and inbox until unarchived. */
 export function ArchiveButton({
   sessionId,
+  name,
   archived,
   onStart,
   onError,
 }: {
   sessionId: string;
+  /** What the "Archive …?" question calls it. */
+  name?: string;
   archived: boolean;
   onStart?: () => void;
   /** Why it was refused, shown beside it (a tooltip alone went unseen). */
@@ -392,8 +523,8 @@ export function ArchiveButton({
   const onClick = () => {
     setError(null);
     onStart?.();
-    setArchived(sessionId, !archived).catch((err: Error) => {
-      if (archiveCancelled(err)) return; // "Archive it anyway?" → Cancel: your choice
+    setArchived(sessionId, !archived, undefined, { name }).catch((err: Error) => {
+      if (archiveCancelled(err)) return; // "Archive …?" / "Archive it anyway?" → Cancel: your choice
       setError(err.message);
       onError?.(err.message);
     });

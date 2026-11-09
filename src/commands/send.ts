@@ -25,7 +25,7 @@ export const sendCommand: CommandModule = {
       .option('file', { type: 'string', describe: 'Read the message from a file' })
       .option('wait', { type: 'boolean', default: false, describe: 'Wait for the turn it starts to end, then print the reply' })
       .option('timeout', { type: 'string', default: '15m', describe: 'With --wait: give up after this long (90s, 15m, 1h)' })
-      .option('force', { type: 'boolean', default: false, describe: 'Send to a session running with permission checks off (--unsafe)' })
+      .option('force', { type: 'boolean', hidden: true }) // retired with --unsafe: accepted for one release, does nothing
       .check(
         (a) =>
           (typeof a.message === 'string') !== (typeof a.file === 'string') || 'Give the message with -m "…" or --file <path> (one of them)',
@@ -41,7 +41,7 @@ export const sendCommand: CommandModule = {
       return;
     }
     const id = sessionIdFor(s);
-    const r = await callWorkWeb<SendWire>('POST', `/api/sessions/${id}/send`, { text, force: argv.force === true });
+    const r = await callWorkWeb<SendWire>('POST', `/api/sessions/${id}/send`, { text });
     if (!r.ok) {
       console.error(chalk.red(r.error));
       process.exitCode = 1;

@@ -30,13 +30,37 @@ describe('the child run, as argv (pure)', () => {
       '--name=Retry',
     ]);
     expect(childArgs({ target: 'api' })).toEqual(['tree', 'api', '--setup-only']); // the repo's own checkout
+    // A new session's own repos (a fork of a session folder).
+    expect(childArgs({ target: 'shop', branch: 'feat/a', repos: ['api', 'web'] })).toEqual([
+      'tree',
+      'shop',
+      'feat/a',
+      '--setup-only',
+      '--repos=api,web',
+    ]);
+  });
+
+  it('a Claude account goes as --account=<name>, a name that would read as a flag is refused', () => {
+    expect(childArgs({ target: 'api', branch: 'feat/a', account: 'work' })).toEqual([
+      'tree',
+      'api',
+      'feat/a',
+      '--setup-only',
+      '--account=work',
+    ]);
+    expect(childArgs({ target: 'api', branch: 'feat/a' })).not.toContain('--account=undefined');
+    expect(invalidRequest({ target: 'api', branch: 'b', account: '--fresh' })).toMatch(/not a Claude account/);
+    expect(invalidRequest({ target: 'api', branch: 'b', account: 'work' })).toBeNull();
   });
 
   it("what the child's command line would misread as a flag is refused before anything runs", () => {
-    expect(invalidRequest({ target: 'api', branch: '--unsafe' })).toMatch(/not a valid branch name/);
+    expect(invalidRequest({ target: 'api', branch: '--fresh' })).toMatch(/not a valid branch name/);
     expect(invalidRequest({ target: '-x' })).toMatch(/not a project/);
     expect(invalidRequest({ target: 'api', branch: 'b', base: { default: '--x', perRepo: {} } })).toMatch(/not a valid base/);
-    expect(invalidRequest({ target: 'api', branch: 'feat/a', name: '--unsafe' })).toBeNull(); // a name is a value (--name=…)
+    expect(invalidRequest({ target: 'api', branch: 'feat/a', name: '--fresh' })).toBeNull(); // a name is a value (--name=…)
+    expect(invalidRequest({ target: 'api', branch: 'b', repos: ['api', '--x'] })).toMatch(/not a repo/);
+    expect(invalidRequest({ target: 'api', branch: 'b', repos: ['a,b'] })).toMatch(/not a repo/);
+    expect(invalidRequest({ target: 'api', branch: 'b', repos: ['api', 'web'] })).toBeNull();
   });
 });
 
@@ -83,7 +107,15 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     fs.writeFileSync(path.join(repo, 'a.txt'), 'a');
     git(['add', '.'], repo);
     git(['commit', '-m', 'init', '--no-gpg-sign'], repo);
-    config = { worktreesRoot: path.join(project, 'wt'), repos: { api: repo }, groups: {}, copyFiles: [] };
+    const web = path.join(project, 'web');
+    fs.mkdirSync(web);
+    git(['init', '-b', 'main'], web);
+    git(['config', 'user.email', 't@t.t'], web);
+    git(['config', 'user.name', 'T'], web);
+    fs.writeFileSync(path.join(web, 'w.txt'), 'w');
+    git(['add', '.'], web);
+    git(['commit', '-m', 'init', '--no-gpg-sign'], web);
+    config = { worktreesRoot: path.join(project, 'wt'), repos: { api: repo, web }, groups: {}, copyFiles: [] };
     saveConfig(config); // the child reads it from the same (test) HOME
   });
   afterAll(() => fs.rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
@@ -93,12 +125,55 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     let ticks = 0;
     const tick = setInterval(() => ticks++, 20);
     // A name that looks like a flag is still the name (passed as --name=…).
-    const r = await create({ target: 'api', branch: 'feat/a', name: '--unsafe' }, config);
+    const r = await create({ target: 'api', branch: 'feat/a', name: '--fresh' }, config);
     clearInterval(tick);
     expect(r).toMatchObject({ ok: true, branch: 'feat/a', paths: [path.join(config.worktreesRoot, 'api', 'feat-a')] });
     expect(fs.existsSync(path.join(config.worktreesRoot, 'api', 'feat-a', 'a.txt'))).toBe(true);
-    expect(findSession(loadHistory(), 'api', 'feat/a')?.title).toBe('--unsafe');
+    expect(findSession(loadHistory(), 'api', 'feat/a')?.title).toBe('--fresh');
+    // What the child warned about comes back with it (this repo has no upstream to pull its main from).
+    expect(r.ok && r.warnings?.join(' ')).toMatch(/Could not pull 'main'/);
     expect(ticks).toBeGreaterThan(5); // nothing here waited on git
+  }, 150_000);
+
+  it("a new session's own repos (--repos): made as a session folder holding them", async () => {
+    const r = await create({ target: 'api', branch: 'feat/r', repos: ['api', 'web'] }, config);
+    const folder = path.join(config.worktreesRoot, 'api', 'feat-r');
+    expect(r).toMatchObject({ ok: true, launchDir: folder, paths: [path.join(folder, 'api'), path.join(folder, 'web')] });
+    expect(findSession(loadHistory(), 'api', 'feat/r')).toMatchObject({ isGroup: true, repos: ['api', 'web'] });
+    // In process (the CLI, tests) the same warnings come back as from the child.
+    const here = await createInProcess({ target: 'web', branch: 'feat/ip' }, config);
+    expect(here.ok && here.warnings?.join(' ')).toMatch(/Could not pull 'main'/);
+    const unknown = await createInProcess({ target: 'api', branch: 'feat/s', repos: ['api', 'nope'] }, config);
+    expect(unknown).toEqual({ ok: false, error: expect.stringContaining('not in your config: nope') });
+  }, 150_000);
+
+  it('a new session records the account it is made on (--account), a default one when none is asked, and an unknown one is refused', async () => {
+    const accountsConfig = { ...config, claudeAccounts: { work: path.join(project, 'acc-work') } };
+    saveConfig(accountsConfig);
+    try {
+      const made = await create({ target: 'api', branch: 'feat/acc', account: 'work' }, accountsConfig);
+      expect(made).toMatchObject({ ok: true });
+      expect(findSession(loadHistory(), 'api', 'feat/acc')?.account).toBe('work');
+      await create({ target: 'web', branch: 'feat/acc2' }, accountsConfig);
+      expect(findSession(loadHistory(), 'web', 'feat/acc2')?.account).toBe('default');
+      // Coming back to it asking for another: it keeps its own.
+      await create({ target: 'api', branch: 'feat/acc', account: 'default' }, accountsConfig);
+      expect(findSession(loadHistory(), 'api', 'feat/acc')?.account).toBe('work');
+      // The base checkout is a session too.
+      expect(await createInProcess({ target: 'web', account: 'work' }, accountsConfig)).toMatchObject({ ok: true });
+      expect(loadHistory().find((s) => s.target === 'web' && s.paths[0] === config.repos.web)?.account).toBe('work');
+      // Unknown: refused by the child with why, in process too — and no worktree made.
+      const bad = await create({ target: 'api', branch: 'feat/nope', account: 'nope' }, accountsConfig);
+      expect(!bad.ok && bad.error).toMatch(/Unknown Claude Code account: nope/);
+      expect(await createInProcess({ target: 'api', branch: 'feat/nope', account: 'nope' }, accountsConfig)).toEqual({
+        ok: false,
+        error: expect.stringContaining('Unknown Claude Code account: nope'),
+      });
+      expect(findSession(loadHistory(), 'api', 'feat/nope')).toBeUndefined();
+      expect(fs.existsSync(path.join(config.worktreesRoot, 'api', 'feat-nope'))).toBe(false);
+    } finally {
+      saveConfig(config);
+    }
   }, 150_000);
 
   it("the repo's own checkout with no branch; a failure says why (the child's own error)", async () => {
@@ -108,9 +183,48 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     expect(!bad.ok && bad.error).toMatch(/nope/);
     expect(await createInProcess({ target: 'nope', branch: 'feat/b' }, config)).toMatchObject({ ok: false });
     // A branch that would be read as a flag: refused, no run, no base checkout opened instead.
-    expect(await create({ target: 'api', branch: '--unsafe' }, config)).toEqual({
+    expect(await create({ target: 'api', branch: '--fresh' }, config)).toEqual({
       ok: false,
       error: expect.stringContaining('not a valid branch name'),
     });
   }, 150_000);
+});
+
+describe('setupWarningsOf (what a --setup-only child warned about)', () => {
+  it('its last warnings line; none without one or with a broken one', async () => {
+    const { setupWarningsOf, SETUP_WARNINGS } = await import('../../../src/core/worktree/setup-child.js');
+    expect(setupWarningsOf(`noise\n${SETUP_WARNINGS}["a"]\n${SETUP_WARNINGS}["b","c"]\n`)).toEqual(['b', 'c']);
+    expect(setupWarningsOf('Worktree path: x\n')).toEqual([]);
+    expect(setupWarningsOf(`${SETUP_WARNINGS}{not json`)).toEqual([]);
+    expect(setupWarningsOf(`${SETUP_WARNINGS}[1,"x"]`)).toEqual(['x']);
+  });
+});
+
+describe('after a child that took too long', () => {
+  it("prunes what git left half-registered in the repos it was asked for (a fork's own, with no row yet)", async () => {
+    const { createInChild } = await import('../../../src/core/worktree/setup-child.js');
+    const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'setup-child-timeout-')));
+    try {
+      const web = path.join(project, 'web');
+      fs.mkdirSync(web);
+      git(['init', '-q', '-b', 'main'], web);
+      fs.writeFileSync(path.join(web, 'w.txt'), 'w');
+      git(['add', '.'], web);
+      git(['-c', 'user.email=t@t.t', '-c', 'user.name=T', 'commit', '-q', '-m', 'init', '--no-gpg-sign'], web);
+      // A half-made worktree: registered, its folder gone.
+      const half = path.join(project, 'wt', 'docs', 'feat-f', 'web');
+      git(['worktree', 'add', '-q', '-b', 'feat/f', half], web);
+      fs.rmSync(half, { recursive: true, force: true });
+      expect(git(['worktree', 'list'], web).stdout).toContain('feat-f');
+      const config: WorkConfig = { worktreesRoot: path.join(project, 'wt'), repos: { web }, groups: {}, copyFiles: [] };
+      // A "work" that never answers.
+      const slow = path.join(project, 'slow.mjs');
+      fs.writeFileSync(slow, 'setTimeout(() => {}, 60_000);\n');
+      const r = await createInChild(slow, { execArgv: [], timeoutMs: 300 })({ target: 'docs', branch: 'feat/f', repos: ['web'] }, config);
+      expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/took too long/) });
+      expect(git(['worktree', 'list'], web).stdout).not.toContain('feat-f');
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }, 60_000);
 });

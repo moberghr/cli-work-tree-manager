@@ -224,7 +224,7 @@ describe('Session header strip', () => {
   it.each([
     ['needs_input', false, 'Needs your input · 4m — Claude needs your permission to use Bash'],
     ['working', true, 'Working · 4m — Refactor the ledger'],
-    ['idle', false, 'Done · 4m — Added the endpoint'],
+    ['idle', false, 'Idle · 4m — Added the endpoint'],
   ] as const)('%s: says what it is doing', (state, seen, expected) => {
     const summary = expected.split(' — ')[1];
     renderDetail(session({ attention: att(state, seen, summary), diffStat: { added: 3, deleted: 1, files: 1 } }));

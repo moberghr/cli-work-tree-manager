@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { agentOf, agentWire } from '../agents/index.js';
 import { readStatus } from '../status/session-status.js';
 import { snoozeActive, type Snooze } from '../rail/snooze.js';
-import { withLiveClaude } from '../status/session-status.js';
+import { idleFrom, withLiveClaude } from '../status/session-status.js';
 import path from 'node:path';
 import { readSessionMeta } from './session-meta.js';
 import { checkedOutBranch } from '../git/git-head.js';
@@ -18,11 +18,15 @@ import type {
   SessionWire,
   BlockerWire,
   PrStageWire,
+  SessionBranchWire,
 } from '../api-types.js';
-import { archiveDirFor, keptList, readArchive } from '../archive/session-archive.js';
+import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/session-archive.js';
+import { isArchiving, isRestoring } from '../archive/archiving.js';
 import { sessionTitle } from '../conversations/session-title.js';
-import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
+import { prStageOf, stageRepos, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 import { isLeftover } from '../worktree/leftover.js';
+import { recordedRepos, sessionRepos } from './session-repos.js';
+import { DEFAULT_ACCOUNT, getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -30,6 +34,8 @@ import { isLeftover } from '../worktree/leftover.js';
  * context, archive state. Built in one place so the two can't drift.
  */
 export interface SessionWireOptions {
+  /** The account a switch waiting for its turn will move it to (account-switch.ts), or null. */
+  accountPendingFor?: (id: string) => string | null;
   /** The session's `+N −M`, when the caller has one (the web cache). */
   diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null;
   /** Whether its Claude runs in the PTY host (the CLI asks the host; the
@@ -59,7 +65,15 @@ export interface SessionWireOptions {
   /** Its snooze, if any (snooze-store.ts); shown only while it holds. */
   snoozeFor?: (id: string) => Snooze | null;
   /** How far behind main — or the session it is stacked on — it is (behind-main.ts's cache). */
-  behindFor?: (id: string, s: WorktreeSession) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
+  /** `lastActivity`: its agent's last write (ms; 0 none), so a session entered long ago but worked in today counts as in use. */
+  behindFor?: (
+    id: string,
+    s: WorktreeSession,
+    lastActivity: number,
+  ) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
+  /** Every branch it worked on, with what's known of each (branch-facts.ts `createSessionBranches`); null when
+   *  it stayed on one. */
+  branchesFor?: (id: string, s: WorktreeSession) => SessionBranchWire[] | null;
   /** Where it sits in a stack (stack-sessions.ts). */
   stackFor?: (id: string) => {
     parent: { id: string; branch: string; title?: string } | null;
@@ -82,6 +96,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     branch: s.branch,
     isGroup: s.isGroup,
     paths: s.paths,
+    repos: wireRepos(s),
+    folder: s.isGroup,
     baseBranch: s.baseBranch,
     jiraKey: s.jiraKey,
     createdAt: s.createdAt,
@@ -103,6 +119,9 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
         : meta.activityState,
     ...(claudes ? { agents: claudes, claudes } : {}),
     agent: agentWire(agentOf(s)),
+    // Only a session on an account other than the default says which.
+    ...(s.account && s.account !== DEFAULT_ACCOUNT ? { account: s.account } : {}),
+    ...(!s.archivedAt && opts.accountPendingFor?.(id) ? { accountPending: opts.accountPendingFor(id)! } : {}),
     ...(s.archivedAt ? archiveInfo(id) : {}),
     title: bestEffort(
       `title of ${s.target}:${s.branch}`,
@@ -114,7 +133,11 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     // Claude Code's own state file over what the hooks recorded, when newer.
     attention:
       meta.attention && !shadowed && opts.claudesFor
-        ? withLiveClaude(meta.attention, claudes, { known: opts.liveKnown === true, hosted: opts.hostedLive?.(id) ?? true })
+        ? withLiveClaude(meta.attention, claudes, {
+            known: opts.liveKnown === true,
+            hosted: opts.hostedLive?.(id) ?? true,
+            background: () => agentOf(s).conversation?.backgroundWorkSince?.(s, idleFrom(meta.attention!)) ?? null,
+          })
         : (meta.attention ?? (shadowed || s.archivedAt ? null : (opts.outputStatusFor?.(id) ?? null))),
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,
@@ -132,16 +155,66 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
   if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads, prStage: wire.prStage }))
     wire.snoozed = { until: snooze.until };
-  const behind = s.archivedAt ? null : (opts.behindFor?.(id, s) ?? null);
+  const behind = s.archivedAt ? null : (opts.behindFor?.(id, s, wire.lastActivity ?? 0) ?? null);
   if (behind && behind.commits > 0) wire.behind = behind;
   const stack = s.archivedAt ? null : (opts.stackFor?.(id) ?? null);
   if (stack?.parent) wire.stackedOn = stack.parent;
   if (stack?.children) wire.stackedChildren = stack.children;
   if (stack?.merged) wire.stackParentMerged = stack.merged;
+  const branches = s.archivedAt ? null : (opts.branchesFor?.(id, s) ?? null);
+  if (branches?.length) wire.branches = branches;
   if (opts.hasNote?.(id)) wire.hasNote = true;
+  if (isArchiving(id)) wire.archiving = true;
+  if (!s.archivedAt && isAsleep(readStatus(id)?.stoppedAt, wire.ptyStatus === 'running', wire.lastActivity ?? 0)) wire.asleep = true;
   const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);
   if (blockers.length) wire.blockedBy = blockers;
   return wire;
+}
+
+/**
+ * Asleep: work stopped its Claude (idle sleep, `work stop`: `stoppedAt`), it
+ * isn't running now, and its conversation wasn't written since — one started
+ * again (opened, sent a note, started in a terminal) is awake. Pure.
+ */
+export function isAsleep(stoppedAt: string | undefined, ptyRunning: boolean, lastActivityMs: number): boolean {
+  const stopped = stoppedAt ? Date.parse(stoppedAt) : NaN;
+  return Number.isFinite(stopped) && !ptyRunning && lastActivityMs <= stopped;
+}
+
+/** The row, marked Restoring while a Restore of it runs (a copy: archived rows are cached). */
+export function withRestoring(w: SessionWire): SessionWire {
+  return isRestoring(w.id) ? { ...w, restoring: true } : w;
+}
+
+/**
+ * Its repos' aliases, one per path (`sessionRepos`). A recorded list needs no
+ * config; a group's row from before reads the group's members from the
+ * config, read once per change of the file (this runs per row of every list).
+ */
+export function wireRepos(
+  s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths' | 'repos'>,
+  config: () => Pick<WorkConfig, 'repos' | 'groups'> | null = repoConfig,
+): string[] {
+  const recorded = recordedRepos(s);
+  if (recorded) return recorded.map((r) => r.alias);
+  return sessionRepos(s, s.isGroup ? config() : null).map((r) => r.alias);
+}
+
+let configCache: { key: string; value: Pick<WorkConfig, 'repos' | 'groups'> | null } | null = null;
+
+function repoConfig(): Pick<WorkConfig, 'repos' | 'groups'> | null {
+  const file = getConfigPath();
+  let key: string;
+  try {
+    const st = fs.statSync(file);
+    key = `${file}|${st.size}|${st.mtimeMs}`;
+  } catch {
+    return null;
+  }
+  if (configCache?.key === key) return configCache.value;
+  const cfg = bestEffort('config for session repos', () => loadConfig(), null);
+  configCache = { key, value: cfg ? { repos: cfg.repos, groups: cfg.groups } : null };
+  return configCache.value;
 }
 
 /**
@@ -180,10 +253,14 @@ export const stageSeenKey = (stageKey: string) => `stage:${stageKey}`;
  * for a stage that would bring it back to the Inbox (one lookup, not one per row).
  */
 export function prStageWire(
-  ci: { repos: Array<{ name: string; pr: StagePr | null }> } | null | undefined,
+  ci:
+    | { repos: Array<{ name: string; pr: StagePr | null; branch?: string; otherPrs?: Array<{ branch: string; pr: StagePr }> }> }
+    | null
+    | undefined,
   seen: (key: string) => boolean,
 ): PrStageWire | null {
-  const stage = prStageOf(ci?.repos ?? []);
+  // The newest open PR across the branches it worked on (stageRepos), not only the checked-out branch's.
+  const stage = prStageOf(stageRepos(ci?.repos ?? []));
   if (!stage) return null;
   return STAGE_WANTS_YOU.has(stage.kind) && seen(stageSeenKey(stage.key)) ? { ...stage, seen: true } : stage;
 }
@@ -201,8 +278,11 @@ function savedFiles(saved: Record<string, { files: number; restoredAt?: string; 
 function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
   const rec = readArchive(id);
   if (!rec) return {};
+  const by = archivedByOf(rec);
+  const kept = keptList(rec.kept);
   return {
     archive: {
+      ...(by ? { by } : {}),
       worktreeRemoved: rec.worktreeRemoved,
       keptBecause: rec.keptBecause,
       promptCount: rec.summary.promptCount,
@@ -211,7 +291,7 @@ function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
       ...(rec.summary.written ? { written: rec.summary.written } : {}),
       ...(rec.buildFolders ? { buildFolders: rec.buildFolders } : {}),
       ...savedFiles(rec.uncommitted),
-      ...(keptList(rec.kept) ? { kept: keptList(rec.kept) } : {}),
+      ...(kept ? { kept } : {}),
     },
   };
 }

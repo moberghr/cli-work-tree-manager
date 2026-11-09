@@ -18,6 +18,7 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['tree', 't'], load: async () => (await import('./commands/tree.js')).treeCommand },
   { names: ['remove'], load: async () => (await import('./commands/remove.js')).removeCommand },
   { names: ['fork'], load: async () => (await import('./commands/fork.js')).forkCommand },
+  { names: ['add-repo'], load: async () => (await import('./commands/add-repo.js')).addRepoCommand },
   { names: ['update'], load: async () => (await import('./commands/update.js')).updateCommand },
   { names: ['catchup'], load: async () => (await import('./commands/catchup.js')).catchupCommand },
   { names: ['snooze'], load: async () => (await import('./commands/snooze.js')).snoozeCommand },
@@ -26,6 +27,8 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['note'], load: async () => (await import('./commands/note.js')).noteCommand },
   { names: ['block'], load: async () => (await import('./commands/block.js')).blockCommand },
   { names: ['time'], load: async () => (await import('./commands/time.js')).timeCommand },
+  { names: ['account'], load: async () => (await import('./commands/account.js')).accountCommand },
+  { names: ['usage'], load: async () => (await import('./commands/usage.js')).usageCommand },
   { names: ['read'], load: async () => (await import('./commands/read.js')).readCommand },
   { names: ['screen'], load: async () => (await import('./commands/screen.js')).screenCommand },
   { names: ['send'], load: async () => (await import('./commands/send.js')).sendCommand },
@@ -80,7 +83,6 @@ function showHelp() {
   console.log('  work tree|t <project|group> <branch>               - Create/switch to worktree');
   console.log('  work tree <project|group> <branch> --base <branch> - Create from a specific base branch');
   console.log('  work tree <project|group> <branch> --open          - Also open VS Code');
-  console.log('  work tree <project|group> <branch> --unsafe        - Skip AI tool permission checks');
   console.log('  work remove <project|group> <branch>               - Remove worktree');
   console.log('  work remove <project|group> <branch> --force       - Force remove worktree');
   console.log('  work status [project|group] [branch]               - Show worktree status');
@@ -104,6 +106,9 @@ function showHelp() {
   console.log('  work run <cmd...>                                  - Run a command in every worktree');
   console.log('  work run <cmd...> --target <alias> --parallel      - Filter + run concurrently');
   console.log('  work broadcast <prompt>                            - Queue a prompt to every live session');
+  console.log(
+    '  work account <add|list|default|remove|switch>      - Claude Code accounts (a second login for when a limit runs out; switch moves a session)',
+  );
   console.log('  work attach [target] [branch]                      - Attach this terminal to a session (Ctrl+] detaches)');
   console.log('  work todo                                          - List tasks');
   console.log('  work todo add <text>                               - Add a task');
@@ -125,7 +130,6 @@ function showHelp() {
   console.log('  work list ai');
   console.log('  work tree ai feature/login');
   console.log('  work tree frontend feature/login --open');
-  console.log('  work tree ai feature/hotfix --unsafe');
   console.log('  work remove ai feature/login');
   console.log('');
   console.log(chalk.gray('  # Groups (multi-repo worktrees):'));

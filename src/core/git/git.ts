@@ -1,5 +1,6 @@
 import spawn from '../platform/spawn.js';
 import { execFile } from 'node:child_process';
+import { programPath } from '../platform/program-path.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { debug } from '../platform/logger.js';
@@ -300,7 +301,7 @@ export function fetchRemote(cwd: string): void {
 /** Async version of fetchRemote — non-blocking. */
 export async function fetchRemoteAsync(cwd: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    execFile('git', ['fetch', '--quiet'], { cwd, timeout: 30000, windowsHide: true }, (err) => {
+    execFile(programPath('git'), ['fetch', '--quiet'], { cwd, timeout: 30000, windowsHide: true }, (err) => {
       if (err) reject(err);
       else resolve();
     });

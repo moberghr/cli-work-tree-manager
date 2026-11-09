@@ -38,6 +38,9 @@ export interface SessionStatus {
    *  idle → idle stop, and `updatedAt` moves on seen and on the idle nudge;
    *  this is what transcript activity is compared with (effectiveStatus). */
   turnEndedAt?: string;
+  /** When work itself last stopped its Claude (idle sleep, `work stop`, `markAgentStopped`): signs of a
+   *  Claude from before then are that one's, and it's gone — not one open in another terminal. */
+  stoppedAt?: string;
 }
 
 export type { StatusEvent } from './status-event.js';
@@ -130,6 +133,8 @@ export const STALE_WORKING_MS = 15 * 60_000;
 export interface EffectiveStatus extends SessionStatus {
   /** True when `state` was downgraded from a stale "working". */
   stale: boolean;
+  /** Working because a background agent its turn started is still at it (its turn ended, its prompt is free): what it is. */
+  background?: { what: string | null };
 }
 
 /** Transcript activity this long after a needs-input notification means
@@ -187,7 +192,12 @@ export function effectiveStatus(
 export function withLiveClaude(
   status: EffectiveStatus,
   live: { state?: 'busy' | 'idle' | 'waiting'; stateAt?: number; waitingFor?: string } | null,
-  opts: { known: boolean; hosted: boolean },
+  opts: {
+    known: boolean;
+    hosted: boolean;
+    /** A background agent its conversation started is still at it since its turn ended (asked only when it matters). */
+    background?: () => { what: string | null } | null;
+  },
 ): EffectiveStatus {
   const recorded = Date.parse(status.updatedAt) || 0;
   if (live?.state && (live.stateAt ?? 0) > recorded) {
@@ -203,6 +213,14 @@ export function withLiveClaude(
     }
     if (live.state === 'idle' && (status.state === 'working' || status.state === 'needs_input'))
       return { ...status, state: 'idle', seen: true, stale: true };
+  }
+  // Its turn ended, but Claude Code is still busy (said before that end, so older than the hook) and a background
+  // agent it started has written since: the turn handed its work to that agent, which is still at it (reported:
+  // "handing it to a background agent" read Idle). Its end comes back as a new turn, and Claude Code says idle then.
+  if (live?.state === 'busy' && status.state === 'idle') {
+    const work = opts.background?.();
+    // Working, but not on a turn of yours: its prompt is free (the dashboard says "In background", what it is).
+    if (work) return { ...status, state: 'working', seen: true, stale: false, background: { what: work.what } };
   }
   if (!live && opts.known && !opts.hosted && (status.state === 'working' || status.state === 'needs_input')) {
     return { ...status, state: 'idle', seen: true, stale: true };
@@ -301,6 +319,16 @@ export function turnInProgress(s: Pick<SessionStatus, 'state' | 'since' | 'turnE
   if (s.state !== 'needs_input') return false;
   const ended = s.turnEndedAt ? Date.parse(s.turnEndedAt) : NaN;
   return !(ended >= Date.parse(s.since));
+}
+
+/**
+ * Work stopped the session's Claude itself (idle sleep, `work stop`): the
+ * Terminal tab's "running in another terminal" check (`claudeElsewhere`)
+ * then ignores the turn that ended just before, and starts it again. A
+ * session with no status yet has nothing that check could misread.
+ */
+export async function markAgentStopped(sessionId: string, now: Date = new Date()): Promise<void> {
+  await updateStatus(sessionId, (prev) => (prev ? { ...prev, stoppedAt: now.toISOString() } : prev));
 }
 
 /** The user looked at it (opened it in the dashboard). */

@@ -33,6 +33,13 @@ export function StatusIcon({
 
 const cut = 'var(--status-icon-cut, var(--bg))'; // the glyph inside a filled disc
 
+const ARC = (
+  <g className="wd-status-spin">
+    <circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+    <path d="M8 2.4a5.6 5.6 0 0 1 5.6 5.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </g>
+);
+
 const GLYPH: Record<DisplayKind, ReactElement> = {
   // Blocked on you: "!" in a filled disc.
   needs_input: (
@@ -50,39 +57,22 @@ const GLYPH: Record<DisplayKind, ReactElement> = {
     </>
   ),
   // Mid-turn: a turning arc.
-  working: (
-    <g className="wd-status-spin">
-      <circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
-      <path d="M8 2.4a5.6 5.6 0 0 1 5.6 5.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </g>
-  ),
-  // Reviewers are waiting: a speech bubble.
-  review: (
+  working: ARC,
+  // Its turn ended, a background agent it started is still at it: the same arc (still busy), its own colour (CSS).
+  background: ARC,
+  // Being archived: the same arc (something is happening), grey — it is on its way out.
+  archiving: ARC,
+  // Being restored: the same grey arc, on its way back.
+  restoring: ARC,
+  // Its Claude stopped while idle (asleep): a small "z z", grey — opening it starts it again.
+  asleep: (
     <path
-      d="M3 3.2h10a1.6 1.6 0 0 1 1.6 1.6v5.2a1.6 1.6 0 0 1-1.6 1.6H7.4L4.3 14v-2.4H3A1.6 1.6 0 0 1 1.4 10V4.8A1.6 1.6 0 0 1 3 3.2z"
-      fill="currentColor"
-    />
-  ),
-  // Its PR wants you (ready to merge, a conflict, failing checks): a pull request in a filled disc.
-  pr: (
-    <>
-      <circle cx="8" cy="8" r="7" fill="currentColor" />
-      <g fill="none" stroke={cut} strokeWidth="1.3" strokeLinecap="round">
-        <circle cx="5.4" cy="4.7" r="1.2" />
-        <circle cx="5.4" cy="11.3" r="1.2" />
-        <circle cx="10.6" cy="11.3" r="1.2" />
-        <path d="M5.4 5.9v4.2M10.6 10.1V6.8a1.5 1.5 0 0 0-1.5-1.5H7.5" />
-      </g>
-    </>
-  ),
-  // Its PR waits on reviewers or checks: an hourglass.
-  in_review: (
-    <path
-      d="M4.3 2.4h7.4M4.3 13.6h7.4M5.2 2.4c0 3.2 5.6 3.4 5.6 5.6s-5.6 2.4-5.6 5.6M10.8 2.4c0 3.2-5.6 3.4-5.6 5.6s5.6 2.4 5.6 5.6"
+      d="M2 2.5h6.5L2 9.5h6.5M9.5 8.5h4.5L9.5 13.5h4.5"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth="1.7"
       strokeLinecap="round"
+      strokeLinejoin="round"
     />
   ),
   // Finished and seen: an empty ring.

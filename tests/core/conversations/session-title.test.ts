@@ -9,6 +9,7 @@ const files = vi.hoisted(() => ({ list: [] as Array<{ file: string; mtimeMs: num
 vi.mock('../../../src/core/agents/claude/files.js', () => ({
   listTranscripts: () => files.list,
   latestTranscript: () => files.list[0] ?? null,
+  backgroundWorkSince: () => false,
 }));
 
 import { firstPromptOf, sessionTitle, titleText } from '../../../src/core/conversations/session-title.js';

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { importsOf, loadedBy } from './source-scan.js';
 
 /**
  * The demo proves the dashboard depends only on its API contract — but only
@@ -59,12 +60,24 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/pty/host-health.ts', // pure: how the PTY host is doing
       'src/core/worktree/branch-name.ts', // pure: the next free branch name
       'src/core/worktree/repo-rules.ts', // pure: aliases and groups, what's allowed
+      'src/core/worktree/add-repo-rules.ts', // pure: which repo adds are refused, and the note to Claude
+      'src/core/worktree/code-symbols.ts', // pure: declarations by pattern, matching names (the Code tab's search)
       'src/core/pr/pr-stage.ts', // pure: where a PR stands
+      'src/core/pr/branch-work.ts', // pure: the work left on a session's other branches
       'src/core/pr/pr-ref.ts', // pure: a PR's link or number, and its session's first prompt
       'src/core/updates/updates.ts', // pure: versions, release notes, what to offer
       'src/core/diff/diff-points.ts', // pure: the points a diff range runs between
       'src/core/time/allocate.ts', // pure: a day's suggested hours per ticket
       'src/core/time/time-view.ts', // pure: the Time tab's days as shown
+      'src/core/time/time-month.ts', // pure: the Month view and what posting the month would do
+      'src/core/sessions/account-switch-rules.ts', // pure: when a switch of account is refused
+      'src/core/sessions/account-names.ts', // pure: an account name's rules
+      'src/core/pty/account-login-id.ts', // pure: an account login terminal's id
+      'src/core/review/review-build.ts', // pure: a PR's review from its diff (kinds, tests, stories)
+      'src/core/review/review-config.ts', // pure: review modes and limits
+      'src/core/review/review-submit.ts', // pure: submitting a review, adding a draft
+      'src/core/review/review-submit-flow.ts', // the submit flow: claim, host call, record — all I/O injected
+      'src/core/review/review-fix.ts', // Fix it myself: its rules, instruction and flow — all I/O injected
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];
@@ -80,6 +93,32 @@ describe('demo mode is separated from the real machinery', () => {
         }
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it('…and nothing those modules load in turn does I/O either, at any depth (#63 review F004)', () => {
+    // A module allowed above as pure can start importing the real machinery (pr-watch.ts once reached the
+    // host registry, and through it git config reads and state.db): follow every runtime import down.
+    // The server plumbing is real on purpose (a localhost server, the SPA's files, one stat): not descended.
+    const plumbing = new Set([
+      'src/server/local-server.ts',
+      'src/server/local-origin.ts',
+      'src/server/spa-handler.ts',
+      'src/core/platform/build-stamp.ts',
+    ]);
+    // Computation only: hashing ids, joining paths, validating input.
+    const harmless = new Set(['hono', 'hono/streaming', 'ws', 'zod', 'node:path', 'node:crypto']);
+    const entries = demoFiles.map((f) => `src/server/demo/${f}`);
+    const offenders: string[] = [];
+    const { files } = loadedBy(entries, { stopAt: (f) => plumbing.has(f) });
+    expect(files.has('src/core/pr/pr-watch.ts')).toBe(true); // the walk reaches what the demo imports
+    expect(files.has('src/core/hosts/commands.ts')).toBe(true); // …and what those import in turn
+    for (const f of files) {
+      if (plumbing.has(f)) continue;
+      for (const spec of importsOf(read(f)).runtime) if (!spec.startsWith('.') && !harmless.has(spec)) offenders.push(`${f} → ${spec}`);
+    }
+    for (const real of ['src/core/hosts/index.ts', 'src/core/platform/db.ts', 'src/core/platform/config.ts'])
+      if (files.has(real)) offenders.push(`reaches ${real}`);
     expect(offenders).toEqual([]);
   });
 

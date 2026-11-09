@@ -3,6 +3,7 @@ import { spawnDetachedWork } from '../platform/process.js';
 import { getConfigDir } from '../platform/config.js';
 import { isPidAlive } from '../platform/process.js';
 import { ensureFile, withFileLock } from '../platform/fs-safe.js';
+import type { EnvDelta } from '../platform/env-delta.js';
 import { PROTOCOL_VERSION, readHostInfo, type HostInfo, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 
 export class PtyHostVersionError extends Error {
@@ -31,8 +32,8 @@ export type ProbeResult =
   | { kind: 'refused' }
   /** Something answered, but not as our host (wrong token, bad body). */
   | { kind: 'not-ours' }
-  /** No answer in time — could be a BUSY host (e.g. restoring many
-   *  sessions). Never treat this as proof the host is gone. */
+  /** No answer in time, or the connection dropped (reset, hang-up) — could be a BUSY or hung host
+   *  (e.g. restoring many sessions, a ConPTY start that blocks). Never treat this as proof the host is gone. */
   | { kind: 'timeout' };
 
 export async function probeHostDetailed(info: HostInfo, timeoutMs = 800): Promise<ProbeResult> {
@@ -47,9 +48,11 @@ export async function probeHostDetailed(info: HostInfo, timeoutMs = 800): Promis
     return { kind: 'host', version: body.version, pid: body.pid };
   } catch (err) {
     const e = err as { name?: string; cause?: { code?: string } };
+    // Only a refused connection proves nothing listens. Anything else — a reset, a dropped socket — is no answer,
+    // not proof it's gone: a hung host keeps its port, and once requests pile up unanswered Windows resets new
+    // connections. Read as "refused", that started a second host beside the hung one (two Claudes per conversation).
     if (e.cause?.code === 'ECONNREFUSED') return { kind: 'refused' };
-    if (e.name === 'TimeoutError' || e.name === 'AbortError') return { kind: 'timeout' };
-    return { kind: 'refused' };
+    return { kind: 'timeout' };
   }
 }
 
@@ -185,6 +188,39 @@ async function waitForHost(timeoutMs: number): Promise<HostInfo> {
 export class PtyHostClient {
   constructor(readonly info: HostInfo) {}
 
+  /** What the host said it supports (`/health`'s `features`), asked once per host (a client is one host). */
+  private featureList: readonly string[] | null = null;
+  /** The work release it runs (`/health`'s `work`); '' for a host from before it said. */
+  private hostWork: string | null = null;
+
+  /**
+   * The host's features (HOST_FEATURES): [] for a host from before they were answered. Null when it couldn't be asked
+   * (not answering in time): unknown, asked again next time.
+   */
+  async features(): Promise<readonly string[] | null> {
+    if (this.featureList) return this.featureList;
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.info.port}/health`, {
+        headers: { 'x-work-token': this.info.token },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { features?: unknown; work?: unknown };
+      const list = Array.isArray(body.features) ? body.features.filter((f): f is string => typeof f === 'string') : [];
+      this.featureList = list;
+      this.hostWork = typeof body.work === 'string' ? body.work : '';
+      return list;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The work release the host runs: '' for one from before it said (older than 2.9.3), null when it couldn't be asked. */
+  async workVersion(): Promise<string | null> {
+    if (this.hostWork === null) await this.features();
+    return this.hostWork;
+  }
+
   private async call<T>(method: string, p: string, body?: unknown): Promise<T> {
     const res = await fetch(`http://127.0.0.1:${this.info.port}${p}`, {
       method,
@@ -234,20 +270,58 @@ export class PtyHostClient {
 
   /**
    * Its agent restarted in place, the attached terminals kept (registry.restart).
-   * `unsupported`: a host from before the call (404) — stop and start it instead.
+   * `unsupported`: a host from before the call (404) — stop and start it instead. With `agentEnv` (a session moved to
+   * another account) a host that restarted it without taking the environment (one from before it) is `unsupported` too:
+   * what runs now is on the old account, and the caller starts it again.
    */
-  async restart(id: string): Promise<'restarted' | 'not-running' | 'unsupported'> {
+  async restart(id: string, opts: { agentEnv?: EnvDelta } = {}): Promise<'restarted' | 'not-running' | 'unsupported'> {
     const res = await fetch(`http://127.0.0.1:${this.info.port}/ptys/${encodeURIComponent(id)}/restart`, {
       method: 'POST',
-      headers: { 'x-work-token': this.info.token },
+      headers: { 'x-work-token': this.info.token, ...(opts.agentEnv ? { 'content-type': 'application/json' } : {}) },
+      ...(opts.agentEnv ? { body: JSON.stringify({ agentEnv: opts.agentEnv }) } : {}),
       // Waits for the old process to exit (up to 3 s) before the new one starts.
       signal: AbortSignal.timeout(15_000),
     });
-    if (res.ok) return 'restarted';
+    if (res.ok) {
+      if (!opts.agentEnv) return 'restarted';
+      const json = (await res.json().catch(() => null)) as { agentEnvApplied?: unknown } | null;
+      return json?.agentEnvApplied === true ? 'restarted' : 'unsupported';
+    }
     if (res.status === 409) return 'not-running';
     if (res.status === 404) return 'unsupported';
     const json = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(json.error ?? `PTY host restart ${id}: ${res.status}`);
+  }
+
+  /**
+   * Stop its agent and keep the session (entry, terminals) until `resume`. `unsupported`: a host from before the call (404):
+   * nothing was stopped — the caller stops it the old way.
+   */
+  async halt(id: string): Promise<'halted' | 'not-running' | 'unsupported'> {
+    const res = await fetch(`http://127.0.0.1:${this.info.port}/ptys/${encodeURIComponent(id)}/halt`, {
+      method: 'POST',
+      headers: { 'x-work-token': this.info.token },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return 'halted';
+    if (res.status === 409) return 'not-running';
+    if (res.status === 404) return 'unsupported';
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(json.error ?? `PTY host halt ${id}: ${res.status}`);
+  }
+
+  /** Start a halted agent again in place (`--continue`), on `agentEnv` when given. `not-halted`: it isn't halted (resumed already, or gone). */
+  async resume(id: string, opts: { agentEnv?: EnvDelta } = {}): Promise<'resumed' | 'not-halted'> {
+    const res = await fetch(`http://127.0.0.1:${this.info.port}/ptys/${encodeURIComponent(id)}/resume`, {
+      method: 'POST',
+      headers: { 'x-work-token': this.info.token, 'content-type': 'application/json' },
+      body: JSON.stringify(opts.agentEnv ? { agentEnv: opts.agentEnv } : {}),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return 'resumed';
+    if (res.status === 409) return 'not-halted';
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(json.error ?? `PTY host resume ${id}: ${res.status}`);
   }
 
   async kill(id: string): Promise<void> {

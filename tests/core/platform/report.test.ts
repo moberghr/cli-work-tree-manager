@@ -44,3 +44,20 @@ describe('consoleReporter (the CLI)', () => {
     expect(log).toHaveBeenCalledTimes(5);
   });
 });
+
+describe('keepingWarnings', () => {
+  it('keeps the warnings and passes every report on to where it went before', async () => {
+    const { keepingWarnings, withReporter, collectingReporter, report } = await import('../../../src/core/platform/report.js');
+    const outer = collectingReporter();
+    const r = await withReporter(outer, () =>
+      keepingWarnings(async () => {
+        report('info', 'a');
+        report('warn', '  careful  ');
+        report('warn', '   ');
+        return 42;
+      }),
+    );
+    expect(r).toEqual({ value: 42, warnings: ['careful'] });
+    expect(outer.entries.map((e) => e.level)).toEqual(['info', 'warn', 'warn']);
+  });
+});

@@ -3,6 +3,8 @@ import type { AiToolSpec } from '../platform/ai-launcher.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { StatusEvent } from '../status/status-event.js';
 import type { PermissionRequest } from '../api-types.js';
+import type { UsageAccount } from '../usage/usage.js';
+import type { EnvDelta } from '../platform/env-delta.js';
 
 /**
  * What work needs from a coding agent (Claude Code today; Codex, Copilot CLI
@@ -31,8 +33,10 @@ export interface ConversationEntry {
   id?: string;
   /** A subagent's line: its own context, not the session's conversation. */
   sidechain?: true;
-  /** On an agent message: the size of the request that produced it (prompt incl. cached) and of the reply, in tokens. */
-  usage?: { prompt: number; reply: number };
+  /** On an agent message: the size of the request that produced it (prompt incl. cached) and of the reply, in tokens. `cached` is the cache-read part of `prompt`. */
+  usage?: { prompt: number; reply: number; cached?: number };
+  /** The agent's id for the message this line is part of: several lines (one per content block) repeat one message's usage, so a token count takes it once per id. */
+  message?: string;
   /** On an agent message: the model that wrote it. */
   model?: string;
   /** The agent's own bookkeeping (a meta line, a compaction summary): no message of yours or its, and no turn's work. */
@@ -51,6 +55,8 @@ export interface ConversationFile {
 export interface AgentConversation {
   /** Where its conversations about this session are kept: one file per conversation, one JSON value per line. */
   files(session: WorktreeSession): ConversationFile[];
+  /** The files whose token usage counts: its conversations and what they handed to subagents (kept apart, not in `files`). Absent: `files`. */
+  usageFiles?(session: WorktreeSession): ConversationFile[];
   /** A file's parsed lines (in order) as conversation entries. */
   entries(lines: readonly unknown[]): ConversationEntry[];
   /** Its context window for a model, given how much a request used (some models have a larger one). */
@@ -61,18 +67,39 @@ export interface AgentConversation {
   restoreDir?(session: WorktreeSession): string | null;
   /** The newest write to its conversations for work in `cwd` (ms; 0: none): "is it busy in this folder right now?" without a session (a `wd` scope). */
   lastWriteMs?(cwd: string): number;
+  /** A background agent its conversation started (one that runs on after the turn that started it ended) is still at it
+   *  after `ms` (the turn's end): the session is still at work though its turn ended — and what that agent is, when it says. */
+  backgroundWorkSince?(session: WorktreeSession, ms: number, now?: number): BackgroundWork | null;
+  /** Background commands (a build, tests, a dev server) its conversation started since `sinceMs` — the agent
+   *  process's start — and that haven't ended: stopping the agent would stop them (idle sleep keeps it awake). */
+  backgroundCommands?(session: WorktreeSession, sinceMs: number): number;
+}
+
+/** Whose conversations a resume check looks in: a session's (its account), or the environment the agent will start with (`env` wins). */
+export interface ResumeVia {
+  session?: Pick<WorktreeSession, 'account'> | null;
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 /** Starting it: every agent has this. */
 export interface AgentLaunch {
   /** Its binary and flags: config `aiCommand` / `aiCommandFlags` when they name this agent, else its defaults. */
   tool(config: Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null): AiToolSpec;
-  /** Its resume flag finds a conversation in this folder. Passing it where there is none errors out (Claude Code: "No conversation found to continue"), so every launch path asks. */
-  canResume(cwd: string): boolean;
+  /**
+   * Its resume flag finds a conversation in this folder. Passing it where there is none errors out (Claude Code: "No conversation found to continue"), so every launch path asks.
+   * `via` says whose conversations: the session (its account's folder) or the environment it will run with (what the PTY host restores from).
+   */
+  canResume(cwd: string, via?: ResumeVia): boolean;
   /** Where to start a session to pick up its conversation (a group may have worked in its root or a repo), and whether there is one. */
   resumeLaunch(session: WorktreeSession): { launchPath: string; hasConversation: boolean };
   /** The environment to start it with: what a parent session of this agent set (it would think it runs inside one) taken out. */
   cleanEnv(env: Record<string, string | undefined>): Record<string, string | undefined>;
+  /**
+   * What the agent's environment must differ by for this session (Claude: its account's `CLAUDE_CONFIG_DIR`), applied
+   * OVER whatever environment it would inherit — a name set to a value, or `null` to take it out. `null` session: work's
+   * own runs (the assistant, one-shot summaries), on the configured default. Absent: nothing to change.
+   */
+  env?(session: Pick<WorktreeSession, 'account'> | null): EnvDelta;
 }
 
 /** Whether a keystroke may answer a permission request now (the dialog on its screen is that request's), and if not, why. */
@@ -100,6 +127,32 @@ export interface AgentInput {
 export interface AgentOneShot {
   /** How to start one; `small`: a few words are wanted (a smaller, cheaper model). */
   command(opts: { small?: boolean }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  /**
+   * Optional: a one-shot run that may READ a folder — a pull request's temporary checkout, for the Reviews AI step
+   * (review-tree.ts). Read-only file tools only, confined to `cwd`; nothing that runs a command, writes, or reaches
+   * the network; none of the folder's own settings, hooks or MCP servers (they are the PR author's), but its
+   * instructions file (the repo's conventions); the env tagged internal like `command`. Absent: the agent has no
+   * such mode, and callers use the text-only `command` with the diff alone.
+   */
+  readOnly?: AgentReadOnly;
+}
+
+/** The agent's read-only one-shot in a folder (`AgentOneShot.readOnly`), and what only the agent knows about it. */
+export interface AgentReadOnly {
+  command(opts: { small?: boolean; cwd: string }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  /**
+   * A file of the folder (its path relative to it, `/` or `\`) the agent would read as its own settings — hooks, env,
+   * permissions, tool servers: deleted from the copy before the run (the folder is someone else's). Whatever case it's
+   * written in: a case-blind file system opens `.Claude/settings.json` as the settings file.
+   */
+  isSettingsFile(relPath: string): boolean;
+  /** What the run's prompt says of the folder in the agent's own words: its tools, and which of its files it was given. */
+  promptLines: string[];
+  /**
+   * Whether the installed agent can run it as it was measured (Claude: its version, at least the one its flags were
+   * measured on). Not ok: no checkout run, and `why` says so. Absent: always.
+   */
+  available?(): Promise<{ ok: boolean; why?: string }>;
 }
 
 /** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */
@@ -165,6 +218,96 @@ export interface AgentSkills {
   install(o: { skillsDir: string | null }): Promise<{ ok: boolean; message: string }>;
 }
 
+/** Its plan limits (5-hour, weekly), as the last readings work recorded per account. */
+export interface AgentUsageSource {
+  read(): UsageAccount[];
+  /**
+   * Work web's start: put in place (or, `enabled: false`, take away) what records the readings (Claude: its status line).
+   * A lean server passes `lean` and expects nothing changed. Loaded lazily: the hook processes import the adapter too.
+   */
+  setup?(o: { enabled: boolean; lean: boolean }): Promise<string>;
+  /** `work usage --restore`: give the agent's own setting back now. */
+  restore?(): Promise<{ ok: boolean; message: string }>;
+}
+
+/** One of an agent's accounts (Claude: a config folder with its own login). */
+export interface AccountInfo {
+  name: string;
+  /** Where its login, settings and conversations live. */
+  dir: string;
+  /** The one new sessions use. */
+  isDefault: boolean;
+  /** Logged in; null: can't tell (macOS keeps Claude's credentials in the keychain). */
+  loggedIn: boolean | null;
+}
+
+/** The sessions on an account, as "target · branch": the live ones, and the archived ones (whose Restore would need it). */
+export interface AccountUsers {
+  live: string[];
+  archived: string[];
+}
+
+/**
+ * A refusal of an account change the user can act on (an unknown name, a folder that can't be one, sessions still on it).
+ * `sessions` names the sessions that stopped a removal; `kind` says whether they are live ones (always a refusal) or
+ * archived ones (a refusal unless forced).
+ */
+export class AccountAdminError extends Error {
+  constructor(
+    message: string,
+    readonly sessions: string[] = [],
+    readonly kind?: 'live' | 'archived',
+  ) {
+    super(message);
+  }
+}
+
+/** Adding, choosing and forgetting an agent's accounts (`work account`). Never deletes an account's folder: its login and conversations are the user's. */
+export interface AgentAccountAdmin {
+  /** Record a new account (its folder: `dir`, else the agent's default place for it), made when missing. Returns the folder. */
+  add(name: string, dir?: string): Promise<string>;
+  /** New sessions use this account. */
+  setDefault(name: string): Promise<void>;
+  /**
+   * Forget an account (its folder stays). `usedBy` is asked under the config's lock, right before the write: live
+   * sessions on it are always a refusal, archived ones too (their Restore would start on another account) — a caller
+   * that was told to go ahead anyway passes none.
+   */
+  remove(name: string, usedBy: () => AccountUsers): Promise<void>;
+  /** Start the agent's own CLI in this terminal on the account, so the user logs in (blocks until it exits). */
+  login(name: string): void;
+  /**
+   * The same CLI as `login` starts, for a terminal work starts itself (the dashboard's login terminal, in the PTY host):
+   * its command and how its environment differs for the account. In the agent's own permission mode, as every start.
+   * Throws an AccountAdminError for an unknown account.
+   */
+  loginLaunch(name: string): { tool: AiToolSpec; agentEnv: EnvDelta };
+  /** Give the account work's skills (the install at setup reaches only the accounts there were then). */
+  installSkills(name: string): { ok: boolean; message: string };
+}
+
+/** Running a session on one of several logins of the agent, and moving it from one to another. */
+export interface AgentAccounts {
+  list(): AccountInfo[];
+  /** The account new sessions use. */
+  defaultName(): string;
+  /** An account of that name exists. */
+  has(name: string): boolean;
+  /** The name of the account a session runs on. */
+  current(session: Pick<WorktreeSession, 'account'>): string;
+  /**
+   * Move the session's conversations (whatever the agent keeps per folder it runs in) from its account to `to`, merging;
+   * puts back what it moved and throws when it fails. It records nothing and starts nothing: the caller stops the agent
+   * first, records the account, and starts it again.
+   */
+  switchFiles(session: WorktreeSession, to: string): Promise<{ moved: string[] }>;
+  /** The folders whose conversations a switch moves (where its agent runs for the session): another agent running in one
+   *  of them would have its files moved from under it, so the switch is refused while one does. */
+  folders(session: Pick<WorktreeSession, 'paths' | 'isGroup'>): string[];
+  /** Managing the accounts themselves; absent: they are set up some other way. */
+  admin?: AgentAccountAdmin;
+}
+
 export interface AgentAdapter {
   /** The agent's binary name (`claude`, `codex`, …). */
   id: string;
@@ -183,10 +326,22 @@ export interface AgentAdapter {
   oneShot?: AgentOneShot;
   /** The project instructions file it reads (CLAUDE.md; Codex, Copilot and opencode read AGENTS.md): a group's combined one is written under this name. */
   instructionsFile: string;
+  /** The line in an instructions file that makes it read another (Claude's `@api/CLAUDE.md`), for a
+   *  session folder's file (session-instructions.ts); absent: it can't import, and a group's combined file is copied instead. */
+  instructionsImport?(relPath: string): string;
   /** Folders whose changes mean it did something (its conversations, its process state): work web watches them to refresh the dashboard at once. */
   activityRoots?(): string[];
   /** Installing work's skills for it (skills.ts); absent: it isn't told about `work`'s commands. */
   skills?: AgentSkills;
   /** Its settings in a folder work runs it in (the Ctrl+K assistant); absent: only the instructions file is written, and it asks before every command. */
   workspace?: AgentWorkspace;
+  /** Its usage limits; absent: the meter has nothing for this agent. */
+  usage?: AgentUsageSource;
+  /** Several logins to run sessions on, and moving a session between them; absent: one login. */
+  accounts?: AgentAccounts;
+}
+
+/** A background agent at work after its turn ended: what it is, in its own words (its description), when it says. */
+export interface BackgroundWork {
+  what: string | null;
 }

@@ -5,6 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { basesText, forkBases, forkPrompt, forkSession, type ForkDeps } from '../../../src/core/sessions/fork.js';
+import type { CreateRequest } from '../../../src/core/worktree/setup-child.js';
+import type { WorkConfig } from '../../../src/core/platform/config.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 
 const now = new Date().toISOString();
@@ -121,6 +123,17 @@ describe('forkSession', () => {
     expect(vi.mocked(d.start).mock.calls[0][1]).toContain('A summary.');
   });
 
+  it('the fork runs on its parent account (a row from before accounts: the default one)', async () => {
+    const seen: Array<string | undefined> = [];
+    const setup: ForkDeps['setup'] = async (_t, b, _c, _bs, _n, _r, account) => {
+      seen.push(account);
+      return { paths: [`/wt/api/${b.replace(/\//g, '-')}`] };
+    };
+    await forkSession({ ...parent, account: 'work' }, { branch: 'feat/a' }, deps({ setup }).d);
+    await forkSession(parent, { branch: 'feat/b' }, deps({ setup }).d);
+    expect(seen).toEqual(['work', 'default']);
+  });
+
   it('refuses: archived, its own branch, a bad name, a branch that exists, a detached HEAD — before creating anything', async () => {
     const cases: Array<[WorktreeSession, string, Partial<ForkDeps>, RegExp]> = [
       [{ ...parent, archivedAt: now }, 'feat/x-2', {}, /archived/],
@@ -128,6 +141,13 @@ describe('forkSession', () => {
       [parent, 'bad name', {}, /not a valid branch name/],
       [parent, 'feat/x-2', { branchExists: () => true }, /already exists \(api\)/],
       [parent, 'feat/x-2', { branchOf: () => null }, /detached/],
+      // A session folder that records a repo the config no longer has: refused, not forked without it.
+      [
+        { ...parent, isGroup: true, paths: ['/wt/api/feat-x/api', '/wt/api/feat-x/docs'], repos: ['api', 'docs'] },
+        'feat/x-2',
+        {},
+        /not in your config any more: docs/,
+      ],
     ];
     for (const [s, branch, over, re] of cases) {
       const { d, calls } = deps(over);
@@ -150,7 +170,8 @@ describe('forkSession', () => {
   });
 });
 
-describe('POST /api/sessions/:id/fork (real git)', () => {
+// Real repos, worktrees and an added repo per test: 4-10 s on a Windows runner, 28 s on a slow one.
+describe('POST /api/sessions/:id/fork (real git)', { timeout: 60_000 }, () => {
   const git = (cwd: string, ...args: string[]) =>
     execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {
       cwd,
@@ -271,5 +292,96 @@ describe('POST /api/sessions/:id/fork (real git)', () => {
     expect(git(fork('web'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/y-2');
     expect(start).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('the last commit of backend: feat/y, web: feat/y-ui'));
     expect(loadHistory().find((s) => s.branch === 'feat/y-2')?.isGroup).toBe(true);
+  });
+
+  it.each([
+    ['a group session', 'shop', false],
+    ["a repo's session folder", 'backend', true],
+  ])('%s with an added repo: the fork holds all its repos', async (_label, target, sessionFolders) => {
+    const { saveConfig } = await import('../../../src/core/platform/config.js');
+    const { findSession, loadHistory } = await import('../../../src/core/sessions/history.js');
+    const { setupWorktree } = await import('../../../src/core/worktree/worktree.js');
+    const { sessionIdFor } = await import('../../../src/core/sessions/session-id.js');
+    const { addRepoToSession } = await import('../../../src/core/worktree/add-repo.js');
+    const { mountForkRoutes } = await import('../../../src/server/routes/fork-routes.js');
+    const { defaultForkDeps } = await import('../../../src/core/sessions/fork-deps.js');
+    const root = path.join(tmp, `added-${target}`);
+    const repos: Record<string, string> = {};
+    for (const name of ['backend', 'web', 'docs']) {
+      const dir = path.join(root, 'src', name);
+      fs.mkdirSync(dir, { recursive: true });
+      git(dir, 'init', '-q', '-b', 'main');
+      fs.writeFileSync(path.join(dir, 'r.txt'), name);
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'init');
+      repos[name] = dir;
+    }
+    const config = { worktreesRoot: path.join(root, 'wt'), repos, groups: { shop: ['backend', 'web'] }, copyFiles: [], sessionFolders };
+    saveConfig(config);
+    expect(await setupWorktree(target, 'feat/z', config, undefined, undefined, { pull: false })).toBeTruthy();
+    const parentId = sessionIdFor({ target, branch: 'feat/z' });
+    await addRepoToSession(parentId, 'docs');
+    const own = findSession(loadHistory(), target, 'feat/z')!.repos!;
+    expect(own).toContain('docs');
+    // The fork is made with the switch off: the parent's own list, not the switch, makes it a folder.
+    saveConfig({ ...config, sessionFolders: false });
+
+    const app = new Hono();
+    mountForkRoutes(app, {
+      broadcast: () => {},
+      deps: defaultForkDeps({ summarize: async () => null, uncommitted: () => 0, start: vi.fn(async () => 'started') }),
+    });
+    const r = await app.request(`/api/sessions/${parentId}/fork`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch: 'feat/z-2' }),
+    });
+    expect(r.status).toBe(200);
+    const { paths } = (await r.json()) as { paths: string[] };
+    expect(paths.map((p) => path.basename(p)).sort()).toEqual([...own].sort());
+    for (const p of paths) expect(git(p, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/z-2');
+    const forked = findSession(loadHistory(), target, 'feat/z-2')!;
+    expect(forked).toMatchObject({ isGroup: true });
+    expect([...forked.repos!].sort()).toEqual([...own].sort());
+    // A session folder of its own, beside the parent's.
+    expect(path.dirname(paths[0])).toBe(path.join(config.worktreesRoot, target, 'feat-z-2'));
+  });
+
+  it("the repos a fork checks are the parent session's own (recorded); a row from before, the group's config", async () => {
+    const { defaultForkDeps } = await import('../../../src/core/sessions/fork-deps.js');
+    const deps = defaultForkDeps({ summarize: async () => null, uncommitted: () => 0 });
+    const config = {
+      worktreesRoot: '/wt',
+      repos: { api: '/src/api', web: '/src/web', docs: '/src/docs' },
+      groups: { shop: ['api', 'web'] },
+      copyFiles: [],
+    };
+    const parent = {
+      target: 'shop',
+      isGroup: true,
+      branch: 'feat/x',
+      paths: ['/wt/shop/feat-x/api', '/wt/shop/feat-x/docs'],
+      createdAt: '',
+      lastAccessedAt: '',
+    };
+    expect(deps.repos('shop', config, { ...parent, repos: ['api', 'docs'] })?.map((r) => r.alias)).toEqual(['api', 'docs']);
+    expect(deps.repos('shop', config, parent)?.map((r) => r.alias)).toEqual(['api', 'web']);
+    expect(deps.repos('shop', config)?.map((r) => r.alias)).toEqual(['api', 'web']);
+  });
+
+  it('the real setup passes the account on to the creation request', async () => {
+    const { defaultForkDeps } = await import('../../../src/core/sessions/fork-deps.js');
+    const create = vi.fn(async (_req: CreateRequest, _config: WorkConfig) => ({
+      ok: true as const,
+      branch: 'feat/f',
+      launchDir: '/wt/f',
+      paths: ['/wt/f'],
+    }));
+    const deps = defaultForkDeps({ summarize: async () => null, uncommitted: () => 0, create });
+    const config = { worktreesRoot: '/wt', repos: {}, groups: {}, copyFiles: [] };
+    await deps.setup('api', 'feat/f', config, { perRepo: {} }, undefined, undefined, 'work');
+    expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ target: 'api', branch: 'feat/f', account: 'work' }), config);
+    await deps.setup('api', 'feat/g', config, { perRepo: {} });
+    expect(create.mock.calls.at(-1)?.[0]).not.toHaveProperty('account');
   });
 });

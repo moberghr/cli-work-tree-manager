@@ -1,4 +1,14 @@
 import { defineConfig } from 'vitest/config';
+import { shouldHideWindows } from './tests/setup/hide-decision.js';
+
+// Decided here, in vitest's own process, for every worker to read (tests/setup/hide-decision.ts).
+process.env.WORK_TESTS_HIDE_WINDOWS = shouldHideWindows({
+  platform: process.platform,
+  env: process.env,
+  stdoutIsTTY: process.stdout.isTTY === true,
+})
+  ? '1'
+  : '0';
 
 // The repo-level Vite config (vite.config.ts) is scoped to src/web for the
 // SPA build. We don't want vitest using its `root` — tests live under
@@ -12,6 +22,9 @@ export default defineConfig({
     // push past the 5 s default when the suite runs in parallel.
     // Raise the floor to 20 s so flaky timeouts don't mask real bugs.
     testTimeout: 20_000,
+    // The same for beforeEach / afterEach: many make a real repo and a worktree before each test (git init,
+    // commit, worktree add), and on a busy Windows runner that passed vitest's 10 s default for hooks.
+    hookTimeout: 20_000,
     // Half the cores: the git-heavy files saturate every core (git.exe
     // under AV scanning), and with one worker per core the main process got
     // starved enough to miss a worker RPC ("Timeout calling onTaskUpdate")
@@ -21,7 +34,9 @@ export default defineConfig({
     // Tests run git against an empty config, never the developer's (commit
     // signing, hooks…), and under a throwaway HOME, never the developer's
     // ~/.work or ~/.claude — see tests/setup/.
-    setupFiles: ['tests/setup/isolate-home.ts', 'tests/setup/isolate-git.ts'],
+    // And on Windows, where nothing shares a console, every process they start is hidden
+    // (tests/setup/hide-windows.ts): a test run blinked console windows all over the screen.
+    setupFiles: ['tests/setup/isolate-home.ts', 'tests/setup/isolate-git.ts', 'tests/setup/hide-windows.ts'],
     // `npm run test:coverage` (CI keeps the lcov): what the tests run of src/,
     // reported, with no threshold yet — the number to watch, not to game.
     coverage: {

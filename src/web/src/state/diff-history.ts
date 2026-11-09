@@ -21,6 +21,12 @@ export interface HistoryItem {
   /** The tree just before it, and with it: picking it alone diffs the two. */
   before: DiffPoint;
   after: DiffPoint;
+  /** A commit of another branch the session worked on (session-branches.ts): listed under that branch, after
+   *  the checked-out branch's history; a span never crosses from one branch to another. */
+  branch?: string;
+  /** A turn taken on another branch than the turn before it: "fix/a → fix/b". Its diff is mostly the switch
+   *  (the files of another branch), not something Claude wrote or reverted. */
+  switched?: string;
 }
 
 export const UNCOMMITTED_KEY = 'u';
@@ -37,23 +43,25 @@ export function historyItems(entries: CheckpointEntry[], commits: SessionCommit[
   // number never shifts. One whose predecessor is gone (the oldest turns are
   // dropped past MAX_CHECKPOINTS) isn't listed: diffed from Initial it would show
   // every dropped turn as its own. It stays inside spans and the branch's scope.
-  const turns: HistoryItem[] = sorted.flatMap((e, i): HistoryItem[] =>
-    i === 0 || sorted[i - 1].id !== e.id - 1
-      ? []
-      : [
-          {
-            key: `t:${e.id}`,
-            kind: 'turn',
-            title: e.label && e.label.trim() && e.label !== 'Initial' ? e.label.trim() : '',
-            tag: `Turn ${e.id}`,
-            at: e.ts,
-            before: { kind: 'checkpoint', id: sorted[i - 1].id },
-            after: { kind: 'checkpoint', id: e.id },
-          },
-        ],
-  );
+  const turns: HistoryItem[] = sorted.flatMap((e, i): HistoryItem[] => {
+    if (i === 0 || sorted[i - 1].id !== e.id - 1) return [];
+    const switched = branchSwitch(sorted[i - 1], e);
+    return [
+      {
+        key: `t:${e.id}`,
+        kind: 'turn',
+        title: e.label && e.label.trim() && e.label !== 'Initial' ? e.label.trim() : '',
+        tag: `Turn ${e.id}`,
+        at: e.ts,
+        before: { kind: 'checkpoint', id: sorted[i - 1].id },
+        after: { kind: 'checkpoint', id: e.id },
+        ...(switched ? { switched } : {}),
+      },
+    ];
+  });
   const own: HistoryItem[] = commits
-    .filter((c) => repo === null || c.repo === repo)
+    // Another branch's commits are listed under it (branchGroups), not in this branch's timeline.
+    .filter((c) => !c.branch && (repo === null || c.repo === repo))
     .map((c) => ({
       key: `c:${c.sha}`,
       kind: 'commit',
@@ -80,6 +88,70 @@ export function historyItems(entries: CheckpointEntry[], commits: SessionCommit[
 }
 
 /**
+ * The branch switch a turn crossed: the first repo whose checked-out branch differs from the turn before's,
+ * as "fix/a → fix/b" (a detached HEAD reads "detached"); null when none did, or either turn didn't record its
+ * branches (from before). Pure.
+ */
+export function branchSwitch(prev: Pick<CheckpointEntry, 'branches'>, next: Pick<CheckpointEntry, 'branches'>): string | null {
+  if (!prev.branches || !next.branches) return null;
+  for (const [repo, b] of Object.entries(next.branches)) {
+    if (!(repo in prev.branches)) continue;
+    const a = prev.branches[repo];
+    if (a !== b) return `${a ?? 'detached'} → ${b ?? 'detached'}`;
+  }
+  return null;
+}
+
+/** The commits of one of the session's other branches. */
+export interface BranchGroup {
+  branch: string;
+  /** Newest first, as the picker shows them. */
+  items: HistoryItem[];
+}
+
+/**
+ * The other branches the session worked on, with their commits (`repo`: the repo on screen, null for every
+ * repo's), the branch with the newest commit first. Pure.
+ */
+export function branchGroups(commits: SessionCommit[], repo: string | null): BranchGroup[] {
+  const byBranch = new Map<string, HistoryItem[]>();
+  for (const c of commits) {
+    if (!c.branch || (repo !== null && c.repo !== repo)) continue;
+    const list = byBranch.get(c.branch) ?? [];
+    list.push({
+      key: `c:${c.sha}`,
+      kind: 'commit',
+      title: c.subject,
+      tag: c.sha.slice(0, 7),
+      at: c.at,
+      before: { kind: 'parent', repo: c.repo, sha: c.sha },
+      after: { kind: 'commit', repo: c.repo, sha: c.sha },
+      branch: c.branch,
+    });
+    byBranch.set(c.branch, list);
+  }
+  const time = (i: HistoryItem) => Date.parse(i.at ?? '') || 0;
+  return [...byBranch]
+    .map(([branch, items]) => ({ branch, items: items.sort((a, b) => time(b) - time(a)) }))
+    .sort((a, b) => time(b.items[0]) - time(a.items[0]));
+}
+
+/**
+ * The checked-out branch's history (historyItems), then every other branch's commits (branchGroups; oldest
+ * first within each, as the rest of the list): one list a pick's keys are found in.
+ */
+export function allHistoryItems(entries: CheckpointEntry[], commits: SessionCommit[], repo: string | null): HistoryItem[] {
+  return [...historyItems(entries, commits, repo), ...branchGroups(commits, repo).flatMap((g) => [...g.items].reverse())];
+}
+
+/** Everything on another branch the session worked on: its commits as one span, named by it. Null when none is listed. */
+export function branchSelection(items: HistoryItem[], branch: string): DiffSelection | null {
+  const mine = items.filter((x) => x.branch === branch);
+  if (!mine.length) return null;
+  return { kind: 'range', fromKey: mine[0].key, toKey: mine[mine.length - 1].key, label: branch };
+}
+
+/**
  * What the Diff tab shows: a scope (what is uncommitted, or everything since
  * the branch's base — the two tabs), or a span of the list, by key. `from`
  * overrides where the span starts ("since you looked" starts at the
@@ -96,6 +168,8 @@ function span(items: HistoryItem[], sel: DiffSelection): [number, number] | null
   const i = items.findIndex((x) => x.key === sel.fromKey);
   const j = items.findIndex((x) => x.key === sel.toKey);
   if (i < 0 || j < 0) return null;
+  // A span is within one branch's history: from another branch's commit into this one's means nothing.
+  if (items[i].branch !== items[j].branch) return null;
   return [Math.min(i, j), Math.max(i, j)];
 }
 
@@ -108,7 +182,8 @@ export function selectionRange(items: HistoryItem[], sel: DiffSelection): { from
 
 /** Whether a row is part of what's shown: the picker marks them. */
 export function inSelection(items: HistoryItem[], sel: DiffSelection, key: string): boolean {
-  if (sel.kind === 'scope') return sel.base === 'branch' || key === UNCOMMITTED_KEY;
+  // "Everything on the branch" is the checked-out branch's: another branch's commits aren't in it.
+  if (sel.kind === 'scope') return (sel.base === 'branch' && !items.find((x) => x.key === key)?.branch) || key === UNCOMMITTED_KEY;
   const s = span(items, sel);
   const at = items.findIndex((x) => x.key === key);
   return !!s && at >= s[0] && at <= s[1];
@@ -144,17 +219,39 @@ export function sinceLooked(
   if (seenId === null || seenId === undefined) return null;
   const seen = entries.find((e) => e.id === seenId);
   if (!seen || (seenTs && seen.ts !== seenTs) || !entries.some((e) => e.id > seenId)) return null;
-  const seenAt = Date.parse(seen.ts);
+  return fromTurn(items, seen, 'Since you looked');
+}
+
+/** From a turn to the working tree, every turn and commit after it marked. */
+function fromTurn(items: HistoryItem[], turn: CheckpointEntry, label: string): DiffSelection {
+  const at = Date.parse(turn.ts);
   const first = items.find(
-    (x) => x.kind !== 'uncommitted' && (x.after.kind === 'checkpoint' ? x.after.id > seenId : (Date.parse(x.at ?? '') || 0) > seenAt),
+    (x) =>
+      x.kind !== 'uncommitted' && !x.branch && (x.after.kind === 'checkpoint' ? x.after.id > turn.id : (Date.parse(x.at ?? '') || 0) > at),
   );
   return {
     kind: 'range',
     fromKey: first?.key ?? UNCOMMITTED_KEY,
     toKey: UNCOMMITTED_KEY,
-    from: { kind: 'checkpoint', id: seenId },
-    label: 'Since you looked',
+    from: { kind: 'checkpoint', id: turn.id },
+    label,
   };
+}
+
+/**
+ * The update chip's "Only new": what changed since the diff on screen was read — from the newest turn taken
+ * before its request started (that diff has it) to the working tree. Turn granularity: changes on screen that
+ * no turn captured yet (read mid-turn) come round again. Null with no turn before it, or when it isn't known
+ * when the diff on screen was read. Pure.
+ */
+export function onlyNew(items: HistoryItem[], entries: CheckpointEntry[], readAtMs: number | undefined): DiffSelection | null {
+  if (readAtMs === undefined) return null;
+  let turn: CheckpointEntry | undefined;
+  for (const e of entries) {
+    const t = Date.parse(e.ts);
+    if (Number.isFinite(t) && t <= readAtMs && (!turn || e.id > turn.id)) turn = e;
+  }
+  return turn ? fromTurn(items, turn, 'Only new') : null;
 }
 
 /** When a look was, the way people say it: "Today 14:05", "Yesterday 17:40", "Mon 6 Oct 09:12" (local time). Pure. */
@@ -196,7 +293,7 @@ export function yourLooks(items: HistoryItem[], entries: CheckpointEntry[], look
     // The first thing after the turn you had seen, up to the one you looked as far as (commits between included).
     const first = items
       .slice(0, toIdx + 1)
-      .find((x) => (x.after.kind === 'checkpoint' ? x.after.id > look.from : (Date.parse(x.at ?? '') || 0) > fromAt));
+      .find((x) => !x.branch && (x.after.kind === 'checkpoint' ? x.after.id > look.from : (Date.parse(x.at ?? '') || 0) > fromAt));
     if (!first) continue;
     const when = lookWhen(look.startedAt, now);
     const n = look.to - look.from;

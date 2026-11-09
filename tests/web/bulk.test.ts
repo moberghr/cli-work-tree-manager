@@ -123,11 +123,14 @@ describe('the Sessions table’s bulk bar', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-  it('tick rows → archive them; a refused one stays ticked with the reason', async () => {
+  it('tick rows → archive them (asked once for all); a refused one stays ticked with the reason', async () => {
     tick('a');
     tick('b');
     expect(container.querySelector('.wd-bulk-count')!.textContent).toBe('2 selected');
     await act(async () => button('Archive 2').click());
+    expect(bulk.archive).not.toHaveBeenCalled(); // not yet: it asks
+    expect(container.querySelector('.wd-bulk-confirm')!.textContent).toContain('Archive 2 sessions?');
+    await act(async () => button('Archive').click());
     await settle();
     expect(bulk.archive.mock.calls.map((c) => (c[0] as SessionSummary).id).sort()).toEqual(['a', 'b']);
     expect(container.querySelector('.wd-bulk-outcome')!.textContent).toContain('Archived 1; 1 refused: feat/b — its Claude is working');
@@ -152,8 +155,19 @@ describe('the Sessions table’s bulk bar', () => {
     expect(container.querySelector('.wd-bulk-count')!.textContent).toBe('1 selected');
     expect(container.querySelector('.wd-bulk-hidden')!.textContent).toContain('+1 hidden');
     await act(async () => button('Archive 1').click());
+    await act(async () => button('Archive').click());
     await settle();
     expect(bulk.archive.mock.calls.map((c) => (c[0] as SessionSummary).id)).toEqual(['a']);
+  });
+
+  it('the archive question cancelled: nothing archived, the rows stay ticked', async () => {
+    tick('a');
+    await act(async () => button('Archive 1').click());
+    await act(async () => button('Cancel').click());
+    await settle();
+    expect(bulk.archive).not.toHaveBeenCalled();
+    expect(container.querySelector('.wd-bulk-confirm')).toBeNull();
+    expect(container.querySelector('.wd-bulk-count')!.textContent).toBe('1 selected');
   });
 
   it('send one prompt to them all; delete asks first and never forces', async () => {

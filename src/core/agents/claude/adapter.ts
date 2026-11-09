@@ -1,17 +1,28 @@
 import path from 'node:path';
-import { listTranscripts } from './files.js';
+import { backgroundWorkSince, listTranscripts, listUsageFiles } from './files.js';
+import { backgroundCommandsRunning } from './background-commands.js';
 import { getAiTool } from '../../platform/ai-launcher.js';
-import { claudeProjectsRoot, encodeProjectDir, getClaudeActivityMs, hasClaudeConversation, resolveResumeLaunch } from './activity.js';
+import {
+  claudeProjectsRoots,
+  encodeProjectDir,
+  getClaudeActivityMs,
+  hasClaudeConversation,
+  projectsRootOf,
+  resolveResumeLaunch,
+} from './activity.js';
 import { withoutParentSession } from './env.js';
+import { accountDir, accountEnv, configDirEnv, defaultAccountName, sessionAccount } from './accounts.js';
 import { readTranscriptTail } from './transcript.js';
 import { claudeContextWindow, claudeEntries } from './entries.js';
 import { claudeEvents } from './hooks.js';
-import { claudeSessionsDir, readLiveClaudes } from './live.js';
+import { claudeSessionsDirs, readLiveClaudes } from './live.js';
 import { ANSWER_KEYS, checkDialog } from './permission.js';
 import { typeThenEnter } from '../typing.js';
-import { internalClaudeSpawn } from './internal.js';
+import { CLAUDE_READ_ONLY_LINES, claudeSettingsFile, internalClaudeReadOnlySpawn, internalClaudeSpawn } from './internal.js';
 import { claudeWorkspace } from './workspace.js';
 import { claudeSkills } from './skills.js';
+import { claudeUsage } from './usage.js';
+import { claudeAccountSwitch } from './account-move.js';
 
 /** A few words (checkpoint names, once per changed turn): a small model does. */
 export const CLAUDE_SMALL_MODEL = 'haiku';
@@ -40,12 +51,16 @@ export const claudeAgent: AgentAdapter = {
   launch: {
     // The configured command when it is Claude (`claude --model opus`); plain `claude` otherwise.
     tool: (config) => getAiTool(config && getAiTool(config).cmd === 'claude' ? config : {}),
-    canResume: (cwd) => hasClaudeConversation(cwd),
+    canResume: (cwd, via) =>
+      hasClaudeConversation(cwd, via?.env ? via.env.CLAUDE_CONFIG_DIR : configDirEnv(sessionAccount(via?.session)).CLAUDE_CONFIG_DIR),
     resumeLaunch: (s) => resolveResumeLaunch(s),
     cleanEnv: (env) => withoutParentSession(env),
+    // The session's account (null: work's own runs, on the configured default).
+    env: (session) => accountEnv(session ? sessionAccount(session) : defaultAccountName()),
   },
   conversation: {
     files: (s) => listTranscripts(s),
+    usageFiles: (s) => listUsageFiles(s),
     entries: claudeEntries,
     contextWindow: claudeContextWindow,
     read(session, { last }) {
@@ -59,14 +74,17 @@ export const claudeAgent: AgentAdapter = {
     },
     // Its projects folder for the folder Claude runs in (the worktree, or a group's root): `--continue` finds it there.
     lastWriteMs: (cwd) => getClaudeActivityMs(cwd),
+    backgroundWorkSince,
+    backgroundCommands: backgroundCommandsRunning,
+    // In the session's own account's projects folder: that is where its `--continue` looks.
     restoreDir: (s) => {
       const cwd = s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : s.paths[0];
-      return cwd ? path.join(claudeProjectsRoot(), encodeProjectDir(cwd)) : null;
+      return cwd ? path.join(projectsRootOf(accountDir(sessionAccount(s)) ?? undefined), encodeProjectDir(cwd)) : null;
     },
   },
   events: claudeEvents,
-  // Its transcripts, and the per-process state files (a Claude opened or closed in a terminal tab shows at once).
-  activityRoots: () => [claudeProjectsRoot(), claudeSessionsDir()],
+  // Its transcripts, and the per-process state files (a Claude opened or closed in a terminal tab shows at once), of every account.
+  activityRoots: () => [...new Set([...claudeProjectsRoots(), ...claudeSessionsDirs()])],
   live: { running: (table) => readLiveClaudes(undefined, undefined, table) },
   input: {
     submit: typeThenEnter,
@@ -74,8 +92,26 @@ export const claudeAgent: AgentAdapter = {
     permissionDialog: { check: checkDialog, keys: { allow: ANSWER_KEYS.allow, deny: ANSWER_KEYS.deny } },
   },
   // `claude -p --tools "" --strict-mcp-config [--model haiku]` in a neutral folder, tagged internal.
-  oneShot: { command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }) },
+  // Read-only in a folder (a PR's checkout): `claude -p --restricted --tools Read,Grep,Glob --setting-sources user --add-dir <it> …`.
+  oneShot: {
+    command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
+    readOnly: {
+      command: ({ small, cwd }) => ({
+        cmd: 'claude',
+        ...internalClaudeReadOnlySpawn({ cwd, ...(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
+      }),
+      isSettingsFile: claudeSettingsFile,
+      promptLines: CLAUDE_READ_ONLY_LINES,
+      // Its flags were measured on one Claude Code (READ_ONLY_MIN_VERSION): an older one gets no checkout run.
+      // Loaded when a review asks: the hook processes load this adapter on every turn edge.
+      available: async () => (await import('./version.js')).claudeReadOnlyAvailable(),
+    },
+  },
   instructionsFile: 'CLAUDE.md',
+  // CLAUDE.md's own import syntax (Claude Code reads the file it names, relative to this one).
+  instructionsImport: (relPath) => `@${relPath}`,
   workspace: claudeWorkspace,
   skills: claudeSkills,
+  usage: claudeUsage,
+  accounts: claudeAccountSwitch,
 };

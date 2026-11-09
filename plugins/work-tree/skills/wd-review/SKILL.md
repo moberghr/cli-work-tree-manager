@@ -146,7 +146,7 @@ The reply renders threaded under the original comment in the user's browser. Set
 
 ## Comment anchor mechanics
 
-- `side: left` = old/deleted line, `side: right` = new/added line. Same convention as GitHub.
+- `side: left` = old/deleted line, `side: right` = new/added line. Same convention as a pull request review.
 - `side: general` = a top-level review note, no anchor.
 - If the user edits a file after commenting, the comment shows up with an "outdated" badge in the browser. You can still address it normally — the original `lineContent` is implied by the body.
 

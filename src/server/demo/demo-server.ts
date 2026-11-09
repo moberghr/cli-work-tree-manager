@@ -21,6 +21,7 @@ import type {
   TimelineWire,
   WorklogWire,
   ForkWire,
+  AddRepoWire,
   JiraDecision,
   JiraWatchState,
   NoteWire,
@@ -32,9 +33,14 @@ import type {
   ReleaseNote,
   SessionHistoryWire,
   PrStartWire,
+  UsageWire,
+  AccountsWire,
+  PtyHostRestartWire,
 } from '../../core/api-types.js';
+import { demoUsage } from './demo-usage.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
+import { demoCodeFile, demoCodeFiles, demoCodeSearch } from './demo-code.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
 import { buildStamp } from '../../core/platform/build-stamp.js';
 import { cleanOrder } from '../../core/rail/session-order.js';
@@ -44,7 +50,9 @@ import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { createDemoTime } from './demo-time.js';
 import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
+import { monthRange } from '../../core/time/time-month.js';
 import { mountDemoReplies } from './demo-replies.js';
+import { mountDemoReviews, type DemoReviewSessions } from './demo-reviews.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
 import { DemoRepoError } from './demo-repos.js';
@@ -69,6 +77,31 @@ export interface DemoServerOptions {
   scenario?: DemoScenario;
 }
 
+/**
+ * Fix it myself's sessions in the demo: the live one on the PR's branch, or a new one — made with no first prompt (the
+ * instruction comes as its start's note; the demo has no session names, so the name is left out) — told by a note it
+ * answers.
+ */
+export function demoReviewSessions(scenario: DemoScenario, broadcast: (e: DemoEvent) => void): DemoReviewSessions {
+  return {
+    liveOn: (alias, branch) => {
+      const s = scenario.list().find((x) => x.target === alias && x.branch === branch && !x.archive);
+      return s ? { id: s.id, label: `${s.target} · ${s.branch}` } : null;
+    },
+    create: (alias, branch) => {
+      const s = scenario.create(alias, branch);
+      return { id: s.id, label: `${s.target} · ${s.branch}` };
+    },
+    note: (id, body) => {
+      const store = scenario.comments(id);
+      if (!store) throw new Error('unknown session');
+      const comment = store.post({ side: 'general', status: 'published', author: 'user', body });
+      scenario.replyLater(id, comment.id);
+      broadcast({ event: 'comments-changed', data: { sessionId: id, id: comment.id } } as DemoEvent);
+    },
+  };
+}
+
 export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServerHandle & { scenario: DemoScenario }> {
   const scenario = opts.scenario ?? new DemoScenario();
   const app = new Hono();
@@ -79,6 +112,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, demo: true, lean: false, build: buildStamp() }));
   // The demo is not the singleton and has nothing to clean up; refuse.
   app.post('/api/shutdown', (c) => c.json({ error: 'the demo is stopped with Ctrl+C' }, 501));
+  // PR reviews prepared in the background (demo-reviews.ts).
+  mountDemoReviews(
+    app,
+    (event, data) => broadcast({ event, data } as DemoEvent),
+    demoReviewSessions(scenario, (e) => broadcast(e)),
+  );
   // Reply drafts on review threads (demo-replies.ts).
   const draftsFor = mountDemoReplies(app, scenario, (sessionId) => {
     broadcast({ event: 'replies-changed', data: { sessionId } });
@@ -151,7 +190,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
 
   // The PTY host's heartbeat: the demo's never stalls.
-  app.get('/api/pty-host/health', (c) => c.json({ state: 'ok', latencyMs: 4, quietMs: 1000, error: null } satisfies HostHealth));
+  app.get('/api/pty-host/health', (c) =>
+    c.json({ state: 'ok', latencyMs: 4, quietMs: 1000, error: null, outdated: null } satisfies HostHealth),
+  );
+  // Nothing to restart in the demo: say it was done.
+  app.post('/api/pty-host/restart', (c) => c.json({ outcome: 'stopped', pid: 4242 } satisfies PtyHostRestartWire));
 
   // Jira worklogs, simulated: set up, and a log is remembered (in memory).
   const worklogs = new Map<string, Record<string, number>>();
@@ -315,6 +358,27 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const base = c.req.query('base') === 'branch' ? 'branch' : 'uncommitted';
     const d = scenario.diff(c.req.param('id'), base);
     return d ? c.json(d) : notFound(c);
+  });
+
+  // The Code tab: the changed files' new side, and a few every project has (demo-code.ts).
+  const demoRepos = (id: string) => {
+    const d = scenario.diff(id, 'branch');
+    const w = scenario.list().find((x) => x.id === id);
+    return d && w ? { repos: d.repos.map((r) => ({ name: r.name, changed: r.files })), group: w.isGroup } : null;
+  };
+  app.get('/api/sessions/:id/files', (c) => {
+    const r = demoRepos(c.req.param('id'));
+    return r ? c.json(demoCodeFiles(r.repos, r.group)) : notFound(c);
+  });
+  app.get('/api/sessions/:id/code-search', (c) => {
+    const r = demoRepos(c.req.param('id'));
+    return r ? c.json(demoCodeSearch(r.repos, r.group, c.req.query('q') ?? '')) : notFound(c);
+  });
+  app.get('/api/sessions/:id/file', (c) => {
+    const r = demoRepos(c.req.param('id'));
+    if (!r) return notFound(c);
+    const f = demoCodeFile(r.repos, r.group, c.req.query('repo') ?? '', c.req.query('path') ?? '');
+    return f ? c.json(f) : c.json({ error: 'not listed' }, 404);
   });
 
   app.get('/api/sessions/:id/ci', (c) => {
@@ -556,6 +620,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
   app.post('/api/sessions/:id/agent/start', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'running' }) : notFound(c)));
   app.post('/api/sessions/:id/agent/stop', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'stopped' }) : notFound(c)));
+  app.get('/api/sessions/:id/last-reply', (c) =>
+    scenario.comments(c.req.param('id')) ? c.json({ text: scenario.lastReply(c.req.param('id')) }) : notFound(c),
+  );
   app.get('/api/sessions/:id/screen', (c) =>
     scenario.comments(c.req.param('id')) ? c.json({ text: scenario.screen(c.req.param('id')) }) : notFound(c),
   );
@@ -617,16 +684,29 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ sessionId: s.id, paths: s.paths, summarized: true } satisfies ForkWire);
   });
 
+  // Add a repo to a session folder: the same answers as the real route (session-repo-routes.ts).
+  app.post('/api/sessions/:id/repos', async (c) => {
+    const body = await json(c);
+    if (typeof body.alias !== 'string' || !body.alias) return c.json({ error: 'alias is required' }, 400);
+    const base = typeof body.base === 'string' && body.base.trim() ? body.base.trim() : undefined;
+    const r = scenario.addRepo(c.req.param('id'), body.alias, base);
+    if (!r.ok) return c.json({ error: r.error }, r.status);
+    return c.json(r.wire satisfies AddRepoWire);
+  });
+
   app.post('/api/worktrees', async (c) => {
     const body = await json(c);
     if (typeof body.target !== 'string' || !body.target) return c.json({ error: 'target is required' }, 400);
     // No branch: the repo as it is (its default branch, in the demo).
     const branch = typeof body.branch === 'string' && body.branch.trim() ? body.branch.trim() : 'main';
     const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : undefined;
-    const s = scenario.create(body.target, branch, prompt);
+    // New worktree's More options may pick another Claude account: recorded, as the real one does (an unknown one refused).
+    const account = typeof body.account === 'string' && body.account ? body.account : undefined;
+    if (account !== undefined && !scenario.accounts.has(account)) return c.json({ error: `Unknown Claude Code account: ${account}` }, 400);
+    const s = scenario.create(body.target, branch, prompt, undefined, account);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
-  // The Time tab: two weeks of made-up days (demo-time.ts), edits in memory.
+  // The Time tab: a month of made-up days (demo-time.ts), edits in memory.
   const demoTime = createDemoTime(() => scenario.clockMs());
   app.get('/api/time', (c) => {
     const r = timeRange({ from: c.req.query('from'), to: c.req.query('to') }, localDay(scenario.clockMs()), DEFAULT_CATCH_UP_DAYS);
@@ -661,6 +741,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json(graphWire());
   });
 
+  app.get('/api/time/month/:month', (c) => {
+    const month = c.req.param('month');
+    if (!monthRange(month, localDay(scenario.clockMs()))) return c.json({ error: 'month: YYYY-MM, one that has started' }, 400);
+    return c.json(demoTime.month(month));
+  });
+  // Nothing to gather: every day the demo has is gathered already.
+  app.post('/api/time/month/:month/gather', (c) => {
+    const month = c.req.param('month');
+    if (!monthRange(month, localDay(scenario.clockMs()))) return c.json({ error: 'month: YYYY-MM, one that has started' }, 400);
+    return c.json(demoTime.month(month), 202);
+  });
   app.get('/api/time/:day', (c) => {
     const day = c.req.param('day');
     if (!isDay(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
@@ -692,11 +783,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/pr-start', (c) => {
     const ref = parsePrRef(c.req.query('ref') ?? '');
     const target = c.req.query('target') || undefined;
-    if (!ref)
-      return c.json<PrStartWire>(
-        { error: 'Give a pull request link (https://github.com/owner/repo/pull/123), or its number with a repo.' },
-        400,
-      );
+    if (!ref) return c.json<PrStartWire>({ error: 'Give a pull request link (as your browser shows it), or its number with a repo.' }, 400);
     const pr = scenario
       .prs()
       .find((p) => p.number === ref.number && (ref.repo ? ref.repo.endsWith(`/${p.repoAlias}`) : !target || p.repoAlias === target));
@@ -793,6 +880,49 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     available: null,
     whatsNew: demoSeen === '2.1.0' ? null : '2.1.0',
   });
+  app.get('/api/usage', (c) => c.json(demoUsage() satisfies UsageWire));
+  // Claude accounts: two made-up logins; a switch just records it (demo-accounts.ts).
+  app.get('/api/accounts', (c) => c.json(scenario.accounts.wire(scenario.accountUsers()) satisfies AccountsWire));
+  // The Accounts page: add, choose the default, remove (sessions on it refuse it, as the real ones do), and a pretend login terminal.
+  app.post('/api/accounts', async (c) => {
+    const body = await json(c);
+    if (typeof body.name !== 'string' || !body.name) return c.json({ error: 'name is required' }, 400);
+    const r = scenario.accounts.add(body.name, typeof body.folder === 'string' ? body.folder : undefined);
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json(r.body);
+  });
+  app.post('/api/accounts/:name/default', (c) => {
+    const r = scenario.accounts.setDefault(c.req.param('name'));
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json({ ok: true });
+  });
+  app.delete('/api/accounts/:name', (c) => {
+    const r = scenario.accounts.remove(c.req.param('name'), c.req.query('force') === '1', scenario.accountUsers());
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json({ ok: true });
+  });
+  app.post('/api/accounts/:name/login', (c) => {
+    const r = scenario.accounts.startLogin(c.req.param('name'));
+    return r.ok ? c.json({ ok: true, id: r.id }) : c.json(r.body, r.status);
+  });
+  app.delete('/api/accounts/:name/login', (c) => {
+    scenario.accountsChanged();
+    return c.json({ ok: true, installingSkills: false });
+  });
+  app.post('/api/sessions/:id/account', async (c) => {
+    const to = (await json(c)).to;
+    if (typeof to !== 'string' || !to) return c.json({ error: 'to is required' }, 400);
+    const r = scenario.switchAccount(c.req.param('id'), to);
+    if (!r) return notFound(c);
+    return r.ok ? c.json(r.body) : c.json({ error: r.error }, r.status);
+  });
+  // A demo switch is recorded at once: nothing ever waits for its turn.
+  app.delete('/api/sessions/:id/account', (c) =>
+    scenario.sessions.has(c.req.param('id')) ? c.json({ error: 'no switch is waiting for its turn' }, 409) : notFound(c),
+  );
   app.get('/api/updates', (c) => c.json(demoUpdates()));
   app.post('/api/updates/check', (c) => c.json(demoUpdates()));
   app.post('/api/updates/restart', (c) => c.json({ error: 'No downloaded update to restart into.' }, 409));

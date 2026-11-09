@@ -3,6 +3,7 @@ import { StatusIcon } from './StatusIcon.js';
 import type { PrInfo } from '../../api/panes.js';
 import { DISPLAY_LABEL, displayStatus, formatDiffStat, agentName } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
+import { DEFAULT_ACCOUNT, pendingText } from '../../state/accounts.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
 import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../../../core/pr/pr-stage.js';
 
@@ -46,7 +47,7 @@ export function PrStageChip({ session, prs = [] }: { session: SessionSummary; pr
           href={p.url}
           target="_blank"
           rel="noreferrer"
-          title={`Open ${p.repo} #${p.number} on GitHub`}
+          title={`Open ${p.repo} #${p.number}`}
         >
           {many ? `${p.repo} #${p.number}` : `#${p.number}`} · {stagePhrase(p.kind)}
         </a>
@@ -89,7 +90,7 @@ export function RailPrPills({ session, prs }: { session: SessionSummary; prs: Pr
           className={'wd-pr-chip wd-pr-chip-open' + p.cls}
           role="link"
           tabIndex={-1}
-          title={`${p.title}\nClick to open it on GitHub`}
+          title={`${p.title}\nClick to open it`}
           onClick={(e) => {
             e.stopPropagation();
             window.open(p.url, '_blank', 'noopener');
@@ -130,7 +131,7 @@ export function PrChips({ prs, link = false }: { prs: PrInfo[]; link?: boolean }
           <span
             key={`${p.repoAlias}#${p.number}`}
             className={cls + ' wd-pr-chip-open'}
-            title={`${title}\nClick to open on GitHub`}
+            title={`${title}\nClick to open it`}
             role="link"
             onClick={(e) => {
               e.stopPropagation();
@@ -163,6 +164,7 @@ import { formatTokens } from '../../utils/tokens.js';
 /** Where a conversation's fill level starts to matter (shared with the PR watch's notes). */
 export { CONTEXT_WARN, CONTEXT_FULL } from '../../state/session-display.js';
 import { CONTEXT_FULL, CONTEXT_WARN } from '../../state/session-display.js';
+import { branchLabel, branchNote, branchTitle, branchUnpushed, headerBranches } from '../../state/branches.js';
 
 /**
  * "Context 62%" with a small bar: how full the session's Claude
@@ -353,5 +355,80 @@ export function OtherBranchChip({ session }: { session: SessionSummary }) {
     >
       {text}
     </span>
+  );
+}
+
+/**
+ * The Claude account a session runs on, when it isn't the default one (the session header's strip).
+ * A click opens Claude account… when it can (more than one account exists).
+ */
+export function AccountChip({ session, onOpen }: { session: SessionSummary; onOpen?: () => void }) {
+  const account = session.account ?? DEFAULT_ACCOUNT;
+  const pending = session.accountPending;
+  if (account === DEFAULT_ACCOUNT && !pending) return null;
+  const title =
+    `Its ${agentName(session)} runs on the “${account}” account.` +
+    (pending ? ` It moves to “${pending}” when its turn ends.` : '') +
+    (onOpen ? ' Click to change it.' : '');
+  // The status line's chip style (the stack chip's): muted text, the account a link when it opens the dialog.
+  return (
+    <span className="wd-stack wd-account-chip" title={title}>
+      account:{' '}
+      {onOpen ? (
+        <button type="button" className="wd-overlap-link" onClick={onOpen}>
+          {account}
+        </button>
+      ) : (
+        <span className="wd-overlap-name">{account}</span>
+      )}
+      {pending && <span className="wd-account-pending"> {pendingText(pending)}</span>}
+    </span>
+  );
+}
+
+/**
+ * "Branches: fix/a (checked out) 1 commit · not pushed · fix/b 1 commit · not pushed · feat/x PR #3592 merged":
+ * every branch the session worked on, when more than one (session-branches.ts) — Claude often moves on to a new
+ * branch in the same worktree once a PR merges, and the earlier work must not look gone. A click shows that
+ * branch's changes in the Diff tab.
+ */
+export function BranchesLine({ session, onShow }: { session: SessionSummary; onShow?: (repo: string, name: string) => void }) {
+  const list = headerBranches(session);
+  if (list.length < 2) return null;
+  return (
+    <div className="wd-branches-line" aria-label="Branches it worked on">
+      <span className="wd-branches-label">Branches:</span>
+      {list.map((b) => {
+        const note = branchNote(b, false);
+        return (
+          <span
+            key={`${b.repo}\u0000${b.name}`}
+            className={'wd-branch' + (b.current ? ' wd-branch-current' : '') + (branchUnpushed(b) ? ' wd-branch-unpushed' : '')}
+            title={branchTitle(b)}
+          >
+            {onShow && !b.current ? (
+              <button type="button" className="wd-overlap-link" onClick={() => onShow(b.repo, b.name)}>
+                {branchLabel(b, session.isGroup)}
+              </button>
+            ) : (
+              <span className="wd-branch-name">{branchLabel(b, session.isGroup)}</span>
+            )}
+            {b.current && <span className="wd-branch-tag"> (checked out)</span>}
+            {note && <span className="wd-branch-note"> {note}</span>}
+            {b.pr && (
+              <a
+                className={`wd-pr-chip wd-pr-stage${toneClass(b.pr.kind)}`}
+                href={b.pr.url}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open #${b.pr.number}: ${stagePhrase(b.pr.kind)}`}
+              >
+                #{b.pr.number} · {stagePhrase(b.pr.kind)}
+              </a>
+            )}
+          </span>
+        );
+      })}
+    </div>
   );
 }

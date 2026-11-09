@@ -7,6 +7,7 @@ import type { WorktreeSession } from './session-types.js';
 import { resolveProjectTarget } from '../worktree/resolve.js';
 import { createInProcess, type CreateWorktree } from '../worktree/setup-child.js';
 import { sessionIdFor } from './session-id.js';
+import { sessionAliases } from './session-repos.js';
 import { startSessionWithPrompt } from './session-start.js';
 
 /** `work fork`'s and the Fork… route's real inputs (fork.ts). */
@@ -28,9 +29,13 @@ export function defaultForkDeps(
 ): ForkDeps {
   return {
     config: loadConfig,
-    repos: (target, config) => {
+    repos: (target, config, parent) => {
       const t = resolveProjectTarget(target, config);
-      return t ? t.repoAliases.flatMap((alias) => (config.repos[alias] ? [{ alias, repoPath: config.repos[alias] }] : [])) : null;
+      if (!t) return null;
+      // A session folder's own repos (a group's, or a repo's folder session: recorded; a row
+      // from before: the group's config).
+      const aliases = parent?.isGroup ? sessionAliases(parent, config) : t.repoAliases;
+      return aliases.flatMap((alias) => (config.repos[alias] ? [{ alias, repoPath: config.repos[alias] }] : []));
     },
     branchOf: checkedOutBranch,
     // Branches only (a tag or a short SHA of that name is no clash).
@@ -39,8 +44,11 @@ export function defaultForkDeps(
         (prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0,
       ),
     validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], os.tmpdir()).exitCode === 0,
-    setup: async (target, branch, config, base, name) => {
-      const made = await (opts.create ?? createInProcess)({ target, branch, base, name }, config);
+    setup: async (target, branch, config, base, name, repos, account) => {
+      const made = await (opts.create ?? createInProcess)(
+        { target, branch, base, name, ...(repos?.length ? { repos } : {}), ...(account ? { account } : {}) },
+        config,
+      );
       return made.ok ? { paths: made.paths } : { error: made.error };
     },
     start: startSessionWithPrompt,
