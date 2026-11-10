@@ -225,10 +225,11 @@ describe('Session header strip', () => {
     ['needs_input', false, 'Needs your input · 4m — Claude needs your permission to use Bash'],
     ['working', true, 'Working · 4m — Refactor the ledger'],
     ['idle', false, 'Idle · 4m — Added the endpoint'],
-  ] as const)('%s: says what it is doing', (state, seen, expected) => {
-    const summary = expected.split(' — ')[1];
+  ] as const)('%s: says what it is doing — its recap left out of the header (reported: nobody read it)', (state, seen, expected) => {
+    const [line, summary] = expected.split(' — ');
     renderDetail(session({ attention: att(state, seen, summary), diffStat: { added: 3, deleted: 1, files: 1 } }));
-    expect(text(container.querySelector('.wd-status-line'))).toBe(expected);
+    expect(text(container.querySelector('.wd-status-line'))).toBe(line);
+    expect(container.textContent).not.toContain(summary);
     expect(text(container.querySelector('.wd-session-subtab-meta'))).toBe('· 1 file');
     expect(container.querySelector('.wd-session-strip a.wd-pr-chip')?.textContent).toBe('#7');
   });

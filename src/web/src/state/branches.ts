@@ -49,3 +49,76 @@ export function branchTitle(b: SessionBranchWire): string {
   ];
   return parts.join(' ');
 }
+
+/**
+ * The header's "3 branches ▾": how many branches the session worked on and whether any holds work not pushed (it
+ * turns amber). Null with one branch: nothing to open. Pure.
+ */
+export function branchesChip(s: Pick<SessionSummary, 'branches'>): { count: number; unpushed: number } | null {
+  const list = headerBranches(s);
+  if (list.length < 2) return null;
+  return { count: list.length, unpushed: list.filter(branchUnpushed).length };
+}
+
+/** One branch on the Branches tab: what's known of it, the turns taken on it, its commits (newest first). */
+export interface BranchTabRow {
+  branch: SessionBranchWire;
+  /** The repo's folder name: what turns and commits name it by. */
+  folder: string;
+  note: string | null;
+  turns: { first: number; last: number; count: number; from: string; to: string } | null;
+  commits: Array<{ sha: string; subject: string; at: string }>;
+}
+
+/**
+ * The Branches tab's rows, per repo in the session's order, each repo's checked-out branch first, then newest.
+ * `entries` and `commits` are the Diff tab's history (`GET …/checkpoints`): a turn is on a branch when it recorded
+ * that branch for the repo; the checked-out branch's commits are the unmarked ones, another's carry its name.
+ * The record names a single repo by its alias, a group's by its folder: `folders` maps it. Pure.
+ */
+export function branchTabRows(
+  s: Pick<SessionSummary, 'branches' | 'isGroup' | 'paths'>,
+  entries: Array<{ id: number; ts: string; branches?: Record<string, string | null> }>,
+  commits: Array<{ repo: string; sha: string; subject: string; at: string; branch?: string }>,
+): Array<{ repo: string; rows: BranchTabRow[] }> {
+  const folderOf = (repo: string) => (s.isGroup ? repo : lastPart(s.paths[0] ?? repo));
+  const branchAtFolder = (b: Record<string, string | null> | undefined, folder: string): string | null => {
+    if (!b) return null;
+    if (folder in b) return b[folder] ?? null;
+    const key = Object.keys(b).find((k) => lastPart(k) === folder);
+    return key ? (b[key] ?? null) : null;
+  };
+  const sorted = [...entries].sort((a, b) => a.id - b.id);
+  const byRepo = new Map<string, BranchTabRow[]>();
+  for (const b of headerBranches(s)) {
+    const folder = folderOf(b.repo);
+    const on = sorted.filter((e) => e.id > 0 && branchAtFolder(e.branches, folder) === b.name);
+    const mine = commits
+      .filter((c) => c.repo === folder && (b.current ? !c.branch : c.branch === b.name))
+      .map((c) => ({ sha: c.sha, subject: c.subject, at: c.at }));
+    const row: BranchTabRow = {
+      branch: b,
+      folder,
+      note: branchNote(b, false),
+      turns: on.length ? { first: on[0].id, last: on[on.length - 1].id, count: on.length, from: on[0].ts, to: on[on.length - 1].ts } : null,
+      commits: mine,
+    };
+    byRepo.set(b.repo, [...(byRepo.get(b.repo) ?? []), row]);
+  }
+  const order = (r: BranchTabRow) => (r.branch.current ? Number.MAX_SAFE_INTEGER : Date.parse(r.branch.lastSeen) || 0);
+  const at = (repo: string) => {
+    const i = s.paths.findIndex((p) => folderOf(repo) === lastPart(p));
+    return i < 0 ? s.paths.length : i;
+  };
+  return [...byRepo].sort(([a], [b]) => at(a) - at(b)).map(([repo, rows]) => ({ repo, rows: rows.sort((a, b) => order(b) - order(a)) }));
+}
+
+/** A path's last part (a folder's name), Windows or POSIX: `C:\wt\api\` and `/wt/api` → `api`. */
+function lastPart(p: string): string {
+  return (
+    p
+      .split(/[\\/]+/)
+      .filter(Boolean)
+      .pop() ?? p
+  );
+}

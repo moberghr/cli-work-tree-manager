@@ -1251,7 +1251,7 @@ a.wd-pr-chip:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 24px 4px;
+  padding: 16px 24px 10px;
   flex-shrink: 0;
   min-width: 0;
 }
@@ -1881,6 +1881,163 @@ a.wd-pr-chip:hover {
 }
 .wd-branch-unpushed .wd-branch-note {
   color: var(--warn-fg);
+}
+
+/* The header's chips row: only what wants a look; most sessions have none (SessionDetail). */
+.wd-session-strip:empty {
+  display: none;
+}
+.wd-session-detail-header .wd-status-line {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* "3 branches ▾" beside the session's name (BranchesChip), and its list. */
+.wd-branches-chip-box {
+  position: relative;
+  flex-shrink: 0;
+}
+.wd-branches-chip {
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wd-branches-chip:hover,
+.wd-branches-chip[aria-expanded='true'] {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--fg) 30%, var(--border));
+}
+.wd-branches-chip-unpushed {
+  color: var(--warn-fg);
+  border-color: color-mix(in srgb, var(--warn-fg) 60%, var(--border));
+  background: color-mix(in srgb, var(--warn-fg) 8%, transparent);
+}
+.wd-branches-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 380px;
+  max-width: min(640px, 70vw);
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-weight: normal;
+}
+.wd-branches-pop .wd-branches-line {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0;
+}
+.wd-branches-pop .wd-branches-label {
+  display: none;
+}
+/* One line of text per branch that wraps as text, not as squeezed columns. */
+.wd-branches-pop .wd-branch {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+}
+.wd-branches-pop-more {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+/* The Branches tab: every branch the session worked on, per repo. */
+.wd-branches-tab {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 24px 32px;
+}
+.wd-branches-tab-loading {
+  padding: 16px 24px;
+}
+.wd-branches-tab-title {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+.wd-branches-tab-repo-name {
+  font-size: 13px;
+  margin: 18px 0 6px;
+  color: var(--muted);
+  text-transform: none;
+}
+.wd-branches-tab-repo ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wd-branches-tab-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  max-width: 980px;
+}
+.wd-branches-tab-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.wd-branches-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+  flex-shrink: 0;
+}
+.wd-branches-tab-dot-on {
+  background: var(--accent, var(--fg));
+  border-color: var(--accent, var(--fg));
+}
+.wd-branches-tab-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.wd-branches-tab-current .wd-branches-tab-name {
+  font-weight: 600;
+}
+.wd-branches-tab-tag,
+.wd-branches-tab-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-branches-tab-note.wd-branch-unpushed {
+  color: var(--warn-fg);
+}
+.wd-branches-tab-show {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 2px 10px;
+}
+.wd-branches-tab-meta {
+  margin: 4px 0 0 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-branches-tab-commits {
+  margin: 4px 0 0 18px;
+  font-size: 12px;
+}
+.wd-branches-tab-commits ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+.wd-branches-tab-commits li {
+  padding: 1px 0;
 }
 
 /* The PR tab: an earlier PR, folded under the newer one the session moved on to. */

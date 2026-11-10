@@ -24,7 +24,7 @@ import {
   UNCOMMITTED,
   type DiffSelection,
 } from '../../src/web/src/state/diff-history.js';
-import { branchNote, branchUnpushed } from '../../src/web/src/state/branches.js';
+import { branchNote, branchTabRows, branchesChip, branchUnpushed } from '../../src/web/src/state/branches.js';
 import { prsForSession } from '../../src/web/src/state/session-display.js';
 import { prSections } from '../../src/web/src/state/pr-tab.js';
 import type { SessionBranchWire, SessionSummary } from '../../src/web/src/api/client.js';
@@ -405,5 +405,34 @@ describe('PRs across branches', () => {
       branches: [branch({ name: 'fix/probe' })],
     } as SessionSummary;
     expect(prsForSession(s, [listed('fix/probe'), listed('other')]).map((p) => p.branch)).toEqual(['fix/probe']);
+  });
+});
+
+describe('the Branches tab rows and the header chip (pure)', () => {
+  it('a single repo on a Windows path: its record names it by alias, its turns and commits by folder; repos in the session order', () => {
+    const s = {
+      isGroup: false,
+      paths: ['C:\\wt\\shop-api\\'],
+      branches: [
+        branch({ repo: 'api', name: 'feat/a', current: true, pushed: true, unpushed: 0 }),
+        branch({ repo: 'api', name: 'fix/b', pushed: false }),
+      ],
+    } as unknown as SessionSummary;
+    const entries = [
+      { id: 0, ts: at(0), branches: { 'C:\\wt\\shop-api': 'fix/b' } },
+      { id: 1, ts: at(1), branches: { 'C:\\wt\\shop-api': 'fix/b' } },
+      { id: 2, ts: at(2), branches: { 'C:\\wt\\shop-api': 'feat/a' } },
+    ];
+    const commits = [
+      { repo: 'shop-api', sha: 'a'.repeat(40), subject: 'mine', at: at(2) },
+      { repo: 'shop-api', sha: 'b'.repeat(40), subject: 'old', at: at(1), branch: 'fix/b' },
+    ];
+    const [repo] = branchTabRows(s, entries, commits);
+    expect(repo.rows.map((r) => [r.branch.name, r.folder, r.turns?.first, r.turns?.last, r.commits.map((c) => c.subject)])).toEqual([
+      ['feat/a', 'shop-api', 2, 2, ['mine']],
+      ['fix/b', 'shop-api', 1, 1, ['old']],
+    ]);
+    expect(branchesChip(s)).toEqual({ count: 2, unpushed: 1 });
+    expect(branchesChip({ branches: [branch({})] })).toBeNull();
   });
 });

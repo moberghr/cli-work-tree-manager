@@ -13,7 +13,8 @@ import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../
  * the same thing the same way.
  */
 
-const toneClass = (kind: PrStageKind) => {
+/** A PR pill's class for its stage. */
+export const toneClass = (kind: PrStageKind) => {
   const t = stageTone(kind);
   return t === 'good'
     ? ' wd-pr-stage-good'
@@ -309,7 +310,9 @@ export function OverlapChip({ session, onOpen }: { session: SessionSummary; onOp
 }
 
 /** "Needs your input · 4m — Claude needs your permission to use Bash". */
-export function StatusLine({ session }: { session: SessionSummary }) {
+/** Its status, how long, and (`summary`) its last summary line — the session header leaves that out: it's the
+ *  rail's tooltip and the Sessions table's, and on the page it was read by nobody (reported). */
+export function StatusLine({ session, summary = true }: { session: SessionSummary; summary?: boolean }) {
   const kind = displayStatus(session);
   const a = session.attention;
   const since = a ? relativeTime(a.since) : relativeTime(lastActiveAt(session));
@@ -324,7 +327,7 @@ export function StatusLine({ session }: { session: SessionSummary }) {
           (quiet)
         </span>
       )}
-      {a?.summary && <span className="wd-status-summary"> — {a.summary}</span>}
+      {summary && a?.summary && <span className="wd-status-summary"> — {a.summary}</span>}
     </span>
   );
 }

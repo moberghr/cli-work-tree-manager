@@ -116,3 +116,38 @@ describe('createSessionBranches (what work web wires into the sessions list)', (
     expect(sessionWire({ ...s, archivedAt: '2026-11-01T00:00:00Z' }, { branchesFor: () => first }).branches).toBeUndefined();
   });
 });
+
+describe("merged: never the main line itself, nor a branch that has work of its own again (reported: main read '6 commits · 6 not pushed · merged')", () => {
+  it('the main line is level with origin when pushed: not merged, marked base', async () => {
+    const { branchFacts } = await import('../../../src/core/stacks/branch-facts.js');
+    const run = fakeGit({
+      'rev-parse --abbrev-ref origin/HEAD': { code: 0, stdout: 'origin/main\n' },
+      'rev-parse --verify --quiet refs/heads/main': { code: 0, stdout: 'mmmm\n' },
+      'rev-parse --verify --quiet refs/remotes/origin/main': { code: 0, stdout: 'mmmm\n' },
+      'rev-list --count origin/main..refs/heads/main': { code: 0, stdout: '0\n' },
+      'rev-list --count refs/remotes/origin/main..refs/heads/main': { code: 0, stdout: '0\n' },
+    });
+    expect(await branchFacts('/repo', 'main', run)).toMatchObject({ merged: false, base: true });
+  });
+
+  it('the wire: a branch kept as merged reads merged only while it has no work of its own; its PR merged always does', async () => {
+    const { branchesWire } = await import('../../../src/core/stacks/branch-facts.js');
+    const rec: SessionBranches = {
+      branches: [
+        { repo: 'wt', name: 'main', firstSeen: '2026-10-01T00:00:00Z', lastSeen: '2026-11-01T00:00:00Z', merged: true },
+        { repo: 'wt', name: 'fix/a', firstSeen: '2026-10-01T00:00:00Z', lastSeen: '2026-10-02T00:00:00Z', merged: true },
+        { repo: 'wt', name: 'fix/b', firstSeen: '2026-10-01T00:00:00Z', lastSeen: '2026-10-03T00:00:00Z', merged: true },
+      ],
+    };
+    const facts = new Map([
+      [factsKey('wt', 'main'), { exists: true, sha: 'm', pushed: true, commits: 6, unpushed: 6, merged: false, base: true as const }],
+      [factsKey('wt', 'fix/a'), { exists: true, sha: 'a', pushed: true, commits: 2, unpushed: 2, merged: false }],
+      [factsKey('wt', 'fix/b'), { exists: false, sha: null, pushed: false, commits: null, unpushed: null, merged: false }],
+    ]);
+    const rows = branchesWire(rec, () => 'main', facts, null, T0)!;
+    const merged = (name: string) => rows.find((r) => r.name === name)?.merged;
+    expect(merged('main')).toBe(false);
+    expect(merged('fix/a')).toBe(false); // new commits since it was seen merged
+    expect(merged('fix/b')).toBe(true); // deleted: what was kept stands
+  });
+});

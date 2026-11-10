@@ -37,7 +37,7 @@ export type DashboardTab =
 
 /** Pages that no longer exist, and where their links land now. */
 const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start' };
-export type SessionSubTab = 'diff' | 'term' | 'pr' | 'code' | 'timeline';
+export type SessionSubTab = 'diff' | 'term' | 'pr' | 'code' | 'branches' | 'timeline';
 
 /** Sub-tabs that no longer exist, and where their links land now. */
 const OLD_SUB_TAB: Record<string, SessionSubTab> = { comments: 'diff', chat: 'term' };
@@ -77,7 +77,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
 
 const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|accounts|settings|welcome|prs|jira|reviews|time|tasks)\/?$/;
 const REPO_SETTINGS_RE = /^#\/repos\/([^/]+)\/?$/;
-const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|timeline))?\/?$/;
+const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|branches|timeline))?\/?$/;
 const REVIEW_RE = /^#\/reviews\/([^/]+)\/(\d+)(?:\/(story|comments)\/(\d+))?\/?$/;
 const REVIEW_FILES_RE = /^#\/reviews\/([^/]+)\/(\d+)\/files(?:\/([^/]+))?\/?$/;
 

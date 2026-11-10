@@ -33,8 +33,10 @@ export interface BranchFacts {
   commits: number | null;
   /** Commits on it that origin doesn't have (all of `commits` when never pushed); null: unknown. */
   unpushed: number | null;
-  /** Its commits are all in its base, and it was pushed (a branch merged the usual way). */
+  /** Its commits are all in its base, and it was pushed (a branch merged the usual way). Never the base itself. */
   merged: boolean;
+  /** It is the repo's main line itself (`main` when origin/HEAD is origin/main): never "merged" into itself. */
+  base?: true;
 }
 
 /** The repo's main line (`origin/main`), as origin/HEAD names it; null when it doesn't. */
@@ -64,7 +66,17 @@ export async function branchFacts(
   const main = base === undefined ? await repoBase(repo, run) : base;
   const commits = main ? count(await git('rev-list', '--count', `${main}..${local}`)) : null;
   const unpushed = pushed ? count(await git('rev-list', '--count', `${remote}..${local}`)) : commits;
-  return { exists, sha: tip.stdout.trim() || null, pushed, commits, unpushed, merged: pushed && commits === 0 };
+  // The main line itself is level with origin/main whenever it's pushed: that isn't a merge (it read "merged").
+  const isBase = !!main && main === `origin/${name}`;
+  return {
+    exists,
+    sha: tip.stdout.trim() || null,
+    pushed,
+    commits,
+    unpushed,
+    merged: !isBase && pushed && commits === 0,
+    ...(isBase ? { base: true as const } : {}),
+  };
 }
 
 /** A repo's other branches to look at: by name, in its checkout. */
@@ -214,7 +226,10 @@ export function branchesWire(
             pushed: f.pushed,
             commits: f.commits,
             unpushed: f.unpushed,
-            merged: f.merged || !!b.merged || pr?.state === 'MERGED',
+            // Merged as kept once seen — unless the branch, there now, has work of its own again (commits its base
+            // lacks) or is the main line itself: a repo's own main read "6 commits · 6 not pushed · merged". Its PR
+            // merged still says so (a squash merge leaves its commits unmerged).
+            merged: pr?.state === 'MERGED' || (!(f.exists && (f.base || (f.commits ?? 0) > 0)) && (f.merged || !!b.merged)),
           }
         : b.merged || pr?.state === 'MERGED'
           ? { merged: true }

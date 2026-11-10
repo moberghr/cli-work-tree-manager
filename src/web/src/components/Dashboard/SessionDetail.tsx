@@ -21,7 +21,6 @@ import {
   ClaudesChip,
   ContextChip,
   OtherBranchChip,
-  BranchesLine,
   OverlapChip,
   StackChip,
   PrChips,
@@ -32,6 +31,9 @@ import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip, useDevState } from './DevChip.js';
 import { NeedsYouBar } from './NeedsYouBar.js';
+import { BranchesChip } from './BranchesChip.js';
+import { BranchesTab } from './BranchesTab.js';
+import { branchesChip } from '../../state/branches.js';
 import { PrTab } from './PrTab.js';
 import { prNeedsLine, prTabButton } from '../../state/pr-tab.js';
 import { RowMenu } from './RowMenu.js';
@@ -133,6 +135,13 @@ export function SessionDetail({
     onSelectSubTab('code');
   };
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
+  // Another branch it worked on, in the Diff tab (the header's chip, the Branches tab).
+  const showBranch = (repo: string, name: string) => {
+    setBranchAsk((a) => ({ name, repo, seq: (a?.seq ?? 0) + 1, sessionId: session.id }));
+    onSelectSubTab('diff');
+  };
+  // The Branches tab: only when it worked on more than one (as the PR tab only with a PR), or while it's open.
+  const branchCount = branchesChip(session)?.count ?? 0;
   // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
   const openShip = () =>
     window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: session.id, action: 'ship' } }));
@@ -152,10 +161,8 @@ export function SessionDetail({
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
         onShowTerminal={() => onSelectSubTab('term')}
         onShowTimeline={() => onSelectSubTab('timeline')}
-        onShowBranch={(repo, name) => {
-          setBranchAsk((a) => ({ name, repo, seq: (a?.seq ?? 0) + 1, sessionId: session.id }));
-          onSelectSubTab('diff');
-        }}
+        onShowBranch={showBranch}
+        onShowBranches={() => onSelectSubTab('branches')}
       />
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
@@ -177,6 +184,14 @@ export function SessionDetail({
           />
         )}
         <SubTabButton label="Code" active={subTab === 'code'} onClick={() => onSelectSubTab('code')} />
+        {(branchCount > 0 || subTab === 'branches') && (
+          <SubTabButton
+            label="Branches"
+            meta={branchCount ? String(branchCount) : undefined}
+            active={subTab === 'branches'}
+            onClick={() => onSelectSubTab('branches')}
+          />
+        )}
       </nav>
       <div className={'wd-session-subtab-body' + (subTab === 'diff' && diffFull ? ' wd-diff-full' : '')}>
         {subTab === 'diff' && (
@@ -210,6 +225,9 @@ export function SessionDetail({
             onSearch={isArchived(session) ? undefined : () => setSearching(true)}
           />
         )}
+        {subTab === 'branches' && (
+          <BranchesTab key={session.id} session={session} onShowBranch={showBranch} onShowDiff={() => onSelectSubTab('diff')} />
+        )}
         {searching && <CodeSearch sessionId={session.id} onPick={openPlace} onClose={() => setSearching(false)} />}
         {/* From the ⋯ menu (and old links): no tab of its own, so it says what it is. */}
         {subTab === 'timeline' && (
@@ -240,8 +258,10 @@ interface HeaderProps {
   onShowTerminal?: () => void;
   /** Show its timeline (⋯ → Timeline). */
   onShowTimeline?: () => void;
-  /** Show another branch it worked on in the Diff tab (the Branches line). */
+  /** Show another branch it worked on in the Diff tab (the branches chip). */
   onShowBranch?: (repo: string, name: string) => void;
+  /** Open the Branches tab (the chip's way to the rest). */
+  onShowBranches?: () => void;
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
@@ -257,6 +277,7 @@ function SessionHeader({
   onShowTerminal,
   onShowTimeline,
   onShowBranch,
+  onShowBranches,
 }: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -350,6 +371,8 @@ function SessionHeader({
   return (
     <>
       <header className="wd-session-detail-header">
+        {/* Its status first, on the name's row (reported: a line of its own, with a recap nobody read). */}
+        <StatusLine session={session} summary={false} />
         <h1>
           <span className="wd-session-detail-target">{session.target}</span>
           <span className="wd-session-detail-sep">/</span>
@@ -357,6 +380,7 @@ function SessionHeader({
           <OtherBranchChip session={session} />
           <SessionTitle key={renameKey} session={session} autoEdit={renameKey > 0} />
         </h1>
+        <BranchesChip session={session} onShow={onShowBranch} onOpenTab={onShowBranches} />
         {repos.length > 0 && (
           <span className="wd-session-repos" title={`Its repos: ${repos.join(', ')}`}>
             {repos.join(' · ')}
@@ -414,8 +438,8 @@ function SessionHeader({
         </div>
       </header>
       {menu && <RowMenu x={menu.x} y={menu.y} anchor="right" items={items} footer={contextFooter(session)} onClose={() => setMenu(null)} />}
+      {/* Only what wants a look: empty (CSS :empty) for most sessions, so the header is one row and the tabs. */}
       <div className="wd-session-strip">
-        <StatusLine session={session} />
         <AwayLink session={session} catchUp={catchUp} />
         <BehindChip session={session} />
         <MergedParentChip session={session} />
@@ -429,7 +453,6 @@ function SessionHeader({
         <DevChip dev={dev} />
         {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}
       </div>
-      <BranchesLine session={session} onShow={onShowBranch} />
       <CatchUpPanel catchUp={catchUp} />
       {notesOpen && <SessionNotes session={session} onClose={() => setNotesOpen(false)} />}
       {needs && <NeedsYouBar text={needs} onOpen={onOpenPr} />}

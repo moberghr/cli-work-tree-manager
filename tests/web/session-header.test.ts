@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   devActions: [] as string[],
   ci: { repos: [] } as unknown as SessionCi,
   replies: { replies: [], waiting: [] } as RepliesWire,
+  history: { scopeHash: 'x', entries: [] as unknown[], commits: [] as unknown[], spans: [] as unknown[] },
 }));
 
 vi.mock('../../src/web/src/api/panes.js', () => ({ openInTerminal: h.openInTerminal }));
@@ -27,6 +28,7 @@ vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   fetchReplies: async () => h.replies,
   fetchWorkTime: async () => ({ totalMs: 0, byDay: [] }),
   fetchTimeline: async () => ({ events: [] }),
+  fetchSessionHistory: async () => h.history,
 }));
 // Keep the detail view light: the header is what's under test.
 vi.mock('../../src/web/src/components/Diff/DiffView.js', () => ({ DiffView: () => null }));
@@ -318,5 +320,106 @@ describe('the PR tab, kept', () => {
     // Another session: nothing of this one's carries over.
     await show({ ...withPr, id: 'other' } as SessionSummary, 'term');
     expect(slot()).toBeNull();
+  });
+});
+
+describe("the header: status on the name's row, branches behind a chip, a Branches tab", () => {
+  const branch = (over: Record<string, unknown>) => ({
+    repo: 'repo',
+    name: 'x',
+    current: false,
+    firstSeen: '2026-11-01T08:00:00Z',
+    lastSeen: '2026-11-01T09:00:00Z',
+    exists: true,
+    pushed: true,
+    commits: 1,
+    unpushed: 0,
+    merged: false,
+    ...over,
+  });
+  const many = {
+    ...base,
+    attention: { state: 'idle', since: new Date().toISOString(), summary: 'Both are stopped, and no PTY host was started.' },
+    branches: [
+      branch({ name: 'feat/x', current: true, lastSeen: '2026-11-02T09:00:00Z' }),
+      branch({ name: 'fix/old', pushed: false, unpushed: 2, commits: 2 }),
+      branch({ name: 'spike/try', commits: 0, merged: true }),
+    ],
+  } as unknown as SessionSummary;
+
+  it("reported: the status sits on the name's row and its recap is gone; no row of chips when none applies", async () => {
+    await render(many);
+    expect(header().querySelector('.wd-status-line')).not.toBeNull();
+    expect(container.textContent).not.toContain('Both are stopped');
+    expect(container.querySelector('.wd-session-strip')!.children).toHaveLength(0); // :empty → hidden
+    expect(container.querySelector('.wd-branches-line')).toBeNull(); // the always-open Branches line is gone
+  });
+
+  it('"3 branches ▾": amber with work not pushed; opens the list, a branch shows in the Diff, and the tab is one click', async () => {
+    await render(many);
+    const chip = container.querySelector<HTMLButtonElement>('.wd-branches-chip')!;
+    expect(chip.textContent).toBe('3 branches ▾');
+    expect(chip.className).toContain('wd-branches-chip-unpushed');
+    act(() => chip.click());
+    const pop = container.querySelector('.wd-branches-pop')!;
+    expect(pop.getAttribute('data-popover')).not.toBeNull();
+    act(() => [...pop.querySelectorAll('button')].find((b) => b.textContent === 'fix/old')!.click());
+    expect(onSelectSubTab).toHaveBeenLastCalledWith('diff');
+    expect(container.querySelector('.wd-branches-pop')).toBeNull();
+    act(() => chip.click());
+    act(() => container.querySelector<HTMLButtonElement>('.wd-branches-pop-more')!.click());
+    expect(onSelectSubTab).toHaveBeenLastCalledWith('branches');
+    // Esc closes it.
+    act(() => chip.click());
+    act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(container.querySelector('.wd-branches-pop')).toBeNull();
+  });
+
+  it('one branch: no chip and no Branches tab; more than one: the tab, with how many', async () => {
+    const tabs = () => [...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
+    await render(base);
+    expect(container.querySelector('.wd-branches-chip')).toBeNull();
+    expect(tabs()).toEqual(['Terminal', 'Diff', 'Code']);
+    await render(many);
+    expect(tabs()).toEqual(['Terminal', 'Diff', 'Code', 'Branches· 3']);
+  });
+
+  it('the Branches tab: each branch with what is known of it, its turns, its commits folded, and Show in Diff', async () => {
+    h.history = {
+      scopeHash: 'x',
+      entries: [
+        { id: 0, ts: '2026-11-01T08:00:00Z', repos: {}, branches: { repo: 'fix/old' } },
+        { id: 1, ts: '2026-11-01T08:10:00Z', repos: {}, branches: { repo: 'fix/old' } },
+        { id: 2, ts: '2026-11-01T08:20:00Z', repos: {}, branches: { repo: 'fix/old' } },
+        { id: 3, ts: '2026-11-02T09:00:00Z', repos: {}, branches: { repo: 'feat/x' } },
+      ],
+      commits: [
+        { repo: 'repo', sha: 'a'.repeat(40), subject: 'On x', at: '2026-11-02T09:00:00Z' },
+        { repo: 'repo', sha: 'b'.repeat(40), subject: 'Old one', at: '2026-11-01T08:15:00Z', branch: 'fix/old' },
+        { repo: 'repo', sha: 'c'.repeat(40), subject: 'Old two', at: '2026-11-01T08:05:00Z', branch: 'fix/old' },
+      ],
+      spans: [],
+    };
+    await act(async () => {
+      root.render(createElement(SessionDetail, { session: many, subTab: 'branches', onSelectSubTab, onDelete }));
+    });
+    await act(async () => {});
+    const rows = [...container.querySelectorAll('.wd-branches-tab-row')];
+    expect(rows.map((r) => r.querySelector('.wd-branches-tab-name')!.textContent)).toEqual(['feat/x', 'fix/old', 'spike/try']);
+    expect(rows[0].textContent).toContain('checked out');
+    expect(rows[0].textContent).toContain('turn 3');
+    expect(rows[1].querySelector('.wd-branches-tab-note')!.textContent).toBe('2 commits · not pushed');
+    expect(rows[1].textContent).toContain('turns 1–2');
+    expect(rows[2].textContent).toContain('no turns recorded on it');
+    // Commits folded, by the branch they were made on.
+    const fold = rows[1].querySelector<HTMLButtonElement>('.wd-branches-tab-commits button')!;
+    expect(fold.textContent).toBe('▸ 2 commits');
+    act(() => fold.click());
+    expect([...rows[1].querySelectorAll('.wd-branches-tab-commits li')].map((li) => li.textContent?.split(' · ')[0])).toEqual([
+      'bbbbbbb Old one',
+      'ccccccc Old two',
+    ]);
+    act(() => rows[1].querySelector<HTMLButtonElement>('.wd-branches-tab-show')!.click());
+    expect(onSelectSubTab).toHaveBeenLastCalledWith('diff');
   });
 });
