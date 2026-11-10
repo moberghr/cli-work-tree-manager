@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { git } from '../../../src/core/git/git.js';
-import { computeSessionRange, sessionCommits } from '../../../src/core/diff/session-history.js';
+import { computeSessionRange, sessionHistory } from '../../../src/core/diff/session-history.js';
+
+const sessionCommits = async (s: Parameters<typeof sessionHistory>[0]) => (await sessionHistory(s)).commits;
 import type { DiffPoint } from '../../../src/core/diff/diff-points.js';
 import { takeCheckpoint } from '../../../src/core/diff/checkpoint.js';
 import { scopeHashForPaths } from '../../../src/core/diff/scope-manager.js';
@@ -46,16 +48,16 @@ const paths = (r: ReturnType<typeof computeSessionRange>): string[] =>
   'error' in r ? [r.error] : r.repos.flatMap((x) => x.files.map((f) => f.path));
 
 describe('sessionCommits', () => {
-  it("lists the branch's commits since its base, newest first, by repo", () => {
-    expect(sessionCommits(session()).map((c) => [c.repo, c.sha, c.subject])).toEqual([
+  it("lists the branch's commits since its base, newest first, by repo", async () => {
+    expect((await sessionCommits(session())).map((c) => [c.repo, c.sha, c.subject])).toEqual([
       ['backend', second, 'Add b'],
       ['backend', first, 'Add a'],
     ]);
-    expect(Number.isFinite(Date.parse(sessionCommits(session())[0].at))).toBe(true);
+    expect(Number.isFinite(Date.parse((await sessionCommits(session()))[0].at))).toBe(true);
   });
 
-  it('a recorded base that is gone (merged and deleted): measured from the parent found by itself', () => {
-    expect(sessionCommits({ paths: [repo], baseBranch: 'no-such-branch' })).toEqual(sessionCommits(session()));
+  it('a recorded base that is gone (merged and deleted): measured from the parent found by itself', async () => {
+    expect(await sessionCommits({ paths: [repo], baseBranch: 'no-such-branch' })).toEqual(await sessionCommits(session()));
   });
 });
 
@@ -85,11 +87,11 @@ describe('computeSessionRange', () => {
 
 // Last: these move the shared repo on.
 describe('as the repo moves on', () => {
-  it('a new commit is listed (the list is kept only while every HEAD stays put)', () => {
-    expect(sessionCommits(session())).toHaveLength(2);
+  it('a new commit is listed (the list is kept only while every HEAD stays put)', async () => {
+    expect(await sessionCommits(session())).toHaveLength(2);
     write('c.txt', 'c\n');
     const third = commit('Add c');
-    expect(sessionCommits(session()).map((c) => c.sha)).toEqual([third, second, first]);
+    expect((await sessionCommits(session())).map((c) => c.sha)).toEqual([third, second, first]);
   });
 
   it("a checkpoint is found by the session's path written another way (a trailing separator): not read as HEAD", async () => {

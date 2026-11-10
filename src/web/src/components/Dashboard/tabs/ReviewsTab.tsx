@@ -15,7 +15,7 @@ import {
   settleReviewInDoubt,
   submitReview,
 } from '../../../api/panes.js';
-import { isStaleRunning, nothingToSubmit, shownDoubt } from '../../../../../core/review/review-submit.js';
+import { isStaleRunning, nothingToSubmit, shownDoubt, submitBlocked } from '../../../../../core/review/review-submit.js';
 import { reviewDraftsApi } from '../../../api/review-drafts-api.js';
 import { useSse } from '../../../api/events.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -557,8 +557,9 @@ function ReviewView({
           </HostThreadsProvider>
         </ReviewProvider>
       )}
-      {/* Outside the provider (remounted when the drafts change): a submit's error stays on screen. */}
-      {ready && <SubmitBar review={r} onDone={setR} onOpenSession={onOpenSession} />}
+      {/* Outside the provider (remounted when the drafts change): a submit's error stays on screen. In every state:
+          a PR held for its size, or whose preparing failed, can still be approved (reported: no way to just approve). */}
+      <SubmitBar review={r} onDone={setR} onOpenSession={onOpenSession} />
     </article>
   );
 }
@@ -572,7 +573,7 @@ function SubmitBar({
   onDone: (r: PrReviewWire) => void;
   onOpenSession?: (id: string) => void;
 }) {
-  const [event, setEvent] = useState<ReviewEvent>('comment');
+  const [sending, setSending] = useState<ReviewEvent | null>(null);
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -580,8 +581,10 @@ function SubmitBar({
   const [note, setNote] = useState<string | null>(null);
   const blocked = fixMyselfBlocked(review);
   const drafts = pendingDrafts(review);
-  const submit = () => {
+  const stopped = submitBlocked(review);
+  const submit = (event: ReviewEvent) => {
     setBusy(true);
+    setSending(event);
     setError(null);
     submitReview(review.repo, review.number, { event, body, drafts: drafts.map((d) => ({ id: d.id, body: d.body })) })
       .then(
@@ -595,8 +598,19 @@ function SubmitBar({
           setError(e.message);
         },
       )
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        setSending(null);
+      });
   };
+  const host = hostName(review.host);
+  const inFlight = busy || (!!review.submitting && !review.submitting.stale);
+  // One button per verdict, each saying what it sends: Approve needs nothing else, the others a comment or a summary.
+  const verdicts: Array<{ event: ReviewEvent; label: string; title: string; primary?: boolean }> = [
+    { event: 'comment', label: 'Comment', title: `Post the comments and the summary on ${host}, no verdict` },
+    { event: 'request-changes', label: 'Request changes', title: `Post them on ${host}, asking for changes` },
+    { event: 'approve', label: 'Approve', title: `Approve the PR on ${host}, with whatever comments and summary are here`, primary: true },
+  ];
   return (
     <div className="wd-review-submit" aria-label="Submit the review">
       <span>
@@ -609,19 +623,21 @@ function SubmitBar({
         placeholder="Summary (optional)"
         aria-label="Review summary"
       />
-      <select value={event} onChange={(e) => setEvent(e.target.value as ReviewEvent)} aria-label="Verdict">
-        <option value="comment">Comment</option>
-        <option value="approve">Approve</option>
-        <option value="request-changes">Request changes</option>
-      </select>
-      <button
-        type="button"
-        className="wd-btn-primary"
-        disabled={busy || !!review.inDoubt || !!review.submitting || nothingToSubmit(review, event, drafts.length, body)}
-        onClick={submit}
-      >
-        {busy || (review.submitting && !review.submitting.stale) ? 'Submitting…' : `Submit review on ${hostName(review.host)}`}
-      </button>
+      {verdicts.map((v) => {
+        const empty = nothingToSubmit(review, v.event, drafts.length, body);
+        return (
+          <button
+            key={v.event}
+            type="button"
+            className={v.primary ? 'wd-btn-primary' : 'wd-btn-secondary'}
+            disabled={inFlight || !!stopped || empty}
+            title={stopped ?? (empty ? 'Write a comment on the diff or a summary first' : v.title)}
+            onClick={() => submit(v.event)}
+          >
+            {sending === v.event ? 'Submitting…' : v.label}
+          </button>
+        );
+      })}
       <button
         type="button"
         className="wd-btn-secondary"

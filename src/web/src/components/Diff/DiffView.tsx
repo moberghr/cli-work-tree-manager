@@ -223,8 +223,11 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const shownBranch = useRef(0);
   useEffect(() => {
     if (!showBranch || shownBranch.current === showBranch.seq) return;
-    const ofRepo = allItems.filter((x) => x.after.kind !== 'commit' || !showBranch.repo || x.after.repo === showBranch.repo);
-    const sel = branchSelection(ofRepo, showBranch.name, spans);
+    // A group's repo by its folder (the header names it so); a single repo's record names it by its alias, which
+    // isn't its commits' folder name — and there's only the one repo (reported: a click there opened nothing).
+    const repo = isGroup && showBranch.repo ? showBranch.repo : null;
+    const ofRepo = allItems.filter((x) => x.after.kind !== 'commit' || !repo || x.after.repo === repo);
+    const sel = branchSelection(ofRepo, showBranch.name, spans, repo ?? repoOnScreen);
     if (!sel) return;
     shownBranch.current = showBranch.seq;
     opened.current = session.id; // what was asked for wins over "since you looked" opening by itself
@@ -474,7 +477,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
             repo={isGroup ? activeRepoName : null}
             onPick={(name) => {
               if (name === null) return setSelection(SINCE_BRANCH);
-              const sel = branchSelection(items, name, spans);
+              const sel = branchSelection(items, name, spans, repoOnScreen);
               if (sel) setSelection(sel);
             }}
           />

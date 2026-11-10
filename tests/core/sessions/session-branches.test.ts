@@ -18,12 +18,18 @@ import {
   withSightings,
   type SessionBranches,
 } from '../../../src/core/sessions/session-branches.js';
-import { branchesFromReflog, checkoutBranchHistory, parseReflogLine, startFromReflog } from '../../../src/core/git/reflog.js';
+import {
+  branchLogChangedSince,
+  branchesFromReflog,
+  checkoutBranchHistory,
+  parseReflogLine,
+  startFromReflog,
+} from '../../../src/core/git/reflog.js';
 import { checkedOutBranch, gitDirs } from '../../../src/core/git/git-head.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { purgeSessionRows, tx } from '../../../src/core/platform/db.js';
 import { branchFacts, branchJobs, branchesWire, sessionBranchesNow } from '../../../src/core/stacks/branch-facts.js';
-import { computeSessionRange, historyBranchRefs, sessionCommits, sessionHistory } from '../../../src/core/diff/session-history.js';
+import { computeSessionRange, historyBranchRefs, sessionHistory } from '../../../src/core/diff/session-history.js';
 import { shipPreflight, workElsewhere } from '../../../src/core/pr/ship.js';
 import { recordBranchesFor, runTurnHook } from '../../../src/commands/hook.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
@@ -133,6 +139,51 @@ describe("where a branch's own work begins (its reflog, pure)", () => {
     expect(startFromReflog([l('1', 'pull: Fast-forward'), l('2', 'commit: a')])).toBe(sha('1'));
     expect(startFromReflog([l('1', 'commit: a')])).toBeNull();
     expect(startFromReflog([])).toBeNull();
+  });
+
+  it('a reset or rebase within its own work keeps the start (a squash, an amend by reset); one onto other work moves it', () => {
+    const made = [l('1', 'branch: Created from origin/dev'), l('2', 'commit: a'), l('3', 'commit: b'), l('4', 'commit: c')];
+    // `git reset --soft HEAD~1` onto b, recommitted: b was its own.
+    expect(startFromReflog([...made, l('3', 'reset: moving to HEAD~1'), l('5', "commit: c'")])).toBe(sha('1'));
+    // `git rebase -i HEAD~2` onto a (a squash): a was its own.
+    expect(startFromReflog([...made, l('6', `rebase (finish): refs/heads/fix/x onto ${sha('2')}`)])).toBe(sha('1'));
+    // Onto newer dev: never its own.
+    expect(startFromReflog([...made, l('7', `rebase (finish): refs/heads/fix/x onto ${sha('9')}`)])).toBe(sha('9'));
+    // And after that, a reset back onto a commit of its own on the new base keeps the new start.
+    expect(
+      startFromReflog([
+        ...made,
+        l('7', `rebase (finish): refs/heads/fix/x onto ${sha('9')}`),
+        l('8', 'commit: d'),
+        l('7', 'reset: moving to HEAD~1'),
+      ]),
+    ).toBe(sha('9'));
+  });
+
+  it("a fast-forward from its own copy (a colleague's commits on it) keeps the start; from another branch moves it", () => {
+    const made = [l('1', 'branch: Created from origin/dev'), l('2', 'commit: a')];
+    expect(startFromReflog([...made, l('3', 'merge origin/fix/x: Fast-forward')], 'fix/x')).toBe(sha('1'));
+    expect(startFromReflog([...made, l('3', 'pull origin fix/x: Fast-forward')], 'fix/x')).toBe(sha('1'));
+    expect(startFromReflog([...made, l('3', 'merge origin/dev: Fast-forward')], 'fix/x')).toBe(sha('3'));
+    // Not told its name: as before, every fast-forward moves it.
+    expect(startFromReflog([...made, l('3', 'merge origin/fix/x: Fast-forward')])).toBe(sha('3'));
+  });
+
+  it('branchLogChangedSince: a stat against the time given; unknown (no file, a bad date) is changed', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reflog-stat-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'logs', 'refs', 'heads', 'fix'), { recursive: true });
+      const file = path.join(dir, 'logs', 'refs', 'heads', 'fix', 'x');
+      fs.writeFileSync(file, 'x\n');
+      const at = new Date('2026-11-01T10:00:00Z');
+      fs.utimesSync(file, at, at);
+      expect(branchLogChangedSince(dir, 'fix/x', '2026-11-01T09:59:00Z')).toBe(true);
+      expect(branchLogChangedSince(dir, 'fix/x', '2026-11-01T10:01:00Z')).toBe(false);
+      expect(branchLogChangedSince(dir, 'no/such', '2026-11-01T10:01:00Z')).toBe(true);
+      expect(branchLogChangedSince(dir, 'fix/x', 'not a date')).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -277,12 +328,12 @@ describe("the user's case: a session that moved on to two new branches after its
     expect(wire?.find((b) => b.name === 'feat/webhook-improvements' && b.repo === 'backend')?.merged).toBe(true);
   });
 
-  it("the Diff picker's commits: the other branch's commit is listed, under its branch", () => {
+  it("the Diff picker's commits: the other branch's commit is listed, under its branch", async () => {
     const others = [
       { path: backend, name: 'fix/SD-3999-probe-recovers-on-2xx', from: 'origin/dev' },
       { path: backend, name: 'feat/webhook-improvements' },
     ];
-    const commits = sessionCommits(session, others);
+    const { commits } = await sessionHistory(session, others);
     const sd = commits.find((c) => c.sha === sdSha);
     expect(sd).toMatchObject({
       repo: 'backend',
@@ -296,13 +347,13 @@ describe("the user's case: a session that moved on to two new branches after its
     ]);
   });
 
-  it("each other branch's whole work is a span: from where it was made to its tip, its own files only, merged too", () => {
+  it("each other branch's whole work is a span: from where it was made to its tip, its own files only, merged too", async () => {
     const others = historyBranchRefs(session, backfillSessionBranches(session, T0), checkedOutBranch);
     // Every recorded branch but the one checked out, in each repo; the frontend has only its checked-out one.
     expect(others.map((o) => o.name).sort()).toEqual(['feat/webhook-improvements', 'fix/SD-3999-probe-recovers-on-2xx']);
     // The start commit came from each branch's own reflog ("branch: Created from origin/dev").
     expect(others.every((o) => /^[0-9a-f]{40}$/.test(o.start ?? ''))).toBe(true);
-    const { spans } = sessionHistory(session, others);
+    const { spans } = await sessionHistory(session, others);
     for (const name of ['feat/webhook-improvements', 'fix/SD-3999-probe-recovers-on-2xx']) {
       const span = spans.find((s) => s.branch === name)!;
       expect(span).toMatchObject({ repo: 'backend', tip: git(backend, 'rev-parse', name) });
@@ -317,17 +368,61 @@ describe("the user's case: a session that moved on to two new branches after its
     }
   });
 
-  it('a branch deleted after its merge is still listed from the tip recorded while it was there', () => {
+  it('detached (not a rebase): the branch it was on last is not listed as another branch', () => {
+    const rec = backfillSessionBranches(session, T0);
+    const newest = rec.branches.filter((b) => b.repo === 'backend').sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen))[0];
+    const others = historyBranchRefs(session, rec, () => null);
+    expect(others.some((o) => o.path === backend && o.name === newest.name)).toBe(false);
+    expect(others.filter((o) => o.path === backend)).toHaveLength(rec.branches.filter((b) => b.repo === 'backend').length - 1);
+  });
+
+  it('a branch with no commits of its own still has a span (base = tip): its turns diff from the commit it was at', async () => {
+    const tip = git(backend, 'rev-parse', 'fix/tests-deterministic-culture');
+    const { spans } = await sessionHistory(session, [{ path: backend, name: 'empty/one', tip, start: tip }]);
+    expect(spans).toEqual([{ repo: 'backend', branch: 'empty/one', base: tip, tip }]);
+  });
+
+  it('with no start known, the span begins before ALL its own commits, not only the 50 listed', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'many-commits-'));
+    try {
+      const run = (...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', windowsHide: true }).trim();
+      run('init', '-q', '-b', 'main');
+      run('config', 'user.email', 't@t.t');
+      run('config', 'user.name', 'T');
+      run('commit', '-q', '--allow-empty', '-m', 'base', '--no-gpg-sign');
+      const base = run('rev-parse', 'HEAD');
+      // 60 commits on long/one in one git run (fast-import), not 60.
+      const stream = Array.from({ length: 60 }, (_, i) =>
+        [
+          'commit refs/heads/long/one',
+          `committer T <t@t.t> ${1_700_000_000 + i} +0000`,
+          `data ${`c${i}`.length}`,
+          `c${i}`,
+          ...(i === 0 ? [`from ${base}`] : []),
+          '',
+        ].join('\n'),
+      ).join('');
+      execFileSync('git', ['fast-import', '--quiet'], { cwd: dir, input: stream, windowsHide: true });
+      const tip = run('rev-parse', 'long/one');
+      const { commits, spans } = await sessionHistory({ paths: [dir] }, [{ path: dir, name: 'long/one' }]);
+      expect(commits.filter((c) => c.branch === 'long/one')).toHaveLength(50);
+      expect(spans).toEqual([{ repo: path.basename(dir), branch: 'long/one', base, tip }]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
+  it('a branch deleted after its merge is still listed from the tip recorded while it was there', async () => {
     const tip = git(backend, 'rev-parse', 'feat/webhook-improvements');
     const start = historyBranchRefs(session, backfillSessionBranches(session, T0), checkedOutBranch).find(
       (o) => o.name === 'feat/webhook-improvements',
     )!.start;
     const gone = { path: backend, name: 'no-longer/a-branch', tip, ...(start ? { start } : {}) };
-    const { commits, spans } = sessionHistory(session, [gone]);
+    const { commits, spans } = await sessionHistory(session, [gone]);
     expect(commits.filter((c) => c.branch === 'no-longer/a-branch').map((c) => c.subject)).toEqual(['feat(SD-3999): webhook delivery log']);
     expect(spans.map((s) => s.branch)).toEqual(['no-longer/a-branch']);
     // A recorded tip the repo no longer has: nothing to list, nothing thrown.
-    const none = sessionHistory(session, [{ path: backend, name: 'no-longer/a-branch', tip: 'f'.repeat(40) }]);
+    const none = await sessionHistory(session, [{ path: backend, name: 'no-longer/a-branch', tip: 'f'.repeat(40) }]);
     expect(none.commits.filter((c) => c.branch)).toEqual([]);
     expect(none.spans).toEqual([]);
   });

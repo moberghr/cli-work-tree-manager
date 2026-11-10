@@ -65,8 +65,12 @@ export function lastDraftNumber(r: PrReviewWire): number {
 export const heldIds = (r: PrReviewWire): Set<string> =>
   new Set([...(r.inDoubt?.drafts ?? []), ...(r.submitting?.drafts ?? [])].map((d) => d.id));
 
-/** A submit request as sent, checked; a reason when it can't go. */
-export function submitRefusal(r: PrReviewWire, input: unknown, now: Date = new Date()): string | null {
+/**
+ * Why nothing can be submitted for this review right now, whatever is sent; null when something can. The SPA's
+ * submit bar reads it too: it is shown in every state (an approval needs no prepared review: one held for its size
+ * or whose preparing failed can be approved), its buttons off with this as the reason.
+ */
+export function submitBlocked(r: PrReviewWire, now: Date = new Date()): string | null {
   if (r.inDoubt)
     return 'the last submit may have gone out (it failed without a clear answer): look at the PR, then say whether it went before sending anything again';
   if (r.submitting) return 'this review is being submitted already';
@@ -75,6 +79,13 @@ export function submitRefusal(r: PrReviewWire, input: unknown, now: Date = new D
   // Its files, lines and drafts are the prepared diff's, and the head they're sent at is that one: not while a new
   // push is being prepared (that would put them on another commit).
   if (r.status === 'queued' || r.status === 'running') return 'it is being prepared again (a new push): submit once it is ready';
+  return null;
+}
+
+/** A submit request as sent, checked; a reason when it can't go. */
+export function submitRefusal(r: PrReviewWire, input: unknown, now: Date = new Date()): string | null {
+  const blocked = submitBlocked(r, now);
+  if (blocked) return blocked;
   const i = input as Partial<ReviewSubmitInput> | null;
   if (!i || typeof i !== 'object') return 'expected {event, body, drafts}';
   if (!EVENTS.has(i.event as ReviewEvent)) return 'event must be comment, approve or request-changes';

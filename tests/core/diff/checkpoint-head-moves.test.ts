@@ -102,4 +102,23 @@ describe('headBroughtInOtherWork', () => {
     expect(switchedBranch({ branches: { [wt]: 'fix/next' } }, repos()[0])).toBe(false);
     expect(switchedBranch({}, repos()[0])).toBe(false);
   });
+
+  it('a rebase onto main that stops on a conflict across a turn end is no branch switch: it still re-baselines', async () => {
+    // Reported by review: the detached HEAD mid-rebase read as a switch, so main's commits showed as Claude's turn.
+    git(['add', '.'], wt);
+    git(['commit', '-q', '-m', 'mine', '--no-gpg-sign'], wt);
+    commitIn(upstream, 'mine.txt', 'theirs, the same file');
+    git(['fetch', '-q', 'origin'], wt);
+    expect(await takeCheckpoint(HASH, repos())).not.toBeNull(); // the turn recorded feat/x
+    git(['rebase', 'origin/main'], wt); // stops on mine.txt
+    expect(git(['symbolic-ref', '-q', 'HEAD'], wt).exitCode).not.toBe(0); // detached, mid-rebase
+    expect(switchedBranch({ branches: { [wt]: 'feat/x' } }, repos()[0])).toBe(false);
+    expect(await headBroughtInOtherWork(HASH, repos())).toBe(true);
+  });
+
+  it('a detached HEAD on either side is never read as a switch', async () => {
+    git(['checkout', '-q', '--detach'], wt);
+    expect(switchedBranch({ branches: { [wt]: 'feat/x' } }, repos()[0])).toBe(false);
+    expect(switchedBranch({ branches: { [wt]: null } }, repos()[0])).toBe(false);
+  });
 });

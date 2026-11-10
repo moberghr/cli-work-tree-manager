@@ -73,6 +73,13 @@ export function StoryPager({
   const { size: treeWidth, setSize: setTreeWidth } = useResizableSize(TREE_SPEC);
   const byPath = useMemo(() => new Map((files ?? []).map((f) => [f.path, f])), [files]);
   const [testsOpen, setTestsOpen] = useState<string | null>(null);
+  const testsToggle = useRef<HTMLDivElement>(null);
+  // Reported: open, the tests' diffs pushed their toggle off screen and nothing closed them. Hide is at both ends of
+  // them; closed from below, the page goes back to the line that opened them, not to whatever moved up under you.
+  const hideTests = (fromBelow: boolean) => {
+    setTestsOpen(null);
+    if (fromBelow) requestAnimationFrame(() => testsToggle.current?.scrollIntoView?.({ block: 'nearest' }));
+  };
   const [shown, setShown] = useState<string | null>(null);
   const comments = useMemo(() => commentsByFile(r), [r]);
   const threads = useMemo(() => openThreadsByFile(r.discussion), [r.discussion]);
@@ -272,7 +279,7 @@ export function StoryPager({
                 </p>
               )}
               {s && (
-                <div className="wd-review-story-tests">
+                <div className="wd-review-story-tests" ref={testsToggle}>
                   <button
                     type="button"
                     className="wd-link-button"
@@ -293,6 +300,9 @@ export function StoryPager({
             })()}
             {s && testsOpen === page.key && (
               <div className="wd-review-story-testfiles">
+                <button type="button" className="wd-link-button wd-review-tests-hide" onClick={() => hideTests(false)}>
+                  ▴ Hide the tests
+                </button>
                 <ul>
                   {page.tests.map((e) => (
                     <li key={e.path}>
@@ -301,6 +311,9 @@ export function StoryPager({
                   ))}
                 </ul>
                 {page.tests.map(fileView)}
+                <button type="button" className="wd-link-button wd-review-tests-hide" onClick={() => hideTests(true)}>
+                  ▴ Hide the tests
+                </button>
               </div>
             )}
             {page.folded && !diffsShown ? (

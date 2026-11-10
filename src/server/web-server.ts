@@ -9,7 +9,7 @@ import { shownState } from '../core/status/turn-activity.js';
 import { BehindCache } from '../core/stacks/behind-main.js';
 import { createSessionBranches } from '../core/stacks/branch-facts.js';
 import { allSessionBranches, readSessionBranches } from '../core/sessions/session-branches.js';
-import { checkedOutBranch } from '../core/git/git-head.js';
+import { workingBranch } from '../core/git/git-head.js';
 import { mountUpdateRoutes } from './routes/update-routes.js';
 import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
 import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
@@ -93,7 +93,7 @@ import { startReviewSweeps } from '../core/review/review-keeper.js';
 import { tidyLeftOverSubmits } from '../core/review/review-submit-flow.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
-import { bestEffort } from '../core/platform/best-effort.js';
+import { bestEffort, bestEffortAsync } from '../core/platform/best-effort.js';
 import { loadManifest } from '../core/diff/checkpoint.js';
 import { mountRevertRoutes } from './routes/revert-routes.js';
 import { mountDevRoutes } from './routes/dev-routes.js';
@@ -485,19 +485,20 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // open one). The turns are read from the manifest on disk by hash, so
   // they're there right after a work web restart too; the scope that
   // records them is created by the status hook (a POST), not here.
-  app.get('/api/sessions/:id/checkpoints', (c) => {
+  app.get('/api/sessions/:id/checkpoints', async (c) => {
     const session = findSession(c.req.param('id'));
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const hash = scopeHashForPaths(session.paths);
     // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read) —
     // and every other branch it worked on (session-branches.ts), merged ones too, under each, with its whole span.
     const none: SessionHistory = { commits: [], spans: [] };
+    // Off the event loop (async git), and no git at all while nothing moved: see sessionHistory.
     const { commits, spans } =
-      bestEffort(
+      (await bestEffortAsync<SessionHistory>(
         'list the session commits',
-        () => sessionHistory(session, historyBranchRefs(session, readSessionBranches(sessionIdFor(session)), checkedOutBranch)),
+        () => sessionHistory(session, historyBranchRefs(session, readSessionBranches(sessionIdFor(session)), workingBranch)),
         none,
-      ) ?? none;
+      )) ?? none;
     return c.json({
       scopeHash: hash,
       entries: loadManifest(hash).entries,

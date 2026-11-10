@@ -133,27 +133,65 @@ export function branchCreatedFrom(commonDir: string, name: string, movedFrom?: s
  *
  * Reported: a branch made from dev, fast-forwarded and rebased onto newer dev before its first commit listed dev's
  * own merges as its work, read from where it was made.
+ *
+ * Moves within its own work aren't from outside: a reset or rebase onto a commit the branch itself was at since its
+ * start (`reset --soft HEAD~1`, `rebase -i HEAD~2`: a squash) keeps the start, or its earlier commits would drop out
+ * of its work; and so does a fast-forward from its own copy (`merge origin/<name>`, `pull origin <name>`: a
+ * colleague's commits on the same branch are its work too). `name`: the branch's own name; without it every
+ * fast-forward moves the start.
  */
-export function startFromReflog(lines: ReflogLine[]): string | null {
+export function startFromReflog(lines: ReflogLine[], name?: string): string | null {
   let start: string | null = null;
+  // The commits the branch itself was at since its start: a move back onto one of them is within its own work.
+  let own = new Set<string>();
+  const moveTo = (sha: string) => {
+    if (own.has(sha)) return;
+    start = sha;
+    own = new Set([sha]);
+  };
   for (const l of lines) {
     const onto = /\bonto ([0-9a-f]{40,64})\s*$/.exec(l.message);
-    if (onto && /^(?:rebase|pull --rebase)\b.*\((?:finish)\)|^rebase finished/.test(l.message)) start = onto[1];
-    else if (
-      l.sha &&
-      (createdFromLine(l.message) !== null ||
-        /: Fast-forward\b/.test(l.message) ||
-        /^reset: moving to /.test(l.message) ||
-        /^branch: Reset to /.test(l.message))
-    )
+    if (onto && /^(?:rebase|pull --rebase)\b.*\((?:finish)\)|^rebase finished/.test(l.message)) moveTo(onto[1]);
+    else if (l.sha && createdFromLine(l.message) !== null) {
       start = l.sha;
+      own = new Set([l.sha]);
+    } else if (l.sha && /: Fast-forward\b/.test(l.message) && !fromItsOwnCopy(l.message, name)) moveTo(l.sha);
+    else if (l.sha && (/^reset: moving to /.test(l.message) || /^branch: Reset to /.test(l.message))) moveTo(l.sha);
+    if (l.sha && start) own.add(l.sha);
   }
   return start;
 }
 
+/** `merge origin/fix/x: Fast-forward`, `pull origin fix/x: Fast-forward`: the branch's own copy brought in. */
+function fromItsOwnCopy(message: string, name: string | undefined): boolean {
+  if (!name) return false;
+  const m = /^(?:merge|pull)\s+(.*?):\s*Fast-forward/.exec(message);
+  if (!m) return false;
+  const words = m[1].trim().split(/\s+/).filter(Boolean);
+  const ref = words[words.length - 1];
+  return !!ref && (ref === name || ref.endsWith(`/${name}`));
+}
+
+/** A branch's own reflog file. */
+const branchLogFile = (commonDir: string, name: string): string => path.join(commonDir, 'logs', 'refs', 'heads', ...name.split('/'));
+
 /** startFromReflog over a branch's reflog file. Reads one small file. */
 export function branchStart(commonDir: string, name: string): string | null {
-  return startFromReflog(readReflog(path.join(commonDir, 'logs', 'refs', 'heads', ...name.split('/'))));
+  return startFromReflog(readReflog(branchLogFile(commonDir, name)), name);
+}
+
+/**
+ * Whether a branch's reflog was written after `since` (ISO): what it says may have moved. True when it can't be
+ * told (no file, a bad date). A stat, no read: the turn-end hook asks it for every repo of every session.
+ */
+export function branchLogChangedSince(commonDir: string, name: string, since: string): boolean {
+  const at = Date.parse(since);
+  if (!at) return true;
+  try {
+    return fs.statSync(branchLogFile(commonDir, name)).mtimeMs > at;
+  } catch {
+    return true;
+  }
 }
 
 /**

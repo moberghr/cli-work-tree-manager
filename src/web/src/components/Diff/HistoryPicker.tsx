@@ -214,7 +214,7 @@ export function HistoryPicker({
           {rows.length === 1 && <p className="wd-history-empty">No commits on this branch and no finished turns yet.</p>}
           {groups.map((g) => {
             const note = branchNote(branches.find((b) => b.name === g.branch && (!commitsOf || b.repo === commitsOf)) ?? null);
-            const whole = branchSelection(items, g.branch, spans);
+            const whole = branchSelection(items, g.branch, spans, commitsOf ?? null);
             return (
               <div key={g.branch} className="wd-history-branch" role="group" aria-label={`Branch ${g.branch}`}>
                 <div className="wd-history-section">

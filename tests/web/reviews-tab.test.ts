@@ -41,6 +41,9 @@ const flush = async () => {
 const buttons = () => [...container.querySelectorAll('button')];
 const button = (text: string) => buttons().find((b) => b.textContent?.includes(text))!;
 const text = (sel: string) => container.querySelector(sel)?.textContent ?? '';
+/** A button of the submit bar by its whole label ("Comment" isn't the "Comments (2)" tab). */
+const verdict = (label: string) =>
+  [...container.querySelectorAll<HTMLButtonElement>('.wd-review-submit button')].find((b) => b.textContent === label)!;
 const key = (k: string) => act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })));
 const OVERVIEW: ReviewRoute = { repo: 'api', number: 231, mode: 'overview', at: 0 };
 
@@ -283,6 +286,14 @@ describe('one story at a time', () => {
     act(() => tests.click());
     expect(text('.wd-review-story-testfiles')).toContain('RefundHandlerTests.cs');
     expect(container.querySelector('.wd-review-story-testfiles .wd-file')!.getAttribute('data-path')).toContain('RefundHandlerTests.cs');
+    // Reported: they couldn't be closed once their diffs pushed the line away. Hide is at both ends of them.
+    const hides = container.querySelectorAll<HTMLButtonElement>('.wd-review-tests-hide');
+    expect(hides).toHaveLength(2);
+    act(() => hides[1].click());
+    expect(container.querySelector('.wd-review-story-testfiles')).toBeNull();
+    act(() => button('2 tests in 1 file cover this').click());
+    act(() => container.querySelector<HTMLButtonElement>('.wd-review-tests-hide')!.click());
+    expect(container.querySelector('.wd-review-story-testfiles')).toBeNull();
   });
 
   it('code the AI step names between backticks is drawn as code; the tooltips have it plain', async () => {
@@ -456,26 +467,41 @@ describe('the keys and the URL', () => {
 });
 
 describe('submitting, in every mode', () => {
-  it('Submit sends every draft as one review with the verdict and summary', async () => {
+  it('a verdict button sends every draft as one review with that verdict and the summary', async () => {
     await render({ start: { ...OVERVIEW, mode: 'story', at: 1 } });
     expect(text('.wd-review-submit')).toContain('2 comments on the diff');
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Verdict"]')!;
-    await act(async () => {
-      select.value = 'request-changes';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
     api.submitReview.mockResolvedValue({
       ...review,
       drafts: review.drafts.map((d) => ({ ...d, state: 'posted' })),
       submitted: { at: '2026-11-02T11:00:00Z', event: 'request-changes' },
     });
-    await act(async () => button('Submit review on GitHub').click());
+    await act(async () => verdict('Request changes').click());
     expect(api.submitReview).toHaveBeenCalledWith('api', 231, {
       event: 'request-changes',
       body: '',
       drafts: review.drafts.map((d) => ({ id: d.id, body: d.body })),
     });
     expect(container.textContent).toContain('you submitted changes requested');
+  });
+
+  it('Approve alone: no comments and no summary needed; Comment and Request changes need one', async () => {
+    const bare: PrReviewWire = { ...review, drafts: [] };
+    api.fetchReview.mockResolvedValue(bare);
+    api.submitReview.mockResolvedValue({ ...bare, submitted: { at: '2026-11-02T11:00:00Z', event: 'approve' } });
+    await render();
+    expect(verdict('Comment').disabled).toBe(true);
+    expect(verdict('Request changes').disabled).toBe(true);
+    await act(async () => verdict('Approve').click());
+    await flush();
+    expect(api.submitReview).toHaveBeenCalledWith('api', 231, { event: 'approve', body: '', drafts: [] });
+    expect(container.textContent).toContain('you submitted an approval');
+  });
+
+  it('while it is prepared again for a new push, the verdicts are off and say why', async () => {
+    api.fetchReview.mockResolvedValue({ ...review, status: 'queued' });
+    await render();
+    expect(verdict('Approve').disabled).toBe(true);
+    expect(verdict('Approve').title).toContain('being prepared again');
   });
 
   it('the submit bar is there in the overview and the walk too', async () => {
@@ -497,7 +523,8 @@ describe('submitting, in every mode', () => {
     api.prepareReview.mockResolvedValue(review);
     await render();
     expect(container.textContent).toContain('over the size limit (3000)');
-    expect(container.querySelector('.wd-review-submit')).toBeNull();
+    // Not prepared, and still approvable (reported: no way to just approve a PR).
+    expect(verdict('Approve').disabled).toBe(false);
     expect(container.querySelector('.wd-review-modes')).toBeNull();
     await act(async () => button('Prepare it now').click());
     await flush();
@@ -537,7 +564,7 @@ describe('submitting, in every mode', () => {
       submitted: { at: '2026-11-02T11:00:00Z', event: 'comment', partial: true },
     };
     api.submitReview.mockRejectedValue(new ReviewSubmitError('src/x.cs:7: TF400898', partly));
-    await act(async () => button('Submit review on GitHub').click());
+    await act(async () => verdict('Comment').click());
     await flush();
     expect(text('.wd-review-submit')).toContain('src/x.cs:7: TF400898');
     expect(text('.wd-review-submit')).toContain('1 comment on the diff');
@@ -556,7 +583,7 @@ describe('submitting, in every mode', () => {
     });
     await render();
     expect(text('.wd-review-in-doubt')).toContain('may have gone out (gh timed out): 1 comment and the summary');
-    expect(button('Submit review on GitHub').disabled).toBe(true);
+    for (const v of ['Comment', 'Request changes', 'Approve']) expect(verdict(v).disabled).toBe(true);
     await act(async () => button('It went out').click());
     await flush();
     expect(api.settleReviewInDoubt).toHaveBeenCalledWith('api', 231, true);
@@ -573,7 +600,7 @@ describe('submitting, in every mode', () => {
     await render();
     expect(text('.wd-review-in-doubt')).toContain('work stopped while submitting it');
     expect(container.textContent).not.toContain('Submitting…');
-    expect(button('Submit review on GitHub').disabled).toBe(true);
+    for (const v of ['Comment', 'Request changes', 'Approve']) expect(verdict(v).disabled).toBe(true);
     await act(async () => button("It didn't").click());
     await flush();
     expect(api.settleReviewInDoubt).toHaveBeenCalledWith('api', 231, false);

@@ -202,25 +202,37 @@ export function allHistoryItems(
 }
 
 /**
- * Everything on another branch the session worked on, named by it. With its span (the server's: the last base
- * it took in, to its tip) it is that whole diff — merged or not, its base's own changes never in it; without one,
- * its commits as one span. Null when nothing of it is listed.
+ * Everything on another branch the session worked on, named by it: from where its work began to the last of it —
+ * its newest commit, or a turn taken on it after (what it left uncommitted counts). With its span (the server's:
+ * the last base it took in, or for a branch with no commits of its own the commit it was at, to its tip) it starts
+ * there — merged or not, its base's own changes never in it, and never the switch from the branch before it.
+ * Without one (an older server), its first commit's parent; a first turn that was the switch is left out, so the
+ * other branch's files aren't shown as its work. `repo`: the repo on screen (a group's branch may be in several).
+ * Null when nothing of it is listed.
  */
-export function branchSelection(items: HistoryItem[], branch: string, spans: SessionBranchSpan[] = []): DiffSelection | null {
-  const commits = items.filter((x) => x.branch === branch && x.kind === 'commit');
-  const mine = commits.length ? commits : items.filter((x) => x.branch === branch);
+export function branchSelection(
+  items: HistoryItem[],
+  branch: string,
+  spans: SessionBranchSpan[] = [],
+  repo: string | null = null,
+): DiffSelection | null {
+  const mine = items.filter((x) => x.branch === branch);
   if (!mine.length) return null;
   const first = mine[0];
   const last = mine[mine.length - 1];
-  const repo = first.after.kind === 'commit' ? first.after.repo : null;
-  const span = spans.find((s) => s.branch === branch && s.repo === repo && last.after.kind === 'commit' && last.after.sha === s.tip);
-  return {
-    kind: 'range',
-    fromKey: first.key,
-    toKey: last.key,
-    ...(span ? { from: { kind: 'commit' as const, repo: span.repo, sha: span.base } } : {}),
-    label: branch,
-  };
+  const commits = mine.filter((x) => x.after.kind === 'commit');
+  const newest = commits[commits.length - 1]?.after;
+  const at = repo ?? (newest?.kind === 'commit' ? newest.repo : null);
+  // Its span, while it still ends where its listed commits do (none listed: the commit it was at).
+  const span = spans.find(
+    (s) => s.branch === branch && (at === null || s.repo === at) && (newest?.kind === 'commit' ? newest.sha === s.tip : s.base === s.tip),
+  );
+  const from: DiffPoint | null = span
+    ? { kind: 'commit', repo: span.repo, sha: span.base }
+    : first.kind === 'turn' && first.switched
+      ? first.after
+      : null;
+  return { kind: 'range', fromKey: first.key, toKey: last.key, ...(from ? { from } : {}), label: branch };
 }
 
 /** The other branch a selection is of (both its ends on it), or null: the checked-out branch's history, a scope. Pure. */
@@ -279,9 +291,13 @@ export function pick(key: string, anchor?: string | null): DiffSelection {
   return key === UNCOMMITTED_KEY ? UNCOMMITTED : { kind: 'range', fromKey: key, toKey: key };
 }
 
-/** "Last turn": the newest turn alone; null before the first. */
+/**
+ * "Last turn": the newest turn alone — the highest checkpoint id, wherever it is listed (another branch's turns
+ * come after this branch's in the list, but are older); null before the first.
+ */
 export function lastTurn(items: HistoryItem[]): DiffSelection | null {
-  const t = [...items].reverse().find((x) => x.kind === 'turn');
+  const idOf = (x: HistoryItem) => (x.after.kind === 'checkpoint' ? x.after.id : -1);
+  const t = items.filter((x) => x.kind === 'turn').reduce<HistoryItem | null>((a, x) => (!a || idOf(x) > idOf(a) ? x : a), null);
   return t ? { kind: 'range', fromKey: t.key, toKey: t.key, label: 'Last turn' } : null;
 }
 

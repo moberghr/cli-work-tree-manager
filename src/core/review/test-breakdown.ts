@@ -22,7 +22,8 @@ export interface DiffFileLines {
   path: string;
   oldPath?: string;
   status: string;
-  hunks: Array<{ lines: DiffLine[] }>;
+  /** `context`: what git put after the hunk's `@@ … @@` — the declaration the change is in (`public static class X`). */
+  hunks: Array<{ lines: DiffLine[]; context?: string }>;
 }
 
 export interface FoundTest {
@@ -284,6 +285,11 @@ export function subjectOf(testPath: string): string {
 }
 
 const normal = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+/**
+ * Two name stems for one thing, singular or plural: `JsonMaskingExtensionTests` is about `JsonMaskingExtensions`
+ * (reported: a review said nothing tested a file whose own tests were in the PR).
+ */
+const sameName = (a: string, b: string): boolean => a === b || `${a}s` === b || `${b}s` === a;
 const stemOf = (p: string) => normal((p.split('/').pop() ?? p).replace(/\.[^.]+$/, ''));
 
 /** What a test file's changed lines import or use (`using A.B;`, `from '../x/order'`), as name stems. */
@@ -323,14 +329,22 @@ const DECLARES = [
 ];
 /** Shorter names are too common to say a test uses this file (`Id`, `Add`). */
 const MIN_NAME = 4;
+/**
+ * A C# extension method (`public static string? MaskJson(this string? json)`): a test calls it on a value and never
+ * names the class it is in, so the method's own name is what says the test uses this file.
+ */
+const EXTENSION_METHOD = /\bstatic\s[^=;{}()]*?\b([A-Za-z_]\w*)\s*(?:<[^()]*>)?\s*\(\s*this\s/;
 
 /** The names a code file's diff declares, and the namespace a C# file is in (declared, else its folders'). */
 function declared(f: DiffFileLines): { names: Set<string>; namespace: string | null } {
   const names = new Set<string>();
   let namespace: string | null = null;
-  for (const l of f.hunks.flatMap((h) => h.lines)) {
+  // The declaration a hunk is in (its `@@` line's context) counts as one of its lines: the class a method change
+  // is in is rarely within the three lines git shows around it.
+  const lines = f.hunks.flatMap((h) => [...(h.context ? [{ kind: 'context' as const, content: h.context }] : []), ...h.lines]);
+  for (const l of lines) {
     if (l.kind === 'delete' || l.kind === 'no-newline') continue;
-    for (const re of DECLARES) {
+    for (const re of [...DECLARES, EXTENSION_METHOD]) {
       const m = re.exec(l.content);
       if (m && m[1].length >= MIN_NAME) names.add(m[1]);
     }
@@ -378,7 +392,7 @@ export function matchTestsToCode(testFiles: DiffFileLines[], codePaths: string[]
     const { words, namespaces } = usedWords(t);
     const hits = codePaths.filter((p) => {
       const stem = stemOf(p);
-      if ((subject && stem === subject) || used.has(stem)) return true;
+      if ((subject && sameName(stem, subject)) || [...used].some((u) => sameName(u, stem))) return true;
       const d = decl.get(p);
       if (!d) return false;
       if ([...d.names].some((n) => words.has(n))) return true;

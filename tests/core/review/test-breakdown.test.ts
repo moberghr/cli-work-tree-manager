@@ -276,6 +276,42 @@ describe('which code each test covers, and the gaps', () => {
     expect(matchTestsToCode(tests, ['src/Shop.Core/Billing/Invoice.cs', 'src/Shop.Core/Data/Entities/Agreement.cs']).coveredBy).toEqual({});
   });
 
+  it("reported: a singular test name, the class only in the hunk's @@ line, an extension method called on a value", () => {
+    // The real PR's shape: JsonMaskingExtensions.cs changed inside its class, whose declaration is only git's @@ context.
+    const code: DiffFileLines = {
+      path: 'src/Payfac.Shared/Helpers/JsonMaskingExtensions.cs',
+      status: 'modified',
+      hunks: [
+        {
+          context: 'public static class JsonMaskingExtensions',
+          lines: [
+            { kind: 'context', content: '{' },
+            { kind: 'add', content: '    public const string InvalidJsonValue = "x";' },
+            { kind: 'context', content: '    public static string? MaskJson(this string? json)' },
+          ],
+        },
+      ],
+    };
+    const path = 'src/Payfac.Tests/UnitTests/Extensions/JsonMaskingExtensionTests.cs';
+    // By its name alone (Extension vs Extensions).
+    expect(matchTestsToCode([diffFile(path, '+        result.ShouldBe("x");')], [code.path]).covers[path]).toEqual([code.path]);
+    // Under another name: by the class named in the @@ line, and by the extension method it calls.
+    const other = 'src/Payfac.Tests/UnitTests/MaskingTests.cs';
+    expect(
+      matchTestsToCode([diffFile(other, '+        result.ShouldBe(JsonMaskingExtensions.InvalidJsonValue);')], [code.path], [code]).covers[
+        other
+      ],
+    ).toEqual([code.path]);
+    expect(matchTestsToCode([diffFile(other, '+        var result = json.MaskJson();')], [code.path], [code]).covers[other]).toEqual([
+      code.path,
+    ]);
+    // A plain static method isn't an extension method: its name alone says nothing.
+    const plain = { ...code, hunks: [{ lines: [{ kind: 'add' as const, content: '    public static string MaskJson(string json)' }] }] };
+    expect(matchTestsToCode([diffFile(other, '+        var result = Helpers.MaskJson(j);')], [code.path], [plain]).covers[other]).toEqual(
+      [],
+    );
+  });
+
   it('test support (a data builder) is test code but covers nothing itself', () => {
     const files = [
       diffFile('src/Shop.Core/Data/Entities/Submission.cs', '+public class Submission\n+{'),

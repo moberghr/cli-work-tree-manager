@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { json, tx, withDb } from '../platform/db.js';
 import { checkedOutBranch, gitDirs } from '../git/git-head.js';
-import { branchCreatedFrom, branchStart, checkoutBranchHistory } from '../git/reflog.js';
+import { branchCreatedFrom, branchLogChangedSince, branchStart, checkoutBranchHistory } from '../git/reflog.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionIdFor } from './session-id.js';
 
@@ -271,7 +271,10 @@ export function recordCheckedOutBranches(
     // A new branch: where it came from. Every turn: where its own work begins (a rebase or fast-forward moves it),
     // kept so the Diff tab still has it once the branch — and its reflog — are deleted.
     const from = (!had && dirs && branchCreatedFrom(dirs.commonDir, name)) || undefined;
-    const start = (dirs && branchStart(dirs.commonDir, name)) || undefined;
+    // Read only when its reflog was written since the record last saw it (a stat): a repo's own main has a reflog
+    // of thousands of lines, and this runs at every turn's end of every Claude.
+    const stale = !had?.start || (dirs ? branchLogChangedSince(dirs.commonDir, name, had.lastSeen) : false);
+    const start = stale ? (dirs && branchStart(dirs.commonDir, name)) || undefined : had?.start;
     seen.push({ repo, name, ...(from && from !== name ? { from } : {}), ...(start ? { start } : {}) });
   }
   if (!seen.length) return null;

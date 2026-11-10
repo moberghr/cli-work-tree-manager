@@ -39,7 +39,7 @@ import path from 'node:path';
 import spawn from '../platform/spawn.js';
 import { atomicWriteFile, ensureFile, withFileLock } from '../platform/fs-safe.js';
 import { runGitAsync, writeTempTreeAsync } from './git-tree-snapshot.js';
-import { checkedOutBranch } from '../git/git-head.js';
+import { workingBranch } from '../git/git-head.js';
 
 export interface CheckpointEntry {
   /** Monotonic per-scope sequence id, starting at 0 for the initial
@@ -63,7 +63,8 @@ export interface CheckpointEntry {
 
 /** Each repo's checked-out branch now (HEAD files, no git). */
 export function branchesOf(repos: ScopeRepo[]): Record<string, string | null> {
-  return Object.fromEntries(repos.map((r) => [r.name, checkedOutBranch(r.root)]));
+  // In the middle of a rebase, the branch being rebased: a turn that ends on a conflict is still on it.
+  return Object.fromEntries(repos.map((r) => [r.name, workingBranch(r.root)]));
 }
 
 export interface CheckpointManifest {
@@ -476,12 +477,16 @@ export async function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRe
 }
 
 /**
- * Whether the repo has another branch checked out than when the turn was taken (the turn recorded its branches;
- * one from before didn't: not known, false). HEAD files only.
+ * Whether the repo is on another branch than when the turn was taken (the turn recorded its branches; one from
+ * before didn't: not known, false). A detached HEAD on either side isn't a switch (a rebase is read as its branch,
+ * `workingBranch`; anything else detached can't be told): only branch to branch is, so a rebase onto main still
+ * re-baselines. HEAD files only.
  */
 export function switchedBranch(turn: Pick<CheckpointEntry, 'branches'>, repo: ScopeRepo): boolean {
   if (!turn.branches || !(repo.name in turn.branches)) return false;
-  return turn.branches[repo.name] !== checkedOutBranch(repo.root);
+  const was = turn.branches[repo.name];
+  const now = workingBranch(repo.root);
+  return !!was && !!now && was !== now;
 }
 
 /**

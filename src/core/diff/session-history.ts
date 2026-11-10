@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { SessionBranchSpan, SessionCommit } from '../api-types.js';
-import { git } from '../git/git.js';
-import { gitDirs } from '../git/git-head.js';
+import { gitDirs, refShaFromFiles } from '../git/git-head.js';
+import { runGitAsync } from './git-tree-snapshot.js';
 import { branchStart } from '../git/reflog.js';
 import type { WorktreeSession } from '../sessions/history.js';
 import { repoNameOf, type SessionBranches } from '../sessions/session-branches.js';
@@ -15,7 +15,7 @@ import type { ParsedFile } from './diff-parse.js';
 /** More commits than this on one branch: the newest are listed. */
 const MAX_COMMITS = 200;
 
-/** Sessions' histories, by their repos' HEADs (and bases, and the other branches' tips): one `rev-parse` per repo while nothing moved. */
+/** Sessions' histories, by their repos' HEADs (and bases, and the other branches' tips), read from files: no git while nothing moved. */
 const historyCache = new Map<string, SessionHistory>();
 const HISTORY_CACHE_MAX = 50;
 /** Most commits listed for another branch: the newest. */
@@ -36,9 +36,11 @@ export interface OtherBranchRef {
 }
 
 /**
- * Every other branch the session's repos were on (session-branches.ts), for the Diff tab: all of them, merged
- * and deleted ones too — the Diff shows everything the session worked on — the last checked out first, at most
- * MAX_HISTORY_BRANCHES per repo. `current`: what each checkout has checked out now (HEAD files). Pure.
+ * The other branches the session worked on (session-branches.ts), per repo: every recorded branch but the one each
+ * checkout is on now — merged and deleted ones too — the Diff shows everything the session worked on — the last
+ * checked out first, at most MAX_HISTORY_BRANCHES per repo. `current`: what each checkout is on now (HEAD files;
+ * a rebase's branch, `workingBranch`). Detached otherwise, the branch it was on last stands for it: its own work
+ * isn't another branch's. Pure.
  */
 export function historyBranchRefs(
   session: Pick<WorktreeSession, 'paths' | 'isGroup' | 'target'>,
@@ -47,10 +49,10 @@ export function historyBranchRefs(
 ): OtherBranchRef[] {
   return session.paths.flatMap((p) => {
     const repo = repoNameOf(session, p);
-    const now = current(p);
-    return (rec?.branches ?? [])
-      .filter((b) => b.repo === repo && b.name !== now)
-      .sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen))
+    const mine = (rec?.branches ?? []).filter((b) => b.repo === repo).sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen));
+    const now = current(p) ?? mine[0]?.name ?? null;
+    return mine
+      .filter((b) => b.name !== now)
       .slice(0, MAX_HISTORY_BRANCHES)
       .map((b) => ({
         path: p,
@@ -68,87 +70,106 @@ export interface SessionHistory {
   spans: SessionBranchSpan[];
 }
 
+/** git off the event loop: its output trimmed, and whether it worked. */
+async function g(args: string[], cwd: string): Promise<{ ok: boolean; out: string }> {
+  const r = await runGitAsync(cwd, { args });
+  return { ok: r.status === 0, out: r.stdout.trim() };
+}
+
+/** What a session's history is keyed by: each repo's HEAD and each other branch's tip, read from files (no git). */
+function historyKey(session: Pick<WorktreeSession, 'paths' | 'baseBranch' | 'baseBranches'>, others: OtherBranchRef[]): string | null {
+  const heads = session.paths.map((root) => refShaFromFiles(root, 'HEAD'));
+  const tips = others.map((b) => refShaFromFiles(b.path, `refs/heads/${b.name}`) ?? `gone:${b.tip ?? ''}`);
+  // A HEAD the files can't say (an unusual ref layout): no key, so it's worked out again rather than kept stale.
+  if (heads.some((h) => !h)) return null;
+  return JSON.stringify([session.paths, heads, session.baseBranch ?? null, session.baseBranches ?? null, others, tips]);
+}
+
 /**
  * Each repo's commits since the branch left its base (the "Since branch"
  * diff's merge-base), newest first: what the Diff tab's picker lists beside
- * the checkpoints. A repo with no base found lists none. A read: git log
- * only — and only when a HEAD moved: every open Diff tab asks after each
- * turn, and finding the base (parent detection, merge-base) is several git
- * runs per repo.
+ * the checkpoints. A repo with no base found lists none. A read, off the event
+ * loop, and only when a HEAD or a branch moved: while nothing did, the answer
+ * is kept, looked up by what the repos' files say (no git at all) — every
+ * open Diff tab asks after each turn.
  *
  * `others`: the other branches the session worked on (historyBranchRefs).
- * Each lists its own work, marked with its `branch`, merged or not: from the
- * commit it was made at to its tip (its branch, or the tip recorded once it
- * is deleted), along its own line (`--first-parent`: a merge of its base into
- * it is one commit, not all of the base's). Its whole work is a span: from
- * the last base it took in (the newest such merge's other parent), else from
- * where it was made, to its tip. A branch with no start known: its commits
- * that neither HEAD, the main line nor what it was made from has, as before.
+ * Each lists its own work, marked with its `branch`, merged or not: from
+ * where its own work begins (its reflog, else the start kept for it) to its
+ * tip (its branch, or the tip recorded once it is deleted), along its own
+ * line (`--first-parent`: a merge of its base into it is one commit, not all
+ * of the base's). Its whole work is a span: from the last base it took in
+ * (the newest such merge's other parent), else from where it began, to its
+ * tip — one with no commits of its own too (base = tip), so the turns taken
+ * on it are diffed from the commit it was at, not from another branch's
+ * turn. A branch with no start known: its commits that neither HEAD, the main
+ * line nor what it was made from has, as before, the span from the parent of
+ * the oldest of them all (not only of those listed).
  */
-export function sessionHistory(
+export async function sessionHistory(
   session: Pick<WorktreeSession, 'paths' | 'baseBranch' | 'baseBranches'>,
   others: OtherBranchRef[] = [],
-): SessionHistory {
-  const heads = session.paths.map((root) => git(['rev-parse', '--verify', '--quiet', 'HEAD'], root).stdout);
-  const tips = others.map((b) => tipOf(b));
-  const key = JSON.stringify([session.paths, heads, session.baseBranch ?? null, session.baseBranches ?? null, others, tips]);
-  const cached = historyCache.get(key);
+): Promise<SessionHistory> {
+  const key = historyKey(session, others);
+  const cached = key ? historyCache.get(key) : undefined;
   if (cached) return cached;
   const commits: SessionCommit[] = [];
   const spans: SessionBranchSpan[] = [];
   for (const root of session.paths) {
     const { diffArg } = resolveRepoDiff(root, 'branch', session.baseBranches?.[root] ?? session.baseBranch);
     if (diffArg === 'HEAD') continue;
-    const log = git(['log', `-n${MAX_COMMITS}`, '--format=%H%x1f%cI%x1f%s', `${diffArg}..HEAD`, '--'], root);
-    if (log.exitCode !== 0 || !log.stdout) continue;
-    commits.push(...parseLog(log.stdout, path.basename(root)));
+    const log = await g(['log', `-n${MAX_COMMITS}`, '--format=%H%x1f%cI%x1f%s', `${diffArg}..HEAD`, '--'], root);
+    if (log.ok && log.out) commits.push(...parseLog(log.out, path.basename(root)));
   }
-  others.forEach((b, i) => {
-    const tip = tips[i];
-    if (!tip) return; // deleted, and its tip unknown or gone from the repo: nothing to list
+  for (const b of others) {
+    const tip = await tipOf(b);
+    if (!tip) continue; // deleted, and its tip unknown or gone from the repo: nothing to list
     const repo = path.basename(b.path);
     // The branch's reflog while it is there (a rebase since moves where its work begins), else what was kept.
     const start = liveStart(b) ?? b.start;
     let list: SessionCommit[] = [];
     let base: string | null;
-    if (start && git(['merge-base', '--is-ancestor', start, tip], b.path).exitCode === 0) {
-      const log = git(['log', '--first-parent', `-n${MAX_OTHER_COMMITS}`, '--format=%H%x1f%cI%x1f%s', `${start}..${tip}`, '--'], b.path);
-      if (log.exitCode === 0 && log.stdout) list = parseLog(log.stdout, repo);
-      const merge = git(['rev-list', '--first-parent', '--merges', '-n1', `${start}..${tip}`], b.path).stdout;
-      base = (merge && git(['rev-parse', '--verify', '--quiet', `${merge}^2`], b.path).stdout) || start;
+    if (start && (await g(['merge-base', '--is-ancestor', start, tip], b.path)).ok) {
+      const log = await g(
+        ['log', '--first-parent', `-n${MAX_OTHER_COMMITS}`, '--format=%H%x1f%cI%x1f%s', `${start}..${tip}`, '--'],
+        b.path,
+      );
+      if (log.ok && log.out) list = parseLog(log.out, repo);
+      const merge = (await g(['rev-list', '--first-parent', '--merges', '-n1', `${start}..${tip}`], b.path)).out;
+      base = (merge && (await g(['rev-parse', '--verify', '--quiet', `${merge}^2`], b.path)).out) || start;
     } else {
       // Its own commits: not on what's checked out, not on the main line, not on what it was made from.
-      const not = ['HEAD', 'origin/HEAD', ...(b.from ? [b.from] : [])].filter(
-        (ref) => git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], b.path).exitCode === 0,
-      );
-      const log = git(['log', `-n${MAX_OTHER_COMMITS}`, '--format=%H%x1f%cI%x1f%s', tip, '--not', ...not, '--'], b.path);
-      if (log.exitCode === 0 && log.stdout) list = parseLog(log.stdout, repo);
-      const oldest = list[list.length - 1];
-      base = oldest ? git(['rev-parse', '--verify', '--quiet', `${oldest.sha}^`], b.path).stdout || null : null;
+      const not: string[] = [];
+      for (const ref of ['HEAD', 'origin/HEAD', ...(b.from ? [b.from] : [])])
+        if ((await g(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], b.path)).ok) not.push(ref);
+      const log = await g(['log', `-n${MAX_OTHER_COMMITS}`, '--format=%H%x1f%cI%x1f%s', tip, '--not', ...not, '--'], b.path);
+      if (log.ok && log.out) list = parseLog(log.out, repo);
+      // The oldest of ALL its own commits, not of the newest listed: "All of it" is its whole work.
+      const oldest =
+        list.length < MAX_OTHER_COMMITS
+          ? list[list.length - 1]?.sha
+          : (await g(['rev-list', '--reverse', tip, '--not', ...not, '--'], b.path)).out.split('\n')[0];
+      base = oldest ? (await g(['rev-parse', '--verify', '--quiet', `${oldest}^`], b.path)).out || null : tip;
     }
     commits.push(...list.map((c) => ({ ...c, branch: b.name })));
-    if (base && base !== tip) spans.push({ repo, branch: b.name, base, tip });
-  });
+    if (base) spans.push({ repo, branch: b.name, base, tip });
+  }
   const out = { commits, spans };
-  if (historyCache.size >= HISTORY_CACHE_MAX) historyCache.delete(historyCache.keys().next().value!);
-  historyCache.set(key, out);
+  if (key) {
+    if (historyCache.size >= HISTORY_CACHE_MAX) historyCache.delete(historyCache.keys().next().value!);
+    historyCache.set(key, out);
+  }
   return out;
 }
 
-/** The commits the picker lists (sessionHistory's). */
-export function sessionCommits(
-  session: Pick<WorktreeSession, 'paths' | 'baseBranch' | 'baseBranches'>,
-  others: OtherBranchRef[] = [],
-): SessionCommit[] {
-  return sessionHistory(session, others).commits;
-}
-
 /** A branch's tip: the branch, else (deleted) the tip recorded while it was there, while the repo still has it. */
-function tipOf(b: OtherBranchRef): string | null {
-  const live = git(['rev-parse', '--verify', '--quiet', `refs/heads/${b.name}^{commit}`], b.path).stdout;
+async function tipOf(b: OtherBranchRef): Promise<string | null> {
+  const live =
+    refShaFromFiles(b.path, `refs/heads/${b.name}`) ??
+    (await g(['rev-parse', '--verify', '--quiet', `refs/heads/${b.name}^{commit}`], b.path)).out;
   if (live) return live;
   if (!b.tip) return null;
-  return git(['rev-parse', '--verify', '--quiet', `${b.tip}^{commit}`], b.path).exitCode === 0 ? b.tip : null;
+  return (await g(['cat-file', '-e', `${b.tip}^{commit}`], b.path)).ok ? b.tip : null;
 }
 
 /** Where a branch's own work begins, from its reflog, while it is there. */

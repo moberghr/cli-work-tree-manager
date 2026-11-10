@@ -13,6 +13,7 @@ import {
   branchSwitch,
   historyItems,
   inSelection,
+  lastTurn,
   pick,
   selectionLabel,
   selectionRange,
@@ -122,22 +123,47 @@ describe('the Diff tab: everything the session worked on, by branch', () => {
     expect(historyItems(turns, all, null).filter((i) => i.kind === 'turn')).toHaveLength(3);
   });
 
-  it("a branch's whole change is its span (base → tip), merged or not; without one, its commits; the switch names it", () => {
+  it("a branch's whole change is its span (base → its last turn or commit), merged or not; without one, from its first item", () => {
     const items = allHistoryItems(turns, all, null, turnBranch);
     const sel = branchSelection(items, 'feat/webhook-improvements', spans)!;
+    // From the span's base to Turn 2, taken on it after its commit: what it left uncommitted is its work too.
     expect(selectionRange(items, sel)).toEqual({
       from: { kind: 'commit', repo: 'backend', sha: 'b'.repeat(40) },
-      to: items.find((i) => i.key === `c:${webhook.sha}`)!.after,
+      to: { kind: 'checkpoint', id: 2 },
     });
     expect(selectionLabel(items, sel)).toBe('feat/webhook-improvements');
     expect(shownBranchOf(items, sel)).toBe('feat/webhook-improvements');
     expect(shownBranchOf(items, SINCE_BRANCH)).toBeNull();
     expect(shownBranchOf(items, pick('t:3'))).toBeNull();
-    // No span known (an older server): the commits as one span, from the first one's parent.
-    expect(selectionRange(items, branchSelection(items, 'feat/webhook-improvements')!)?.from).toEqual({
-      kind: 'parent',
-      repo: 'backend',
-      sha: webhook.sha,
+    // No span known (an older server): from its first item, Turn 1 (taken on it, not a switch): the turn before.
+    expect(selectionRange(items, branchSelection(items, 'feat/webhook-improvements')!)?.from).toEqual({ kind: 'checkpoint', id: 0 });
+  });
+
+  it('"Last turn" is the newest turn, never an older one of another branch listed after this branch\'s (review finding)', () => {
+    const items = allHistoryItems(turns, all, null, turnBranch);
+    expect(items.at(-1)?.branch).toBe('feat/webhook-improvements'); // the other branch's turns come last in the list
+    expect(lastTurn(items)).toMatchObject({ fromKey: 't:3', toKey: 't:3' });
+  });
+
+  it("a branch with turns and no commits: its All of it starts at the commit it was at, never at the branch before's turn", () => {
+    // Claude switched from fix/tests to scratch/try at turn 4, edited over turns 4 and 5 (nothing committed), switched back.
+    const more = [
+      ...turns,
+      entry(4, 40, { [root]: 'scratch/try' }),
+      entry(5, 45, { [root]: 'scratch/try' }),
+      entry(6, 50, { [root]: 'fix/tests-deterministic-culture' }),
+    ];
+    const items = allHistoryItems(more, all, null, turnBranch);
+    const at = 'd'.repeat(40);
+    const withSpan = branchSelection(items, 'scratch/try', [{ repo: 'backend', branch: 'scratch/try', base: at, tip: at }], 'backend')!;
+    expect(selectionRange(items, withSpan)).toEqual({
+      from: { kind: 'commit', repo: 'backend', sha: at },
+      to: { kind: 'checkpoint', id: 5 },
+    });
+    // No span: the first turn was the switch, so it starts after it, not at fix/tests' turn 3.
+    expect(selectionRange(items, branchSelection(items, 'scratch/try')!)).toEqual({
+      from: { kind: 'checkpoint', id: 4 },
+      to: { kind: 'checkpoint', id: 5 },
     });
   });
 
