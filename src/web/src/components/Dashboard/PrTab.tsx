@@ -9,7 +9,7 @@ import { orderedSections, prName, prSections, type PrSection } from '../../state
 import { isArchived } from '../../state/session-display.js';
 import { askableThreads, askToReplyAllPrompt, ReplyList, useAskedThreads, useReplies, type AskedThreads } from './ReplyDrafts.js';
 import { fetchPrompts } from './PromptsMenu.js';
-import { relativeTime } from '../../utils/time.js';
+import { timeAgo } from '../../utils/time.js';
 import type { OpenReviewThread, PrReply } from '../../../../core/api-types.js';
 
 const POLL_MS = 60_000;
@@ -225,7 +225,7 @@ function PrSectionView({
         )}
         <span className={`wd-prtab-stage wd-prtab-stage-${stageTone(s.kind)}`}>
           {stagePhrase(s.kind)}
-          {s.state === 'MERGED' && s.mergedAt ? ` ${relativeTime(s.mergedAt)} ago` : ''}
+          {s.state === 'MERGED' && s.mergedAt ? ` ${timeAgo(s.mergedAt)}` : ''}
         </span>
         {wants > 0 && <span className="wd-session-subtab-badge">{wants}</span>}
         <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title={`Open it on ${hostName(s.host)}`}>

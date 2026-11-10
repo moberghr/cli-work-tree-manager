@@ -12,9 +12,14 @@ export function branchNote(b: SessionBranchWire | null, withPr = true): string |
   const bits: string[] = [];
   if (b.exists === false) bits.push('deleted');
   else {
-    // Merged: none of its commits are its own any more, which says nothing of the work it held.
-    if (typeof b.commits === 'number' && !(b.merged && b.commits === 0)) bits.push(`${b.commits} commit${b.commits === 1 ? '' : 's'}`);
-    if (b.pushed === false) bits.push('not pushed');
+    // Merged: none of its commits are its own any more, which says nothing of the work it held. None of its own
+    // and not merged: "no commits" — nothing there to push either (it read "0 commits · not pushed").
+    const none = b.commits === 0 && !b.merged;
+    if (none) bits.push('no commits');
+    else if (typeof b.commits === 'number' && !(b.merged && b.commits === 0)) bits.push(`${b.commits} commit${b.commits === 1 ? '' : 's'}`);
+    if (none) {
+      /* nothing to push */
+    } else if (b.pushed === false) bits.push('not pushed');
     else if (b.unpushed) bits.push(`${b.unpushed} not pushed`);
   }
   if (b.pr && withPr) bits.push(`PR #${b.pr.number} ${b.pr.state === 'OPEN' ? 'open' : b.pr.state.toLowerCase()}`);
@@ -23,7 +28,8 @@ export function branchNote(b: SessionBranchWire | null, withPr = true): string |
 }
 
 /** It waits on you: work that isn't pushed, on a branch that still exists. */
-export const branchUnpushed = (b: SessionBranchWire): boolean => b.exists !== false && (b.pushed === false || !!b.unpushed) && !b.merged;
+export const branchUnpushed = (b: SessionBranchWire): boolean =>
+  b.exists !== false && ((b.pushed === false && b.commits !== 0) || !!b.unpushed) && !b.merged;
 
 /** The header's Branches line: shown when the session worked on more than one branch (the row carries them only then). */
 export function headerBranches(s: Pick<SessionSummary, 'branches'>): SessionBranchWire[] {

@@ -18,7 +18,7 @@ import {
 import { isStaleRunning, nothingToSubmit, shownDoubt, submitBlocked } from '../../../../../core/review/review-submit.js';
 import { reviewDraftsApi } from '../../../api/review-drafts-api.js';
 import { useSse } from '../../../api/events.js';
-import { relativeTime } from '../../../utils/time.js';
+import { timeAgo } from '../../../utils/time.js';
 import { ReviewProvider } from '../../../state/ReviewProvider.js';
 import { ResizeDivider, useResizableSize, type ResizeSpec } from '../../Layout/ResizeDivider.js';
 import { commentWalk, fixingLines, fixMyselfBlocked, groupReviews, pendingDrafts, reviewPages } from '../../../state/review-view.js';
@@ -204,7 +204,7 @@ export function ReviewsTab({ route, onRoute, railFolded, onToggleRail, onShown, 
                         {r.size.added} −{r.size.deleted}
                         {r.status === 'ready' && ` · ${r.stories} stor${r.stories === 1 ? 'y' : 'ies'}`}
                         {r.flags > 0 && ` · ${r.flags} flag${r.flags === 1 ? '' : 's'}`}
-                        {r.gaps > 0 && ` · ${r.gaps} untested`} · {relativeTime(r.at)} ago
+                        {r.gaps > 0 && ` · ${r.gaps} untested`} · {timeAgo(r.at)}
                       </span>
                     </button>
                   </li>
@@ -419,7 +419,7 @@ function ReviewView({
                   : r.submitted.event === 'request-changes'
                     ? 'changes requested'
                     : 'a review'}{' '}
-                {relativeTime(r.submitted.at)} ago
+                {timeAgo(r.submitted.at)}
                 {r.submitted.partial && ' — only part of it went out (the rest are still drafts)'}
                 {r.submitted.url && (
                   <>
@@ -446,7 +446,7 @@ function ReviewView({
         {doubt && (
           <div className="wd-review-in-doubt" role="alert">
             <p className="wd-review-warn">
-              Your submit {relativeTime(doubt.at)} ago may have gone out ({doubt.error}):{' '}
+              Your submit {timeAgo(doubt.at)} may have gone out ({doubt.error}):{' '}
               {doubt.drafts.length ? `${doubt.drafts.length} comment${doubt.drafts.length === 1 ? '' : 's'}` : ''}
               {doubt.drafts.length && doubt.summary ? ' and ' : ''}
               {doubt.summary ? 'the summary' : ''}

@@ -91,6 +91,10 @@ describe('the Diff picker: commits grouped by branch', () => {
     expect(own.find((i) => i.key === 't:1')?.switched).toBeUndefined();
     expect(branchSwitch({}, { branches: { a: 'x' } })).toBeNull();
     expect(branchSwitch({ branches: { a: 'x' } }, { branches: { a: null } })).toBe('x → detached');
+    // A group: every repo that switched, named, the one on screen first; repos by their folder's name.
+    const prev = { branches: { '/wt/api': 'a1', 'C:\\wt\\web': 'w1' } };
+    expect(branchSwitch(prev, { branches: { '/wt/api': 'a2', 'C:\\wt\\web': 'w2' } }, 'web')).toBe('web: w1 → w2 · api: a1 → a2');
+    expect(branchSwitch(prev, { branches: { '/wt/api': 'a2', 'C:\\wt\\web': 'w1' } }, 'web')).toBe('api: a1 → a2');
   });
 });
 
@@ -331,6 +335,10 @@ describe('the header: Branches', () => {
     expect(branchNote(wires[2], false)).toBe('merged');
     expect(branchNote(branch({ exists: false }))).toBe('deleted');
     expect(branchNote(null)).toBeNull();
+    // No commits of its own and not merged: "no commits", nothing to push (it read "0 commits · not pushed").
+    const empty = branch({ commits: 0, unpushed: 0, pushed: false, merged: false });
+    expect(branchNote(empty)).toBe('no commits');
+    expect(branchUnpushed(empty)).toBe(false);
     expect(branchUnpushed(wires[2])).toBe(false);
     expect(branchUnpushed(wires[1])).toBe(true);
   });

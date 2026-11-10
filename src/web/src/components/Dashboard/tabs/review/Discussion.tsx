@@ -1,7 +1,7 @@
 import type { PrDiscussionThreadWire, PrDiscussionWire } from '../../../../../../core/api-types.js';
 import { hostName } from '../../../../../../core/hosts/commands.js';
 import { discussionCounts } from '../../../../../../core/review/review-discussion.js';
-import { relativeTime } from '../../../../utils/time.js';
+import { timeAgo } from '../../../../utils/time.js';
 import { mdGist } from '../../../../state/review-view.js';
 import { HostThread } from '../../../Review/HostThread.js';
 
@@ -64,7 +64,8 @@ export function AlreadyDiscussed({
       <h3>
         Already discussed{' '}
         <span className="wd-start-note">
-          · on {name}, read {relativeTime(d.at)} ago{d.more ? ' · more on the host than shown' : ''}
+          · on {name}, read {timeAgo(d.at)}
+          {d.more ? ' · more on the host than shown' : ''}
         </span>
       </h3>
       {nothing ? (
@@ -100,7 +101,7 @@ export function AlreadyDiscussed({
               </span>{' '}
               <strong>@{r.author}</strong>
               {r.body.trim() && <span className="wd-review-gist"> {mdGist(r.body, 160)}</span>}{' '}
-              {r.at && <span className="wd-start-note">{relativeTime(r.at)} ago</span>}{' '}
+              {r.at && <span className="wd-start-note">{timeAgo(r.at)}</span>}{' '}
               {r.url && (
                 <a href={r.url} target="_blank" rel="noreferrer" title={`Open on ${name}`}>
                   ↗
@@ -114,7 +115,7 @@ export function AlreadyDiscussed({
               <li key={`c${i}`}>
                 <span className="wd-host-verdict wd-host-verdict-comment">comment</span> <strong>@{x.author}</strong>
                 <span className="wd-review-gist"> {mdGist(x.body, 160)}</span>{' '}
-                {x.at && <span className="wd-start-note">{relativeTime(x.at)} ago</span>}{' '}
+                {x.at && <span className="wd-start-note">{timeAgo(x.at)}</span>}{' '}
                 {x.url && (
                   <a href={x.url} target="_blank" rel="noreferrer" title={`Open on ${name}`}>
                     ↗

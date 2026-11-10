@@ -14,7 +14,7 @@ import type { SessionSummary } from '../../../api/client.js';
 import { useSse } from '../../../api/events.js';
 import { isArchived } from '../../../state/session-display.js';
 import { sessionIsForIssue } from '../../../../../core/jira/jira-prompt.js';
-import { relativeTime } from '../../../utils/time.js';
+import { timeAgo } from '../../../utils/time.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -155,9 +155,9 @@ export function JiraTab({ sessions, onPickIssue, onOpenSession, loadJira = fetch
           </label>
           {watch.settings.enabled && (
             <p className="wd-start-note">
-              Watching since {ago(watch.settings.since ?? '')}
-              {watch.lastRunAt ? ` · last check ${ago(watch.lastRunAt)}` : ''} · at most 2 starts a check and 5 a day; each choice is in the
-              Activity panel.
+              Watching since {timeAgo(watch.settings.since ?? '')}
+              {watch.lastRunAt ? ` · last check ${timeAgo(watch.lastRunAt)}` : ''} · at most 2 starts a check and 5 a day; each choice is in
+              the Activity panel.
             </p>
           )}
           {watchError && <p className="wd-start-note wd-tab-error">{watchError}</p>}
@@ -165,12 +165,6 @@ export function JiraTab({ sessions, onPickIssue, onOpenSession, loadJira = fetch
       )}
     </div>
   );
-}
-
-/** "4m ago", or "just now". */
-function ago(iso: string): string {
-  const t = relativeTime(iso);
-  return t === 'just now' || t === '' ? t : `${t} ago`;
 }
 
 /** What the Jira watch did with this issue, under its row; a suggestion can be started or dismissed. */

@@ -9,7 +9,7 @@ import type { DiffLook } from '../../../core/api-types.js';
  * them, is a diff between two points (core/diff/diff-points.ts). Pure.
  */
 export interface HistoryItem {
-  /** Stable across reloads: `c:<sha>`, `t:<checkpoint id>`, `u`. */
+  /** Stable across reloads: `c:<sha>` (another branch's: `c:<sha>@<branch>`), `t:<checkpoint id>`, `u`. */
   key: string;
   kind: 'commit' | 'turn' | 'uncommitted';
   /** A commit's subject, a turn's name; empty when it has none. */
@@ -44,7 +44,7 @@ export function historyItems(
   turnBranch?: TurnBranch,
 ): HistoryItem[] {
   // A turn taken on another branch is listed under that branch (branchGroups), not in this one's timeline.
-  const turns = turnItems(entries, turnBranch).filter((t) => !t.branch);
+  const turns = turnItems(entries, turnBranch, repo).filter((t) => !t.branch);
   const own: HistoryItem[] = commits
     // Another branch's commits are listed under it (branchGroups), not in this branch's timeline.
     .filter((c) => !c.branch && (repo === null || c.repo === repo))
@@ -105,11 +105,11 @@ export function turnBranchFor(repo: string, current: string | null): TurnBranch 
  * from Initial it would show every dropped turn as its own. It stays inside spans and the branch's scope. A turn
  * on another branch (`turnBranch`) carries it.
  */
-function turnItems(entries: CheckpointEntry[], turnBranch?: TurnBranch): HistoryItem[] {
+function turnItems(entries: CheckpointEntry[], turnBranch?: TurnBranch, repo: string | null = null): HistoryItem[] {
   const sorted = [...entries].sort((a, b) => a.id - b.id);
   return sorted.flatMap((e, i): HistoryItem[] => {
     if (i === 0 || sorted[i - 1].id !== e.id - 1) return [];
-    const switched = branchSwitch(sorted[i - 1], e);
+    const switched = branchSwitch(sorted[i - 1], e, repo);
     const branch = turnBranch?.(e) ?? null;
     return [
       {
@@ -128,18 +128,28 @@ function turnItems(entries: CheckpointEntry[], turnBranch?: TurnBranch): History
 }
 
 /**
- * The branch switch a turn crossed: the first repo whose checked-out branch differs from the turn before's,
- * as "fix/a → fix/b" (a detached HEAD reads "detached"); null when none did, or either turn didn't record its
- * branches (from before). Pure.
+ * The branch switches a turn crossed: "fix/a → fix/b" (a detached HEAD reads "detached"); in a group every repo
+ * that switched, each named, the repo on screen (`repo`) first — "web: feat/x → feat/x-ui · api: feat/x → fix/y"
+ * (a turn's diff covers every repo, so another repo's switch is in it too; reported: the web view named api's
+ * switch as if it were web's). Null when none did, or either turn didn't record its branches (from before). Pure.
  */
-export function branchSwitch(prev: Pick<CheckpointEntry, 'branches'>, next: Pick<CheckpointEntry, 'branches'>): string | null {
+export function branchSwitch(
+  prev: Pick<CheckpointEntry, 'branches'>,
+  next: Pick<CheckpointEntry, 'branches'>,
+  repo: string | null = null,
+): string | null {
   if (!prev.branches || !next.branches) return null;
-  for (const [repo, b] of Object.entries(next.branches)) {
-    if (!(repo in prev.branches)) continue;
-    const a = prev.branches[repo];
-    if (a !== b) return `${a ?? 'detached'} → ${b ?? 'detached'}`;
+  const nameOf = (key: string) => key.split(/[\\/]/).filter(Boolean).pop() ?? key;
+  const moves: Array<{ name: string; text: string }> = [];
+  for (const [key, b] of Object.entries(next.branches)) {
+    if (!(key in prev.branches)) continue;
+    const a = prev.branches[key];
+    if (a !== b) moves.push({ name: nameOf(key), text: `${a ?? 'detached'} → ${b ?? 'detached'}` });
   }
-  return null;
+  if (!moves.length) return null;
+  if (Object.keys(next.branches).length === 1) return moves[0].text;
+  moves.sort((x, y) => Number(y.name === repo) - Number(x.name === repo));
+  return moves.map((m) => `${m.name}: ${m.text}`).join(' · ');
 }
 
 /** The commits and turns of one of the session's other branches. */
@@ -160,7 +170,7 @@ export function branchGroups(
   turnBranch?: TurnBranch,
 ): BranchGroup[] {
   const byBranch = new Map<string, HistoryItem[]>();
-  for (const t of turnItems(entries, turnBranch)) {
+  for (const t of turnItems(entries, turnBranch, repo)) {
     if (!t.branch) continue;
     byBranch.set(t.branch, [...(byBranch.get(t.branch) ?? []), t]);
   }
@@ -168,7 +178,9 @@ export function branchGroups(
     if (!c.branch || (repo !== null && c.repo !== repo)) continue;
     const list = byBranch.get(c.branch) ?? [];
     list.push({
-      key: `c:${c.sha}`,
+      // Its own key: a branch made from another one (feat/x-ui from feat/x) has that one's commits in its own
+      // history too, and a key found twice picked the wrong one (the multi-branch session test).
+      key: `c:${c.sha}@${c.branch}`,
       kind: 'commit',
       title: c.subject,
       tag: c.sha.slice(0, 7),
