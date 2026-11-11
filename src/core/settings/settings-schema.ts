@@ -23,8 +23,18 @@ export class SettingsError extends Error {
 export type SettingKind =
   | { type: 'bool' }
   | { type: 'number'; min: number; max: number; /** 0 is allowed besides [min, max] ("off"). */ zeroOff?: boolean }
-  | { type: 'text'; placeholder?: string }
-  | { type: 'list'; placeholder?: string; /** Each entry must match this (an environment variable's name). */ pattern?: string }
+  | {
+      type: 'text';
+      placeholder?: string;
+      /** It must match this (the rule config.ts reads it by). */ pattern?: string;
+      patternError?: string;
+    }
+  | {
+      type: 'list';
+      placeholder?: string;
+      /** Each entry must match this (an environment variable's name, a project key). */ pattern?: string;
+      patternError?: string;
+    }
   | { type: 'choice'; options: Array<{ value: string; label: string }> };
 
 export interface SettingField {
@@ -39,7 +49,21 @@ export interface SettingField {
   default: boolean | number | string | string[] | null;
   /** When it takes effect, when that isn't at once. */
   when?: string;
+  /** It can't be taken out (no Reset): work needs it (the worktrees folder). */
+  required?: true;
 }
+
+/**
+ * The rules config.ts reads these values by (loadConfig drops what doesn't match, silently): the page holds to the
+ * same, so what it saves is what work uses. `tests/core/settings` checks them against the readers.
+ */
+export const SETTING_PATTERNS = {
+  issueKey: '^[A-Z][A-Z0-9]{1,9}-\\d+$',
+  project: '^[A-Z][A-Z0-9]{1,9}$',
+  customField: '^customfield_\\d+$',
+  agentId: '^[\\w.-]+$',
+  envName: '^[A-Za-z_][A-Za-z0-9_]*$',
+} as const;
 
 export type SettingSection = 'General' | 'Agents & terminals' | 'Pull requests' | 'Reviews' | 'Jira' | 'Time' | 'Archive & usage';
 
@@ -69,9 +93,10 @@ export const SETTINGS: readonly SettingField[] = [
     path: 'worktreesRoot',
     section: 'General',
     label: 'Worktrees folder',
-    help: 'Where new worktrees are made. Existing sessions stay where they are.',
+    help: 'Where new worktrees are made (a full path; ~ is your home folder). Existing sessions stay where they are.',
     kind: { type: 'text' },
     default: null,
+    required: true,
   },
   {
     path: 'editor',
@@ -100,7 +125,7 @@ export const SETTINGS: readonly SettingField[] = [
     path: 'scanRoots',
     section: 'General',
     label: 'Folders scanned for repos',
-    help: 'The Repos page lists the git repos in these folders. Empty: the folder that holds the worktrees folder.',
+    help: 'The Repos page lists the git repos in these folders (full paths; ~ is your home folder). Empty: the folder that holds the worktrees folder.',
     kind: { type: 'list' },
     default: [],
   },
@@ -125,7 +150,7 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Agents & terminals',
     label: "Agent for work's summaries",
     help: 'Writes checkpoint names, catch-ups, archive summaries and the Reviews step.',
-    kind: { type: 'text', placeholder: 'claude' },
+    kind: { type: 'text', placeholder: 'claude', pattern: SETTING_PATTERNS.agentId, patternError: "an agent's id: one word (claude)" },
     default: 'claude',
   },
   {
@@ -133,7 +158,7 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Agents & terminals',
     label: 'Agent for the Ctrl+K assistant',
     help: 'The agent the Ask panel runs.',
-    kind: { type: 'text', placeholder: 'claude' },
+    kind: { type: 'text', placeholder: 'claude', pattern: SETTING_PATTERNS.agentId, patternError: "an agent's id: one word (claude)" },
     default: 'claude',
   },
   bool(
@@ -156,8 +181,8 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Agents & terminals',
     label: 'Environment kept for restored sessions',
     help: 'Variables a session restored after a restart keeps from the shell that started it. Names that look like secrets are never kept.',
-    kind: { type: 'list', placeholder: 'JAVA_HOME', pattern: '^[A-Za-z_][A-Za-z0-9_]*$' },
-    default: ['JAVA_HOME', 'PATH'],
+    kind: { type: 'list', placeholder: 'JAVA_HOME', pattern: SETTING_PATTERNS.envName, patternError: "isn't a variable's name" },
+    default: [],
   },
   bool(
     'useBundledConpty',
@@ -231,7 +256,7 @@ export const SETTINGS: readonly SettingField[] = [
     path: 'reviews.maxLines',
     section: 'Reviews',
     label: 'Bigger PRs wait for a click (changed lines)',
-    help: 'A PR changing more lines than this is prepared only when you ask.',
+    help: 'A PR changing more lines than this is prepared only when you ask. Generated and mechanical files (a migration’s designer, a lock file, renames) don’t count.',
     kind: { type: 'number', min: 1, max: 1_000_000 },
     default: 3000,
   },
@@ -314,7 +339,7 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Time',
     label: 'Gap ticket',
     help: "Gets what's left of the day. Empty: left unallocated.",
-    kind: { type: 'text', placeholder: 'SSD-1' },
+    kind: { type: 'text', placeholder: 'SSD-1', pattern: SETTING_PATTERNS.issueKey, patternError: 'a Jira issue key (SSD-1)' },
     default: null,
   },
   {
@@ -322,7 +347,7 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Time',
     label: 'Time-off ticket',
     help: 'A day off is booked to it.',
-    kind: { type: 'text' },
+    kind: { type: 'text', placeholder: 'HR-7', pattern: SETTING_PATTERNS.issueKey, patternError: 'a Jira issue key (HR-7)' },
     default: null,
   },
   {
@@ -330,7 +355,7 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Time',
     label: 'Your Jira projects',
     help: "Only these projects' keys count. Empty: your sessions' and the issues you moved.",
-    kind: { type: 'list', placeholder: 'PAY' },
+    kind: { type: 'list', placeholder: 'PAY', pattern: SETTING_PATTERNS.project, patternError: "isn't a Jira project key (PAY)" },
     default: [],
   },
   {
@@ -338,7 +363,7 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Time',
     label: 'Service-desk projects',
     help: "Their tickets keep the minimum; any other project's ticket is a task.",
-    kind: { type: 'list', placeholder: 'SSD' },
+    kind: { type: 'list', placeholder: 'SSD', pattern: SETTING_PATTERNS.project, patternError: "isn't a Jira project key (SSD)" },
     default: [],
   },
   {
@@ -354,7 +379,12 @@ export const SETTINGS: readonly SettingField[] = [
     section: 'Time',
     label: 'Story points field',
     help: "Your Jira site's field for them (customfield_…).",
-    kind: { type: 'text', placeholder: 'customfield_10016' },
+    kind: {
+      type: 'text',
+      placeholder: 'customfield_10016',
+      pattern: SETTING_PATTERNS.customField,
+      patternError: "a Jira field's id (customfield_10016)",
+    },
     default: null,
   },
   {
@@ -386,8 +416,8 @@ export const SETTINGS: readonly SettingField[] = [
     path: 'archive.compressAfterDays',
     section: 'Archive & usage',
     label: "Compress an archive's transcripts after (days)",
-    help: 'Lossless; search and Restore read them all the same.',
-    kind: { type: 'number', min: 1, max: 3650 },
+    help: 'Lossless; search and Restore read them all the same. 0: never.',
+    kind: { type: 'number', min: 1, max: 3650, zeroOff: true },
     default: 30,
   },
   {
@@ -416,6 +446,13 @@ export const settingAt = (path: string): SettingField | undefined => SETTINGS.fi
 
 /** A value to write: checked and tidied, or why not. `null`: back to the default (the key goes). Pure. */
 export function checkSetting(field: SettingField, raw: unknown): { ok: true; value: unknown } | { ok: false; error: string } {
+  const checked = checkValue(field, raw);
+  // A setting work needs can't go back to "not set" (there is no default to go back to).
+  if (checked.ok && checked.value === null && field.required) return { ok: false, error: 'it can’t be left empty' };
+  return checked;
+}
+
+function checkValue(field: SettingField, raw: unknown): { ok: true; value: unknown } | { ok: false; error: string } {
   if (raw === null) return { ok: true, value: null };
   const k = field.kind;
   switch (k.type) {
@@ -434,6 +471,7 @@ export function checkSetting(field: SettingField, raw: unknown): { ok: true; val
       if (typeof raw !== 'string') return { ok: false, error: 'text' };
       const t = raw.trim();
       if (t.length > 500) return { ok: false, error: 'at most 500 characters' };
+      if (t && k.pattern && !new RegExp(k.pattern).test(t)) return { ok: false, error: k.patternError ?? 'not in the form it takes' };
       return t ? { ok: true, value: t } : { ok: true, value: null };
     }
     case 'list': {
@@ -444,7 +482,8 @@ export function checkSetting(field: SettingField, raw: unknown): { ok: true; val
         const t = x.trim();
         if (!t) continue;
         if (t.length > 300) return { ok: false, error: `“${t.slice(0, 30)}…” is too long` };
-        if (k.pattern && !new RegExp(k.pattern).test(t)) return { ok: false, error: `“${t}” isn't a variable's name` };
+        if (k.pattern && !new RegExp(k.pattern).test(t))
+          return { ok: false, error: `“${t}” ${k.patternError ?? "isn't in the form it takes"}` };
         if (!items.includes(t)) items.push(t);
       }
       if (items.length > 100) return { ok: false, error: 'at most 100' };

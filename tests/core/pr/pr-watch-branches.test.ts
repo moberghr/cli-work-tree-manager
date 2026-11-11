@@ -1,12 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
-import { autoArchiveVerdict, createPrWatch, type PrWatchDeps } from '../../../src/core/pr/pr-watch.js';
+import { autoArchiveVerdict, clickedPrUrl, createPrWatch, type PrWatchDeps } from '../../../src/core/pr/pr-watch.js';
 import { otherPrsOf, stageInputOf, workElsewhere } from '../../../src/core/pr/branch-work.js';
 import { prStageOf, stageRepos } from '../../../src/core/pr/pr-stage.js';
 import { prStageWire } from '../../../src/core/sessions/session-wire.js';
-import { branchFactsOf, watchBranchOptions, watchPreflight, withListedPrs, type ListedPrsIo } from '../../../src/core/pr/pr-watch-hosts.js';
+import {
+  branchFactsOf,
+  shipPreflightWithListed,
+  watchBranchOptions,
+  watchPreflight,
+  withListedPrs,
+  type ListedPrsIo,
+} from '../../../src/core/pr/pr-watch-hosts.js';
 import { noteSessionPrs, readSessionPrs, type SessionPrRecord, type SessionPrs } from '../../../src/core/pr/session-prs.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import type { OtherBranchState, RepoShipState, ShipPr, ShipPreflight } from '../../../src/core/api-types.js';
+import type { ReviewFeedback } from '../../../src/core/pr/review-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 import type { SessionBranches } from '../../../src/core/sessions/session-branches.js';
 
@@ -126,6 +134,128 @@ describe('the PR watch across branches', () => {
     expect(api.earlier.map((e) => e.pr.number)).toEqual([3592]); // only merged and closed ones fold
   });
 
+  describe('Ask Claude to fix (your click)', () => {
+    // Checked out: your PR failing; another branch has a colleague's PR the session only looked at, failing too.
+    const mine = pr({ number: 3656, url: 'u/3656', checks: 'fail', headSha: 'probe', author: 'me', failing: [{ name: 'build' }] });
+    const theirs = pr({ number: 3657, url: 'u/3657', checks: 'fail', headSha: 'culture', author: 'ana', failing: [{ name: 'lint' }] });
+    const pre = () => ({ repos: [repo('fix/probe', mine, [other('fix/culture', { pr: theirs, sha: 'culture' })])] });
+    const withViewer = (p: ShipPreflight) => {
+      const h = harness(p);
+      const deps = { ...h.deps, options: () => ({ autoArchive: false, fixCi: false, reviewComments: false }), viewer: async () => 'me' };
+      return { deps, watch: createPrWatch(deps) };
+    };
+    const told = (h: { deps: { tell: ReturnType<typeof vi.fn> } }) => String(h.deps.tell.mock.calls[0]?.[1] ?? '');
+
+    it('asks about the PR whose button was clicked, and only that one', async () => {
+      const h = withViewer(pre());
+      expect(await h.watch.fixNow('s1', 'u/3656')).toBe(true);
+      expect(told(h)).toContain('PR #3656');
+      expect(told(h)).not.toContain('#3657');
+    });
+
+    it("a click on a colleague's PR asks about it — you asked — and names where it is", async () => {
+      const h = withViewer(pre());
+      expect(await h.watch.fixNow('s1', 'u/3657')).toBe(true);
+      expect(told(h)).toContain('PR #3657');
+      expect(told(h)).toContain('fix/culture');
+      expect(told(h)).not.toContain('#3656');
+    });
+
+    it("no PR named (an older dashboard): only your own failing PRs, never someone else's", async () => {
+      const h = withViewer(pre());
+      expect(await h.watch.fixNow('s1')).toBe(true);
+      expect(told(h)).toContain('PR #3656');
+      expect(told(h)).not.toContain('#3657');
+    });
+
+    it("the route's body: a link, or none from an older dashboard", () => {
+      expect(clickedPrUrl({ url: 'u/3657' })).toBe('u/3657');
+      expect(clickedPrUrl(null)).toBeUndefined();
+      expect(clickedPrUrl({})).toBeUndefined();
+      expect(clickedPrUrl({ url: 7 })).toBeUndefined();
+      expect(clickedPrUrl({ url: '' })).toBeUndefined();
+    });
+
+    it('a link that is not one of its failing PRs asks nothing', async () => {
+      const h = withViewer(pre());
+      expect(await h.watch.fixNow('s1', 'u/9999')).toBe(false);
+      expect(h.deps.tell).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('review comments and conflicts on every open PR (reviewComments on)', () => {
+    const thread = (id: string) => ({
+      id: `T${id}`,
+      isResolved: false,
+      isOutdated: false,
+      path: 'src/a.ts',
+      line: 3,
+      comments: [{ id, author: 'alice', association: 'COLLABORATOR', body: `fix ${id}`, url: `u${id}`, createdAt: '' }],
+    });
+    const mineHere = pr({ number: 3656, url: 'u/3656', headSha: 'probe', author: 'me', updatedAt: '2026-11-01T10:00:00Z' });
+    const mineThere = pr({ number: 3657, url: 'u/3657', headSha: 'culture', author: 'me', updatedAt: '2026-11-01T10:00:00Z' });
+    const colleagues = pr({ number: 3658, url: 'u/3658', headSha: 'ana', author: 'ana', updatedAt: '2026-11-01T10:00:00Z' });
+    const setup = (fail = new Set<number>()) => {
+      const pre: ShipPreflight = {
+        repos: [
+          repo('fix/probe', mineHere, [
+            other('fix/culture', { pr: mineThere, sha: 'culture' }),
+            other('fix/ana', { pr: colleagues, sha: 'ana' }),
+          ]),
+        ],
+      };
+      const h = harness(pre);
+      const reviewFeedback = vi.fn(async (_path: string, n: number) =>
+        fail.has(n) ? null : ({ viewer: 'me', threads: [thread(String(n))], reviews: [], comments: [] } as unknown as ReviewFeedback),
+      );
+      const deps = {
+        ...h.deps,
+        options: () => ({ autoArchive: false, fixCi: false, reviewComments: true }),
+        viewer: async () => 'me',
+        reviewFeedback,
+      } as PrWatchDeps;
+      return { pre, deps, reviewFeedback, watch: createPrWatch(deps), tell: h.deps.tell };
+    };
+    const bodies = (tell: ReturnType<typeof vi.fn>) => (tell.mock.calls as unknown as Array<[string, string]>).map((c) => c[1]).join('\n');
+
+    it("each of your PRs' threads is read and handed over, the other branch's named; a colleague's is never read", async () => {
+      const s = setup();
+      const ci = await s.watch.refresh('s1');
+      expect(s.reviewFeedback.mock.calls.map((c) => c[1]).sort()).toEqual([3656, 3657]);
+      expect(ci?.repos[0].openThreads).toBe(2); // summed over the repo's PRs
+      const body = bodies(s.tell);
+      expect(body).toContain('fix 3656');
+      expect(body).toContain('fix 3657');
+      expect(body).toContain('fix/culture');
+      expect(body).not.toContain('fix 3658');
+    });
+
+    it("a PR whose threads can't be read this time keeps its threads from the last check", async () => {
+      const fail = new Set<number>();
+      const s = setup(fail);
+      await s.watch.refresh('s1');
+      fail.add(3657);
+      // Moved (a new updatedAt), so it's read again — and that read fails.
+      const moved = { ...mineThere, updatedAt: '2026-11-02T10:00:00Z' };
+      s.pre.repos[0].otherBranches = [other('fix/culture', { pr: moved, sha: 'culture' })];
+      const ci = await s.watch.refresh('s1');
+      expect(ci?.repos[0].openThreads).toBe(2);
+      expect(ci?.repos[0].threads?.map((t) => t.prNumber).sort()).toEqual([3656, 3657]);
+    });
+
+    it('a PR conflicting on a branch not checked out: the note names it and how to get there', async () => {
+      const dirty = pr({ number: 3657, url: 'u/3657', headSha: 'culture', author: 'me', mergeStateStatus: 'DIRTY', baseBranch: 'dev' });
+      const h = harness({ repos: [repo('fix/probe', mineHere, [other('fix/culture', { pr: dirty, sha: 'culture' })])] });
+      const watch = createPrWatch({ ...h.deps, viewer: async () => 'me' } as PrWatchDeps);
+      await watch.refresh('s1');
+      const body = bodies(h.deps.tell);
+      expect(body).toContain('PR #3657');
+      expect(body).toContain('fix/culture');
+      expect(body).toContain('git switch');
+      expect(body).toContain('origin/dev');
+    });
+  });
+
   it("not archived while another branch has commits not pushed — the user's case", async () => {
     // Checked out: the start branch, its PR merged at its tip (done) — but fix/probe has a commit never pushed.
     const pre = {
@@ -230,6 +360,23 @@ describe("every PR the session owns: other branches', listed ones, other repos' 
     const body = (h.deps.tell.mock.calls as unknown as Array<[string, string]>).map((c) => c[1]).join('\n');
     expect(body).toContain('- PR #3657: Test');
     expect(body).not.toContain('git switch');
+  });
+
+  it('a change only in a repo the session does not have is saved and broadcast (the stage and its notification follow)', async () => {
+    const docs = pr({ number: 87, url: 'u/87' });
+    const pre: ShipPreflight = { repos: [repo('fix/probe', open3656, [])], elsewhere: [{ repo: 'kvika/docs', pr: docs }] };
+    const h = harness(pre);
+    const saved = { load: () => [], save: vi.fn() };
+    const watch = createPrWatch({ ...h.deps, saved } as PrWatchDeps);
+    await watch.refresh('s1');
+    expect(saved.save).toHaveBeenCalledTimes(1);
+    await watch.refresh('s1'); // nothing moved
+    expect(saved.save).toHaveBeenCalledTimes(1);
+    pre.elsewhere = [{ repo: 'kvika/docs', pr: { ...docs, state: 'MERGED' } }];
+    h.deps.broadcast.mockClear();
+    await watch.refresh('s1');
+    expect(saved.save).toHaveBeenCalledTimes(2);
+    expect(h.deps.broadcast).toHaveBeenCalledWith('ci-changed', { sessionId: 's1' });
   });
 
   it("a listed PR in a repo the session doesn't have: on the check, in the stage, its failing CI asked about", async () => {
@@ -342,8 +489,22 @@ describe("the watch's preflight with the session's PR list (watchPreflight, with
     expect(out.pre.unknownPrs).toEqual(['api#3: HTTP 502']);
     expect(lookups.lookup).toHaveBeenCalledTimes(2);
     const resting = io({ resting: () => true });
-    await withListedPrs({ repos: [backend()] }, listed([{ url: 'u/4', number: 4 }]), resting);
+    const rested = await withListedPrs({ repos: [backend()] }, listed([{ url: 'u/4', number: 4 }]), resting);
     expect(resting.lookup).not.toHaveBeenCalled();
+    // Resting with no last look: unknown, which holds the archive — never dropped as if it weren't there.
+    expect(rested.pre.unknownPrs).toEqual(['api#4: its host is resting (API limit)']);
+    expect(workElsewhere(rested.pre)).toEqual(['api#4: its host is resting (API limit) (its state unknown)']);
+  });
+
+  it("shipPreflightWithListed (Ship's merge): the session's listed PR in another repo is in what it checks", async () => {
+    const s = { ...session, target: 'api', branch: 'feat/ship-listed' };
+    noteSessionPrs(sessionIdFor(s), [{ url: 'https://github.com/kvika/docs/pull/87', number: 87, repoId: 'kvika/docs', source: 'agent' }]);
+    const pre = await shipPreflightWithListed(s, async () => ({ code: 0, stdout: '', stderr: '' }), {
+      preflight: async () => ({ repos: [backend()] }),
+      listed: io(),
+    });
+    expect(pre.elsewhere?.map((e) => e.pr.number)).toEqual([87]);
+    expect(workElsewhere(pre)).toEqual(['kvika/docs: PR #87 open']);
   });
 
   it('watchPreflight: the list read and written, the required-checks list applied to the listed PRs', async () => {

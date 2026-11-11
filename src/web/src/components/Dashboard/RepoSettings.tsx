@@ -4,6 +4,9 @@ import { fetchRepoSettings, saveRepoSetting } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
 import { SettingInput } from './SettingInput.js';
 
+/** One array for every render: a new `[]` each time made the input reset what you were typing (its value changed). */
+const NO_CHECKS: string[] = [];
+
 /**
  * A repo's settings (`#/repos/<alias>`, Settings… on its row of the Repos page): which failed checks count on its
  * PRs, the command Start dev server runs, and whether its PRs are reviewed in the background — each saved as you
@@ -63,7 +66,7 @@ export function RepoSettings({
               <SettingInput
                 id={`repo-${alias}-checks`}
                 kind={{ type: 'list', placeholder: 'Test' }}
-                value={data.requiredChecks ?? []}
+                value={data.requiredChecks ?? NO_CHECKS}
                 onSave={save('requiredChecks')}
               />
             </div>

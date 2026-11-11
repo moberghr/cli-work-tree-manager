@@ -9,10 +9,10 @@
 import type { ParsedFile } from '../diff/diff-parse.js';
 import type { PrDiscussionWire, PrReviewWire, ReviewFileWire, ReviewSummaryWire } from '../api-types.js';
 import { discussionCounts, discussionPromptLines, threadOrder } from './review-discussion.js';
-import { classifyFile, type FileKind, type KindRule } from './change-kinds.js';
+import { classifyFile, ignoredInReview, type FileKind, type KindRule } from './change-kinds.js';
 import { testBreakdown, type DiffFileLines } from './test-breakdown.js';
 import { agentPrompt, FLAG_LABEL, FLAGS, parseAgentPass, planReview, PROMPT_KINDS, type PromptFile } from './review-plan.js';
-import { KIND_LABEL, KIND_ORDER } from './change-kinds.js';
+import { FOLDED_KINDS, KIND_LABEL, KIND_ORDER } from './change-kinds.js';
 import { asData } from '../time/fence.js';
 import { onDiffLine } from './review-submit.js';
 
@@ -57,6 +57,28 @@ export function kindsOf(files: ParsedFile[], extras: DiffExtras, rules?: KindRul
       rules,
     ),
   );
+}
+
+/** A PR's files split into what the review reads and what it leaves out altogether (`ignoredInReview`). Pure. */
+export function splitIgnored(files: ParsedFile[]): { files: ParsedFile[]; ignored: NonNullable<PrReviewWire['ignored']> } {
+  const kept: ParsedFile[] = [];
+  const ignored: NonNullable<PrReviewWire['ignored']> = [];
+  for (const f of files) {
+    const why = ignoredInReview(f.path);
+    if (why) ignored.push({ path: f.path, why, added: f.added, deleted: f.deleted });
+    else kept.push(f);
+  }
+  return { files: kept, ignored };
+}
+
+/**
+ * The changed lines a reader would read: every file's but the generated and mechanical ones (an EF migration's
+ * `.Designer.cs`, a lock file, a rename) — what the size limit counts. Reported: a PR of 23,864 lines waited for a
+ * click, 22,997 of them one migration designer. Pure.
+ */
+export function linesWorthReading(files: ParsedFile[], extras: DiffExtras, rules?: KindRule[]): number {
+  const kinds = kindsOf(files, extras, rules);
+  return files.reduce((n, f, i) => (FOLDED_KINDS.has(kinds[i].kind) ? n : n + f.added + f.deleted), 0);
 }
 
 /** A file's hunks as git prints them, for the agent's prompt. */
@@ -140,8 +162,9 @@ export function buildReview(
   files: ParsedFile[],
   extras: DiffExtras,
   answer: string | null | undefined,
-  opts: { rules?: KindRule[]; now?: Date; notAskedWhy?: string } = {},
+  opts: { rules?: KindRule[]; now?: Date; notAskedWhy?: string; ignored?: PrReviewWire['ignored'] } = {},
 ): PrReviewWire {
+  const ignored = opts.ignored ?? [];
   const kinds = kindsOf(files, extras, opts.rules);
   const kindMap = Object.fromEntries(kinds.map((k) => [k.path, k.kind]));
   const breakdown = testBreakdown(files.map(asLines), kindMap);
@@ -193,8 +216,14 @@ export function buildReview(
             : 'the AI step gave no usable answer: stories are by folder'
           : (opts.notAskedWhy ?? (logic.length ? 'no AI step ran: stories are by folder' : null)),
     at: now,
-    size: { files: files.length, added: files.reduce((n, f) => n + f.added, 0), deleted: files.reduce((n, f) => n + f.deleted, 0) },
+    // The whole PR's size, what it left out included.
+    size: {
+      files: files.length + ignored.length,
+      added: [...files, ...ignored].reduce((n, f) => n + f.added, 0),
+      deleted: [...files, ...ignored].reduce((n, f) => n + f.deleted, 0),
+    },
     files: wireFiles,
+    ...(ignored.length ? { ignored } : {}),
     tests: {
       list: breakdown.tests,
       counts: breakdown.counts,

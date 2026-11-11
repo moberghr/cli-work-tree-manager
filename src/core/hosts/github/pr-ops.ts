@@ -38,6 +38,16 @@ export function failingFromRollup(rollup: CheckRollupItem[] | null | undefined):
     });
 }
 
+/** A check of the rollup still running (or expected): what a failure's 'fail' hides (`ShipPr.checksRunning`). */
+export function rollupRunning(rollup: CheckRollupItem[] | null | undefined): boolean {
+  return (rollup ?? []).some((c) => {
+    const v = (c.conclusion ?? c.state ?? '').toUpperCase();
+    if (FAILED.includes(v)) return false;
+    const status = (c.status ?? '').toUpperCase();
+    return !v || v === 'PENDING' || v === 'EXPECTED' || (!!status && status !== 'COMPLETED');
+  });
+}
+
 /** Collapse gh's statusCheckRollup (check runs + commit statuses). */
 export function checksFromRollup(rollup: CheckRollupItem[] | null | undefined): ChecksState {
   if (!rollup || rollup.length === 0) return 'none';
@@ -177,6 +187,7 @@ async function githubPrView(run: CommandRunner, cwd: string, which: string): Pro
         ...(failed.checks === 'fail' ? { failing: failed.failing } : {}),
         ...(failed.optional.length ? { optionalFailing: failed.optional } : {}),
         ...(failed.byHost ? { checksRequiredByHost: true } : {}),
+        ...(failed.checks === 'fail' && !failed.byHost && rollupRunning(j.statusCheckRollup) ? { checksRunning: true as const } : {}),
       };
       return { kind: 'pr', pr };
     } catch {

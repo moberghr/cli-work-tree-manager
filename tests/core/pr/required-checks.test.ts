@@ -23,6 +23,13 @@ describe('which failed checks count where the host requires none (prWatch.requir
     expect(got.optionalFailing).toEqual([{ name: 'OWASP Security Review', url: 'https://x/1' }]);
   });
 
+  it('only optional failures while another check still runs: running, never "passing"', () => {
+    const got = countedChecks(pr({ checksRunning: true }), ['Test']);
+    expect(got.checks).toBe('pending');
+    expect(got.checksRunning).toBeUndefined();
+    expect(got.optionalFailing).toEqual([{ name: 'OWASP Security Review', url: 'https://x/1' }]);
+  });
+
   it('a listed check that fails still counts (names compared case-blind)', () => {
     const both = pr({ failing: [{ name: 'test' }, { name: 'OWASP Security Review' }] });
     expect(countedChecks(both, ['Test'])).toMatchObject({

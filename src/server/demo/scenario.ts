@@ -1370,11 +1370,11 @@ export class DemoScenario {
 
   /** "Ask Claude to fix CI": the note goes in, Claude answers, pushes, and
    *  the checks re-run green. */
-  fixCi(id: string): boolean {
+  fixCi(id: string, url?: string): boolean {
     const s = this.sessions.get(id);
     if (!s) return false;
     const failing = s.repos
-      .filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail')
+      .filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail' && (!url || r.pr.url === url))
       .map((r) => ({ repo: r.name, number: r.pr!.number, checks: (r.pr!.failing ?? []).map((f) => f.name) }));
     if (!failing.length) return false;
     const note = s.comments.post({ side: 'general', status: 'published', body: ciFixMessage(failing, s.isGroup) });

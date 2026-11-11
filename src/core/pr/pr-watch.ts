@@ -124,7 +124,10 @@ export interface PrWatch {
   refresh(id: string, opts?: { act?: boolean }): Promise<SessionCi | null>;
   state(id: string): SessionCi | null;
   /** Ask the session's Claude to fix its failing checks, now. */
-  fixNow(id: string): Promise<boolean>;
+  /** Your click: Claude is asked to fix the failing checks of the PR you clicked (`url`), whoever opened it — you
+   *  asked. Without one (an older dashboard): every failing PR of the session that is yours, never one someone else
+   *  opened or one whose author can't be told. */
+  fixNow(id: string, url?: string): Promise<boolean>;
   /** You replied to (or resolved) a review thread: it no longer waits on you, before the next check reads GitHub again. */
   answered(id: string, threadId: string): void;
   start(intervalMs: number, firstDelayMs?: number): () => void;
@@ -165,6 +168,12 @@ export function placeLines(items: PrPlace[]): string[] {
   if (items.some((p) => p.elsewhere))
     out.push("For a PR in a repo this session doesn't have: work in your checkout of that repo, where you opened it.");
   return out;
+}
+
+/** POST …/ci/fix's body: the link of the PR whose Ask Claude to fix was clicked; none (an older dashboard) → undefined. Pure. */
+export function clickedPrUrl(body: unknown): string | undefined {
+  const url = body && typeof body === 'object' ? (body as { url?: unknown }).url : undefined;
+  return typeof url === 'string' && url.length > 0 && url.length <= 2048 ? url : undefined;
 }
 
 export function ciFixMessage(
@@ -516,6 +525,17 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       }));
   }
 
+  /** A failing PR is yours by the check alone, as the sweep reads it: no author known, or a watch that asks no one
+   *  who you are — the session's own; else its author must be the viewer its repo's host named (an elsewhere PR: the
+   *  session's). A viewer that couldn't be told is not yours — someone else's CI isn't sent unasked. */
+  function yoursIn(ci: SessionCi, f: { repo: string; url: string }): boolean {
+    const placed = prsOfCheck(ci).find((a) => a.repo === f.repo && a.pr.url === f.url);
+    const author = placed?.pr.author;
+    if (!author || !deps.viewer) return true;
+    const me = ci.repos.find((r) => r.name === f.repo)?.viewer ?? ci.viewer;
+    return !!me && me.toLowerCase() === author.toLowerCase();
+  }
+
   /** One check per session at a time: a second asker gets the one running. */
   function check(id: string, session: WorktreeSession, act = true, run?: RunHandle): Promise<SessionCi | null> {
     const running = inflight.get(id);
@@ -707,9 +727,11 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       })),
       ...(pre.elsewhere?.length ? { elsewhere: pre.elsewhere } : {}),
     };
-    const before = JSON.stringify(states.get(id)?.repos);
+    // What a check knew: its repos and the PRs in repos the session doesn't have (a change there is news too).
+    const known = (c: SessionCi | undefined) => JSON.stringify(c ? { repos: c.repos, elsewhere: c.elsewhere ?? [] } : null);
+    const before = known(states.get(id));
     states.set(id, ci);
-    const changed = before !== JSON.stringify(ci.repos);
+    const changed = before !== known(ci);
     if (changed) deps.saved?.save(id, ci);
     if (changed || !checked.has(id)) deps.broadcast('ci-changed', { sessionId: id });
     checked.add(id);
@@ -898,11 +920,11 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       deps.broadcast('ci-changed', { sessionId: id });
     },
     // Your click, not a sweep: a look-only watch does it too (the told-keys are shared, so no one repeats it).
-    async fixNow(id) {
+    async fixNow(id, url) {
       const s = sessionOf(id);
       const ci = s ? await check(id, s.session, false) : null;
       if (!s || !ci) return false;
-      const failing = failingOf(ci);
+      const failing = failingOf(ci).filter((f) => (url ? f.url === url : yoursIn(ci, f)));
       if (!failing.length) return false;
       const seen = staged(id);
       for (const f of failing) seen.add(`${id}:${f.repo}:${f.headSha}`);

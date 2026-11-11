@@ -43,6 +43,8 @@ export function isReview(v: unknown): v is PrReviewWire {
     Array.isArray(r.unstoried) &&
     (r.summary === undefined || typeof r.summary === 'string') &&
     (r.dropped === undefined || Array.isArray(r.dropped)) &&
+    (r.ignored === undefined ||
+      (Array.isArray(r.ignored) && r.ignored.every((f) => !!f && typeof f === 'object' && typeof f.path === 'string'))) &&
     (r.inDoubt === undefined || (!!r.inDoubt && Array.isArray(r.inDoubt.drafts) && typeof r.inDoubt.at === 'string')) &&
     (r.submitting === undefined ||
       (!!r.submitting &&

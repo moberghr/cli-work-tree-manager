@@ -8,8 +8,7 @@ import { logSwallowed } from '../core/platform/best-effort.js';
 import { shownState } from '../core/status/turn-activity.js';
 import { BehindCache } from '../core/stacks/behind-main.js';
 import { createSessionBranches } from '../core/stacks/branch-facts.js';
-import { allSessionBranches, readSessionBranches } from '../core/sessions/session-branches.js';
-import { workingBranch } from '../core/git/git-head.js';
+import { allSessionBranches } from '../core/sessions/session-branches.js';
 import { mountUpdateRoutes } from './routes/update-routes.js';
 import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
 import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
@@ -78,7 +77,7 @@ import { createDigestSource } from '../core/conversations/digest-source.js';
 import { report } from '../core/platform/report.js';
 import { mountCleanupRoutes } from './routes/cleanup-routes.js';
 import { mountAssistantRoutes } from './routes/assistant-routes.js';
-import type { ActivityWire, DigestResponse, SessionHistoryWire, SessionWire } from '../core/api-types.js';
+import type { ActivityWire, DigestResponse, SessionWire } from '../core/api-types.js';
 import { createActivityLog } from '../core/platform/activity.js';
 import { recentProcessTable } from '../core/platform/process.js';
 import { throttleTrailing } from '../core/platform/throttle.js';
@@ -93,22 +92,15 @@ import { startReviewSweeps } from '../core/review/review-keeper.js';
 import { tidyLeftOverSubmits } from '../core/review/review-submit-flow.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
-import { bestEffort, bestEffortAsync } from '../core/platform/best-effort.js';
-import { loadManifest } from '../core/diff/checkpoint.js';
+import { bestEffort } from '../core/platform/best-effort.js';
+import { sessionHistoryWire } from '../core/diff/session-history-wire.js';
 import { mountRevertRoutes } from './routes/revert-routes.js';
 import { mountDevRoutes } from './routes/dev-routes.js';
 import { mountCiRoutes } from './routes/ci-routes.js';
 import { sweepOldDiffArtifacts } from '../core/diff/diffs-sweep.js';
 import { revision } from '../core/platform/db.js';
-import {
-  disposeAllScopes,
-  findScope,
-  listScopes,
-  scopeHashForPaths,
-  scopesToSweep,
-  suppressScopeWatch,
-} from '../core/diff/scope-manager.js';
-import { computeSessionRange, historyBranchRefs, sessionHistory, type SessionHistory } from '../core/diff/session-history.js';
+import { disposeAllScopes, findScope, listScopes, scopesToSweep, suppressScopeWatch } from '../core/diff/scope-manager.js';
+import { computeSessionRange } from '../core/diff/session-history.js';
 import { parsePoint } from '../core/diff/diff-points.js';
 import { clearCheckpoints } from '../core/diff/checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -488,23 +480,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   app.get('/api/sessions/:id/checkpoints', async (c) => {
     const session = findSession(c.req.param('id'));
     if (!session) return c.json({ error: 'unknown session' }, 404);
-    const hash = scopeHashForPaths(session.paths);
-    // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read) —
-    // and every other branch it worked on (session-branches.ts), merged ones too, under each, with its whole span.
-    const none: SessionHistory = { commits: [], spans: [] };
-    // Off the event loop (async git), and no git at all while nothing moved: see sessionHistory.
-    const { commits, spans } =
-      (await bestEffortAsync<SessionHistory>(
-        'list the session commits',
-        () => sessionHistory(session, historyBranchRefs(session, readSessionBranches(sessionIdFor(session)), workingBranch)),
-        none,
-      )) ?? none;
-    return c.json({
-      scopeHash: hash,
-      entries: loadManifest(hash).entries,
-      commits,
-      branchSpans: spans,
-    } satisfies SessionHistoryWire);
+    return c.json(await sessionHistoryWire(session));
   });
 
   app.get('/api/sessions/:id/diff', async (c) => {

@@ -283,6 +283,29 @@ describe("the PRs a conversation names go on the session's list (session-prs.ts)
     expect(readSessionPrs(id)?.prs.map((p) => p.number)).toEqual([3644]);
   });
 
+  it('a copy that could not be read whole is not marked scanned: it is read whole again next time', async () => {
+    const s = session('fix/pr-scan-damaged');
+    const id = sessionIdFor(s);
+    const dir = conversationDirFor(id, root);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'old.jsonl.gz'), 'not gzip at all');
+    const src = path.join(tmp, 'new2.jsonl');
+    fs.writeFileSync(src, prompt('y') + prLink(3650));
+    await syncConversation(s, root, [source(src)]);
+    expect(readSessionPrs(id)?.prs.map((p) => p.number)).toEqual([3650]);
+    expect(readSessionPrs(id)?.scanned).toBeFalsy();
+    // Repaired: the next sync reads the whole copy and finds the old file's PR.
+    fs.writeFileSync(path.join(dir, 'old.jsonl.gz'), zlib.gzipSync(prompt('x') + prLink(3644)));
+    fs.appendFileSync(src, prompt('z'));
+    await syncConversation(s, root, [source(src)]);
+    expect(
+      readSessionPrs(id)
+        ?.prs.map((p) => p.number)
+        .sort(),
+    ).toEqual([3644, 3650]);
+    expect(readSessionPrs(id)?.scanned).toBeTruthy();
+  });
+
   it("an agent that doesn't say which PRs its conversation made: nothing is read for them", async () => {
     const s = session('feat/pr-scan-quiet');
     const src = path.join(tmp, 'q.jsonl');

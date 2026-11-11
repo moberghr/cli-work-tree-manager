@@ -899,6 +899,9 @@ export interface ShipPr {
   /** The host said which checks are required (GitHub's branch protection or rulesets, Azure DevOps' blocking
    *  policies), and `checks` counts only those: a repo's list in config (`prWatch.requiredChecks`) isn't applied. */
   checksRequiredByHost?: boolean;
+  /** `checks` is 'fail' and another check was still running then: once the failures turn out not to count (a repo's
+   *  list in config), the PR's checks are running, not passing. */
+  checksRunning?: true;
   /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or '' when the repo requires no review (gh's reviewDecision). */
   reviewDecision?: string;
   /** Its author's login: a session on someone else's PR (work on it, review it) isn't handed its threads or CI notes. */
@@ -1760,6 +1763,8 @@ export interface PrReviewWire {
   at: string;
   size: { files: number; added: number; deleted: number };
   files: ReviewFileWire[];
+  /** Files left out of the review altogether (`ignoredInReview`: designer files) — never diffed or read, only named. */
+  ignored?: Array<{ path: string; why: string; added: number; deleted: number }>;
   tests: {
     list: import('./review/test-breakdown.js').FoundTest[];
     counts: Record<import('./review/test-breakdown.js').TestChange, number>;

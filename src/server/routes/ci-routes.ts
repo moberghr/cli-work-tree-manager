@@ -9,7 +9,7 @@ import { findSession } from '../../core/sessions/web-state.js';
 import { defaultRunner } from '../../core/pr/ship.js';
 import { prWatchHostDeps, watchPreflight } from '../../core/pr/pr-watch-hosts.js';
 import { readStatus, turnInProgress } from '../../core/status/session-status.js';
-import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
+import { clickedPrUrl, createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
 import { lastConversationWriteMs } from '../../core/sessions/session-activity.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
 import type { WakeResult } from '../../core/pr/pr-watch.js';
@@ -157,7 +157,9 @@ export function mountCiRoutes(
   app.post('/api/sessions/:id/ci/fix', async (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    const sent = await watch.fixNow(id);
+    // The PR you clicked (`{url}`); an older dashboard sends none: then only your own failing PRs.
+    const url = clickedPrUrl(await c.req.json().catch(() => null));
+    const sent = await watch.fixNow(id, url);
     return sent ? c.json({ ok: true }) : c.json({ error: 'no failing checks right now' }, 409);
   });
 

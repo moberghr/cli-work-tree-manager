@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
-import { buildReview, summaryOf } from '../../core/review/review-build.js';
+import { buildReview, splitIgnored, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 import type {
   PrDiscussionWire,
@@ -200,7 +200,10 @@ const DEMO_ANSWER = JSON.stringify({
   },
 });
 
-const FILES: ParsedFile[] = parseGitDiff(DIFF);
+const ALL_FILES: ParsedFile[] = parseGitDiff(DIFF);
+/** As work web reads a PR: designer files left out of the review altogether (named apart). */
+const SPLIT = splitIgnored(ALL_FILES);
+const FILES: ParsedFile[] = SPLIT.files;
 
 /** The demo PR's diff, parsed (its review's diff view; tests render it). */
 export const demoReviewFiles = (): ParsedFile[] => FILES;
@@ -306,7 +309,7 @@ export function demoReview(now = new Date()): PrReviewWire {
       FILES,
       { whitespaceOnly: new Set(), generated: new Set() },
       DEMO_ANSWER,
-      { now },
+      { now, ignored: SPLIT.ignored },
     ),
     mergeBase: 'base',
     preparedAt: now.toISOString(),

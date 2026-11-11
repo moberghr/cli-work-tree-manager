@@ -5,7 +5,7 @@ import type { ActivityLog } from '../platform/activity.js';
 import type { KindRule } from './change-kinds.js';
 import type { PreparedPr } from './review-source.js';
 import type { ReviewTreeAt } from './review-tree.js';
-import { buildReview, kindsOf, reviewPrompt, type ReviewMeta } from './review-build.js';
+import { buildReview, kindsOf, linesWorthReading, reviewPrompt, splitIgnored, type ReviewMeta } from './review-build.js';
 import { carryForward, isStaleRunning, preparedOn } from './review-submit.js';
 import { DISCUSSION_OPEN_MIN_MS, discussionDue } from './review-discussion.js';
 
@@ -23,7 +23,8 @@ import { DISCUSSION_OPEN_MIN_MS, discussionDue } from './review-discussion.js';
  *   review prepared again (`carryForward`).
  * - Automatic reviews spend the user's agent plan: one at a time, at most
  *   `maxPerDay` a day when config sets one (one held by the cap is picked up
- *   when the day allows), and a PR over `maxLines` changed lines waits for a
+ *   when the day allows), and a PR over `maxLines` changed lines worth reading (generated and mechanical files
+ *   left out: `linesWorthReading`, counted once its diff is fetched) waits for a
  *   click — by the list's size, or, for a host whose list has none, the
  *   fetched diff's (`runNow` ignores both: the user asked).
  * - Who you are must be known: without it the project is left for that
@@ -192,6 +193,9 @@ export function upToDate(was: PrReviewWire | null, pr: OpenPr, now: Date, active
   if (!same) return false;
   if (was.status === 'queued') return false;
   if (was.status === 'waiting' && was.held === 'cap') return false;
+  // Held for its size by the list alone, never fetched (no files counted: from before the limit counted only the
+  // lines worth reading): fetched now, and held again only if those are over it.
+  if (was.status === 'waiting' && was.held === 'size' && !was.size.files) return false;
   if (was.status === 'running') return active || !isStaleRunning(was, now);
   return true;
 }
@@ -322,15 +326,21 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       }
       const added = prepared.files.reduce((n, f) => n + f.added, 0);
       const deleted = prepared.files.reduce((n, f) => n + f.deleted, 0);
+      const allFiles = prepared.files.length;
+      // Designer files are left out altogether: not read, not counted, only named on the overview.
+      const split = splitIgnored(prepared.files);
+      const prep = { ...prepared, files: split.files };
       const { maxLines } = deps.limits();
-      if (auto && added + deleted > maxLines) {
-        // A host whose list says nothing of size (Azure DevOps): the limit applies once the diff is fetched.
-        const why = `${added + deleted} changed lines: over the size limit (${maxLines}), so it waits for your click`;
-        setStatus(meta, 'waiting', why, { held: 'size', diffSize: { files: prepared.files.length, added, deleted } });
+      const rules = deps.rules?.();
+      // The limit counts what a reader reads: generated and mechanical files (a migration's designer) aren't.
+      const worth = linesWorthReading(prep.files, prep.extras, rules);
+      if (auto && worth > maxLines) {
+        const total = added + deleted;
+        const why = `${plural(worth, 'changed line')} to read${worth < total ? ` (of ${total})` : ''}: over the size limit (${maxLines}), so it waits for your click`;
+        setStatus(meta, 'waiting', why, { held: 'size', diffSize: { files: allFiles, added, deleted } });
         deps.changed();
         return { ok: false, error: why, held: true };
       }
-      const rules = deps.rules?.();
       // The fetched head (a push since the list moved it); the listed one stays what the next sweep compares.
       const at = { ...meta, headSha: prepared.headSha || meta.headSha };
       // What's already said on the PR, for the AI step and the tab; when it can't be read, the last read stays.
@@ -341,10 +351,11 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
           `${meta.repo} #${meta.number}: couldn't read its discussion (${read.why}); ${discussion ? 'the last read stays' : 'none shown'}`,
           'warn',
         );
-      const { answer, how } = await aiStep(project, at, prepared, rules, discussion);
+      const { answer, how } = await aiStep(project, at, prep, rules, discussion);
       const fresh: PrReviewWire = {
-        ...buildReview(at, prepared.files, prepared.extras, answer, {
+        ...buildReview(at, prep.files, prep.extras, answer, {
           rules,
+          ignored: split.ignored,
           now: now(),
           notAskedWhy: deps.agent ? undefined : 'no agent for the AI step: stories are by folder',
         }),
@@ -371,7 +382,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
   async function sweepNow(): Promise<void> {
     const run = deps.activity?.start('reviews', 'Preparing PR reviews');
     const note = (text: string, level: 'info' | 'action' | 'warn' = 'info') => run?.note(text, { level });
-    const { maxPerDay, maxLines } = deps.limits();
+    const { maxPerDay } = deps.limits();
     const asked: string[] = [];
     const open = new Set<string>();
     const paths = new Map<string, string>();
@@ -419,15 +430,9 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
             continue;
           }
           const meta = metaOf(project.alias, host, pr);
-          const lines = pr.additions + pr.deletions;
-          if (lines > maxLines) {
-            setStatus(meta, 'waiting', `${lines} changed lines: over the size limit (${maxLines}), so it waits for your click`, {
-              size: pr,
-              held: 'size',
-            });
-            note(`${project.alias} #${pr.number}: ${lines} lines, waits for a click`);
-            continue;
-          }
+          // Over the limit as listed: prepared all the same, and held after the fetch only when the lines worth
+          // reading are (generated files — a migration's designer — don't count; the list can't tell them apart).
+          // A head held so stays held (`upToDate`): one fetch per push.
           if (was?.status === 'running') note(`${project.alias} #${pr.number}: left preparing by a run that stopped; again`, 'warn');
           setStatus(meta, 'queued', null, { size: pr });
           todo.push({ project, meta, pr });

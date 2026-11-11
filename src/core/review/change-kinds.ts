@@ -278,6 +278,18 @@ export function globToRegExp(glob: string): RegExp {
   return out;
 }
 
+/**
+ * Files a review leaves out altogether — not listed, not diffed, not given to the AI step, not counted against the
+ * size limit — only named, with how many lines, on the overview: a designer file (`*.Designer.cs`: an EF migration's
+ * is thousands of lines of model snapshot, a form's or a resource's is the tool's own) is never read (reported). Pure.
+ */
+export const IGNORED_IN_REVIEW: ReadonlyArray<{ name: string; paths: string[] }> = [{ name: 'designer file', paths: ['*.Designer.cs'] }];
+
+/** Why a review leaves this file out (the rule's name), or null when it reads it. */
+export function ignoredInReview(path: string): string | null {
+  return IGNORED_IN_REVIEW.find((r) => r.paths.some((g) => globToRegExp(g).test(path)))?.name ?? null;
+}
+
 const pathMatches = (rule: KindRule, path: string) => (rule.paths ?? []).some((g) => globToRegExp(g).test(path));
 
 function contentMatches(rule: KindRule, lines: string[]): boolean {

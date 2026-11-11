@@ -8,6 +8,7 @@ import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../../core/comments/comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
 import { markedTurn, nextSeen } from '../../core/diff/diff-looks.js';
+import { clickedPrUrl } from '../../core/pr/pr-watch.js';
 import type {
   AgentsWire,
   RestartWire,
@@ -386,10 +387,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const d = scenario.ci(c.req.param('id'));
     return d ? c.json(d) : notFound(c);
   });
-  app.post('/api/sessions/:id/ci/fix', (c) => {
+  app.post('/api/sessions/:id/ci/fix', async (c) => {
     const id = c.req.param('id');
     if (!scenario.ci(id)) return notFound(c);
-    return scenario.fixCi(id) ? c.json({ ok: true }) : c.json({ error: 'no failing checks right now' }, 409);
+    const url = clickedPrUrl(await c.req.json().catch(() => null));
+    return scenario.fixCi(id, url) ? c.json({ ok: true }) : c.json({ error: 'no failing checks right now' }, 409);
   });
 
   app.get('/api/sessions/:id/dev', (c) => {

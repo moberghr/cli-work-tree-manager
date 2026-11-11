@@ -11,6 +11,7 @@ import type { WorktreeSession } from '../sessions/session-types.js';
 import type { ConversationHit } from '../api-types.js';
 import type { ConversationPrLink } from '../agents/types.js';
 import { noteSessionPrs, readSessionPrs } from '../pr/session-prs.js';
+import { report } from '../platform/report.js';
 
 /**
  * work's own copy of every session's Claude conversations, at
@@ -135,21 +136,43 @@ async function notePrLinks(
   prLinks: (text: string) => ConversationPrLink[],
 ): Promise<number> {
   if (s.archivedAt) return 0;
-  const whole = !readSessionPrs(id)?.scanned;
+  const whole = rescanPrLinks.has(id) || !readSessionPrs(id)?.scanned;
   const links = [...found];
+  // Scanned only when every file of the copy was read: one that couldn't be is read again next time.
+  let readAll = true;
   if (whole) {
     // Read off the event loop, one file at a time (a long session's copy is tens of megabytes).
-    const names = await fs.promises.readdir(dir).catch(() => [] as string[]);
+    const names = await fs.promises.readdir(dir).catch((err: NodeJS.ErrnoException) => {
+      if (err.code !== 'ENOENT') readAll = false;
+      return [] as string[];
+    });
     for (const n of names.filter((x) => x.endsWith('.jsonl') || x.endsWith('.jsonl.gz'))) {
       try {
         const buf = await fs.promises.readFile(path.join(dir, n));
         links.push(...prLinks((n.endsWith('.gz') ? await gunzip(buf) : buf).toString('utf8')));
-      } catch {
-        /* vanished or damaged: its later lines still come in as they are copied */
+      } catch (err) {
+        // Vanished (packed meanwhile, or gone): its lines are in the other file or nowhere. Anything else: again.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') readAll = false;
       }
     }
   }
   if (!links.length && !whole) return 0;
+  try {
+    notedPrLinks(id, links, whole && readAll);
+  } catch (err) {
+    // The new lines are copied already, so the next sync won't see them again: it reads the whole copy instead.
+    rescanPrLinks.add(id);
+    report('warn', `couldn't keep the PRs named in ${id}'s conversation (${(err as Error).message}); read again at the next sync`);
+    return 0;
+  }
+  if (whole && readAll) rescanPrLinks.delete(id);
+  return new Set(links.map((l) => l.url)).size;
+}
+
+/** Sessions whose PR links couldn't be kept: their whole copy is read again at the next sync (this process's memory). */
+const rescanPrLinks = new Set<string>();
+
+function notedPrLinks(id: string, links: ConversationPrLink[], scanned: boolean): void {
   noteSessionPrs(
     id,
     links.map((l) => ({
@@ -160,9 +183,8 @@ async function notePrLinks(
       ...(l.at ? { at: l.at } : {}),
     })),
     new Date(),
-    whole ? { scanned: true } : {},
+    scanned ? { scanned: true } : {},
   );
-  return new Set(links.map((l) => l.url)).size;
 }
 
 /** A copy kept gzipped: its time is the conversation's last write, so a newer source means it went on. */

@@ -312,7 +312,7 @@ function Checks({ sessionId, s }: { sessionId: string; s: PrSection }) {
             onClick={() => {
               setState('sending');
               setError(null);
-              askClaudeToFixCi(sessionId).then(
+              askClaudeToFixCi(sessionId, s.url).then(
                 () => setState('sent'),
                 (e: Error) => {
                   setError(e.message);

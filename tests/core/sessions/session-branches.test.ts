@@ -15,11 +15,14 @@ import {
   otherBranchesToWatch,
   readSessionBranches,
   recordCheckedOutBranches,
+  sightingStart,
   withSightings,
   type SessionBranches,
 } from '../../../src/core/sessions/session-branches.js';
 import {
   branchLogChangedSince,
+  branchStart,
+  branchUpstream,
   branchesFromReflog,
   checkoutBranchHistory,
   parseReflogLine,
@@ -44,6 +47,18 @@ const git = (cwd: string, ...args: string[]) =>
 const T0 = new Date('2026-11-01T10:00:00Z');
 
 describe('withSightings (pure)', () => {
+  it('a sighting carries a start only when the reflog moved; one with none keeps the stored start (two processes)', () => {
+    // Not stale: nothing read, nothing carried — the record read before the write may be older than the stored row.
+    let reads = 0;
+    expect(sightingStart(false, () => (reads++, 'aaa'))).toBeUndefined();
+    expect(reads).toBe(0);
+    expect(sightingStart(true, () => 'bbb')).toBe('bbb');
+    // Another process stored a newer start meanwhile: a sighting with no start leaves it as it is.
+    const stored = withSightings(null, [{ repo: 'api', name: 'feat/x', start: 'newer' }], T0);
+    const after = withSightings(stored, [{ repo: 'api', name: 'feat/x' }], new Date(T0.getTime() + 60_000));
+    expect(after.branches[0].start).toBe('newer');
+  });
+
   it('appends a new branch, widens a known one, and writes nothing when nothing moved', () => {
     const one = withSightings(null, [{ repo: 'api', name: 'feat/x', from: 'origin/dev' }], T0);
     expect(one.branches).toEqual([
@@ -167,7 +182,69 @@ describe("where a branch's own work begins (its reflog, pure)", () => {
     expect(startFromReflog([...made, l('3', 'merge origin/dev: Fast-forward')], 'fix/x')).toBe(sha('3'));
     // Not told its name: as before, every fast-forward moves it.
     expect(startFromReflog([...made, l('3', 'merge origin/fix/x: Fast-forward')])).toBe(sha('3'));
+    // Options aren't refs: `pull --quiet origin fix/x` is its own copy.
+    expect(startFromReflog([...made, l('3', 'pull --quiet origin fix/x: Fast-forward')], 'fix/x')).toBe(sha('1'));
+    // A pull naming no ref took its upstream: its own copy when it tracks its own name, else (origin/main) a move.
+    expect(startFromReflog([...made, l('3', 'pull --quiet: Fast-forward')], 'fix/x', 'fix/x')).toBe(sha('1'));
+    expect(startFromReflog([...made, l('3', 'pull --quiet: Fast-forward')], 'fix/x', 'main')).toBe(sha('3'));
+    expect(startFromReflog([...made, l('3', 'pull --quiet: Fast-forward')], 'fix/x')).toBe(sha('3'));
   });
+
+  it('a pull that rebased (pull.rebase set: `pull --quiet (finish)`) moves the start onto what it replayed on', () => {
+    const made = [l('1', 'branch: Created from origin/main'), l('2', 'commit: a')];
+    expect(startFromReflog([...made, l('3', `pull --quiet (finish): refs/heads/fix/y onto ${sha('9')}`)], 'fix/y')).toBe(sha('9'));
+    expect(startFromReflog([...made, l('3', `pull (finish): refs/heads/fix/y onto ${sha('9')}`)], 'fix/y')).toBe(sha('9'));
+  });
+
+  it('branchUpstream: branch.<name>.merge from the config file, refs/heads/ taken off; none → null', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reflog-up-'));
+    try {
+      fs.writeFileSync(
+        path.join(dir, 'config'),
+        '[core]\n\tbare = false\n[branch "fix/x"]\n\tremote = origin\n\tmerge = refs/heads/fix/x\n[branch "fix/y"]\n\tmerge = refs/heads/main\n',
+      );
+      expect(branchUpstream(dir, 'fix/x')).toBe('fix/x');
+      expect(branchUpstream(dir, 'fix/y')).toBe('main');
+      expect(branchUpstream(dir, 'fix/z')).toBeNull();
+      expect(branchUpstream(path.join(dir, 'none'), 'fix/x')).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("real git: work's own `git pull --quiet` — a fast-forward from its own copy, and a rebase with pull.rebase", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'reflog-pull-'));
+    try {
+      const o = path.join(base, 'o');
+      const a = path.join(base, 'a');
+      const b = path.join(base, 'b');
+      git(base, 'init', '-q', '--bare', '-b', 'main', o);
+      git(base, 'clone', '-q', o, a);
+      git(a, 'commit', '-q', '--allow-empty', '-m', 'base');
+      git(a, 'push', '-q', 'origin', 'main');
+      // fix/x: pushed, tracking its own name; a colleague pushes to it; `git pull --quiet` fast-forwards.
+      git(a, 'switch', '-q', '-c', 'fix/x');
+      const made = git(a, 'rev-parse', 'HEAD');
+      git(a, 'commit', '-q', '--allow-empty', '-m', 'mine');
+      git(a, 'push', '-q', '-u', 'origin', 'fix/x');
+      git(base, 'clone', '-q', o, b);
+      git(b, 'switch', '-q', 'fix/x');
+      git(b, 'commit', '-q', '--allow-empty', '-m', 'colleague');
+      git(b, 'push', '-q', 'origin', 'fix/x');
+      git(a, 'pull', '--quiet');
+      expect(branchStart(path.join(a, '.git'), 'fix/x')).toBe(made); // its own earlier commit stays its work
+      // fix/y: tracking origin/main (as work's new branches do), pull.rebase on; main moves; `git pull --quiet` rebases.
+      git(a, 'switch', '-q', '-c', 'fix/y', '--track', 'origin/main');
+      git(a, 'commit', '-q', '--allow-empty', '-m', 'my-y');
+      git(b, 'switch', '-q', 'main');
+      git(b, 'commit', '-q', '--allow-empty', '-m', 'main-moves');
+      git(b, 'push', '-q', 'origin', 'main');
+      git(a, '-c', 'pull.rebase=true', 'pull', '--quiet');
+      expect(branchStart(path.join(a, '.git'), 'fix/y')).toBe(git(a, 'rev-parse', 'origin/main')); // main's commit isn't its work
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   it('branchLogChangedSince: a stat against the time given; unknown (no file, a bad date) is changed', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reflog-stat-'));

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { checksFromRollup, failingFromRollup } from '../../../src/core/hosts/github/pr-ops.js';
+import { checksFromRollup, failingFromRollup, rollupRunning } from '../../../src/core/hosts/github/pr-ops.js';
 import { mergeBlockers, mergeSelected, runShipAction, shipPreflight, type CommandRunner } from '../../../src/core/pr/ship.js';
 import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 
@@ -122,6 +122,17 @@ describe('checksFromRollup', () => {
     expect(checksFromRollup([{ status: 'IN_PROGRESS' }, { conclusion: 'FAILURE', status: 'COMPLETED' }])).toBe('fail');
     expect(checksFromRollup([{ state: 'PENDING' }])).toBe('pending');
   });
+
+  it('rollupRunning: a check still running beside a failure (what the failure hides)', () => {
+    expect(rollupRunning([{ status: 'IN_PROGRESS' }, { conclusion: 'FAILURE', status: 'COMPLETED' }])).toBe(true);
+    expect(
+      rollupRunning([
+        { conclusion: 'SUCCESS', status: 'COMPLETED' },
+        { conclusion: 'FAILURE', status: 'COMPLETED' },
+      ]),
+    ).toBe(false);
+    expect(rollupRunning(null)).toBe(false);
+  });
 });
 
 describe('preflight', () => {
@@ -129,6 +140,22 @@ describe('preflight', () => {
     const { run } = fakeRunner({ [P('api')]: ready() });
     const [r] = (await shipPreflight(single(), run)).repos;
     expect(r).toMatchObject({ hasUpstream: true, tracksRemote: true, ahead: 0, done: false, mergeBlockers: [] });
+  });
+
+  it("the repo's checks list by its alias (its folder named otherwise); an optional failure beside a running check reads running", async () => {
+    // The session's repo is alias `backend` checked out in a folder named `api`: the list is found by the alias.
+    const s = { ...single(), target: 'backend' };
+    const rollup = [
+      { name: 'OWASP', conclusion: 'FAILURE', status: 'COMPLETED' },
+      { name: 'Test', status: 'IN_PROGRESS' },
+    ];
+    const { run } = fakeRunner({ [P('api')]: ready({ pr: pr({ statusCheckRollup: rollup }) }) });
+    const [r] = (await shipPreflight(s, run, { requiredChecks: { backend: ['Test'] } })).repos;
+    expect(r.pr).toMatchObject({ checks: 'pending', optionalFailing: [{ name: 'OWASP' }] });
+    expect(r.mergeBlockers.join(' ')).toMatch(/running|pending/i);
+    // Not under its alias nor its folder: every check counts.
+    const [other] = (await shipPreflight(s, run, { requiredChecks: { elsewhere: ['Test'] } })).repos;
+    expect(other.pr?.checks).toBe('fail');
   });
 
   it('reads the review decision with the PR (the PR stage: in review, approved), in the same gh call', async () => {
@@ -369,6 +396,35 @@ describe('mergeSelected', () => {
     const out = await mergeSelected(single(), [{ name: 'api', headSha: SHA }], 'rebase', f.run);
     expect(out).toMatchObject({ mergedAny: true, allDone: true });
     expect(f.merges()[0].args).toEqual(['pr', 'merge', '12', '--rebase', '--match-head-commit', SHA]);
+  });
+
+  it('a PR of the session still open in another repo keeps it from being done (the preflight it is given)', async () => {
+    const f = fakeRunner({ [P('api')]: ready() });
+    const withDocs = async (s: Parameters<typeof shipPreflight>[0], run: CommandRunner) => ({
+      ...(await shipPreflight(s, run)),
+      elsewhere: [
+        {
+          repo: 'kvika/docs',
+          pr: {
+            number: 87,
+            url: 'u/87',
+            state: 'OPEN' as const,
+            isDraft: false,
+            mergeStateStatus: 'CLEAN',
+            checks: 'pass' as const,
+            headSha: 'd',
+          },
+        },
+      ],
+    });
+    const out = await mergeSelected(single(), [{ name: 'api', headSha: SHA }], 'squash', f.run, withDocs);
+    expect(out).toMatchObject({ mergedAny: true, allDone: false });
+    const unknown = async (s: Parameters<typeof shipPreflight>[0], run: CommandRunner) => ({
+      ...(await shipPreflight(s, run)),
+      unknownPrs: ['api#3644: HTTP 502'],
+    });
+    const f2 = fakeRunner({ [P('api')]: ready() });
+    expect(await mergeSelected(single(), [{ name: 'api', headSha: SHA }], 'squash', f2.run, unknown)).toMatchObject({ allDone: false });
   });
 
   it('refuses when the PR moved after the user looked (someone pushed)', async () => {

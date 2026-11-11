@@ -27,12 +27,12 @@ export function countedChecks(pr: ShipPr, required: readonly string[] | null): S
   const counted = failing.filter((f) => want.has(f.name.toLowerCase()));
   const optional = failing.filter((f) => !want.has(f.name.toLowerCase()));
   if (!optional.length) return pr;
-  const { failing: _f, ...rest } = pr;
+  const { failing: _f, checksRunning: _r, ...rest } = pr;
   return {
     ...rest,
-    // Only failures were listed: with none of the counted ones failing, the rest passed or are still running —
-    // read as passing (a running one shows again as running once it fails or the host says so).
-    checks: counted.length ? 'fail' : 'pass',
+    // With none of the counted ones failing, the rest passed — or some still run (`checksRunning`, the host said so
+    // beside the failure): then the PR's checks are running, never "passing" while one that counts may yet fail.
+    checks: counted.length ? 'fail' : pr.checksRunning ? 'pending' : 'pass',
     ...(counted.length ? { failing: counted } : {}),
     optionalFailing: [...(pr.optionalFailing ?? []), ...optional],
   };

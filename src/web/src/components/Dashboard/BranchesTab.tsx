@@ -26,7 +26,11 @@ export function BranchesTab({
   useEffect(() => {
     let live = true;
     fetchSessionHistory(session.id).then(
-      (h) => live && setHistory({ entries: h.entries, commits: h.commits }),
+      (h) => {
+        if (!live) return;
+        setHistory({ entries: h.entries, commits: h.commits });
+        setError(null); // a read that failed before doesn't hide this one
+      },
       (e: Error) => live && setError(e.message),
     );
     return () => {

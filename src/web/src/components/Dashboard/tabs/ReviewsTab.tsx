@@ -21,7 +21,15 @@ import { useSse } from '../../../api/events.js';
 import { timeAgo } from '../../../utils/time.js';
 import { ReviewProvider } from '../../../state/ReviewProvider.js';
 import { ResizeDivider, useResizableSize, type ResizeSpec } from '../../Layout/ResizeDivider.js';
-import { commentWalk, fixingLines, fixMyselfBlocked, groupReviews, pendingDrafts, reviewPages } from '../../../state/review-view.js';
+import {
+  commentWalk,
+  fixingLines,
+  fixMyselfBlocked,
+  groupReviews,
+  notPreparedLine,
+  pendingDrafts,
+  reviewPages,
+} from '../../../state/review-view.js';
 import type { ReviewRoute } from '../../../state/dashboard-route.js';
 import { reviewActionFor } from '../../../state/shortcuts.js';
 import { modalOpen } from '../../../state/modal-open.js';
@@ -497,6 +505,7 @@ function ReviewView({
         )}
       </header>
 
+      {!ready && <p className="wd-start-note wd-review-not-prepared">{notPreparedLine(r)}</p>}
       {ready && (
         <ReviewProvider key={draftsKey} api={api}>
           <HostThreadsProvider value={hostThreads}>

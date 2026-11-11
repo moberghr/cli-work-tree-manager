@@ -201,7 +201,11 @@ export function inShort(r: PrReviewWire): { summary: string } | { bullets: strin
 }
 
 /** The overview's folded line: what isn't worth reading — generated files, translations, mechanical changes — and the files. */
-export function notWorthReading(r: PrReviewWire): { line: string; files: ReviewFileWire[] } | null {
+export function notWorthReading(
+  r: PrReviewWire,
+): { line: string; files: ReviewFileWire[]; ignored: NonNullable<PrReviewWire['ignored']> } | null {
+  // Left out of the review altogether (designer files): named here, never diffed.
+  const ignored = r.ignored ?? [];
   const generated = r.files.filter((f) => f.kind === 'generated');
   const translations = r.files.filter((f) => f.kind === 'mechanical' && /translation|resource/i.test(f.why));
   const mechanical = r.files.filter((f) => f.kind === 'mechanical' && !translations.includes(f));
@@ -209,9 +213,10 @@ export function notWorthReading(r: PrReviewWire): { line: string; files: ReviewF
     generated.length ? `${generated.length} generated` : '',
     translations.length ? `${translations.length} translation${translations.length === 1 ? '' : 's'}` : '',
     mechanical.length ? `${mechanical.length} mechanical` : '',
+    ignored.length ? `${ignored.length} designer file${ignored.length === 1 ? '' : 's'} left out` : '',
   ].filter(Boolean);
   if (!parts.length) return null;
-  return { line: parts.join(' · '), files: [...generated, ...translations, ...mechanical] };
+  return { line: parts.join(' · '), files: [...generated, ...translations, ...mechanical], ignored };
 }
 
 /** The drafts that would go out with the review (not posted yet). */
@@ -401,6 +406,28 @@ export function groupReviews(
  * rule (`fixStateRefusal`, shared: a fork's branch isn't on origin; a submit in doubt or under way, or a Fix it myself
  * making its session, speaks for the drafts; a new push being prepared), or nothing to take off.
  */
+/**
+ * What the page says where a review would be, while none is prepared (reported: a PR held for its size opened on a
+ * blank page): why, and what you can do — Prepare it now, or the verdict buttons below, which need nothing prepared.
+ * Null once it's ready. Pure.
+ */
+export function notPreparedLine(r: Pick<PrReviewWire, 'status' | 'held' | 'why'>): string | null {
+  switch (r.status) {
+    case 'ready':
+      return null;
+    case 'queued':
+      return 'In line to be prepared: it shows here once it is.';
+    case 'running':
+      return 'Being prepared: its stories and comments show here when it’s done.';
+    case 'failed':
+      return `Preparing it failed${r.why ? ` (${r.why})` : ''}. Prepare it now tries again; you can still approve or comment below.`;
+    case 'waiting':
+      return r.held === 'cap'
+        ? 'Not prepared yet: the day’s automatic reviews are done. Prepare it now reads it anyway; you can still approve or comment below.'
+        : 'Not prepared: it changes more lines to read than the size limit lets a sweep take by itself (Settings → Reviews). Prepare it now reads it anyway; you can still approve or comment below.';
+  }
+}
+
 export function fixMyselfBlocked(r: PrReviewWire, now: Date = new Date()): string | null {
   const why = fixStateRefusal(r, now)?.error;
   if (why) return why.charAt(0).toUpperCase() + why.slice(1);

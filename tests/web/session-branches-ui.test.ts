@@ -147,6 +147,8 @@ describe('the Diff tab: everything the session worked on, by branch', () => {
     const items = allHistoryItems(turns, all, null, turnBranch);
     expect(items.at(-1)?.branch).toBe('feat/webhook-improvements'); // the other branch's turns come last in the list
     expect(lastTurn(items)).toMatchObject({ fromKey: 't:3', toKey: 't:3' });
+    // Picked, it keeps its name: the button says "Last turn", not the turn's tag.
+    expect(selectionLabel(items, lastTurn(items)!)).toBe('Last turn');
   });
 
   it("a branch with turns and no commits: its All of it starts at the commit it was at, never at the branch before's turn", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildReview, kindsOf, reviewPrompt } from '../../../src/core/review/review-build.js';
+import { buildReview, kindsOf, reviewPrompt, splitIgnored } from '../../../src/core/review/review-build.js';
+import { ignoredInReview } from '../../../src/core/review/change-kinds.js';
 import { parseGitDiff } from '../../../src/core/diff/diff-parse.js';
 
 /**
@@ -228,5 +229,39 @@ describe('a big PR read right', () => {
     expect(r.tests.gaps).not.toContain(RESX);
     expect(r.tests.gaps).not.toContain(BUILDER);
     expect(r.tests.covers[BUILDER]).toBeUndefined();
+  });
+});
+
+describe('designer files are left out of the review altogether (reported)', () => {
+  const diff = (path: string, lines: number) =>
+    `diff --git a/${path} b/${path}\nnew file mode 100644\nindex 0000000..1\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,${lines} @@\n${Array.from({ length: lines }, (_, i) => `+l${i}`).join('\n')}\n`;
+  const files = parseGitDiff(
+    diff('src/Migrator/Migrations/20261106_AddTerms.Designer.cs', 5) +
+      diff('src/Web/Forms/Main.Designer.cs', 2) +
+      diff('src/Payments/TermsLink.cs', 3),
+  );
+
+  it('ignoredInReview: any *.Designer.cs, nothing else', () => {
+    expect(ignoredInReview('src/Migrator/Migrations/20261106_AddTerms.Designer.cs')).toBe('designer file');
+    expect(ignoredInReview('Resources/Strings.Designer.cs')).toBe('designer file');
+    expect(ignoredInReview('src/Payments/TermsLink.cs')).toBeNull();
+    expect(ignoredInReview('src/Designer.cs.md')).toBeNull();
+  });
+
+  it('splitIgnored keeps the rest; buildReview names the left-out ones apart and counts them in the size only', () => {
+    const split = splitIgnored(files);
+    expect(split.files.map((f) => f.path)).toEqual(['src/Payments/TermsLink.cs']);
+    expect(split.ignored.map((f) => [f.path, f.added])).toEqual([
+      ['src/Migrator/Migrations/20261106_AddTerms.Designer.cs', 5],
+      ['src/Web/Forms/Main.Designer.cs', 2],
+    ]);
+    const meta = { repo: 'api', number: 1, title: 't', url: 'u', author: 'a', branch: 'b', base: 'main', headSha: 'h' };
+    const r = buildReview(meta, split.files, { whitespaceOnly: new Set(), generated: new Set() }, undefined, { ignored: split.ignored });
+    expect(r.files.map((f) => f.path)).toEqual(['src/Payments/TermsLink.cs']);
+    expect(r.ignored).toHaveLength(2);
+    expect(r.size).toEqual({ files: 3, added: 10, deleted: 0 });
+    // Nothing of them reaches the AI step's prompt.
+    const prompt = reviewPrompt(meta, split.files, kindsOf(split.files, { whitespaceOnly: new Set(), generated: new Set() }));
+    expect(prompt ?? '').not.toContain('Designer.cs');
   });
 });

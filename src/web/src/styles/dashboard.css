@@ -7094,3 +7094,9 @@ button.wd-review-filerow-current:hover:not(:disabled) {
     grid-column: 1;
   }
 }
+
+/* Where a review would be, while none is prepared: why, and what to do. */
+.wd-review-not-prepared {
+  margin: 16px;
+  max-width: 80ch;
+}

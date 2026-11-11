@@ -124,7 +124,7 @@ describe('demo mode is separated from the real machinery', () => {
   });
 
   it('every dashboard route of the real server is implemented by the demo', () => {
-    const ROUTE = /app\.(get|post|patch|delete)\(\s*['"]([^'"]+)['"]/g;
+    const ROUTE = /app\.(get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g;
     const routes = (files: string[]) =>
       new Set(files.flatMap((f) => [...read(f).matchAll(ROUTE)].map((m) => `${m[1].toUpperCase()} ${m[2]}`)));
     // Every route module, not a hand list: a new *-routes.ts is covered the

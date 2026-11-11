@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import { getConfigPath } from '../platform/config.js';
 import { editConfig, RepoAdminError } from '../worktree/repo-admin.js';
+import path from 'node:path';
 import { hostForRepo } from '../hosts/index.js';
+import { chooseWorktreesRoot, expandHome } from '../worktree/worktrees-root.js';
 import { hostName } from '../hosts/commands.js';
 import type { RepoSettingsWire, SettingsWire } from '../api-types.js';
 import type { SettingsSource } from './settings-source.js';
@@ -54,25 +56,55 @@ export async function writeSetting(path: string, value: unknown): Promise<Settin
   if (!field) throw new SettingsError(`no setting ${path}`, 404);
   const checked = checkSetting(field, value);
   if (!checked.ok) throw new SettingsError(`${field.label}: ${checked.error}`);
-  // The worktrees folder can't be taken away: everything is made under it.
-  if (path === 'worktreesRoot' && checked.value === null) throw new SettingsError('Worktrees folder: a folder is needed');
-  await editConfig((raw) => setValueAt(raw, path, checked.value)).catch((err: unknown) => {
+  const toWrite = checkedFolders(path, checked.value);
+  await editConfig((raw) => setValueAt(raw, path, toWrite)).catch((err: unknown) => {
     throw err instanceof RepoAdminError ? new SettingsError(err.message) : err;
   });
   return readSettings();
+}
+
+/**
+ * The folders as `work init` takes them: `~` for the home folder, a full path, made (the worktrees folder) or there
+ * (a folder to scan). Others are as checked. Throws why not.
+ */
+function checkedFolders(at: string, value: unknown): unknown {
+  if (at === 'worktreesRoot' && typeof value === 'string') {
+    const got = chooseWorktreesRoot(value);
+    if ('problem' in got) throw new SettingsError(`Worktrees folder: ${got.problem}`);
+    return got.root;
+  }
+  if (at === 'scanRoots' && Array.isArray(value))
+    return value.map((v: string) => {
+      const p = expandHome(v);
+      if (!path.isAbsolute(p))
+        throw new SettingsError(`Folders scanned for repos: ${v} isn't a full path (start it from the drive, / or ~)`);
+      const full = path.resolve(p);
+      if (!fs.statSync(full, { throwIfNoEntry: false })?.isDirectory())
+        throw new SettingsError(`Folders scanned for repos: ${full} isn't a folder`);
+      return full;
+    });
+  return value;
+}
+
+/** A repo's origin without what it may carry to sign in (`https://user:token@host/…`): never on the page. Pure. */
+export function originShown(origin: string | null): string | null {
+  if (!origin) return null;
+  return origin.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, '$1');
 }
 
 /** A repo's settings, with what is known of it (its folder, origin and host). */
 export function readRepoSettings(alias: string): RepoSettingsWire {
   const raw = rawConfig();
   const repos = valueAt(raw, 'repos');
-  const repoPath = repos && typeof repos === 'object' ? (repos as Record<string, unknown>)[alias] : undefined;
+  // Own keys only: `constructor` isn't a repo.
+  const repoPath =
+    repos && typeof repos === 'object' && Object.hasOwn(repos, alias) ? (repos as Record<string, unknown>)[alias] : undefined;
   if (typeof repoPath !== 'string') throw new SettingsError(`${alias} isn't one of your repos`, 404);
   let origin: string | null = null;
   let host: string | null = null;
   try {
     const found = hostForRepo(repoPath);
-    origin = found.origin;
+    origin = originShown(found.origin);
     host = hostName(found.host.id);
   } catch {
     /* a folder that's gone: its settings still show */
@@ -82,12 +114,12 @@ export function readRepoSettings(alias: string): RepoSettingsWire {
 
 /** Change one of a repo's settings (`null`: take it out). */
 export async function writeRepoSetting(alias: string, key: string, value: unknown): Promise<RepoSettingsWire> {
-  if (!(key in REPO_SETTING_PATH)) throw new SettingsError(`no repo setting ${key}`, 404);
+  if (!Object.hasOwn(REPO_SETTING_PATH, key)) throw new SettingsError(`no repo setting ${key}`, 404);
   const k = key as RepoSettingKey;
   const checked = checkRepoSetting(k, value);
   if (!checked.ok) throw new SettingsError(checked.error);
   await editConfig((raw) => {
-    if (!raw.repos?.[alias]) throw new RepoAdminError(`${alias} isn't one of your repos`);
+    if (!raw.repos || !Object.hasOwn(raw.repos, alias) || !raw.repos[alias]) throw new RepoAdminError(`${alias} isn't one of your repos`);
     // The map under its path, keyed by the alias (not a dotted path: an alias may hold a dot).
     const at = valueAt(raw, REPO_SETTING_PATH[k]);
     const map = at && typeof at === 'object' && !Array.isArray(at) ? { ...(at as Record<string, unknown>) } : {};

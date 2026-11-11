@@ -338,6 +338,11 @@ describe('review routes', () => {
     expect((await req('GET', '/api/reviews/api/231/diff')).status).toBe(200);
     expect(diff).toHaveBeenCalledWith('/repos/api', 'base', 231);
     expect((await req('GET', '/api/reviews/web/1/diff')).status).toBe(404);
+    // Designer files aren't sent: the review leaves them out (one is thousands of lines).
+    const file = (path: string) => ({ path, status: 'added', added: 1, deleted: 0, hunks: [] });
+    const withDesigner = setup({ diff: async () => [file('src/M/X.Designer.cs'), file('src/A.cs')] as never });
+    const got = (await (await withDesigner.req('GET', '/api/reviews/api/231/diff')).json()) as { files: Array<{ path: string }> };
+    expect(got.files.map((f) => f.path)).toEqual(['src/A.cs']);
     const gone = setup({ diff: async () => null }); // the fetched code is gone
     expect((await gone.req('GET', '/api/reviews/api/231/diff')).status).toBe(409);
   });

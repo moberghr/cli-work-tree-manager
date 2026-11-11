@@ -1,6 +1,7 @@
 import { whileRestoring } from '../../core/archive/archiving.js';
 import type { Hono } from 'hono';
 import { findSession } from '../../core/sessions/web-state.js';
+import { shipPreflightWithListed } from '../../core/pr/pr-watch-hosts.js';
 import { setSessionArchived, setSessionTitle } from '../../core/sessions/history.js';
 import { loadConfig } from '../../core/platform/config.js';
 import { archiveSession, restoreArchivedTranscripts } from '../../core/archive/session-archive.js';
@@ -174,7 +175,9 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     if (!selection) {
       return c.json({ error: 'merge needs repos: [{ name, headSha }] — the PR heads you reviewed' }, 400);
     }
-    const outcome = await mergeSelected(session, selection, (body.method as MergeMethod) ?? 'squash', opts.run);
+    const outcome = await mergeSelected(session, selection, (body.method as MergeMethod) ?? 'squash', opts.run, (s, run) =>
+      shipPreflightWithListed(s, run),
+    );
     opts.onRepoChanged?.(id);
     let archived = false;
     if (outcome.mergedAny && outcome.allDone) {

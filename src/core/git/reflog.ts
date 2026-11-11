@@ -140,7 +140,7 @@ export function branchCreatedFrom(commonDir: string, name: string, movedFrom?: s
  * colleague's commits on the same branch are its work too). `name`: the branch's own name; without it every
  * fast-forward moves the start.
  */
-export function startFromReflog(lines: ReflogLine[], name?: string): string | null {
+export function startFromReflog(lines: ReflogLine[], name?: string, upstream?: string | null): string | null {
   let start: string | null = null;
   // The commits the branch itself was at since its start: a move back onto one of them is within its own work.
   let own = new Set<string>();
@@ -151,25 +151,62 @@ export function startFromReflog(lines: ReflogLine[], name?: string): string | nu
   };
   for (const l of lines) {
     const onto = /\bonto ([0-9a-f]{40,64})\s*$/.exec(l.message);
-    if (onto && /^(?:rebase|pull --rebase)\b.*\((?:finish)\)|^rebase finished/.test(l.message)) moveTo(onto[1]);
+    // `rebase (finish)`, `pull --rebase (finish)`, and `pull --quiet (finish)` — a plain pull with pull.rebase set
+    // (work's own re-entry pull) — all replay the branch onto what follows `onto`.
+    if (onto && /^(?:rebase|pull)\b[^:]*\(finish\)|^rebase finished/.test(l.message)) moveTo(onto[1]);
     else if (l.sha && createdFromLine(l.message) !== null) {
       start = l.sha;
       own = new Set([l.sha]);
-    } else if (l.sha && /: Fast-forward\b/.test(l.message) && !fromItsOwnCopy(l.message, name)) moveTo(l.sha);
+    } else if (l.sha && /: Fast-forward\b/.test(l.message) && !fromItsOwnCopy(l.message, name, upstream)) moveTo(l.sha);
     else if (l.sha && (/^reset: moving to /.test(l.message) || /^branch: Reset to /.test(l.message))) moveTo(l.sha);
     if (l.sha && start) own.add(l.sha);
   }
   return start;
 }
 
-/** `merge origin/fix/x: Fast-forward`, `pull origin fix/x: Fast-forward`: the branch's own copy brought in. */
-function fromItsOwnCopy(message: string, name: string | undefined): boolean {
+/**
+ * `merge origin/fix/x: Fast-forward`, `pull origin fix/x: Fast-forward`: the branch's own copy brought in. A pull
+ * that names no ref (`pull: Fast-forward`, `pull --quiet: Fast-forward` — options aren't refs) took its upstream:
+ * its own copy when that is the branch of its own name (`upstream`, branch.<name>.merge), not when it tracks
+ * origin/main as work's new branches do.
+ */
+function fromItsOwnCopy(message: string, name: string | undefined, upstream?: string | null): boolean {
   if (!name) return false;
-  const m = /^(?:merge|pull)\s+(.*?):\s*Fast-forward/.exec(message);
+  const m = /^(merge|pull)\b(.*?):\s*Fast-forward/.exec(message);
   if (!m) return false;
-  const words = m[1].trim().split(/\s+/).filter(Boolean);
-  const ref = words[words.length - 1];
+  const words = m[2]
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w && !w.startsWith('-'));
+  const ref = words[words.length - 1] ?? (m[1] === 'pull' ? (upstream ?? undefined) : undefined);
   return !!ref && (ref === name || ref.endsWith(`/${name}`));
+}
+
+/**
+ * The branch a branch pulls from (`branch.<name>.merge`, `refs/heads/` taken off), read from the repo's config
+ * file — no git. Null when it has none or the file can't be read.
+ */
+export function branchUpstream(commonDir: string, name: string): string | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(commonDir, 'config'), 'utf8');
+  } catch {
+    return null;
+  }
+  let inIt = false;
+  let merge: string | null = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    const section = /^\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\]/.exec(line);
+    if (section) {
+      inIt = section[1].toLowerCase() === 'branch' && section[2]?.replace(/\\(.)/g, '$1') === name;
+      continue;
+    }
+    if (!inIt) continue;
+    const kv = /^merge\s*=\s*(.*?)\s*$/i.exec(line);
+    if (kv) merge = kv[1].replace(/^"(.*)"$/, '$1'); // the last one wins, as git reads it
+  }
+  return merge ? merge.replace(/^refs\/heads\//, '') : null;
 }
 
 /** A branch's own reflog file. */
@@ -177,7 +214,7 @@ const branchLogFile = (commonDir: string, name: string): string => path.join(com
 
 /** startFromReflog over a branch's reflog file. Reads one small file. */
 export function branchStart(commonDir: string, name: string): string | null {
-  return startFromReflog(readReflog(branchLogFile(commonDir, name)), name);
+  return startFromReflog(readReflog(branchLogFile(commonDir, name)), name, branchUpstream(commonDir, name));
 }
 
 /**

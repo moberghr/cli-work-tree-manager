@@ -404,8 +404,12 @@ export async function mergeSelected(
   selection: MergeSelection[],
   method: MergeMethod,
   run: CommandRunner = defaultRunner,
+  /** The facts it checks against. The route's adds the session's listed PRs and those in other repos
+   *  (`shipPreflightWithListed`, pr-watch-hosts.ts), so one still open there keeps it from being done. */
+  preflight: (session: WorktreeSession, run: CommandRunner) => Promise<ShipPreflight> = shipPreflight,
 ): Promise<MergeOutcome> {
-  const { repos } = await shipPreflight(session, run);
+  const pre = await preflight(session, run);
+  const { repos } = pre;
   const byName = new Map(repos.map((r) => [r.name, r]));
   if (selection.length === 0) {
     return {
@@ -462,6 +466,6 @@ export async function mergeSelected(
     }
   }
   // Work on another branch it worked on (commits not pushed, a PR open) keeps it from being done.
-  const allDone = repos.every((r) => r.done || mergedNow.has(r.name)) && workElsewhere({ repos }).length === 0;
+  const allDone = repos.every((r) => r.done || mergedNow.has(r.name)) && workElsewhere(pre).length === 0;
   return { results, mergedAny: mergedNow.size > 0, allDone };
 }

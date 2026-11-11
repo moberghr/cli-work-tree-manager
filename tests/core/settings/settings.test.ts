@@ -2,8 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Hono } from 'hono';
-import { getConfigDir, getConfigPath, loadConfig } from '../../../src/core/platform/config.js';
+import { getConfigDir, getConfigPath, isAgentId, loadConfig } from '../../../src/core/platform/config.js';
 import {
   checkRepoSetting,
   checkSetting,
@@ -14,17 +13,10 @@ import {
   SETTING_SECTIONS,
   valueAt,
 } from '../../../src/core/settings/settings-schema.js';
-import {
-  configSettings,
-  readRepoSettings,
-  readSettings,
-  writeRepoSetting,
-  writeSetting,
-} from '../../../src/core/settings/settings-admin.js';
-import { mountSettingsRoutes } from '../../../src/server/routes/settings-routes.js';
-import { createDemoSettings, mountDemoSettings } from '../../../src/server/demo/demo-settings.js';
+import { originShown, readRepoSettings, readSettings, writeRepoSetting, writeSetting } from '../../../src/core/settings/settings-admin.js';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
 import { DEFAULT_TRUSTED_BOTS } from '../../../src/core/pr/pr-review.js';
+import { isIssueKey } from '../../../src/core/time/allocate.js';
 
 const field = (p: string) => settingAt(p)!;
 
@@ -44,6 +36,27 @@ describe('the settings schema (pure)', () => {
     expect(field('time.minHours').default).toBe(DEFAULT_TIME_SETTINGS.minHours);
     expect(field('time.pointsWeight').default).toBe(DEFAULT_TIME_SETTINGS.pointsWeight);
     expect(field('prWatch.trustedBots').default).toEqual([...DEFAULT_TRUSTED_BOTS]);
+    // The PTY host keeps nothing unless config names it (pty-registry.ts: `hostEnv ?? []`).
+    expect(field('hostEnv').default).toEqual([]);
+  });
+
+  it("what the page accepts is what config.ts keeps: each field's rule is its reader's", () => {
+    const ok = (p: string, v: unknown) => checkSetting(field(p), v).ok;
+    for (const k of ['SSD-1', 'PAY-12', 'pay-1', 'SSD', 'S-1', 'TOOLONGPROJECT-1'])
+      expect([k, ok('time.gapTicket', k)]).toEqual([k, isIssueKey(k)]);
+    expect(ok('time.timeOffTicket', 'HR')).toBe(false);
+    expect(ok('time.projects', ['PAY', 'SSD'])).toBe(true);
+    expect(checkSetting(field('time.projects'), ['pay'])).toEqual({ ok: false, error: "“pay” isn't a Jira project key (PAY)" });
+    expect(ok('time.storyPointsField', 'customfield_10016')).toBe(true);
+    expect(ok('time.storyPointsField', 'Story Points')).toBe(false);
+    for (const a of ['claude', 'my-agent.v2', 'node my.js', '../x']) expect([a, ok('internalAgent', a)]).toEqual([a, isAgentId(a)]);
+  });
+
+  it('the worktrees folder can never be left empty (no Reset); archive compression may be 0 (never)', () => {
+    expect(field('worktreesRoot').required).toBe(true);
+    expect(checkSetting(field('worktreesRoot'), null)).toEqual({ ok: false, error: 'it can’t be left empty' });
+    expect(checkSetting(field('worktreesRoot'), '  ')).toEqual({ ok: false, error: 'it can’t be left empty' });
+    expect(checkSetting(field('archive.compressAfterDays'), 0)).toEqual({ ok: true, value: 0 });
   });
 
   it('no secret is ever a setting: a token is named by its environment variable', () => {
@@ -142,8 +155,34 @@ describe('settings over config.json', () => {
   it('refused: a setting not on the page, a value that does not fit, the worktrees folder taken away', async () => {
     await expect(writeSetting('jiraWorklog.token', 'x')).rejects.toMatchObject({ status: 404 });
     await expect(writeSetting('sleepIdleAfterMinutes', 2)).rejects.toThrow(/Stop idle agents after.*from 5 to 1440/);
-    await expect(writeSetting('worktreesRoot', '')).rejects.toThrow(/a folder is needed/);
+    await expect(writeSetting('worktreesRoot', '')).rejects.toThrow(/can’t be left empty/);
     expect(raw().sleepIdleAfterMinutes).toBeUndefined();
+  });
+
+  it('the folders as `work init` takes them: ~ expanded, full paths only, the worktrees folder made', async () => {
+    await writeSetting('worktreesRoot', '~/wt-from-settings');
+    expect(raw().worktreesRoot).toBe(path.join(os.homedir(), 'wt-from-settings'));
+    expect(fs.existsSync(path.join(os.homedir(), 'wt-from-settings'))).toBe(true);
+    await expect(writeSetting('worktreesRoot', 'relative/wt')).rejects.toThrow(/isn't a full path/);
+    await writeSetting('scanRoots', ['~']);
+    expect(raw().scanRoots).toEqual([os.homedir()]);
+    await expect(writeSetting('scanRoots', ['some/where'])).rejects.toThrow(/isn't a full path/);
+    await expect(writeSetting('scanRoots', [path.join(src, 'nope')])).rejects.toThrow(/isn't a folder/);
+  });
+
+  it('the Jira watch’s daily limit, once saved, is what the watch reads', async () => {
+    await writeSetting('jiraWatch.maxPerDay', 2);
+    expect(loadConfig()?.jiraWatch).toEqual({ maxPerDay: 2 });
+  });
+
+  it("an origin's sign-in is never shown; `constructor` is no repo and no setting", async () => {
+    expect(originShown('https://me:ghp_SECRET@github.com/acme/api.git')).toBe('https://github.com/acme/api.git');
+    expect(originShown('git@github.com:acme/api.git')).toBe('git@github.com:acme/api.git');
+    expect(originShown(null)).toBeNull();
+    expect(() => readRepoSettings('constructor')).toThrow(/isn't one of your repos/);
+    await expect(writeRepoSetting('constructor', 'reviews', 'off')).rejects.toMatchObject({ status: 404 });
+    await expect(writeRepoSetting('api', 'toString', 'x')).rejects.toMatchObject({ status: 404 });
+    expect(raw().reviews).toBeUndefined();
   });
 
   it("a repo's settings: read with its folder, origin and host; written by alias; an unknown repo refused", async () => {
@@ -162,41 +201,5 @@ describe('settings over config.json', () => {
     expect(() => readRepoSettings('web')).toThrow(/isn't one of your repos/);
     await expect(writeRepoSetting('web', 'devCommand', 'x')).rejects.toMatchObject({ status: 404 });
     await expect(writeRepoSetting('api', 'colour', 'x')).rejects.toMatchObject({ status: 404 });
-  });
-});
-
-describe('the settings routes: work web’s over config.json, the demo’s in memory, the same answers', () => {
-  const apps = () => {
-    const events: string[] = [];
-    const web = new Hono();
-    mountSettingsRoutes(web, { broadcast: (e) => events.push(e), source: configSettings });
-    const demo = new Hono();
-    mountDemoSettings(
-      demo,
-      (e) => events.push(e),
-      createDemoSettings((a) => (a === 'api' ? '/repos/api' : null)),
-    );
-    return { events, all: [web, demo] };
-  };
-  const put = (app: Hono, url: string, body: unknown) =>
-    app.request(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-
-  it('a change answers the settings after it and is broadcast; a bad one is 400 with why, an unknown one 404', async () => {
-    const { events, all } = apps();
-    for (const app of all) {
-      const ok = await put(app, '/api/settings', { path: 'prWatch.fixCi', value: false });
-      expect(ok.status).toBe(200);
-      expect(((await ok.json()) as { values: Record<string, unknown> }).values['prWatch.fixCi']).toBe(false);
-      const bad = await put(app, '/api/settings', { path: 'time.dayHours', value: 40 });
-      expect(bad.status).toBe(400);
-      expect(((await bad.json()) as { error: string }).error).toMatch(/A workday \(hours\): from 0.5 to 24/);
-      expect((await put(app, '/api/settings', { path: 'nope', value: 1 })).status).toBe(404);
-      expect((await put(app, '/api/settings', { value: 1 })).status).toBe(400);
-      const repo = await put(app, '/api/repos/api/settings', { key: 'reviews', value: 'off' });
-      expect(((await repo.json()) as { reviews: string }).reviews).toBe('off');
-      expect((await app.request('/api/repos/web/settings')).status).toBe(404);
-    }
-    expect(events.filter((e) => e === 'settings-changed')).toHaveLength(4);
-    expect(events).toContain('repos-changed');
   });
 });

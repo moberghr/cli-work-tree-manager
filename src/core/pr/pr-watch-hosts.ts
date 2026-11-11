@@ -157,8 +157,10 @@ export async function withListedPrs(
     const host = target ? target.host : (io.hostOfUrl(rec.url) ?? undefined);
     let pr: ShipPr | undefined = rec.final;
     if (!pr) {
-      if (io.resting?.(host)) pr = io.previous?.(rec.url);
-      else {
+      if (io.resting?.(host)) {
+        pr = io.previous?.(rec.url);
+        if (!pr) unknownPrs.push(`${target?.name ?? rec.repoId ?? '?'}#${rec.number}: its host is resting (API limit)`);
+      } else {
         const found = await io
           .lookup(target?.path, host, { number: rec.number, url: rec.url })
           .catch((err: Error): PrLookup => ({ kind: 'error', error: err.message }));
@@ -227,6 +229,20 @@ export function listedPrsIo(run: CommandRunner, opts: Pick<ListedPrsIo, 'resting
  * branches found put on it, the ones they didn't looked up by their link (`withListedPrs`), and what the host said of
  * them kept. What work web wires (ci-routes.ts).
  */
+/**
+ * Ship's preflight with the session's listed PRs (session-prs.ts) the branches didn't find, and those in repos it
+ * doesn't have: what Ship's merge reads before saying the session is done, so a PR still open elsewhere — or one
+ * whose state couldn't be read — keeps it from being archived (`workElsewhere`).
+ */
+export async function shipPreflightWithListed(
+  session: WorktreeSession,
+  run: CommandRunner,
+  io: { preflight?: typeof shipPreflight; listed?: ListedPrsIo } = {},
+): Promise<ShipPreflight> {
+  const pre = await (io.preflight ?? shipPreflight)(session, run);
+  return (await withListedPrs(pre, readSessionPrs(sessionIdFor(session)), io.listed ?? listedPrsIo(run))).pre;
+}
+
 export async function watchPreflight(
   session: WorktreeSession,
   run: CommandRunner,

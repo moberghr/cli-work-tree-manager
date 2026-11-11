@@ -254,14 +254,16 @@ describe('the review queue', () => {
   });
 
   it('a PR over the size limit, or past the day’s cap, waits — with why; a click prepares it anyway', async () => {
-    const big = harness({ prs: [pr(8, { additions: 4000 })], maxLines: 3000 });
+    const big = harness({ prs: [pr(8, { additions: 4000 })], maxLines: 0 });
     await big.queue.sweep();
     expect(big.rows.get('api#8')).toMatchObject({
       status: 'waiting',
       held: 'size',
-      why: expect.stringContaining('over the size limit (3000)'),
+      // The lock file's lines don't count: one line of code to read.
+      why: '1 changed line to read (of 3): over the size limit (0), so it waits for your click',
     });
-    expect(big.prepare).not.toHaveBeenCalled();
+    await big.queue.sweep(); // held at this head: not fetched again
+    expect(big.prepare).toHaveBeenCalledTimes(1);
     expect(await big.queue.runNow('api', 8)).toMatchObject({ ok: true, review: { status: 'ready' } });
     expect(big.rows.get('api#8')!.held).toBeUndefined();
 
@@ -269,6 +271,59 @@ describe('the review queue', () => {
     await capped.queue.sweep();
     expect([capped.rows.get('api#1')!.status, capped.rows.get('api#2')!.status]).toEqual(['ready', 'waiting']);
     expect(capped.rows.get('api#2')).toMatchObject({ held: 'cap', why: expect.stringContaining("today's 1 automatic reviews are done") });
+  });
+
+  it("the limit counts only the lines worth reading: a migration's designer doesn't — the user's #3653", async () => {
+    const designer = `diff --git a/src/Migrator/Migrations/20261106_AddTerms.Designer.cs b/src/Migrator/Migrations/20261106_AddTerms.Designer.cs
+new file mode 100644
+index 0000000..1
+--- /dev/null
++++ b/src/Migrator/Migrations/20261106_AddTerms.Designer.cs
+@@ -0,0 +1,6 @@
++a
++b
++c
++d
++e
++f
+`;
+    const withDesigner = async (_p: string, _h: GitHost, p: { number: number }) => ({
+      ...prepared(`sha${p.number}`),
+      files: parseGitDiff(DIFF + designer),
+    });
+    // Listed at 23,864 lines; fetched, 9 changed — 6 the designer, 2 the lock file: 1 to read, within the limit.
+    const h = harness({ prs: [pr(3653, { additions: 23835, deletions: 29 })], maxLines: 1 });
+    h.prepare.mockImplementation(withDesigner);
+    await h.queue.sweep();
+    expect(h.rows.get('api#3653')).toMatchObject({ status: 'ready' });
+    // The designer file is left out of the review altogether: not among its files, named apart, in its size.
+    const r = h.rows.get('api#3653')!;
+    expect(r.files.map((f) => f.path)).not.toContain('src/Migrator/Migrations/20261106_AddTerms.Designer.cs');
+    expect(r.ignored).toEqual([
+      { path: 'src/Migrator/Migrations/20261106_AddTerms.Designer.cs', why: 'designer file', added: 6, deleted: 0 },
+    ]);
+    expect(r.size).toEqual({ files: 3, added: 8, deleted: 1 });
+    // Over it even so: held, saying how many of the lines count.
+    const held = harness({ prs: [pr(3653, { additions: 23835, deletions: 29 })], maxLines: 0 });
+    held.prepare.mockImplementation(withDesigner);
+    await held.queue.sweep();
+    expect(held.rows.get('api#3653')).toMatchObject({
+      status: 'waiting',
+      held: 'size',
+      why: '1 changed line to read (of 9): over the size limit (0), so it waits for your click',
+    });
+  });
+
+  it('one held for its size by the list alone, from before (never fetched), is fetched again', () => {
+    const was = {
+      status: 'waiting',
+      held: 'size',
+      headSha: 'h',
+      listedHead: 'h',
+      size: { files: 0, added: 23835, deleted: 29 },
+    } as PrReviewWire;
+    expect(upToDate(was, pr(1, { headSha: 'h' }), new Date(), false)).toBe(false);
+    expect(upToDate({ ...was, size: { files: 12, added: 23835, deleted: 29 } }, pr(1, { headSha: 'h' }), new Date(), false)).toBe(true);
   });
 
   it('one held by the day’s cap is prepared on a later day, as its message says', async () => {
@@ -285,17 +340,17 @@ describe('the review queue', () => {
   });
 
   it('a host whose list has no size: the limit applies to the fetched diff, once per head; a click prepares it', async () => {
-    const h = harness({ prs: [pr(5, { additions: 0, deletions: 0 })], maxLines: 2 });
+    const h = harness({ prs: [pr(5, { additions: 0, deletions: 0 })], maxLines: 0 });
     await h.queue.sweep();
     expect(h.rows.get('api#5')).toMatchObject({
       status: 'waiting',
       held: 'size',
       size: { files: 2, added: 2, deleted: 1 },
-      why: '3 changed lines: over the size limit (2), so it waits for your click',
+      why: '1 changed line to read (of 3): over the size limit (0), so it waits for your click',
     });
     await h.queue.sweep(); // the same head: not fetched again
     expect(h.prepare).toHaveBeenCalledTimes(1);
-    expect(h.notes()).toContain('info: api #5: 3 changed lines: over the size limit (2), so it waits for your click');
+    expect(h.notes()).toContain('info: api #5: 1 changed line to read (of 3): over the size limit (0), so it waits for your click');
     expect(await h.queue.runNow('api', 5)).toMatchObject({ ok: true, review: { status: 'ready' } });
   });
 

@@ -422,10 +422,9 @@ export function yourLooks(items: HistoryItem[], entries: CheckpointEntry[], look
  */
 export function liveLabel(items: HistoryItem[], sel: DiffSelection): string | undefined {
   if (sel.kind !== 'range' || !sel.label) return undefined;
-  if (sel.label === 'Last turn') {
-    const newest = [...items].reverse().find((x) => x.kind === 'turn');
-    if (newest?.key !== sel.toKey) return undefined;
-  }
+  // The newest turn by id, not by place: another branch's turns are listed after this branch's.
+  const last = lastTurn(items);
+  if (sel.label === 'Last turn' && (last?.kind !== 'range' || last.toKey !== sel.toKey)) return undefined;
   return sel.label;
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  notPreparedLine,
   changeType,
   commentContext,
   commentsByFile,
@@ -55,7 +56,7 @@ describe("the story pager's pages", () => {
       ['Wiring', false, ['Program.cs']],
       ['Dependencies, build & CI', false, ['Shop.Orders.csproj']],
       ['Mechanical', true, ['OrderService.cs']],
-      ['Generated', true, ['20261102_AddRefunds.Designer.cs', 'ShopDbModelSnapshot.cs', 'package-lock.json']],
+      ['Generated', true, ['ShopDbModelSnapshot.cs', 'package-lock.json']], // the designer file is left out of the review
     ]);
     // Every file is read somewhere: as code of one page, or as a story's test.
     const read = new Set(pages.flatMap((p) => [...p.code, ...p.tests].map((e) => e.path)));
@@ -163,7 +164,9 @@ describe('the overview', () => {
   });
 
   it('not worth reading: generated, translations and mechanical counted apart, with the files', () => {
-    expect(notWorthReading(r)!.line).toBe('3 generated · 1 mechanical');
+    // The migration's designer is left out of the review altogether (named, never diffed): 2 generated, not 3.
+    expect(notWorthReading(r)!.line).toBe('2 generated · 1 mechanical · 1 designer file left out');
+    expect(notWorthReading(r)!.ignored.map((f) => name(f.path))).toEqual(['20261102_AddRefunds.Designer.cs']);
     const resx = {
       ...r.files[0],
       path: 'src/Res/Translations.resx',
@@ -171,16 +174,17 @@ describe('the overview', () => {
       why: 'resources or translations',
     };
     const out = notWorthReading({ ...r, files: [...r.files, resx, { ...resx, path: 'src/Res/Translations.is.resx' }] })!;
-    expect(out.line).toBe('3 generated · 2 translations · 1 mechanical');
+    expect(out.line).toBe('2 generated · 2 translations · 1 mechanical · 1 designer file left out');
     expect(out.files.map((f) => name(f.path))).toEqual([
-      '20261102_AddRefunds.Designer.cs',
       'ShopDbModelSnapshot.cs',
       'package-lock.json',
       'Translations.resx',
       'Translations.is.resx',
       'OrderService.cs',
     ]);
-    expect(notWorthReading({ ...r, files: r.files.filter((f) => f.kind !== 'generated' && f.kind !== 'mechanical') })).toBeNull();
+    expect(
+      notWorthReading({ ...r, ignored: undefined, files: r.files.filter((f) => f.kind !== 'generated' && f.kind !== 'mechanical') }),
+    ).toBeNull();
   });
 
   it("a comment's gist is its first sentence, cut at a word; where it is, short", () => {
@@ -433,5 +437,18 @@ describe("someone's Markdown on one line (the PR's discussion)", () => {
     );
     expect(mdGist('**Available commands:**\n| Command | Description |\n|---|---|\n| `/deploy` | Deploy |')).toBe('Available commands:');
     expect(mdGist('See [the docs](https://x/y) for `Foo`.')).toBe('See the docs for `Foo`.');
+  });
+});
+
+describe('where a review would be, while none is prepared', () => {
+  it('says why and what to do; nothing once it is ready', () => {
+    expect(notPreparedLine({ status: 'ready', why: null })).toBeNull();
+    expect(notPreparedLine({ status: 'waiting', held: 'size', why: 'x' })).toMatch(/size limit .* Prepare it now reads it anyway/);
+    expect(notPreparedLine({ status: 'waiting', held: 'cap', why: 'x' })).toMatch(/day’s automatic reviews are done/);
+    expect(notPreparedLine({ status: 'failed', why: 'git fetch failed' })).toBe(
+      'Preparing it failed (git fetch failed). Prepare it now tries again; you can still approve or comment below.',
+    );
+    expect(notPreparedLine({ status: 'queued', why: null })).toMatch(/In line/);
+    expect(notPreparedLine({ status: 'running', why: null })).toMatch(/Being prepared/);
   });
 });

@@ -5,7 +5,7 @@ import { addDraft, clearDropped, removeDraft } from '../../core/review/review-su
 import { settlePrReview, shownReview, submitPrReview, type SubmitFlowDeps } from '../../core/review/review-submit-flow.js';
 import { fixItMyself, type FixMyselfDeps } from '../../core/review/review-fix.js';
 import type { ReviewFixResultWire } from '../../core/api-types.js';
-import { summaryOf } from '../../core/review/review-build.js';
+import { splitIgnored, summaryOf } from '../../core/review/review-build.js';
 import { isReviewMode } from '../../core/review/review-config.js';
 
 /**
@@ -78,7 +78,10 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     const at = deps.repoPath(repo);
     if (!r || n === null || !r.mergeBase || !at) return c.json({ error: 'no prepared review of that PR' }, 404);
     const files = await deps.diff(at, r.mergeBase, n);
-    return files ? c.json({ files }) : c.json({ error: "git couldn't diff it (fetched code gone?): prepare it again" }, 409);
+    // What the review leaves out (designer files) isn't sent: it was never read, and one is thousands of lines.
+    return files
+      ? c.json({ files: splitIgnored(files).files })
+      : c.json({ error: "git couldn't diff it (fetched code gone?): prepare it again" }, 409);
   });
 
   // Your click: prepare it now, whatever its size or the day's count.

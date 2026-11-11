@@ -1020,9 +1020,13 @@ export async function devAction(sessionId: string, action: 'start' | 'stop'): Pr
 export function fetchSessionCi(sessionId: string): Promise<SessionCi> {
   return getJson<SessionCi>(`/api/sessions/${encodeURIComponent(sessionId)}/ci`);
 }
-/** Ask the session's Claude to fix its failing checks. */
-export async function askClaudeToFixCi(sessionId: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ci/fix`, { method: 'POST' });
+/** Ask the session's Claude to fix the failing checks of one PR (its link): the one whose button was clicked. */
+export async function askClaudeToFixCi(sessionId: string, prUrl: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ci/fix`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: prUrl }),
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);

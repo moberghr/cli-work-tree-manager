@@ -384,6 +384,13 @@ export function loadConfig(): WorkConfig | null {
       hostEnv: Array.isArray(parsed.hostEnv)
         ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
         : undefined,
+      // The Settings page writes it (reported: it saved and nothing read it).
+      jiraWatch:
+        parsed.jiraWatch && typeof parsed.jiraWatch === 'object' && typeof parsed.jiraWatch.maxPerDay === 'number'
+          ? Number.isInteger(parsed.jiraWatch.maxPerDay) && parsed.jiraWatch.maxPerDay >= 0 && parsed.jiraWatch.maxPerDay <= 100
+            ? { maxPerDay: parsed.jiraWatch.maxPerDay }
+            : undefined
+          : undefined,
       jiraWorklog:
         parsed.jiraWorklog &&
         typeof parsed.jiraWorklog === 'object' &&

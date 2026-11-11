@@ -77,7 +77,7 @@ export function SettingsTab({
                     placeholder={'placeholder' in f.kind ? f.kind.placeholder : undefined}
                     onSave={save(f.path)}
                   />
-                  {set && (
+                  {set && !f.required && (
                     <button
                       type="button"
                       className="wd-link-button"

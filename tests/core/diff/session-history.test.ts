@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { git } from '../../../src/core/git/git.js';
 import { computeSessionRange, sessionHistory } from '../../../src/core/diff/session-history.js';
+import { resolveRepoDiff, resolveRepoDiffAsync } from '../../../src/core/diff/diff-scope.js';
 
 const sessionCommits = async (s: Parameters<typeof sessionHistory>[0]) => (await sessionHistory(s)).commits;
 import type { DiffPoint } from '../../../src/core/diff/diff-points.js';
@@ -100,5 +101,79 @@ describe('as the repo moves on', () => {
     write('d.txt', 'd\n');
     const r = computeSessionRange({ paths: [repo + path.sep] }, { kind: 'checkpoint', id: entry!.id }, { kind: 'working' });
     expect(paths(r)).toEqual(['d.txt']);
+  });
+});
+
+describe('the history is kept while nothing moved (no git), and read again once something did', () => {
+  it('the same answer twice is the same object; a moved branch tip is a fresh one', async () => {
+    const s = session();
+    const a = await sessionHistory(s);
+    expect(await sessionHistory(s)).toBe(a); // kept: nothing moved
+    write('e.txt', 'e\n');
+    commit('Add e');
+    const b = await sessionHistory(s);
+    expect(b).not.toBe(a);
+    expect(b.commits[0].subject).toBe('Add e');
+  });
+});
+
+describe('finding a branch base off the event loop gives what the synchronous lookup gives', () => {
+  it('resolveRepoDiffAsync === resolveRepoDiff: a recorded base, one gone, and none', async () => {
+    const run = async (args: string[]) => {
+      const r = git(args, repo);
+      return { exitCode: r.exitCode, stdout: r.stdout };
+    };
+    for (const base of ['main', 'no-such-branch', undefined]) {
+      expect(await resolveRepoDiffAsync('branch', base, run)).toEqual(resolveRepoDiff(repo, 'branch', base));
+    }
+    expect(await resolveRepoDiffAsync('uncommitted', 'main', run)).toEqual({ resolvedBase: 'HEAD', diffArg: 'HEAD' });
+  });
+});
+
+describe("another branch's span after merges into it", () => {
+  let r2: string;
+  const sh = (...a: string[]) => git(a, r2).stdout;
+  const put = (rel: string, text: string, msg: string) => {
+    fs.writeFileSync(path.join(r2, rel), text);
+    sh('add', '.');
+    sh('-c', 'user.email=t@t.t', '-c', 'user.name=T', 'commit', '-m', msg, '--no-gpg-sign');
+    return sh('rev-parse', 'HEAD');
+  };
+  beforeAll(() => {
+    r2 = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'work-spans-')), 'api');
+    fs.mkdirSync(r2);
+    sh('init', '-b', 'main');
+    put('base.txt', 'base\n', 'base');
+  });
+  afterAll(() => fs.rmSync(path.dirname(r2), { recursive: true, force: true }));
+
+  it("a merge of its own copy (pull --no-ff) isn't a base: All of it still starts where its work began", async () => {
+    sh('checkout', '-q', '-b', 'feat/y');
+    const start = sh('rev-parse', 'HEAD');
+    put('mine1.txt', '1\n', 'mine 1');
+    // A colleague's copy of the branch: it holds mine 1 and adds theirs.
+    sh('checkout', '-q', '-b', 'copy');
+    put('theirs.txt', 't\n', 'theirs');
+    sh('checkout', '-q', 'feat/y');
+    put('mine2.txt', '2\n', 'mine 2');
+    sh('-c', 'user.email=t@t.t', '-c', 'user.name=T', 'merge', '--no-ff', '-q', '-m', 'Merge copy', 'copy');
+    const tip = sh('rev-parse', 'HEAD');
+    sh('checkout', '-q', 'main');
+    const h = await sessionHistory({ paths: [r2] }, [{ path: r2, name: 'feat/y', start }]);
+    expect(h.spans).toEqual([{ repo: 'api', branch: 'feat/y', base: start, tip }]);
+  });
+
+  it('a merge of its base (main into it) is: All of it starts at what it took in', async () => {
+    sh('checkout', '-q', '-b', 'feat/z');
+    const start = sh('rev-parse', 'HEAD');
+    put('z1.txt', '1\n', 'z 1');
+    sh('checkout', '-q', 'main');
+    const mainNow = put('main2.txt', 'm\n', 'main moves');
+    sh('checkout', '-q', 'feat/z');
+    sh('-c', 'user.email=t@t.t', '-c', 'user.name=T', 'merge', '--no-ff', '-q', '-m', 'Merge main', 'main');
+    const tip = sh('rev-parse', 'HEAD');
+    sh('checkout', '-q', 'main');
+    const h = await sessionHistory({ paths: [r2] }, [{ path: r2, name: 'feat/z', start }]);
+    expect(h.spans).toEqual([{ repo: 'api', branch: 'feat/z', base: mainNow, tip }]);
   });
 });

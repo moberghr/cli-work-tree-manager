@@ -223,6 +223,14 @@ export function ReviewOverview({
                   <FileRow path={f.path} file={f} detail={f.why} />
                 </li>
               ))}
+              {noise.ignored.map((f) => (
+                <li key={f.path} className="wd-review-ignored">
+                  <code>{f.path}</code>{' '}
+                  <span className="wd-start-note">
+                    +{f.added} −{f.deleted} · left out of the review: a {f.why}, never read
+                  </span>
+                </li>
+              ))}
             </ul>
           )}
         </div>

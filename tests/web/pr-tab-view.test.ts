@@ -29,7 +29,7 @@ vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   },
   fetchReplies: async () => h.replies,
   sendPromptToSession: async (id: string, body: string) => void h.prompts.push({ id, body }),
-  askClaudeToFixCi: async (id: string) => void h.fixes.push(id),
+  askClaudeToFixCi: async (id: string, url: string) => void h.fixes.push(`${id} ${url}`),
 }));
 vi.mock('../../src/web/src/components/Dashboard/PromptsMenu.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/components/Dashboard/PromptsMenu.js')>()),
@@ -155,7 +155,7 @@ describe('the PR tab', () => {
     h.ci = { checkedAt: '', repos: [{ name: 'frontend', done: false, pr: shipPr(1927, { checks: 'fail' }) }] } as unknown as SessionCi;
     const onShip = await render();
     await act(async () => button('Ask Claude to fix')!.click());
-    expect(h.fixes).toEqual(['s1']);
+    expect(h.fixes).toEqual(['s1 https://gh/1927']); // the PR whose button it was
     expect(container.textContent).toContain('Sent to Claude ✓');
     act(() => button('Ship…')!.click());
     expect(onShip).toHaveBeenCalled();

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { settleLeftOverClaims, settlePrReview, shownReview, tidyLeftOverSubmits } from '../../../src/core/review/review-submit-flow.js';
+import {
+  settleLeftOverClaims,
+  settlePrReview,
+  shownReview,
+  submitPrReview,
+  tidyLeftOverSubmits,
+} from '../../../src/core/review/review-submit-flow.js';
 import { LEFT_OVER_SUBMIT, shownDoubt } from '../../../src/core/review/review-submit.js';
 import { createActivityLog } from '../../../src/core/platform/activity.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
@@ -76,5 +82,66 @@ describe('a submit claim left over', () => {
     ]);
     // Nothing left over: nothing done, nothing said.
     expect(settleLeftOverClaims(gone.deps)).toEqual([]);
+  });
+});
+
+describe('Approve with nothing prepared (reported: there was no way to just approve)', () => {
+  const flow = (r: PrReviewWire) => {
+    const rows = new Map<string, PrReviewWire>([['api#231', r]]);
+    const submit = vi.fn(async (_path: string, _n: number, _review: { commitId: string; event: string }) => ({
+      ok: true as const,
+      posted: [],
+      summaryPosted: false,
+    }));
+    const deps = {
+      read: (repo: string, n: number) => rows.get(`${repo}#${n}`) ?? null,
+      update: (repo: string, n: number, change: (x: PrReviewWire) => PrReviewWire) => {
+        const was = rows.get(`${repo}#${n}`);
+        if (!was) return null;
+        const next = change(was);
+        rows.set(`${repo}#${n}`, next);
+        return next;
+      },
+      repoPath: () => '/repos/api',
+      submit,
+      pid: 1,
+      bootedAt: () => 0,
+      alive: () => true,
+      now: () => now,
+    };
+    return { rows, submit, deps };
+  };
+
+  it('a PR held for its size: the approval goes at the listed head, with no comment and no summary', async () => {
+    const base = demoReview(now);
+    const held: PrReviewWire = {
+      ...base,
+      status: 'waiting',
+      held: 'size',
+      drafts: [],
+      stories: [],
+      files: [],
+      headSha: 'listed1',
+      listedHead: 'listed1',
+    };
+    delete (held as { preparedAt?: string }).preparedAt;
+    const f = flow(held);
+    const r = await submitPrReview(f.deps, 'api', 231, { event: 'approve', body: '', drafts: [] });
+    expect(r.ok).toBe(true);
+    expect(f.submit).toHaveBeenCalledWith('/repos/api', 231, { commitId: 'listed1', event: 'approve', body: '', comments: [] });
+    expect(f.rows.get('api#231')?.submitted).toMatchObject({ event: 'approve' });
+  });
+
+  it('one whose preparing again failed: the approval goes at the commit it was prepared at — what you read', async () => {
+    const f = flow({
+      ...demoReview(now),
+      status: 'failed',
+      why: 'git fetch failed',
+      headSha: 'prepared1',
+      listedHead: 'pushed2',
+      drafts: [],
+    });
+    expect((await submitPrReview(f.deps, 'api', 231, { event: 'approve', body: '', drafts: [] })).ok).toBe(true);
+    expect(f.submit.mock.calls[0][2]).toMatchObject({ commitId: 'prepared1', event: 'approve' });
   });
 });

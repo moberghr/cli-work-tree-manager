@@ -171,10 +171,13 @@ describe('the overview', () => {
     // No diff on the overview.
     expect(container.querySelector('.wd-file')).toBeNull();
     const noise = button('Not worth reading');
-    expect(noise.textContent).toBe('Not worth reading: 3 generated · 1 mechanical ▸');
+    expect(noise.textContent).toBe('Not worth reading: 2 generated · 1 mechanical · 1 designer file left out ▸');
     expect(text('.wd-review-noise')).not.toContain('package-lock.json');
     act(() => noise.click());
     expect(text('.wd-review-noise')).toContain('package-lock.json');
+    // The designer file is named there, never diffed.
+    expect(text('.wd-review-noise')).toContain('20261102_AddRefunds.Designer.cs');
+    expect(text('.wd-review-noise')).toContain('left out of the review: a designer file, never read');
   });
 
   it('with no summary (an older review): the story titles as bullets', async () => {
@@ -242,7 +245,7 @@ describe('one story at a time', () => {
       '· Wiring · 1',
       '· Dependencies, build & CI · 1',
       '· Mechanical · 1',
-      '· Generated · 3',
+      '· Generated · 2',
     ]);
     expect([...tree.querySelectorAll('.wd-review-tree-name')].map((n) => n.textContent)).toEqual([
       'RefundHandler.cs',
@@ -380,7 +383,7 @@ describe('one story at a time', () => {
     expect(text('.wd-review-pager-pos')).toBe('Generated · 8 of 8');
     expect(container.querySelector('.wd-review-diff-pane .wd-file')).toBeNull();
     act(() => button('Show the diffs').click());
-    expect(container.querySelectorAll('.wd-review-diff-pane .wd-file')).toHaveLength(3);
+    expect(container.querySelectorAll('.wd-review-diff-pane .wd-file')).toHaveLength(2);
 
     act(() => root.unmount());
     root = createRoot(container);
@@ -516,6 +519,7 @@ describe('submitting, in every mode', () => {
     const waiting: PrReviewWire = {
       ...review,
       status: 'waiting',
+      held: 'size',
       why: '4812 changed lines: over the size limit (3000), so it waits for your click',
     };
     api.fetchReviews.mockResolvedValue({ reviews: [summaryOf(waiting)], today: 0, maxPerDay: null });
@@ -523,6 +527,8 @@ describe('submitting, in every mode', () => {
     api.prepareReview.mockResolvedValue(review);
     await render();
     expect(container.textContent).toContain('over the size limit (3000)');
+    // Where the review would be: why, and what to do — never a blank page (reported).
+    expect(container.querySelector('.wd-review-not-prepared')?.textContent).toContain('Prepare it now reads it anyway');
     // Not prepared, and still approvable (reported: no way to just approve a PR).
     expect(verdict('Approve').disabled).toBe(false);
     expect(container.querySelector('.wd-review-modes')).toBeNull();
@@ -765,10 +771,12 @@ describe('the Files view (GitHub’s Files changed)', () => {
     // Folders first, then files, each by name.
     expect(tree.indexOf('RefundsController.cs')).toBeLessThan(tree.indexOf('Program.cs'));
     expect(text('.wd-review-files .wd-review-progress')).toContain(`0 / ${review.files.length} viewed`);
-    const generated = container.querySelector('.wd-file[data-path="src/Shop.Data/Migrations/20261102_AddRefunds.Designer.cs"]')!;
+    // The designer file isn't in the Files view at all: the review leaves it out.
+    expect(container.querySelector('.wd-file[data-path$=".Designer.cs"]')).toBeNull();
+    const generated = container.querySelector('.wd-file[data-path="src/Shop.Data/Migrations/ShopDbModelSnapshot.cs"]')!;
     expect(generated.textContent).toContain('Generated file — not rendered by default');
     act(() => [...generated.querySelectorAll('button')].find((b) => b.textContent === 'Load diff')!.click());
-    expect(generated.textContent).toContain('auto-generated');
+    expect(generated.textContent).toContain('Refunded');
   });
 
   it('the same Viewed ticks as the stories; a folder folds; a file picked goes in the URL; f opens the view', async () => {

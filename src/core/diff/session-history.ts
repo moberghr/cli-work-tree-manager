@@ -8,7 +8,7 @@ import { repoNameOf, type SessionBranches } from '../sessions/session-branches.j
 import { loadManifest } from './checkpoint.js';
 import { computeRangeDiff } from './diff-pipeline.js';
 import { rangeRefs, type DiffPoint } from './diff-points.js';
-import { resolveRepoDiff } from './diff-scope.js';
+import { resolveRepoDiffAsync } from './diff-scope.js';
 import { scopeHashForPaths } from './scope-manager.js';
 import type { ParsedFile } from './diff-parse.js';
 
@@ -116,7 +116,11 @@ export async function sessionHistory(
   const commits: SessionCommit[] = [];
   const spans: SessionBranchSpan[] = [];
   for (const root of session.paths) {
-    const { diffArg } = resolveRepoDiff(root, 'branch', session.baseBranches?.[root] ?? session.baseBranch);
+    // Off the event loop too: finding its base walks merge-bases, which take a while on a big repo.
+    const { diffArg } = await resolveRepoDiffAsync('branch', session.baseBranches?.[root] ?? session.baseBranch, async (args) => {
+      const r = await g(args, root);
+      return { exitCode: r.ok ? 0 : 1, stdout: r.out };
+    });
     if (diffArg === 'HEAD') continue;
     const log = await g(['log', `-n${MAX_COMMITS}`, '--format=%H%x1f%cI%x1f%s', `${diffArg}..HEAD`, '--'], root);
     if (log.ok && log.out) commits.push(...parseLog(log.out, path.basename(root)));
@@ -135,8 +139,7 @@ export async function sessionHistory(
         b.path,
       );
       if (log.ok && log.out) list = parseLog(log.out, repo);
-      const merge = (await g(['rev-list', '--first-parent', '--merges', '-n1', `${start}..${tip}`], b.path)).out;
-      base = (merge && (await g(['rev-parse', '--verify', '--quiet', `${merge}^2`], b.path)).out) || start;
+      base = (await lastBaseTakenIn(b.path, start, tip)) ?? start;
     } else {
       // Its own commits: not on what's checked out, not on the main line, not on what it was made from.
       const not: string[] = [];
@@ -160,6 +163,28 @@ export async function sessionHistory(
     historyCache.set(key, out);
   }
   return out;
+}
+
+/** How many of a branch's merges are looked at for the last base it took in (newest first). */
+const MAX_MERGES_LOOKED_AT = 20;
+
+/**
+ * The last base a branch took in: the other parent of its newest first-parent merge that brought in none of its own
+ * line — a merge of dev into it. A merge of its own copy (`git pull --no-ff` of origin/<name>) or of a branch made
+ * from it already holds its earlier commits, and "All of it" from there would show only what came after: such a
+ * merge is passed over for an older one. Null: none took in a base (its span starts where its work began).
+ */
+async function lastBaseTakenIn(repo: string, start: string, tip: string): Promise<string | null> {
+  const merges = (await g(['rev-list', '--first-parent', '--merges', `-n${MAX_MERGES_LOOKED_AT}`, `${start}..${tip}`], repo)).out;
+  for (const merge of merges.split('\n').filter(Boolean)) {
+    const other = (await g(['rev-parse', '--verify', '--quiet', `${merge}^2`], repo)).out;
+    if (!other) continue;
+    // Its own line up to the merge, and how much of it the merged side doesn't have: all of it → a base.
+    const own = (await g(['rev-list', '--first-parent', '--count', `${merge}^1`, `^${start}`], repo)).out;
+    const notThere = (await g(['rev-list', '--first-parent', '--count', `${merge}^1`, `^${start}`, `^${other}`], repo)).out;
+    if (own && own === notThere) return other;
+  }
+  return null;
 }
 
 /** A branch's tip: the branch, else (deleted) the tip recorded while it was there, while the repo still has it. */

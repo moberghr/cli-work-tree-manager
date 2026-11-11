@@ -39,7 +39,6 @@ describe("the demo's large PR, grouped by the real rules", () => {
       'src/Shop.Orders/Refunds/RefundValidator.cs': 'logic',
       'src/Shop.Orders/Pricing/Rounding.cs': 'logic',
       'src/Shop.Data/Migrations/20261102_AddRefunds.cs': 'schema',
-      'src/Shop.Data/Migrations/20261102_AddRefunds.Designer.cs': 'generated',
       'src/Shop.Data/Migrations/ShopDbModelSnapshot.cs': 'generated',
       'src/Shop.Api/Program.cs': 'wiring',
       'src/Shop.Orders/Shop.Orders.csproj': 'dependencies',
@@ -47,6 +46,8 @@ describe("the demo's large PR, grouped by the real rules", () => {
       'web/package-lock.json': 'generated',
       'tests/Shop.Orders.Tests/RefundHandlerTests.cs': 'tests',
     });
+    // The migration's designer is left out of the review altogether: named, never diffed or read.
+    expect(r.ignored?.map((f) => f.path)).toEqual(['src/Shop.Data/Migrations/20261102_AddRefunds.Designer.cs']);
     expect(r.tests.list.map((t) => [t.name, t.change, t.cases ?? null])).toEqual([
       ['Refunds_part_of_an_order', 'added', null],
       ['Rejects_amounts_that_are_not_positive', 'added', 2],

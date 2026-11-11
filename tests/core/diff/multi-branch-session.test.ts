@@ -3,10 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadManifest } from '../../../src/core/diff/checkpoint.js';
-import { computeSessionRange, historyBranchRefs, sessionHistory, type SessionHistory } from '../../../src/core/diff/session-history.js';
-import { workingBranch } from '../../../src/core/git/git-head.js';
-import { readSessionBranches } from '../../../src/core/sessions/session-branches.js';
-import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
+import { computeSessionRange, type SessionHistory } from '../../../src/core/diff/session-history.js';
+import { sessionHistoryWire } from '../../../src/core/diff/session-history-wire.js';
 import {
   allHistoryItems,
   branchGroups,
@@ -33,9 +31,14 @@ let history: SessionHistory;
 beforeAll(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-branch-'));
   fx = await buildMultiBranchSession(tmp);
-  entries = loadManifest(fx.scopeHash).entries;
-  // As the route builds it.
-  history = await sessionHistory(fx.session, historyBranchRefs(fx.session, readSessionBranches(sessionIdFor(fx.session)), workingBranch));
+  // What the route answers (GET …/checkpoints is this function).
+  const wire = await sessionHistoryWire(fx.session);
+  expect(wire.scopeHash).toBe(fx.scopeHash);
+  entries = wire.entries;
+  history = { commits: wire.commits ?? [], spans: wire.branchSpans ?? [] };
+  // Its spans are what the SPA reads as `branchSpans`.
+  expect(wire.branchSpans?.length).toBeGreaterThan(0);
+  expect(entries).toEqual(loadManifest(fx.scopeHash).entries);
 }, 180_000);
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 

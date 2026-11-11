@@ -249,6 +249,15 @@ export const repoNameOf = (s: Pick<WorktreeSession, 'isGroup' | 'target'>, check
   s.isGroup ? path.basename(checkout) : s.target;
 
 /**
+ * The start a turn's sighting carries: only one read now, when the branch's reflog moved (`stale`) — never the
+ * record's own, read before the write: carried into it, that would overwrite a newer start another process stored
+ * meanwhile (the write is its own transaction, and a sighting with no start keeps the stored one). Pure but for `read`.
+ */
+export function sightingStart(stale: boolean, read: () => string | undefined): string | undefined {
+  return stale ? read() : undefined;
+}
+
+/**
  * Record the branch each of the session's repos has checked out now (HEAD
  * files: no git), and for a branch new to the record, where it was made from
  * (its reflog's first line). The turn-end hook's step; cheap. Returns the
@@ -274,7 +283,7 @@ export function recordCheckedOutBranches(
     // Read only when its reflog was written since the record last saw it (a stat): a repo's own main has a reflog
     // of thousands of lines, and this runs at every turn's end of every Claude.
     const stale = !had?.start || (dirs ? branchLogChangedSince(dirs.commonDir, name, had.lastSeen) : false);
-    const start = stale ? (dirs && branchStart(dirs.commonDir, name)) || undefined : had?.start;
+    const start = sightingStart(stale, () => (dirs && branchStart(dirs.commonDir, name)) || undefined);
     seen.push({ repo, name, ...(from && from !== name ? { from } : {}), ...(start ? { start } : {}) });
   }
   if (!seen.length) return null;
