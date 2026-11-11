@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { cornerBadge, LatencyMeter, type LatencyReading } from '../../state/keystroke-latency.js';
+import { observeLongFrames, TerminalPerfLog } from '../../state/terminal-perf.js';
 import { openTerminalSocket } from '../../api/terminal-socket.js';
+import { sendTerminalPerf } from '../../api/client.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { startFailure, startRetryDelay } from '../../state/terminal-start.js';
 import { ask } from '../../state/ask.js';
@@ -43,6 +45,9 @@ interface Elsewhere {
 
 /** While its Claude runs elsewhere, the tab looks again this often. */
 export const ELSEWHERE_RECHECK_MS = 6000;
+
+/** How often the Terminal tab sends what it measured to the debug log (and once more when it closes). */
+const PERF_SEND_MS = 10_000;
 
 const ago = (ms: number | null) => {
   if (ms === null) return null;
@@ -88,6 +93,11 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   // Which renderer draws it: shown in the corner when it's the slow one.
   // 'retrying': on DOM after a lost context, WebGL to be tried again; 'dom': for good.
   const [renderer, setRenderer] = useState<'webgl' | 'retrying' | 'dom'>('webgl');
+  // The same two for the debug log's reports, read from inside the connect effect.
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const rendererRef = useRef(renderer);
+  rendererRef.current = renderer;
   const [checking, setChecking] = useState(false);
   useEffect(() => {
     setElsewhere(null);
@@ -296,11 +306,23 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
           500 - (now - shownAt),
         );
     };
-    // When the redraw a key caused was on screen: xterm's frames, and a check for the redraw going quiet.
-    const renderSub = term.onRender(() => meter.rendered(performance.now()));
-    const settleTimer = setInterval(() => {
-      if (meter.settle(performance.now()) !== null) showLatency();
-    }, 50);
+    // When a key's echo was on screen: the first frame xterm drew after it.
+    // Each key and each freeze of this window (while this terminal is the one shown) go to the debug log.
+    const perf = new TerminalPerfLog();
+    const renderSub = term.onRender(() => {
+      const sample = meter.rendered(performance.now());
+      if (!sample) return;
+      perf.key(sample);
+      showLatency();
+    });
+    const stopFrames = observeLongFrames((e) => {
+      if (activeRef.current) perf.stall(e, Math.round(performance.timeOrigin + e.startTime));
+    });
+    const sendPerf = () => {
+      const report = perf.take({ sessionId, route: routeRef.current, renderer: rendererRef.current });
+      if (report) sendTerminalPerf(report);
+    };
+    const perfTimer = setInterval(sendPerf, PERF_SEND_MS);
     ws.addEventListener('message', (e) => {
       if (e.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(e.data));
@@ -380,7 +402,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       if (exited) return;
       if (ready) {
         ws.send(JSON.stringify({ type: 'input', data }));
-        meter.keySent(performance.now());
+        perf.key(meter.keySent(performance.now()));
       } else pendingInput.push(data);
     }
 
@@ -436,7 +458,9 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       window.removeEventListener('resize', onWindowResize);
       inputSub.dispose();
       renderSub.dispose();
-      clearInterval(settleTimer);
+      clearInterval(perfTimer);
+      stopFrames();
+      sendPerf();
       clearTimeout(showLater);
       try {
         ws.close();

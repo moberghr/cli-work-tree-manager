@@ -1,40 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { cornerBadge, LatencyMeter, SETTLE_MS } from '../../src/web/src/state/keystroke-latency.js';
+import { cornerBadge, LatencyMeter } from '../../src/web/src/state/keystroke-latency.js';
 
 /** The Terminal tab's meter: a keystroke's echo arriving, and its whole redraw on screen (reported: "29 ms" felt laggy). */
 
-describe('LatencyMeter: on screen, not only arrived', () => {
-  it("the redraw is on screen at its last frame: Claude's later chunks and the drawing count", () => {
+describe('LatencyMeter: on screen is the first frame after the echo', () => {
+  it("a working Claude's spinner keeps redrawing: on screen is still the key's own frame, not the last before quiet", () => {
+    // Measured: the echo back in 6-18 ms, then a spinner redraw every ~100 ms; the old "last frame before quiet" read 366 ms.
     const m = new LatencyMeter();
     m.keySent(0);
-    expect(m.output(29)).toBe(29); // the first byte back
-    m.rendered(40);
-    m.output(55); // more of the same redraw
-    m.rendered(70);
-    expect(m.settle(70 + SETTLE_MS - 1)).toBeNull(); // not quiet long enough yet
-    expect(m.settle(70 + SETTLE_MS)).toBe(70);
-    expect(m.reading()).toEqual({ arrived: { median: 29, worst: 29 }, shown: { median: 70, worst: 70 } });
+    expect(m.output(12)).toBe(12); // the echo
+    expect(m.rendered(28)).toEqual({ arrived: 12, shown: 28 }); // its frame
+    m.output(110); // the spinner
+    expect(m.rendered(120)).toBeNull(); // not a key's
+    m.output(210);
+    m.rendered(220);
+    expect(m.reading()).toEqual({ arrived: { median: 12, worst: 12 }, shown: { median: 28, worst: 28 } });
   });
 
-  it('a new key closes the redraw before it; output with no frame drawn takes no on-screen sample', () => {
+  it('a key typed before its echo was drawn says so (shown null) and starts its own', () => {
     const m = new LatencyMeter();
     m.keySent(0);
     m.output(20);
-    m.rendered(35);
-    m.keySent(50); // typed on: the first redraw closes at its last frame
+    expect(m.keySent(50)).toEqual({ arrived: 20, shown: null }); // never drawn before the next key
     m.output(80);
-    expect(m.settle(500)).toBeNull(); // nothing drawn for the second
-    expect(m.reading()?.shown).toEqual({ median: 35, worst: 35 });
+    expect(m.rendered(95)).toEqual({ arrived: 30, shown: 45 });
+    expect(m.reading()?.shown).toEqual({ median: 45, worst: 45 });
     expect(m.reading()?.arrived.median).toBe(25);
   });
 
-  it('Claude streaming long after the key is no redraw of it; the worst is the 90th percentile, a stall shows', () => {
+  it('a frame long after the key is a stall, not a sample; the worst is the 90th percentile, a stall shows', () => {
     const m = new LatencyMeter();
     m.keySent(0);
     m.output(10);
-    m.output(3000); // streaming on: past the cap, the redraw is dropped
-    m.rendered(3001);
-    expect(m.settle(5000)).toBeNull();
+    expect(m.rendered(3000)).toEqual({ arrived: 10, shown: null });
+    expect(m.reading()?.shown).toBeNull();
     const n = new LatencyMeter();
     for (let i = 0; i < 9; i++) {
       n.keySent(i * 1000);
@@ -54,7 +53,7 @@ describe('the corner', () => {
     const b = cornerBadge({ arrived: { median: 29, worst: 40 }, shown: { median: 60, worst: 210 } }, 'webgl')!;
     expect(b.text).toBe('⌁ 60 ms (210 ms)');
     expect(b.title).toContain('its echo arrived in 29 ms (40 ms)');
-    expect(b.title).toContain('its redraw was on screen in 60 ms (210 ms)');
+    expect(b.title).toContain('it was on screen in 60 ms (210 ms)');
     expect(b.slow).toBe(false);
     expect(cornerBadge({ arrived: { median: 29, worst: 35 }, shown: null }, 'webgl')!.text).toBe('⌁ 29 ms');
     expect(cornerBadge({ arrived: { median: 20, worst: 20 }, shown: { median: 140, worst: 150 } }, 'webgl')!.slow).toBe(true);

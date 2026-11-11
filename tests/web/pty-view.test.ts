@@ -293,10 +293,11 @@ describe('PtyView', () => {
     expect(term.writes).toContain('hello');
   });
 
-  it("the corner shows when a keystroke's redraw was on screen, not only when its echo arrived (reported: 29 ms felt laggy)", () => {
+  it("the corner shows when a keystroke's echo was on screen — its first frame, not the spinner's after it — and the debug log gets it", () => {
     vi.useFakeTimers();
     let clock = 1_000;
     const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 204 }));
     try {
       const { ws, term } = mount();
       ws.serverOpen();
@@ -305,16 +306,26 @@ describe('PtyView', () => {
       clock += 29;
       act(() => ws.binary('a')); // the echo: arrived after 29 ms
       clock += 50;
-      act(() => term.renderCb?.()); // Claude's redraw drawn 79 ms after the key
+      act(() => term.renderCb?.()); // drawn 79 ms after the key
+      clock += 100;
+      act(() => ws.binary('spinner'));
+      act(() => term.renderCb?.()); // a working Claude's spinner: not the key's
       clock += 600;
       act(() => {
-        vi.advanceTimersByTime(600); // quiet: the redraw is over, and the corner's half second is up
+        vi.advanceTimersByTime(600); // the corner's half second is up
       });
       const badge = container.querySelector('.wd-pty-latency')!;
       expect(badge.textContent).toBe('⌁ 79 ms');
       expect(badge.getAttribute('title')).toContain('its echo arrived in 29 ms');
-      expect(badge.getAttribute('title')).toContain('its redraw was on screen in 79 ms');
+      expect(badge.getAttribute('title')).toContain('it was on screen in 79 ms');
+      act(() => {
+        vi.advanceTimersByTime(10_000); // the next send to the debug log
+      });
+      const sent = fetchMock.mock.calls.find(([url]) => url === '/api/terminal-perf');
+      expect(sent).toBeDefined();
+      expect(JSON.parse(String(sent![1]!.body))).toMatchObject({ sessionId: 's1', keys: [{ arrived: 29, shown: 79 }], stalls: [] });
     } finally {
+      fetchMock.mockRestore();
       now.mockRestore();
       vi.useRealTimers();
     }

@@ -821,6 +821,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/sessions/:id/terminal/health', (c) => c.json({ ok: true }));
   // Its terminals are pretend ones over its own socket: the tab goes through that, as through work web's relay.
   app.post('/api/terminals/:id/ticket', (c) => c.json({ fallback: true } satisfies TerminalTicketWire));
+  // Its pretend terminals measure nothing worth keeping: taken and dropped (nothing is written).
+  app.post('/api/terminal-perf', (c) => c.body(null, 204));
 
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));

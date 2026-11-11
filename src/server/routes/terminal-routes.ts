@@ -1,5 +1,6 @@
 import type { Hono } from 'hono';
 import type { TerminalElsewhere, TerminalTicketWire } from '../../core/api-types.js';
+import { cleanPerfReport, perfLine } from '../../core/pty/terminal-perf.js';
 
 /**
  * `POST /api/terminals/:id/ticket {force?}`: the Terminal tab asks where to connect. work web does what its relay did
@@ -15,6 +16,8 @@ export interface TerminalRoutesOptions {
   ensure: (id: string) => Promise<string | null>;
   /** The host's address for this terminal with a ticket for this origin; null when it can't give one. */
   ticket: (id: string, origin: string) => Promise<string | null>;
+  /** Where `POST /api/terminal-perf` writes its line (work web: the debug log). */
+  log: (line: string) => void;
 }
 
 export function mountTerminalRoutes(app: Hono, opts: TerminalRoutesOptions): void {
@@ -42,5 +45,14 @@ export function mountTerminalRoutes(app: Hono, opts: TerminalRoutesOptions): voi
     if (!running) return c.json({ error: 'unknown session' } satisfies TerminalTicketWire, 404);
     const url = await opts.ticket(id, origin).catch(() => null);
     return c.json((url ? { url } : { fallback: true }) satisfies TerminalTicketWire);
+  });
+
+  // What a Terminal tab measured — keystrokes and the window's freezes — into the debug log, where it can be read
+  // (a tooltip can't be copied). A POST: it writes.
+  app.post('/api/terminal-perf', async (c) => {
+    const report = cleanPerfReport(await c.req.json().catch(() => null));
+    if (!report) return c.json({ error: 'not a terminal-perf report' }, 400);
+    opts.log(perfLine(report));
+    return c.body(null, 204);
   });
 }

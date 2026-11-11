@@ -50,6 +50,7 @@ import { mountSessionCommentRoutes } from './routes/session-comment-routes.js';
 import { mountPanesRoutes } from './routes/panes-routes.js';
 import { mountWorktreeRoutes } from './routes/worktree-routes.js';
 import { mountScopeRoutes } from './routes/scope-routes.js';
+import { debugLog } from '../core/platform/logger.js';
 import { mountTerminalRoutes } from './routes/terminal-routes.js';
 import { mountStatusRoutes } from './routes/status-routes.js';
 import { mountShipRoutes } from './routes/ship-routes.js';
@@ -974,7 +975,12 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
 
   // The terminal's gate, and where the Terminal tab connects: straight to the PTY host with a one-time ticket
   // (terminal-routes.ts), else through the relay — the upgrade is handled by the server's `upgrade` event below.
-  mountTerminalRoutes(app, { elsewhere: defaultElsewhere, ensure: (id) => ensurePty(id), ticket: terminalTicketUrl });
+  mountTerminalRoutes(app, {
+    elsewhere: defaultElsewhere,
+    ensure: (id) => ensurePty(id),
+    ticket: terminalTicketUrl,
+    log: (line) => debugLog('INFO', line),
+  });
 
   // Attention inbox: hook nudges + mark-seen. A status change usually means
   // a turn touched files, so the row's +N −M refreshes too.

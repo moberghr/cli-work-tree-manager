@@ -13,6 +13,7 @@ function setup(over: Partial<TerminalRoutesOptions> = {}) {
     elsewhere: vi.fn(async () => null),
     ensure: vi.fn(async () => 'ws://127.0.0.1:1/ptys/s1/attach?token=t'),
     ticket: vi.fn(async (id: string) => `ws://127.0.0.1:1/ptys/${id}/attach?ticket=abc`),
+    log: vi.fn((_line: string) => {}),
     ...over,
   };
   const app = new Hono();
@@ -62,5 +63,47 @@ describe('the terminal ticket route', () => {
     const app = new Hono();
     mountTerminalRoutes(app, setup().opts);
     expect(await (await app.request('/api/sessions/s1/terminal/health')).json()).toEqual({ ok: true, sessionId: 's1' });
+  });
+});
+
+describe('the terminal-perf route: what a Terminal tab measured, into the debug log', () => {
+  const post = (app: Hono, body: unknown) =>
+    app.request('/api/terminal-perf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  it('writes one readable line: keystrokes as median / p90 / max, and each freeze with what ran', async () => {
+    const { opts } = setup();
+    const app = new Hono();
+    mountTerminalRoutes(app, opts);
+    const res = await post(app, {
+      sessionId: 's1',
+      route: 'direct',
+      renderer: 'webgl',
+      keys: [
+        { arrived: 10, shown: 20 },
+        { arrived: 12, shown: null },
+        { arrived: 300, shown: 640 },
+      ],
+      stalls: [{ at: Date.UTC(2026, 10, 11, 13, 20, 5, 123), ms: 412, blocking: 380, what: 'onmessage index.js 400ms' }],
+    });
+    expect(res.status).toBe(204);
+    expect(opts.log).toHaveBeenCalledWith(
+      'terminal-perf s1 (direct, webgl); 3 keys: echo 12 / 300 / 300 ms, on screen 330 / 640 / 640 ms (median / p90 / max); ' +
+        '1 freezes: 13:20:05.123 412ms (blocking 380) [onmessage index.js 400ms]',
+    );
+  });
+
+  it('refuses anything off its shape, and writes nothing', async () => {
+    const { opts } = setup();
+    const app = new Hono();
+    mountTerminalRoutes(app, opts);
+    for (const bad of [
+      null,
+      { sessionId: 's1' },
+      { sessionId: 's1', route: 'x', renderer: 'webgl', keys: [], stalls: [] },
+      { sessionId: 's1', route: null, renderer: 'webgl', keys: [{ arrived: -1, shown: null }], stalls: [] },
+    ]) {
+      expect((await post(app, bad)).status).toBe(400);
+    }
+    expect(opts.log).not.toHaveBeenCalled();
   });
 });

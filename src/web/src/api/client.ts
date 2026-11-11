@@ -624,6 +624,16 @@ async function postJson<T>(path: string, body: unknown, method = 'POST'): Promis
   return res.json() as Promise<T>;
 }
 
+/** The Terminal tab's measurements, for work's debug log (terminal-perf.ts). Best effort: a failure loses only them. */
+export function sendTerminalPerf(report: import('../../../core/api-types.js').TerminalPerfWire): void {
+  void fetch('/api/terminal-perf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report),
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 export function fetchComments(): Promise<Comment[]> {
   return getJson<{ comments: Comment[] }>('/api/comments').then((r) => r.comments);
 }

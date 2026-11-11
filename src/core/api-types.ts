@@ -460,6 +460,17 @@ export interface CleanupApplyRequest {
  * from before tickets, the demo; `elsewhere`: its Claude runs in another terminal, nothing was started; `error`: it
  * couldn't be started (archived, the host won't start), said over the pane.
  */
+/** `POST /api/terminal-perf`: what a Terminal tab measured since it last sent (core/pty/terminal-perf.ts). */
+export interface TerminalPerfWire {
+  sessionId: string;
+  route: 'direct' | 'relay' | null;
+  renderer: 'webgl' | 'retrying' | 'dom';
+  /** Each keystroke: ms to its echo, and to the first frame drawn after it (null: none before the next key). */
+  keys: { arrived: number; shown: number | null }[];
+  /** Each time the window froze: when (epoch ms), how long, the part that blocked input, what ran. */
+  stalls: { at: number; ms: number; blocking: number | null; what: string }[];
+}
+
 export type TerminalTicketWire = { url: string } | { fallback: true } | { elsewhere: TerminalElsewhere } | { error: string };
 
 export interface TerminalElsewhere {
