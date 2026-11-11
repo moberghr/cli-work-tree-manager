@@ -38,6 +38,9 @@ test('dashboard lists the session and the browser terminal drives the PTY', asyn
 
   await typeLine(page, 'hello');
   await work.waitForScreen(id, 'echo:hello');
+  // Straight to the PTY host with a one-time ticket, not through work web's relay (reported: typing lagged through
+  // it). The corner says which, once a keystroke came back.
+  await expect(page.locator('.wd-pty-latency')).toHaveAttribute('title', /Connected straight to the PTY host/);
 });
 
 test('agents survive a work web restart (same PTY, screen replayed)', async ({ page, work }) => {

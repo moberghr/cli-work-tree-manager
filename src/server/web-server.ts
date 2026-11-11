@@ -103,9 +103,10 @@ import { disposeAllScopes, findScope, listScopes, scopesToSweep, suppressScopeWa
 import { computeSessionRange } from '../core/diff/session-history.js';
 import { parsePoint } from '../core/diff/diff-points.js';
 import { clearCheckpoints } from '../core/diff/checkpoint.js';
-import { attachTerminalWs } from './terminal-ws.js';
+import { attachTerminalWs, defaultElsewhere } from './terminal-ws.js';
 import {
   detachPtyPool,
+  ensurePty,
   disposePty,
   getWorkBin,
   hostBeat,
@@ -117,6 +118,7 @@ import {
   ptyLastOutputMs,
   ptyPid,
   restartPty,
+  terminalTicketUrl,
 } from '../core/pty/pty-pool.js';
 import { busyForRestart, createRestarter, installedAtCache, QUEUE_RECHECK_MS, restartNotesSummary } from '../core/pty/agent-restart.js';
 import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
@@ -970,9 +972,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // single process.
   scopeApi = mountScopeRoutes(app, { broadcast });
 
-  // PTY upgrade endpoint. Returns a noop response — the upgrade is handled
-  // by the server's `upgrade` event below.
-  mountTerminalRoutes(app);
+  // The terminal's gate, and where the Terminal tab connects: straight to the PTY host with a one-time ticket
+  // (terminal-routes.ts), else through the relay — the upgrade is handled by the server's `upgrade` event below.
+  mountTerminalRoutes(app, { elsewhere: defaultElsewhere, ensure: (id) => ensurePty(id), ticket: terminalTicketUrl });
 
   // Attention inbox: hook nudges + mark-seen. A status change usually means
   // a turn touched files, so the row's +N −M refreshes too.

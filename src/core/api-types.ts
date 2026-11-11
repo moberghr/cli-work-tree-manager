@@ -454,6 +454,14 @@ export interface CleanupApplyRequest {
  *  a plain terminal (not the PTY host), so nothing was spawned — a second
  *  Claude would share its conversation. Reconnect with `?force=1` to
  *  spawn anyway. */
+/**
+ * `POST /api/terminals/:id/ticket`: where the Terminal tab connects. `url`: straight to the PTY host, with a one-time
+ * ticket (terminal-tickets.ts); `fallback`: through work web's relay (`/ws/sessions/:id/terminal`) as before — a host
+ * from before tickets, the demo; `elsewhere`: its Claude runs in another terminal, nothing was started; `error`: it
+ * couldn't be started (archived, the host won't start), said over the pane.
+ */
+export type TerminalTicketWire = { url: string } | { fallback: true } | { elsewhere: TerminalElsewhere } | { error: string };
+
 export interface TerminalElsewhere {
   type: 'elsewhere';
   /** Claude's last transcript write (ms since epoch), or null. */

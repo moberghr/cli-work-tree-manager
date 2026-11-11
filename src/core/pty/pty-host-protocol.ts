@@ -23,7 +23,7 @@ export const PROTOCOL_VERSION = 2;
  * `agentEnv`: it applies a spawn's / restart's / resume's `agentEnv` (a session's Claude account); `halt`: halt / resume.
  * A client asks before sending something an older host would silently drop (pty-pool.ts).
  */
-export const HOST_FEATURES = ['agentEnv', 'halt'] as const;
+export const HOST_FEATURES = ['agentEnv', 'halt', 'tickets'] as const;
 export type HostFeature = (typeof HOST_FEATURES)[number];
 
 /** Discovery file: where the running host listens and its auth token. */

@@ -84,7 +84,7 @@ describe('PTY host', () => {
   });
 
   it('says what it supports on /health (the accounts agentEnv, halt / resume): clients ask before relying on them', async () => {
-    expect(await client.features()).toEqual(['agentEnv', 'halt']);
+    expect(await client.features()).toEqual(['agentEnv', 'halt', 'tickets']);
   });
 
   it('says on /health which release it runs (it outlives updates: the dashboard says when it is older)', async () => {
@@ -113,6 +113,50 @@ describe('PTY host', () => {
     expect(b.binary.join('')).toBe('echo:x');
     a.ws.close();
     b.ws.close();
+  });
+
+  it('a dashboard page attaches with a one-time ticket work web got for its origin — never the token', async () => {
+    await client.spawn('s1', { cwd: dir, tool: tool as never });
+    const page = 'http://127.0.0.1:54989';
+    const url = (await client.ticketUrl('s1', page))!;
+    expect(url).toMatch(/\/ptys\/s1\/attach\?ticket=[0-9a-f]{48}$/);
+    expect(url).not.toContain(host.info.token);
+    // The page's own origin, as a browser sends it: it attaches and streams like any client.
+    const open = (u: string, origin: string) => {
+      const ws = new WebSocket(u, { headers: { Origin: origin } });
+      const binary: string[] = [];
+      ws.on('message', (d, isBinary) => isBinary && binary.push((d as Buffer).toString()));
+      return {
+        ws,
+        binary,
+        result: new Promise<'open' | 'refused'>((r) => {
+          ws.on('open', () => r('open'));
+          ws.on('error', () => r('refused'));
+        }),
+      };
+    };
+    const a = open(url, page);
+    expect(await a.result).toBe('open');
+    await tick();
+    a.ws.send(JSON.stringify({ type: 'input', data: 'hi' }));
+    await tick();
+    expect(a.binary.join('')).toBe('echo:hi');
+    a.ws.close();
+    // Once: the same ticket again is refused.
+    expect(await open(url, page).result).toBe('refused');
+    // Another origin, or no ticket and no token: refused.
+    expect(await open((await client.ticketUrl('s1', page))!, 'http://127.0.0.1:1').result).toBe('refused');
+    expect(await open(`ws://127.0.0.1:${host.info.port}/ptys/s1/attach`, page).result).toBe('refused');
+    // A ticket for one terminal doesn't open another.
+    await client.spawn('s2', { cwd: dir, tool: tool as never });
+    expect(await open((await client.ticketUrl('s1', page))!.replace('/s1/', '/s2/'), page).result).toBe('refused');
+    // Only for a page on this machine; and only work web, with the token, can ask for one.
+    expect(await client.ticketUrl('s1', 'https://evil.example')).toBeNull();
+    const asked = await fetch(`http://127.0.0.1:${host.info.port}/tickets`, {
+      method: 'POST',
+      body: JSON.stringify({ id: 's1', origin: page }),
+    });
+    expect(asked.status).toBe(403);
   });
 
   it('sends an exit control frame and closes when the PTY exits', async () => {

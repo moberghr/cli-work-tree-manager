@@ -331,4 +331,15 @@ export class PtyHostClient {
   attachUrl(id: string): string {
     return `ws://127.0.0.1:${this.info.port}/ptys/${encodeURIComponent(id)}/attach?token=${this.info.token}`;
   }
+
+  /**
+   * The address a dashboard page attaches this terminal at, with a one-time ticket for its origin
+   * (terminal-tickets.ts) — never the token. Null from a host without tickets, or one that refused.
+   */
+  async ticketUrl(id: string, origin: string): Promise<string | null> {
+    if (!(await this.features())?.includes('tickets')) return null;
+    const got = await this.call<{ ticket?: unknown }>('POST', '/tickets', { id, origin }).catch(() => null);
+    const ticket = typeof got?.ticket === 'string' ? got.ticket : null;
+    return ticket ? `ws://127.0.0.1:${this.info.port}/ptys/${encodeURIComponent(id)}/attach?ticket=${ticket}` : null;
+  }
 }

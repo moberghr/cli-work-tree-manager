@@ -10,6 +10,7 @@ import { VERSION } from '../../version.js';
 import { HOST_FEATURES, PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type HostInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { report } from '../platform/report.js';
 import { isEnvDelta } from '../platform/env-delta.js';
+import { createTicketBook } from './terminal-tickets.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
 const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart|\/halt|\/resume)?$/;
@@ -87,6 +88,8 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
   const registry = opts.registry ?? new PtyRegistry();
   const token = crypto.randomBytes(24).toString('hex');
   let allowedHosts = new Set<string>();
+  // A dashboard page's Terminal tab connects here directly with one of these (terminal-tickets.ts), never the token.
+  const tickets = createTicketBook();
 
   const authorized = (req: http.IncomingMessage, url: URL): boolean => {
     if (!req.headers.host || !allowedHosts.has(req.headers.host)) return false;
@@ -107,6 +110,12 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
       }
       if (req.method === 'GET' && url.pathname === '/ptys') {
         return send(res, 200, registry.list());
+      }
+      // work web, for a page it checked: a one-time ticket to attach that terminal from that page's origin.
+      if (req.method === 'POST' && url.pathname === '/tickets') {
+        const body = (await readBody(req).catch(() => ({}))) as { id?: unknown; origin?: unknown };
+        const ticket = typeof body.id === 'string' && typeof body.origin === 'string' ? tickets.issue(body.id, body.origin) : null;
+        return ticket ? send(res, 200, { ticket }) : send(res, 400, { error: 'a terminal id and a page origin on this machine' });
       }
       const m = url.pathname.match(PTY_PATH);
       if (m) {
@@ -165,11 +174,18 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const m = (req.url ?? '').match(ATTACH_PATH);
-    if (!m || !authorized(req, url)) {
+    const id = m ? decodeURIComponent(m[1]) : '';
+    // work web's relay and `work attach` bring the token; a dashboard page brings a ticket work web got for it.
+    const ticket = url.searchParams.get('ticket');
+    const ok =
+      !!m &&
+      (ticket
+        ? !!req.headers.host && allowedHosts.has(req.headers.host) && tickets.redeem(ticket, id, req.headers.origin)
+        : authorized(req, url));
+    if (!ok) {
       socket.destroy();
       return;
     }
-    const id = decodeURIComponent(m[1]);
     wss.handleUpgrade(req, socket, head, (ws) => {
       const attached = registry.attach(
         id,

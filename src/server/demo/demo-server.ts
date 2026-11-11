@@ -37,6 +37,7 @@ import type {
   UsageWire,
   AccountsWire,
   PtyHostRestartWire,
+  TerminalTicketWire,
 } from '../../core/api-types.js';
 import { demoUsage } from './demo-usage.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
@@ -818,6 +819,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/open-editor', (c) => noLocalApps(c));
   app.post('/api/sessions/:id/open-terminal', (c) => noLocalApps(c));
   app.get('/api/sessions/:id/terminal/health', (c) => c.json({ ok: true }));
+  // Its terminals are pretend ones over its own socket: the tab goes through that, as through work web's relay.
+  app.post('/api/terminals/:id/ticket', (c) => c.json({ fallback: true } satisfies TerminalTicketWire));
 
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));

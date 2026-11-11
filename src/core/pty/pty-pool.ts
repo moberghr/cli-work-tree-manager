@@ -232,6 +232,16 @@ export async function ensurePty(sessionId: string, extra: { initialPrompt?: stri
   return c.attachUrl(sessionId);
 }
 
+/**
+ * Where a dashboard page connects a terminal straight to the PTY host (with a one-time ticket for its origin), once
+ * `ensurePty` has it running. Null when the host can't give one (from before tickets): the page goes through work
+ * web's relay as before.
+ */
+export async function terminalTicketUrl(sessionId: string, origin: string): Promise<string | null> {
+  const c = await getClient(false);
+  return c ? c.ticketUrl(sessionId, origin).catch(() => null) : null;
+}
+
 /** Start an account's login terminal in the PTY host (or find it running); its id, for the terminal WebSocket. */
 export async function startAccountLogin(name: string): Promise<string> {
   const id = accountLoginId(name);
