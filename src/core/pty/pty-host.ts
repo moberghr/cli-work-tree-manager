@@ -288,7 +288,12 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
     registry,
     async stop() {
       registry.disposeAllKeepingState();
+      // Every attached terminal's connection ends now: server.close() waits for open connections, and a dashboard
+      // page connected straight here (a ticket) keeps its WebSocket for as long as the tab is open — the host
+      // never stopped (`work pty-host --stop` / `--restart` hung while a Terminal tab was open).
+      for (const c of wss.clients) c.terminate();
       wss.close();
+      server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));
       if (opts.writeInfo !== false) {
         try {

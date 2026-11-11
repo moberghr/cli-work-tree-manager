@@ -159,6 +159,21 @@ describe('PTY host', () => {
     expect(asked.status).toBe(403);
   });
 
+  it('stops with a terminal still attached — a dashboard tab connected straight here never closes on its own', async () => {
+    await client.spawn('s1', { cwd: dir, tool: tool as never });
+    const page = 'http://127.0.0.1:54989';
+    const ws = new WebSocket((await client.ticketUrl('s1', page))!, { headers: { Origin: page } });
+    await new Promise<void>((r) => ws.on('open', () => r()));
+    const closed = new Promise<void>((r) => ws.on('close', () => r()));
+    const stopped = await Promise.race([
+      host.stop().then(() => 'stopped'),
+      new Promise((r) => setTimeout(() => r('hung'), 3000)),
+    ]);
+    expect(stopped).toBe('stopped');
+    await closed; // the tab saw its connection end (and reconnects to the next host)
+    // afterEach stops it again: a second stop must not throw.
+  });
+
   it('sends an exit control frame and closes when the PTY exits', async () => {
     await client.spawn('s2', { cwd: dir, tool: tool as never });
     const a = attach('s2');
