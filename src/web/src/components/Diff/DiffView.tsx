@@ -22,6 +22,7 @@ import { DiffRepo } from './DiffRepo.js';
 import { DiffUpdateChip } from './DiffUpdateChip.js';
 import { DiffModeToggle } from './DiffModeToggle.js';
 import { HistoryPicker } from './HistoryPicker.js';
+import { RepoSwitch } from './RepoSwitch.js';
 import { FileTree } from '../Sidebar/FileTree.js';
 import { anchorFor } from '../../utils/tree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
@@ -440,33 +441,11 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     <div className="wd-web-difftoolbar wd-dash-difftoolbar" role="toolbar" aria-label="Diff">
       <div className="wd-dash-difftoolbar-pick">
         {isGroup && (
-          <div className="wd-web-diff-scope wd-diff-repo-switch" role="tablist" aria-label="Repo">
-            {repoSwitch(sessionRepoNames(session.paths), diff?.repos).map((r) => {
-              const on = r.name === (activeRepo?.name ?? activeRepoName);
-              return (
-                <button
-                  key={r.name}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  className={
-                    'wd-web-diff-scope-btn' + (on ? ' wd-web-diff-scope-btn-active' : '') + (r.files === 0 ? ' wd-diff-repo-empty' : '')
-                  }
-                  onClick={() => switchRepo(r.name)}
-                  title={
-                    r.files === null
-                      ? `${r.name}: not in this pick (a commit is one repo's) — shows its branch`
-                      : r.files === 0
-                        ? `${r.name}: no changes here`
-                        : `${r.name}: ${r.files} file${r.files === 1 ? '' : 's'} +${r.added} −${r.deleted}`
-                  }
-                >
-                  {r.name}
-                  {r.files !== null && <span className="wd-web-tab-count"> {r.files}</span>}
-                </button>
-              );
-            })}
-          </div>
+          <RepoSwitch
+            items={repoSwitch(sessionRepoNames(session.paths), diff?.repos)}
+            active={activeRepo?.name ?? activeRepoName}
+            onPick={switchRepo}
+          />
         )}
         {groups.length > 0 && (
           <BranchSwitch
