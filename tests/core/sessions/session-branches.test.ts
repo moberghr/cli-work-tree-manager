@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   backfillSessionBranches,
   branchHidden,
+  DONE_SHOWN_MS,
   cleanBranches,
   GONE_SHOWN_MS,
   LAST_SEEN_STEP_MS,
@@ -106,12 +107,25 @@ describe('withSightings (pure)', () => {
     expect(rec).toEqual({ branches: [{ repo: 'api', name: 'a', firstSeen: T0.toISOString(), lastSeen: T0.toISOString(), merged: true }] });
   });
 
-  it('a merged branch deleted a while ago is hidden; one deleted without merging never is', () => {
+  it('a merged branch deleted a while ago is hidden; one deleted without merging only once left a month', () => {
     const gone = new Date(T0.getTime() - GONE_SHOWN_MS).toISOString();
-    expect(branchHidden({ gone, merged: true }, T0.getTime())).toBe(true);
-    expect(branchHidden({ gone }, T0.getTime())).toBe(false);
-    expect(branchHidden({ gone }, T0.getTime(), true)).toBe(true); // its PR merged
-    expect(branchHidden({ gone: T0.toISOString(), merged: true }, T0.getTime())).toBe(false); // just now: still shown
+    const lastSeen = T0.toISOString();
+    expect(branchHidden({ gone, merged: true, lastSeen }, T0.getTime())).toBe(true);
+    expect(branchHidden({ gone, lastSeen }, T0.getTime())).toBe(false);
+    expect(branchHidden({ gone, lastSeen }, T0.getTime(), true)).toBe(true); // its PR merged
+    expect(branchHidden({ gone: T0.toISOString(), merged: true, lastSeen }, T0.getTime())).toBe(false); // just now: still shown
+  });
+
+  it("a branch merged or deleted and left a month ago is hidden — never the checked-out one (reported: main read 'PR #55 · merged')", () => {
+    const now = T0.getTime();
+    const month = new Date(now - DONE_SHOWN_MS).toISOString();
+    const recent = new Date(now - DONE_SHOWN_MS + 60_000).toISOString();
+    expect(branchHidden({ merged: true, lastSeen: month }, now)).toBe(true);
+    expect(branchHidden({ lastSeen: month }, now, true)).toBe(true); // its PR merged
+    expect(branchHidden({ gone: month, lastSeen: month }, now)).toBe(true); // deleted, never merged
+    expect(branchHidden({ merged: true, lastSeen: recent }, now)).toBe(false);
+    expect(branchHidden({ lastSeen: month }, now)).toBe(false); // still there, not merged: work of its own
+    expect(branchHidden({ merged: true, lastSeen: month }, now, false, true)).toBe(false); // checked out now
   });
 
   it('the branches to watch: recent, not the checked-out one, newest first, a few at most', () => {

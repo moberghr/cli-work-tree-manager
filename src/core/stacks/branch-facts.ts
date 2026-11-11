@@ -211,8 +211,17 @@ export function branchesWire(
   const rows: SessionBranchWire[] = [];
   for (const b of rec.branches) {
     const pr = prOfBranch(ci, b.repo, b.name);
-    if (branchHidden(b, now, pr?.state === 'MERGED')) continue;
     const f = facts.get(factsKey(b.repo, b.name));
+    // Merged as kept once seen — unless the branch, there now, has work of its own again (commits its base
+    // lacks) or is the main line itself: a repo's own main read "6 commits · 6 not pushed · merged". Its PR
+    // merged still says so (a squash merge leaves its commits unmerged).
+    const merged = f
+      ? pr?.state === 'MERGED' || (!(f.exists && (f.base || (f.commits ?? 0) > 0)) && (f.merged || !!b.merged))
+      : !!b.merged || pr?.state === 'MERGED';
+    // Hidden by its merged as shown (a branch with work of its own again isn't done), deleted as the record says.
+    const { merged: _kept, ...rest } = b;
+    const seen = { ...rest, ...(merged ? { merged: true as const } : {}) };
+    if (branchHidden(seen, now, false, current(b.repo) === b.name)) continue;
     rows.push({
       repo: b.repo,
       name: b.name,
@@ -226,12 +235,9 @@ export function branchesWire(
             pushed: f.pushed,
             commits: f.commits,
             unpushed: f.unpushed,
-            // Merged as kept once seen — unless the branch, there now, has work of its own again (commits its base
-            // lacks) or is the main line itself: a repo's own main read "6 commits · 6 not pushed · merged". Its PR
-            // merged still says so (a squash merge leaves its commits unmerged).
-            merged: pr?.state === 'MERGED' || (!(f.exists && (f.base || (f.commits ?? 0) > 0)) && (f.merged || !!b.merged)),
+            merged,
           }
-        : b.merged || pr?.state === 'MERGED'
+        : merged
           ? { merged: true }
           : {}),
       ...(pr ? { pr: { number: pr.number, url: pr.url, state: pr.state, kind: stageOfPr(pr) } } : {}),
@@ -319,7 +325,7 @@ export function branchJobs(
 ): { jobs: BranchJob[]; current: (repo: string) => string | null } | null {
   if (!rec?.branches.length) return null;
   const currentOf = new Map(s.paths.map((p) => [repoNameOf(s, p), checkedOutBranch(p)]));
-  const visible = rec.branches.filter((b) => !branchHidden(b, now));
+  const visible = rec.branches.filter((b) => !branchHidden(b, now, false, currentOf.get(b.repo) === b.name));
   const repos = new Set(visible.map((b) => b.repo));
   if (![...repos].some((r) => visible.filter((b) => b.repo === r).length > 1)) return null;
   const pathOf = new Map(s.paths.map((p) => [repoNameOf(s, p), p]));

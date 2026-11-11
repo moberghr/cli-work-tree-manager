@@ -99,8 +99,27 @@ describe('the PR watch across branches', () => {
     const stage = prStageWire(ci, () => false)!;
     expect(stage.kind).toBe('in_review');
     expect(stage.prs.map((p) => p.number)).toEqual([3600]); // the merged one isn't a pill once an open one is there
-    expect(stageRepos(ci!.repos)[0].earlier.map((e) => e.pr.number)).toEqual([3592]);
+    expect(stageRepos(ci!.repos, Date.parse('2026-10-01T00:00:00Z'))[0].earlier.map((e) => e.pr.number)).toEqual([3592]);
     expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
+  it("another branch's merged PR is never the stage, and it folds under it only for a month (reported: main read 'PR #55 · merged')", () => {
+    const old55 = pr({ number: 55, url: 'u/55', state: 'MERGED', mergedAt: '2026-10-05T08:00:00Z' });
+    const now = Date.parse('2026-11-11T10:00:00Z');
+    const [own] = stageRepos(
+      [{ name: 'work-tree', branch: 'main', pr: null, otherPrs: [{ branch: 'spike/headless-chat', pr: old55 }] }],
+      now,
+    );
+    expect(own.pr).toBeNull();
+    expect(own.earlier).toEqual([]); // merged over a month ago
+    expect(prStageOf(stageRepos([{ name: 'work-tree', pr: null, otherPrs: [{ branch: 'spike', pr: old55 }] }], now))).toBeNull();
+    // A week after it merged: no stage still, but folded under it in the PR tab.
+    const week = Date.parse('2026-10-12T10:00:00Z');
+    const [fresh] = stageRepos([{ name: 'work-tree', pr: null, otherPrs: [{ branch: 'spike', pr: old55 }] }], week);
+    expect(fresh.pr).toBeNull();
+    expect(fresh.earlier.map((e) => e.pr.number)).toEqual([55]);
+    // The checked-out branch's own merged PR is still its stage.
+    expect(stageRepos([{ name: 'work-tree', pr: old55 }], now)[0].pr?.number).toBe(55);
   });
 
   it('the newest open PR wins even when the checked-out branch has none (Claude switched back to an old branch)', () => {
@@ -129,7 +148,7 @@ describe('the PR watch across branches', () => {
     const stage = prStageWire(ci, () => false)!;
     expect(stage.prs.map((p) => p.number)).toEqual([3657, 3656]);
     expect(stage.kind).toBe('checks_failing'); // the most pressing of them
-    const [api] = stageRepos(ci!.repos);
+    const [api] = stageRepos(ci!.repos, Date.parse('2026-10-01T00:00:00Z'));
     expect(api.also.map((a) => a.pr.number)).toEqual([3656]);
     expect(api.earlier.map((e) => e.pr.number)).toEqual([3592]); // only merged and closed ones fold
   });

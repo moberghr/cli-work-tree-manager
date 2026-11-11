@@ -151,3 +151,40 @@ describe("merged: never the main line itself, nor a branch that has work of its 
     expect(merged('fix/b')).toBe(true); // deleted: what was kept stands
   });
 });
+
+describe("a repo's own checkout on main, with branches it was on a month before (reported: 'PR #55 · merged')", () => {
+  it('neither the merged spike nor the deleted fix shows: one branch, no chip', async () => {
+    const { branchesWire } = await import('../../../src/core/stacks/branch-facts.js');
+    const rec: SessionBranches = {
+      branches: [
+        { repo: 'wt', name: 'main', firstSeen: '2026-10-05T08:32:33Z', lastSeen: '2026-11-08T09:51:15Z' },
+        {
+          repo: 'wt',
+          name: 'fix/keep-own-checkout-sessions',
+          firstSeen: '2026-10-05T08:33:15Z',
+          lastSeen: '2026-10-05T08:35:23Z',
+          gone: '2026-10-06T00:00:00Z',
+        },
+        {
+          repo: 'wt',
+          name: 'spike/headless-chat',
+          firstSeen: '2026-10-04T18:40:26Z',
+          lastSeen: '2026-10-05T08:32:33Z',
+          merged: true,
+          pushed: true,
+        },
+      ],
+    };
+    const facts = new Map([
+      [factsKey('wt', 'main'), { exists: true, sha: 'm', pushed: true, commits: 1, unpushed: 1, merged: false, base: true as const }],
+      [factsKey('wt', 'spike/headless-chat'), { exists: true, sha: 's', pushed: true, commits: 0, unpushed: 0, merged: true }],
+    ]);
+    expect(branchesWire(rec, () => 'main', facts, null, Date.parse('2026-11-11T10:00:00Z'))).toBeNull();
+    // Within the month they still showed.
+    expect(branchesWire(rec, () => 'main', facts, null, Date.parse('2026-10-20T10:00:00Z'))?.map((r) => r.name)).toEqual([
+      'main',
+      'fix/keep-own-checkout-sessions',
+      'spike/headless-chat',
+    ]);
+  });
+});

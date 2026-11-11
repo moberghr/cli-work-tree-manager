@@ -333,10 +333,23 @@ export function wasPushed(rec: SessionBranches | null | undefined, repo: string,
 /** How long a merged branch that was deleted goes on showing. */
 export const GONE_SHOWN_MS = 3 * 24 * 3600_000;
 
-/** A recorded branch no longer worth showing: deleted, merged, and that a while ago (kept in the record). */
-export function branchHidden(b: Pick<RecordedBranch, 'gone' | 'merged'>, now: number, prMerged = false): boolean {
-  if (!b.gone || !(b.merged || prMerged)) return false;
-  return now - Date.parse(b.gone) >= GONE_SHOWN_MS;
+/** How long a branch merged or deleted, and not checked out since, goes on showing. */
+export const DONE_SHOWN_MS = 30 * 24 * 3600_000;
+
+/**
+ * A recorded branch no longer worth showing (kept in the record): merged and deleted `GONE_SHOWN_MS` ago; or merged
+ * or deleted, not checked out now (`current`), and last checked out `DONE_SHOWN_MS` ago (reported: a repo's own
+ * checkout on main listed, and showed the PR of, a branch it was on a month before). Pure.
+ */
+export function branchHidden(
+  b: Pick<RecordedBranch, 'gone' | 'merged' | 'lastSeen'>,
+  now: number,
+  prMerged = false,
+  current = false,
+): boolean {
+  const merged = b.merged || prMerged;
+  if (b.gone && merged && now - Date.parse(b.gone) >= GONE_SHOWN_MS) return true;
+  return !current && (merged || !!b.gone) && now - Date.parse(b.lastSeen) >= DONE_SHOWN_MS;
 }
 
 /** How long after it was last checked out another branch is still looked at (the PR watch's window). */
