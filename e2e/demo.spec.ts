@@ -302,7 +302,9 @@ test('a Jira issue on Start starts a session with a first prompt, opened on its 
   await prompt.fill('Work on it: add the export button');
   await dialog.getByRole('button', { name: 'Create and start' }).click();
   await expect(page).toHaveURL(/\/term$/);
-  await expect(page.locator('.wd-session-strip')).toContainText('Work on it: add the export button');
+  // Its Claude got the prompt: its summary says so — in the Sessions table (the session header no longer shows it).
+  await page.goto(`${url}#/sessions`);
+  await expect(page.locator('.wd-st-summary', { hasText: 'Work on it: add the export button' })).toBeVisible();
 });
 
 test('a saved prompt is sent to a session from its ⋯ menu, and shows in its comments on the Diff', async ({ page }) => {
