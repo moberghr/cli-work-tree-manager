@@ -165,10 +165,7 @@ describe('PTY host', () => {
     const ws = new WebSocket((await client.ticketUrl('s1', page))!, { headers: { Origin: page } });
     await new Promise<void>((r) => ws.on('open', () => r()));
     const closed = new Promise<void>((r) => ws.on('close', () => r()));
-    const stopped = await Promise.race([
-      host.stop().then(() => 'stopped'),
-      new Promise((r) => setTimeout(() => r('hung'), 3000)),
-    ]);
+    const stopped = await Promise.race([host.stop().then(() => 'stopped'), new Promise((r) => setTimeout(() => r('hung'), 3000))]);
     expect(stopped).toBe('stopped');
     await closed; // the tab saw its connection end (and reconnects to the next host)
     // afterEach stops it again: a second stop must not throw.
