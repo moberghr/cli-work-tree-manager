@@ -82,6 +82,16 @@ describe('InboxTab', () => {
     expect(text(container.querySelector('.wd-inbox-rest'))).toBe("1 working, 1 in background, 2 quiet — they're in the list on the left.");
   });
 
+  it('a session with a color: a square before its name', () => {
+    act(() =>
+      root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: () => {}, layout: { places: { done: { color: 'red' } } } })),
+    );
+    const marks = [...container.querySelectorAll('.wd-inbox-name')].map(
+      (n) => n.querySelector('.wd-color-mark')?.getAttribute('title') ?? null,
+    );
+    expect(marks).toEqual([null, null, 'Red']);
+  });
+
   it('one action a row: Open for a question, Review for finished work', () => {
     act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: () => {} })));
     const actions = [...container.querySelectorAll('.wd-inbox-actions')].map((a) =>

@@ -895,7 +895,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   } else {
     switch (route.tab) {
       case 'inbox':
-        body = <InboxTab sessions={sessions} onOpenSession={openSession} onReviewAll={startReview} />;
+        body = <InboxTab sessions={sessions} onOpenSession={openSession} onReviewAll={startReview} layout={railLayout} />;
         break;
       case 'today':
         body = <TodayTab onOpenSession={openSession} viewToggle={<NowTodayToggle value="today" onChange={sessionsView} />} />;
@@ -1079,7 +1079,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       )}
       <HostHealthBanner health={hostHealth} />
       <Toast toast={toast} onClose={hideToast} />
-      {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} />}
+      {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} layout={railLayout} />}
       {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
       <UpdateStrip
         updates={updates}

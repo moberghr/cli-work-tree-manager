@@ -32,6 +32,13 @@
   --review-fg: #bf3989;
   /* Still busy, but not on your turn: a background agent its turn started (teal: near working's green). */
   --background-fg: #0e7c86;
+  /* Your colors for sessions (rail-layout.ts RAIL_COLORS): Finder's six, deep enough to show on white. */
+  --tag-red: #e5383b;
+  --tag-orange: #e16f24;
+  --tag-yellow: #c69026;
+  --tag-green: #2da44e;
+  --tag-blue: #218bff;
+  --tag-purple: #a371f7;
 }
 
 :root[data-theme='dark'] {
@@ -54,4 +61,10 @@
   --claude-bg: rgba(188, 140, 255, 0.12);
   --review-fg: #db61a2;
   --background-fg: #39c5cf;
+  --tag-red: #f85149;
+  --tag-orange: #f0883e;
+  --tag-yellow: #e3b341;
+  --tag-green: #3fb950;
+  --tag-blue: #58a6ff;
+  --tag-purple: #bc8cff;
 }

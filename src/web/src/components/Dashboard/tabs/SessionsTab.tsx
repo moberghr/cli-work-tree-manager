@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EMPTY_RAIL_LAYOUT, groupRail, type RailGroup, type RailLayout } from '../../../../../core/rail/rail-layout.js';
+import {
+  EMPTY_RAIL_LAYOUT,
+  groupRail,
+  isRailColor,
+  RAIL_COLOR_LABEL,
+  RAIL_COLORS,
+  type RailColor,
+  type RailGroup,
+  type RailLayout,
+} from '../../../../../core/rail/rail-layout.js';
+import { ColorMark } from '../ColorMark.js';
 import { BulkBar, type BulkActions } from './BulkBar.js';
 import { bulkSummary, runBulk } from '../../../state/bulk.js';
 import { StatusIcon } from '../StatusIcon.js';
@@ -71,6 +81,13 @@ type Filter = 'all' | StatusBucket;
 type Grouping = 'age' | 'project' | 'section' | 'none';
 /** The rail filter: everything, the pinned, one section (its id), or in none. */
 type RailFilter = 'any' | 'pinned' | 'none' | `section:${string}`;
+/** The color filter: everything, one color, or no color. */
+export type ColorFilter = 'any' | 'none' | RailColor;
+
+/** Whether a session passes the color filter. Pure. */
+export function inColor(color: RailColor | undefined, filter: ColorFilter): boolean {
+  return filter === 'any' || (filter === 'none' ? !color : color === filter);
+}
 
 const GROUPING_KEY = 'work-web:sessions-grouping';
 const ARCHIVED_KEY = 'work-web:sessions-show-archived';
@@ -177,7 +194,11 @@ export function SessionsTab({
   const [sort, setSort] = useState<Sort>('recent');
   const [filter, setFilter] = useState<Filter>('all');
   const [railFilter, setRailFilter] = useState<RailFilter>('any');
+  const [colorFilter, setColorFilter] = useState<ColorFilter>('any');
   const rail = layout ?? EMPTY_RAIL_LAYOUT;
+  const colorOf = useCallback((s: SessionSummary) => rail.places[s.id]?.color, [rail]);
+  // The colors in use, for the filter (offered once there is one).
+  const anyColor = Object.values(rail.places).some((p) => !!p.color);
   // Its group in the rail, by the rail's own rule (pinned wins; a removed section is none).
   const railGroupOf = useMemo(() => {
     const m = new Map<string, RailGroup<SessionSummary>>();
@@ -238,7 +259,9 @@ export function SessionsTab({
 
   const filtered = useMemo(() => {
     const pool = scope === 'archived' ? archivedOnly : scope === 'all' ? sessions : live;
-    const matched = pool.filter((s) => (filter === 'all' || sessionBucket(s) === filter) && inRail(s) && sessionMatches(s, query));
+    const matched = pool.filter(
+      (s) => (filter === 'all' || sessionBucket(s) === filter) && inRail(s) && inColor(colorOf(s), colorFilter) && sessionMatches(s, query),
+    );
     return [...matched].sort((a, b) => {
       if (sort === 'name') {
         const an = (a.branch || a.target).toLowerCase();
@@ -249,7 +272,7 @@ export function SessionsTab({
       const archivedView = scope === 'archived';
       return listTime(b, lastActiveAt(b), archivedView).localeCompare(listTime(a, lastActiveAt(a), archivedView));
     });
-  }, [sessions, live, archivedOnly, scope, sort, filter, query, inRail]);
+  }, [sessions, live, archivedOnly, scope, sort, filter, query, inRail, colorOf, colorFilter]);
 
   const selected = filtered.filter((s) => picked.has(s.id));
   const hiddenTicked = tickedAll.length - selected.length;
@@ -333,6 +356,7 @@ export function SessionsTab({
             picked={picked.has(s.id)}
             onPick={(on) => toggle(s.id, on)}
             railTag={railTagFor(s)}
+            color={colorOf(s)}
             onRestore={() => runArchive(s, false)}
           />
         ))}
@@ -410,7 +434,7 @@ export function SessionsTab({
                 ))}
               </select>
             </label>
-            {(rail.sections.length > 0 || Object.keys(rail.places).length > 0) && (
+            {(rail.sections.length > 0 || Object.values(rail.places).some((p) => p.pinned || p.section)) && (
               <label>
                 Rail
                 <select value={railFilter} onChange={(e) => setRailFilter(e.target.value as RailFilter)} aria-label="Rail filter">
@@ -422,6 +446,24 @@ export function SessionsTab({
                     </option>
                   ))}
                   <option value="none">in no section</option>
+                </select>
+              </label>
+            )}
+            {(anyColor || colorFilter !== 'any') && (
+              <label>
+                Color
+                <select
+                  value={colorFilter}
+                  onChange={(e) => setColorFilter(isRailColor(e.target.value) || e.target.value === 'none' ? e.target.value : 'any')}
+                  aria-label="Color filter"
+                >
+                  <option value="any">any</option>
+                  {RAIL_COLORS.map((c) => (
+                    <option key={c} value={c}>
+                      {RAIL_COLOR_LABEL[c].toLowerCase()}
+                    </option>
+                  ))}
+                  <option value="none">no color</option>
                 </select>
               </label>
             )}
@@ -464,6 +506,7 @@ export function SessionsTab({
           onClear={() => setPicked(new Set())}
           busy={bulkBusy}
           sections={rail.sections}
+          places={rail.places}
         />
       )}
       {bulkOutcome && (
@@ -660,8 +703,8 @@ function ConversationHits({ query, scope, onOpen }: { query: string; scope: Arch
 }
 
 /**
- * "View ▾": how the table is cut — status filter, rail filter, grouping,
- * sort, archived, and selecting several for the bulk bar — in one place
+ * "View ▾": how the table is cut — status filter, rail filter, color filter,
+ * grouping, sort, archived, and selecting several for the bulk bar — in one place
  * instead of a row of controls.
  */
 function ViewMenu({ children }: { children: React.ReactNode }) {
@@ -705,6 +748,8 @@ export function contextFullText(s: SessionSummary): string | null {
 interface RowProps {
   /** 📌, or its rail section's name. */
   railTag?: string | null;
+  /** Your color for it: a square before its name. */
+  color?: RailColor;
   session: SessionSummary;
   onOpen: () => void;
   /** Its ⋯ menu, at (x, y). */
@@ -719,7 +764,7 @@ interface RowProps {
 }
 
 /** One session: status, name, project, summary, changes, when. Click opens it; ⋯ (or right-click) for the rest. */
-function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag, onRestore, archivedView = false }: RowProps) {
+function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag, color, onRestore, archivedView = false }: RowProps) {
   const kind = displayStatus(s);
   const owed = owedBadge(s);
   const archived = isArchived(s);
@@ -777,6 +822,7 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
         ) : null}
       </td>
       <td className="wd-st-session">
+        <ColorMark color={color} />
         <span className="wd-st-branch" title={named ? `${s.title} (${s.branch})` : s.branch}>
           {named ? s.title : s.branch || '(base)'}
         </span>

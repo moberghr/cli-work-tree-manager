@@ -3113,6 +3113,56 @@ a.wd-pr-chip:hover {
   display: flex;
 }
 
+/* Your colors for sessions (rail-layout.ts RailColor): `--tag` for the bar, the square and the swatch. */
+.wd-tag-red {
+  --tag: var(--tag-red);
+}
+.wd-tag-orange {
+  --tag: var(--tag-orange);
+}
+.wd-tag-yellow {
+  --tag: var(--tag-yellow);
+}
+.wd-tag-green {
+  --tag: var(--tag-green);
+}
+.wd-tag-blue {
+  --tag: var(--tag-blue);
+}
+.wd-tag-purple {
+  --tag: var(--tag-purple);
+}
+
+/* Rail: a colored row's bar, down its left edge in the list's gutter (no status is a bar, and the active row is a tint,
+   not a border). It reaches over the 1px between rows, so neighbours of one color read as one block. */
+.wd-dash-rail-colored {
+  position: relative;
+}
+.wd-dash-rail-colored::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 0;
+  bottom: -1px;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--tag);
+  pointer-events: none;
+}
+
+/* A session's color where a row has room (Sessions table, Ctrl+P, Inbox): a small square before its name. */
+.wd-color-mark {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--tag);
+}
+.wd-st-session .wd-color-mark {
+  margin-right: 6px;
+}
+
 /* Rail: drag to reorder */
 .wd-dash-rail-list li[draggable='true'] {
   cursor: grab;
@@ -4117,6 +4167,58 @@ a.wd-pr-chip:hover {
   color: var(--muted);
   font-size: 11px;
   font-family: inherit;
+}
+/* A row of swatches in a menu (the rail's Color): rounded squares, as the marks are; the current one ringed. */
+.wd-row-menu-swatches {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+}
+.wd-row-menu-swatches-label {
+  flex: 1;
+  margin-right: 10px;
+  font-size: 12px;
+  color: var(--fg);
+}
+.wd-row-menu-swatch {
+  appearance: none;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: var(--tag);
+  cursor: pointer;
+}
+.wd-row-menu-swatch:hover,
+.wd-row-menu-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.wd-row-menu-swatch-current {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 3.5px var(--fg);
+}
+/* No color: an empty square, struck through. */
+.wd-row-menu-swatch-none {
+  --tag: var(--muted);
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 0.75px),
+    var(--muted) calc(50% - 0.75px),
+    var(--muted) calc(50% + 0.75px),
+    transparent calc(50% + 0.75px)
+  );
+  box-shadow: inset 0 0 0 1px var(--muted);
+}
+.wd-row-menu-swatch-none.wd-row-menu-swatch-current {
+  box-shadow:
+    inset 0 0 0 1px var(--muted),
+    0 0 0 2px var(--bg),
+    0 0 0 3.5px var(--fg);
 }
 
 /* The branch a session's worktree is really on, when Claude (or you) switched it (OtherBranchChip). */

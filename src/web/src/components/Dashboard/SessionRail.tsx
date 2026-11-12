@@ -5,12 +5,13 @@ import {
   EMPTY_RAIL_LAYOUT,
   MAX_SECTION_NAME,
   placeForGroup,
+  RAIL_COLOR_LABEL,
   type PlacePatch,
   type RailGroup,
   type RailLayout,
   type SectionOp,
 } from '../../../../core/rail/rail-layout.js';
-import { newSectionId, railMenuItems } from '../../state/rail-menu.js';
+import { newSectionId, railMenuItems, tagClass } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
 import { otherBranchText, RailPrPills } from './SessionBits.js';
@@ -129,7 +130,8 @@ function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: 
  * Grouped too, when you want: pinned sessions on top, then your sections
  * (right-click a row → Pin / Move to / New section…, or drag it under a
  * heading), then the rest. Headings fold (remembered in this browser).
- * Alt+1…9 opens the first nine rows as shown.
+ * A color (right-click → Color) marks a row without moving it: a bar down
+ * its left edge. Alt+1…9 opens the first nine rows as shown.
  */
 export function SessionRail({
   sessions,
@@ -304,9 +306,12 @@ export function SessionRail({
     const slot = statusSlot(s, kind);
     const prs = prsFor?.(s) ?? [];
     const summary = s.attention?.summary;
+    // Your color for it: a bar down the row's edge (its own spot, so never read as a status), one block with its neighbours of that color.
+    const color = layout.places[s.id]?.color;
+    const colored = color ? ` wd-dash-rail-colored ${tagClass(color)}` : '';
     if (onRename && renamingId === s.id) {
       return (
-        <li key={s.id}>
+        <li key={s.id} className={colored.trim() || undefined}>
           <RenameRow
             session={s}
             dot={<StatusIcon kind={kind} />}
@@ -323,7 +328,8 @@ export function SessionRail({
         draggable={canReorder || canPlace}
         className={
           (dragId === s.id ? 'wd-dash-rail-dragging' : '') +
-          (over ? (over.before ? ' wd-dash-rail-drop-before' : ' wd-dash-rail-drop-after') : '')
+          (over ? (over.before ? ' wd-dash-rail-drop-before' : ' wd-dash-rail-drop-after') : '') +
+          colored
         }
         onDragStart={(e) => {
           setDragId(s.id);
@@ -368,6 +374,7 @@ export function SessionRail({
             `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.stackedOn ? ` · stacked on ${s.stackedOn.branch}` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
             (summary ? ` — ${summary}` : '') +
             railDetails(s) +
+            (color ? `\nColor: ${RAIL_COLOR_LABEL[color]}` : '') +
             (index < 9 ? `\nAlt+${index + 1}` : '')
           }
         >
@@ -375,6 +382,7 @@ export function SessionRail({
           <span className="wd-dash-rail-lines">
             <span className="wd-dash-rail-line">
               <span className="wd-dash-rail-name">{label}</span>
+              {color && <span className="wd-visually-hidden">Color: {RAIL_COLOR_LABEL[color]}</span>}
               <span className={'wd-dash-rail-slot ' + slot.cls} title={slot.title}>
                 {slot.text}
               </span>

@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 import type { RailLayout, SectionOp } from '../../src/core/rail/rail-layout.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
-import { railMenuItems } from '../../src/web/src/state/rail-menu.js';
+import { colorSwatches, railMenuItems, sharedColor } from '../../src/web/src/state/rail-menu.js';
 import { railGroups } from '../../src/web/src/state/session-display.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -143,6 +143,31 @@ describe('the rail in groups', () => {
     expect(p.onPlace).toHaveBeenLastCalledWith('a', { pinned: false, section: op.id });
   });
 
+  it('a colored row: a bar down its edge (its place in the rail unchanged), its name in the tooltip and for screen readers', () => {
+    render({ layout: { ...LAYOUT, places: { ...LAYOUT.places, a: { color: 'orange' }, b: { section: 'x', color: 'blue' } } } });
+    expect(shown()).toEqual(['# Pinned', 'feat/c', 'feat/old', '# Client X', 'feat/b', '# Waiting', '# Other', 'feat/a', 'feat/d']);
+    const li = (branch: string) => row(branch).closest('li')!;
+    expect(li('feat/a').className).toContain('wd-dash-rail-colored wd-tag-orange');
+    expect(li('feat/b').className).toContain('wd-tag-blue');
+    expect(li('feat/d').className).not.toContain('wd-dash-rail-colored');
+    expect(row('feat/a').title).toContain('Color: Orange');
+    expect(row('feat/a').querySelector('.wd-visually-hidden')?.textContent).toBe('Color: Orange');
+    expect(row('feat/d').title).not.toContain('Color:');
+  });
+
+  it('right-click → Color: a swatch colors the row, No color takes it off', () => {
+    const p = render({ layout: { ...LAYOUT, places: { ...LAYOUT.places, a: { color: 'orange' } } } });
+    rightClick(row('feat/a'));
+    const swatch = (label: string) => document.querySelector<HTMLButtonElement>(`[role="menuitemradio"][aria-label="${label}"]`)!;
+    expect(swatch('Orange').getAttribute('aria-checked')).toBe('true');
+    act(() => swatch('Purple').click());
+    expect(p.onPlace).toHaveBeenCalledWith('a', { color: 'purple' });
+    expect(document.querySelector('[role="menu"]')).toBeNull(); // a pick closes the menu
+    rightClick(row('feat/a'));
+    act(() => swatch('No color').click());
+    expect(p.onPlace).toHaveBeenLastCalledWith('a', { color: null });
+  });
+
   it('dragging a row onto a heading moves it into that group', () => {
     const p = render();
     drag(row('feat/a').parentElement!, 'dragstart');
@@ -254,10 +279,44 @@ describe('the rows as shown (j/k walk them)', () => {
 });
 
 describe('the pure parts', () => {
-  it('railMenuItems: Unpin for a pinned one; out of its own section instead of into it', () => {
+  it('railMenuItems: Unpin for a pinned one; out of its own section instead of into it; its color last', () => {
     const labels = (id: string) => railMenuItems(session(id), LAYOUT, { place: () => {}, newSection: () => {} }).map((m) => m.label);
     expect(labels('c')[0]).toBe('Unpin');
-    expect(labels('b')).toEqual(['Pin to top', 'Move to “Waiting”', 'Take out of “Client X”', 'New section…']);
+    expect(labels('b')).toEqual(['Pin to top', 'Move to “Waiting”', 'Take out of “Client X”', 'New section…', 'Color']);
+  });
+
+  it('the Color row: the six then No color, what it has marked; a pick sets it, No color takes it off', () => {
+    const place = vi.fn();
+    const layout: RailLayout = { ...LAYOUT, places: { ...LAYOUT.places, b: { section: 'x', color: 'green' } } };
+    const row = (id: string) => {
+      const last = railMenuItems(session(id), layout, { place, newSection: () => {} }).at(-1)!;
+      if (!('swatches' in last)) throw new Error('no Color row');
+      return last.swatches;
+    };
+    expect(row('b').map((w) => [w.label, !!w.current])).toEqual([
+      ['Red', false],
+      ['Orange', false],
+      ['Yellow', false],
+      ['Green', true],
+      ['Blue', false],
+      ['Purple', false],
+      ['No color', false],
+    ]);
+    expect(row('a').find((w) => w.current)?.label).toBe('No color');
+    row('b')[4].run();
+    expect(place).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'b' }), { color: 'blue' });
+    row('b')[6].run();
+    expect(place).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'b' }), { color: null });
+    // Several sessions that differ: none marked.
+    expect(colorSwatches(undefined, () => {}).swatches.some((w) => w.current)).toBe(false);
+  });
+
+  it('sharedColor: their one color, null when none has one, undefined when they differ', () => {
+    const places: RailLayout['places'] = { a: { color: 'red' }, b: { color: 'red' }, c: { pinned: true }, d: { color: 'blue' } };
+    expect(sharedColor(['a', 'b'], { places })).toBe('red');
+    expect(sharedColor(['c', 'x'], { places })).toBeNull();
+    expect(sharedColor(['a', 'd'], { places })).toBeUndefined();
+    expect(sharedColor(['a', 'c'], { places })).toBeUndefined();
   });
 
   it('railGroups (j/k walk this): pinned older ones and the open one are kept; the rest of the older ones are counted', () => {
