@@ -18,7 +18,7 @@ import {
   stableSessionOrder,
   statusBucket,
 } from '../../src/web/src/state/session-display.js';
-import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
+import { SessionRail, backgroundLine } from '../../src/web/src/components/Dashboard/SessionRail.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -98,6 +98,16 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(DISPLAY_LABEL.background).toBe('In background');
     // Busy, so it's "now", like working.
     expect(ageBucket(s({ id: 'a', attention: bg, lastAccessedAt: minsAgo(30 * 24 * 60) }))).toBe('now');
+    // Idle with a background command still running (tests, a dev server): In background too — never Idle or Asleep —
+    // and a finished turn you haven't looked at keeps its review badge.
+    const cmd = (seen: boolean) => ({ ...att('idle', seen), background: { what: 'Run the backend tests', command: true } });
+    expect(displayStatus(s({ id: 'a', attention: cmd(true) }))).toBe('background');
+    expect(displayStatus(s({ id: 'a', asleep: true, attention: cmd(true) }))).toBe('background');
+    expect(displayStatus(s({ id: 'a', attention: cmd(false) }))).toBe('background');
+    expect(owedBadge(s({ id: 'a', attention: cmd(false) }))).toMatchObject({ kind: 'turn', text: 'review' });
+    expect(backgroundLine({ what: 'Run the backend tests', command: true })).toBe('in background: Run the backend tests');
+    expect(backgroundLine({ what: null, command: true })).toBe('a background command is running');
+    expect(backgroundLine({ what: null })).toBe('a background agent is at work');
     // Without the mark (Claude's own turn, or an older server): working.
     expect(displayStatus(s({ id: 'a', attention: att('working', true) }))).toBe('working');
   });

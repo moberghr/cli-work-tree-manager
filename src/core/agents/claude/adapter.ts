@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { backgroundWorkSince, listTranscripts, listUsageFiles } from './files.js';
-import { backgroundCommandsRunning } from './background-commands.js';
+import { backgroundCommandNames, backgroundCommandsRunning } from './background-commands.js';
 import { claudePrLinks } from './pr-links.js';
 import { getAiTool } from '../../platform/ai-launcher.js';
 import {
@@ -77,6 +77,7 @@ export const claudeAgent: AgentAdapter = {
     lastWriteMs: (cwd) => getClaudeActivityMs(cwd),
     backgroundWorkSince,
     backgroundCommands: backgroundCommandsRunning,
+    backgroundCommandNames,
     prLinks: claudePrLinks,
     // In the session's own account's projects folder: that is where its `--continue` looks.
     restoreDir: (s) => {

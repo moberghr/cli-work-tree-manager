@@ -133,8 +133,12 @@ export const STALE_WORKING_MS = 15 * 60_000;
 export interface EffectiveStatus extends SessionStatus {
   /** True when `state` was downgraded from a stale "working". */
   stale: boolean;
-  /** Working because a background agent its turn started is still at it (its turn ended, its prompt is free): what it is. */
-  background?: { what: string | null };
+  /**
+   * Its turn ended and its prompt is free, but something it started is still at it: a background agent (the state
+   * reads working), or — `command` — a background command (a build, tests, a dev server: the state stays idle, so a
+   * finished turn you haven't looked at still says so). What it is, when it says.
+   */
+  background?: { what: string | null; command?: boolean };
 }
 
 /** Transcript activity this long after a needs-input notification means
@@ -191,15 +195,28 @@ export function effectiveStatus(
  */
 export function withLiveClaude(
   status: EffectiveStatus,
-  live: { state?: 'busy' | 'idle' | 'waiting'; stateAt?: number; waitingFor?: string } | null,
+  live: { state?: 'busy' | 'idle' | 'waiting' | 'shell'; stateAt?: number; waitingFor?: string } | null,
   opts: {
     known: boolean;
     hosted: boolean;
     /** A background agent its conversation started is still at it since its turn ended (asked only when it matters). */
     background?: () => { what: string | null } | null;
+    /** The background commands its conversation has running, newest first, each in a line (asked only when it matters). */
+    commands?: () => string[];
   },
 ): EffectiveStatus {
   const recorded = Date.parse(status.updatedAt) || 0;
+  // Claude Code's `shell`: no turn, its prompt free, a background command it started still running (reported: two
+  // sessions running tests in the background read Idle). Newer than a working / needs-input record, that turn is over.
+  // The state stays idle — Done and "review" still work — and the icon says In background, with what runs.
+  if (live?.state === 'shell') {
+    const over = (live.stateAt ?? 0) > recorded && (status.state === 'working' || status.state === 'needs_input');
+    const base: EffectiveStatus = over ? { ...status, state: 'idle', seen: true, stale: true } : status;
+    if (base.state !== 'idle') return base;
+    const names = opts.commands?.() ?? [];
+    const what = names.length > 1 ? `${names[0]} and ${names.length - 1} more` : (names[0] ?? null);
+    return { ...base, background: { what, command: true } };
+  }
   if (live?.state && (live.stateAt ?? 0) > recorded) {
     if (live.state === 'busy' && status.state !== 'working') return { ...status, state: 'working', seen: true, stale: false };
     if (live.state === 'waiting' && status.state !== 'needs_input') {

@@ -65,7 +65,7 @@ export interface SleepChecks {
   /** The status the dashboard shows (transcript activity after a missed hook reads as working). */
   shown: (id: string) => 'working' | 'needs_input' | 'idle' | null;
   /** Claude Code's own state for the PTY's process: busy while a background agent it started runs, waiting at a dialog. */
-  live: (id: string, pid: number) => 'busy' | 'idle' | 'waiting' | null;
+  live: (id: string, pid: number) => 'busy' | 'idle' | 'waiting' | 'shell' | null;
   /** Background commands (a build, tests, a dev server) its conversation started since `sinceMs` and that haven't ended. */
   backgroundCommands: (id: string, sinceMs: number) => number;
   /** What runs from its folders (a dev server, a watcher), named; [] for nothing. Throws when it can't tell. */
@@ -88,6 +88,7 @@ export async function stillAtWork(p: Pick<PtyInfo, 'id' | 'pid' | 'startedAt'>, 
     const live = c.live(p.id, p.pid);
     if (live === 'busy') return 'Claude Code says it is busy (a background agent it started, perhaps)';
     if (live === 'waiting') return 'Claude Code says it is waiting at a dialog';
+    if (live === 'shell') return 'Claude Code says a background command it started is still running';
     const open = c.backgroundCommands(p.id, Date.parse(p.startedAt) || 0);
     if (open > 0) return `${open} background command${open === 1 ? '' : 's'} it started ${open === 1 ? 'is' : 'are'} still running`;
     const running = await c.runningFrom(p.id);

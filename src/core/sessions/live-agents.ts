@@ -35,8 +35,8 @@ export function summarizeAgents(list: LiveAgent[], appPids: ReadonlySet<number>)
   const inApp = list.filter((c) => appPids.has(c.pid)).length;
   const perConversation = new Map<string, number>();
   for (const c of list) perConversation.set(c.conversationId, (perConversation.get(c.conversationId) ?? 0) + 1);
-  // The most telling one: any mid-turn, else any waiting on you, else idle.
-  const pick = list.find((c) => c.state === 'busy') ?? list.find((c) => c.state === 'waiting') ?? list.find((c) => c.state === 'idle');
+  // The most telling one: any mid-turn, else any waiting on you, else one with a background command running, else idle.
+  const pick = (['busy', 'waiting', 'shell', 'idle'] as const).map((st) => list.find((c) => c.state === st)).find(Boolean);
   return {
     inTerminal: list.length - inApp,
     inApp,

@@ -139,6 +139,12 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
             known: opts.liveKnown === true,
             hosted: opts.hostedLive?.(id) ?? true,
             background: () => agentOf(s).conversation?.backgroundWorkSince?.(s, idleFrom(meta.attention!)) ?? null,
+            commands: () =>
+              bestEffort(
+                `background commands of ${s.target}:${s.branch}`,
+                () => agentOf(s).conversation?.backgroundCommandNames?.(s, 0) ?? [],
+                [],
+              ) ?? [],
           })
         : (meta.attention ?? (shadowed || s.archivedAt ? null : (opts.outputStatusFor?.(id) ?? null))),
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,

@@ -65,8 +65,8 @@ interface Props {
 }
 
 /** "in background: /mtk:code-review-and-quality Re-review…" — what's running while its prompt is free. Pure. */
-export function backgroundLine(b: { what: string | null }): string {
-  return b.what ? `in background: ${b.what}` : 'a background agent is at work';
+export function backgroundLine(b: { what: string | null; command?: boolean }): string {
+  return b.what ? `in background: ${b.what}` : b.command ? 'a background command is running' : 'a background agent is at work';
 }
 
 /**

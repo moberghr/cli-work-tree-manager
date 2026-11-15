@@ -73,6 +73,8 @@ export interface AgentConversation {
   /** Background commands (a build, tests, a dev server) its conversation started since `sinceMs` — the agent
    *  process's start — and that haven't ended: stopping the agent would stop them (idle sleep keeps it awake). */
   backgroundCommands?(session: WorktreeSession, sinceMs: number): number;
+  /** What those commands are, newest first, each in a line (the session list names what runs while its prompt is free). */
+  backgroundCommandNames?(session: WorktreeSession, sinceMs: number): string[];
   /**
    * The pull requests a stretch of its conversation file names as the session's own (made or worked on by it), in
    * file order — Claude Code writes a line for each. `text`: whole lines of a conversation file; a line cut at either
@@ -179,7 +181,7 @@ export interface LiveAgent {
   cwd: string;
   busy: boolean;
   /** What the agent says it is doing: mid-turn, at its prompt, or waiting on you (a permission, a dialog). */
-  state: 'busy' | 'idle' | 'waiting' | null;
+  state: 'busy' | 'idle' | 'waiting' | 'shell' | null;
   /** When that last changed (ms). */
   stateAt: number | null;
   /** While waiting: what for ("input needed", "dialog open"). */

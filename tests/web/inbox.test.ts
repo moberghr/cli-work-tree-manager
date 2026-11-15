@@ -75,6 +75,13 @@ describe('InboxTab', () => {
     expect(text(container.querySelector('.wd-inbox-rest'))).toBe("1 working, 1 in background, 2 quiet — they're in the list on the left.");
   });
 
+  it('an idle session with a background command running counts as in background, not quiet', () => {
+    const cmd = { ...att('idle', true, 3), background: { what: 'npm run dev', command: true } };
+    act(() => root.render(createElement(InboxTab, { sessions: [...SESSIONS, session('cmd', cmd)], onOpenSession: () => {} })));
+    expect(text(container.querySelector('h1'))).toBe('Inbox 3 need you');
+    expect(text(container.querySelector('.wd-inbox-rest'))).toBe("1 working, 1 in background, 2 quiet — they're in the list on the left.");
+  });
+
   it('one action a row: Open for a question, Review for finished work', () => {
     act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: () => {} })));
     const actions = [...container.querySelectorAll('.wd-inbox-actions')].map((a) =>

@@ -71,8 +71,10 @@ export interface SessionAttention extends AttentionLike {
   /** needs_input on a permission prompt: what it wants to run. */
   request?: PermissionRequest;
   /** Working because a background agent its turn started is still at it: its turn ended, its prompt is free. `what`:
-   *  the agent's own description ("/mtk:code-review-and-quality Re-review…"), when it gives one. Absent: an older server. */
-  background?: { what: string | null };
+   *  the agent's own description ("/mtk:code-review-and-quality Re-review…"), when it gives one. With `command`: idle,
+   *  with a background command it started (a build, tests, a dev server) still running — `what` names it.
+   *  Absent: an older server. */
+  background?: { what: string | null; command?: boolean };
 }
 
 /** Who archived a session: you (Archive, its key, the bulk bar), Ship's merge, the PR watch once its PR merged, or Clean up. */
@@ -107,8 +109,9 @@ export interface SessionClaudes {
   busy: boolean;
   /** Two or more on one conversation (they would both write to it). */
   duplicate: boolean;
-  /** What Claude Code itself says (~/.claude/sessions/<pid>.json): mid-turn, at its prompt, or waiting on you. */
-  state?: 'busy' | 'idle' | 'waiting';
+  /** What Claude Code itself says (~/.claude/sessions/<pid>.json): mid-turn, at its prompt, waiting on you, or
+   *  (`shell`) at its prompt with a background command it started still running. */
+  state?: 'busy' | 'idle' | 'waiting' | 'shell';
   /** When that last changed (ms). */
   stateAt?: number;
   /** While waiting: what for. */

@@ -87,7 +87,7 @@ export function busyForRestart(
   state: 'working' | 'needs_input' | 'idle' | null,
   lastOutputMs: number | null,
   now = Date.now(),
-  live: 'busy' | 'idle' | 'waiting' | null = null,
+  live: 'busy' | 'idle' | 'waiting' | 'shell' | null = null,
 ): boolean {
   if (live === 'busy' || live === 'waiting') return true;
   if (state === 'working' || state === 'needs_input') return true;

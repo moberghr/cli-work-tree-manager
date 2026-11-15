@@ -144,7 +144,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
       if (s.attention || rank === 2) tracked++;
       if (rank === 6) snoozed.push(s);
       else if (rank === 7) waiting.push(s);
-      else if (rank === 3 && displayStatus(s) === 'background') rest.background++;
+      else if (rank >= 3 && displayStatus(s) === 'background') rest.background++;
       else if (rank === 3) rest.working++;
       else if (rank > 3 && waitingOnOthers(s)) rest.inReview++;
       else if (rank > 3) rest.quiet++;

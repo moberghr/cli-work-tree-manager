@@ -78,6 +78,8 @@ describe('stillAtWork — idle means idle: a quiet Claude still doing something 
     expect(await stillAtWork(p, idle({ shown: () => 'needs_input' }))).toMatch(/answer/);
     expect(await stillAtWork(p, idle({ live: () => 'busy' }))).toMatch(/busy/);
     expect(await stillAtWork(p, idle({ live: () => 'waiting' }))).toMatch(/dialog/);
+    // Claude Code's own word for a background command still running: awake, whatever the transcript read says.
+    expect(await stillAtWork(p, idle({ live: () => 'shell' }))).toBe('Claude Code says a background command it started is still running');
   });
 
   it('a background command it started still running: awake — asked from the Claude process start, its pid passed along', async () => {
