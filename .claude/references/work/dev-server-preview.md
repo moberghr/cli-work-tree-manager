@@ -1,0 +1,3 @@
+# Dev server + preview
+
+Each worktree's stable `$PORT` (`port-allocator.ts`, on `SessionWire.port`) is started and stopped from the session header's ⋯ menu, and `DevChip` shows a running one (port, Preview, Stop, Log) in its status line; `useDevState` polls `GET /api/sessions/:id/dev` every 5 s (TCP probe on 127.0.0.1/::1, so it also sees a server Claude started). `core/worktree/dev-server.ts` runs `devCommands[alias]` with `shell: true` (user config, like statusHooks), `PORT` in env, output → `~/.work/dev/<id>.log`, pid → `~/.work/dev/<id>.json`. § Detached on POSIX only (process-group kill). On Windows a detached cmd.exe gives its children their own VISIBLE console and loses their output, so it stays attached with `windowsHide`, and `taskkill /T` stops the tree.

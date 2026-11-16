@@ -1,0 +1,8 @@
+# Core is a library: two front-ends, one implementation
+
+`src/core` holds every piece of logic; the CLI (`src/commands`) and the HTTP API (`src/server`, its routes in `src/server/routes/`, the backend for the SPA and the desktop app) are thin front-ends that call it. Neither calls the other. Pure pieces that the SPA shares live in core and are re-exported by the SPA: `session-view.ts` (status vocabulary, age sections), `digest-view.ts` (Today windows and Markdown), `saved-prompts.ts`, `attention.ts`, `api-types.ts`.
+
+§ Core never prints (architecture test §2.7): no `chalk`, no `console.*`, no raw stdout/stderr writes under `src/core` or `src/server` (`platform/logger.ts` excepted). Use `report(level, text)` (`core/platform/report.ts`). The reporter is scoped with AsyncLocalStorage (`withReporter`): the CLI shows reports with colors (`commands/shared/console-reporter.ts`: stdout for `work`, stderr for `wd`), servers default to the debug log, and a route can collect them (`collectingReporter`) to return a failure's real reason — `POST /api/worktrees` does.
+§ WHEN adding logic, put it in core and call it from both front-ends; a route or command handler only parses input and formats output. `work sessions --json` rows come from `sessionWire` (`core/sessions/session-wire.ts`), the same function as `/api/sessions`; the digest from `createDigestSource` (`core/conversations/digest-source.ts`); cleanup from `scanCleanup` / `applyCleanup` (`core/cleanup/cleanup.ts`, deps in `core/cleanup/cleanup-deps.ts`).
+
+Claude reads this data through the CLI (`--json`), described to every session by the `work-sessions` skill in the plugin (`plugins/work-tree/skills/work-sessions/SKILL.md`).

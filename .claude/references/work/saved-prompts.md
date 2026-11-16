@@ -1,0 +1,3 @@
+# Saved prompts
+
+⋯ → Send a prompt… in the session header sends a saved instruction ("Review your changes", "Add tests", "Commit", …; `core/sessions/saved-prompts.ts`, pure, shared with the SPA and the demo). `prompts` in config.json replaces the defaults, and each may be limited to repos with `repos: [...]`. `GET /api/prompts` serves the list. § Sending is a published general comment (`POST /api/sessions/:id/comments`), so it reaches Claude like any review comment: pushed into a terminal the dashboard owns, or on its next turn. Don't add a path that types it into the PTY directly. `work broadcast` covers many sessions at once.
