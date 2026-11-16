@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { workCommand } from '../../../src/core/platform/work-command.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import {
@@ -55,9 +56,11 @@ describe('the assistant folder', () => {
     expect(dir).toBe(path.join(home, '.work', 'assistant'));
     expect(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf-8')).toContain('work sessions --json');
     const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf-8'));
+    // Run by the work that wrote it, by its path — never whatever `work` PATH finds first.
     expect(settings.hooks).toEqual({
-      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'work hook assistant-context', timeout: 5 }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: workCommand(['hook', 'assistant-context']), timeout: 5 }] }],
     });
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).not.toMatch(/^work /);
     expect(settings.permissions.allow).toEqual(ASSISTANT_ALLOW.map(claudeAllowRule));
     expect(settings.permissions.allow).toContain('Bash(work sessions:*)');
     expect(settings.permissions.allow).toContain('Bash(work cleanup --json)');

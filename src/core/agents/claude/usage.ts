@@ -41,14 +41,19 @@ function namedReadings(): UsageAccount[] {
   });
 }
 
-/** Plan limits from what the status-line hook recorded (usage-store.ts); set up by wrapping the status line of every account's settings. */
+/**
+ * Plan limits from what the status-line hook recorded (usage-store.ts). The hook is the status line of the Claudes work
+ * starts (session-settings.ts; config `usage.statusLine: false` leaves it out); setup only gives back the user's own line
+ * where an older work web wrapped it in their settings.
+ */
 export const claudeUsage: AgentUsageSource = {
   read: namedReadings,
-  async setup(o) {
-    const outcome = await (await loadInstaller()).applyStatusLineSetting(o);
-    if (outcome === 'wrapped') return 'status line wrapped: it records the plan limits';
-    if (outcome === 'restored') return 'status line given back (usage.statusLine is false)';
-    return 'status line left alone (lean server)';
+  async setup() {
+    const done = await (await loadInstaller()).unwrapAllStatusLines();
+    const restored = done.filter((d) => d.outcome === 'restored').map((d) => d.account);
+    return restored.length > 0
+      ? `your own status line given back in ${restored.join(', ')} (work's Claudes carry their own now)`
+      : "status line: nothing of work's in your settings";
   },
   async restore() {
     const done = await (await loadInstaller()).unwrapAllStatusLines();

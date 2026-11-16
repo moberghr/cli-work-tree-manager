@@ -50,7 +50,9 @@ describe.skipIf(!hasBuild)('work hook statusline (built binary)', { timeout: 30_
     // A long-lived child holding the line's stdout (`cmd &`), then the line itself.
     const original = `'${node}' -e '${js}' '${pidFile.replace(/\\/g, '/')}' & echo hi`;
     fs.mkdirSync(path.join(home, '.work'), { recursive: true });
-    fs.writeFileSync(path.join(home, '.work', 'statusline.json'), JSON.stringify({ original: { type: 'command', command: original } }));
+    // The user's own line, in their settings: what the hook runs after recording the limits.
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: original } }));
 
     const r = await hook({ cwd: home, rate_limits: { five_hour: { used_percentage: 42, resets_at: 1_999_990_000 } } });
 

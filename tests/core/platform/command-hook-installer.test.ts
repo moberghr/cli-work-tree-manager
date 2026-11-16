@@ -105,62 +105,51 @@ describe('removeCommandHook', () => {
   });
 });
 
-describe('syncCommandHooks (work web, one write)', () => {
-  it('the full set replaces the old separate hooks, keeps the user’s own, and removes cleanly', async () => {
-    const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../../src/commands/web.js');
-    const { claudeAgent } = await import('../../../src/core/agents/claude/adapter.js'); // work's hooks in Claude's settings: its adapter's install
+describe('removeCommandHooks (work web’s start: what older builds installed)', () => {
+  const OLD: Array<[string, string, string]> = [
+    ['web', 'UserPromptSubmit', 'work hook prompt-submit'],
+    ['web-status', 'UserPromptSubmit', 'work hook status-prompt'],
+    ['web-checkpoint', 'UserPromptSubmit', 'work hook checkpoint-seal'],
+    ['web-turn', 'UserPromptSubmit', 'work hook turn-start'],
+    ['web', 'Stop', 'work hook stop'],
+    ['web-turn', 'Stop', 'work hook turn-end'],
+    ['web-status', 'Notification', 'work hook status-notify'],
+  ];
+
+  it('every old owner’s hooks go in one write, the user’s own stay', async () => {
+    const { RETIRED_HOOK_OWNERS } = await import('../../../src/core/agents/session-hooks.js');
+    const { claudeAgent } = await import('../../../src/core/agents/claude/adapter.js');
     write({ hooks: { UserPromptSubmit: [userHook] } });
-    // What an older work web left (three per event):
-    for (const [owner, event, command] of [
-      ['web', 'UserPromptSubmit', 'work hook prompt-submit'],
-      ['web-status', 'UserPromptSubmit', 'work hook status-prompt'],
-      ['web-checkpoint', 'UserPromptSubmit', 'work hook checkpoint-seal'],
-      ['web', 'Stop', 'work hook stop'],
-      ['web-status', 'Stop', 'work hook status-stop'],
-      ['web-checkpoint', 'Stop', 'work hook checkpoint'],
-    ])
-      await installCommandHook({ owner, event, command });
+    for (const [owner, event, command] of OLD) await installCommandHook({ owner, event, command });
     const writes = vi.spyOn(fs, 'renameSync');
-    await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);
+    await claudeAgent.events!.removeInstalled(RETIRED_HOOK_OWNERS);
     expect(writes).toHaveBeenCalledTimes(1); // one write, not one per hook
-    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
-    expect(commands('Stop')).toEqual(['work hook turn-end']);
-    expect(commands('Notification')).toEqual(['work hook status-notify']);
-    claudeAgent.events!.removeSync([...FULL_HOOKS.map(({ owner, edge }) => ({ owner, edge })), ...LEGACY_HOOKS]);
     expect(commands('UserPromptSubmit')).toEqual(['my-own-linter']);
     expect(read().hooks?.Stop).toBeUndefined();
+    expect(read().hooks?.Notification).toBeUndefined();
   });
-});
 
-describe('untagged copies of work’s hooks (tags dropped by another writer of settings.json)', () => {
-  it('are replaced on install and removed on shutdown; the user’s own hooks — even ones calling work — stay', async () => {
-    const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../../src/commands/web.js');
-    const { claudeAgent } = await import('../../../src/core/agents/claude/adapter.js'); // work's hooks in Claude's settings: its adapter's install
+  it('untagged copies (tags dropped by another writer of settings.json) go too; the user’s own hooks — even ones calling work — stay', async () => {
+    const { RETIRED_HOOK_OWNERS } = await import('../../../src/core/agents/session-hooks.js');
+    const { claudeAgent } = await import('../../../src/core/agents/claude/adapter.js');
     const bare = (command: string, timeout = 5): Entry => ({ hooks: [{ type: 'command', command, timeout }] });
     write({
       hooks: {
-        UserPromptSubmit: [
-          userHook,
-          bare('work hook prompt-submit', 15),
-          bare('work hook checkpoint-seal'),
-          bare('work hook checkpoint-seal'),
-        ],
+        UserPromptSubmit: [userHook, bare('work hook prompt-submit', 15), bare('work hook checkpoint-seal'), bare('work hook turn-start')],
         Stop: [bare('work hook checkpoint', 15), { hooks: [{ type: 'command', command: 'work hook checkpoint && my-script' }] }],
       },
     });
-    await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);
-    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
-    expect(commands('Stop')).toEqual(['work hook checkpoint && my-script', 'work hook turn-end']); // not only ours: kept
-    // Something rewrites settings.json and drops our tags…
-    const s = read();
-    for (const list of Object.values(s.hooks ?? {}))
-      for (const e of list) for (const k of Object.keys(e)) if (k.startsWith('_work')) delete e[k];
-    write(s);
-    // …the next start doesn't pile a second copy on.
-    await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);
-    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
-    claudeAgent.events!.removeSync([...FULL_HOOKS.map(({ owner, edge }) => ({ owner, edge })), ...LEGACY_HOOKS]);
+    await claudeAgent.events!.removeInstalled(RETIRED_HOOK_OWNERS);
     expect(commands('UserPromptSubmit')).toEqual(['my-own-linter']);
-    expect(commands('Stop')).toEqual(['work hook checkpoint && my-script']);
+    expect(commands('Stop')).toEqual(['work hook checkpoint && my-script']); // not only ours: kept
+  });
+
+  it('a file with none of them is not written', async () => {
+    const { RETIRED_HOOK_OWNERS } = await import('../../../src/core/agents/session-hooks.js');
+    const { claudeAgent } = await import('../../../src/core/agents/claude/adapter.js');
+    write({ hooks: { Stop: [userHook] } });
+    const writes = vi.spyOn(fs, 'renameSync');
+    await claudeAgent.events!.removeInstalled(RETIRED_HOOK_OWNERS);
+    expect(writes).not.toHaveBeenCalled();
   });
 });

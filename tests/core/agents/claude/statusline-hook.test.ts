@@ -26,15 +26,17 @@ async function run(stdinText: string, env: NodeJS.ProcessEnv = {}): Promise<stri
   return Buffer.concat(chunks).toString('utf-8');
 }
 
+/** The user's own status line, in their settings (work's Claudes get work's line with --settings; the hook runs this one). */
 function setOriginal(command: string | null): void {
-  const file = path.join(os.homedir(), '.work', 'statusline.json');
+  const file = path.join(os.homedir(), '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ original: command === null ? null : { type: 'command', command } }));
+  fs.writeFileSync(file, JSON.stringify(command === null ? {} : { statusLine: { type: 'command', command } }));
 }
 
 describe('runStatusLineHook', () => {
   beforeEach(() => {
     fs.rmSync(path.join(os.homedir(), '.work'), { recursive: true, force: true });
+    fs.rmSync(path.join(os.homedir(), '.claude'), { recursive: true, force: true });
     logged.length = 0;
   });
 
@@ -90,7 +92,8 @@ describe('runStatusLineHook', () => {
     expect(logged.some((l) => l.includes('rate_limits not understood') && l.includes('monthly_budget'))).toBe(true);
   });
 
-  it('a damaged saved status line is logged, and nothing is printed', async () => {
+  it('settings still wrapped by an older work web with a damaged saved line: logged, and nothing is printed', async () => {
+    setOriginal('work hook statusline || (echo mine)');
     const file = path.join(os.homedir(), '.work', 'statusline.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, '{broken');

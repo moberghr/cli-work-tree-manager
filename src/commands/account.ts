@@ -87,8 +87,8 @@ async function add(name: string | undefined, folder: string | undefined, login: 
     console.log(chalk.gray(`Starting ${found.name} on it so you can log in: type /login, then exit when done.`));
     admin.login(name);
   }
-  // Work's skills live in each account's folder: this one's too. Its hooks and status line: a running work web adds
-  // them within seconds (account-sync.ts), else the next start does.
+  // Work's skills live in each account's folder: this one's too. Its hooks and status line come with each Claude work
+  // starts on it (`--settings`, agents/session-hooks.ts): nothing to install.
   const skills = admin.installSkills(name);
   console.log(skills.ok ? chalk.gray(skills.message) : chalk.yellow(skills.message));
 }

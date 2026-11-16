@@ -22,7 +22,7 @@ import { latestTranscript, listTranscripts, listUsageFiles } from '../../../../s
 import { accountOf } from '../../../../src/core/agents/claude/rate-limits.js';
 import { claudeSkillsWith } from '../../../../src/core/agents/claude/skills.js';
 import { runStatusLineHook } from '../../../../src/core/agents/claude/statusline-hook.js';
-import { originalStatusLine, savedPath } from '../../../../src/core/agents/claude/statusline-run.js';
+import { originalStatusLine, savedPath, userStatusLine } from '../../../../src/core/agents/claude/statusline-run.js';
 import { claudeUsage } from '../../../../src/core/agents/claude/usage.js';
 import { getConfigPath } from '../../../../src/core/platform/config.js';
 import { buildUsage } from '../../../../src/core/usage/usage-source.js';
@@ -207,59 +207,51 @@ describe('running Claudes of every account', () => {
   });
 });
 
-describe('hooks in every account’s settings', () => {
-  const hooks = [{ owner: 'o', edge: 'turn-start' as const, command: 'work hook turn-start' }];
+describe('old hooks taken out of every account’s settings', () => {
+  const hooks = [{ owner: 'o', edge: 'turn-start' as const }];
   const settings = (dir: string) => path.join(dir, 'settings.json');
   const read = (dir: string) =>
     JSON.parse(fs.readFileSync(settings(dir), 'utf-8')) as { hooks?: Record<string, unknown[]>; model?: string };
+  const old = (extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      ...extra,
+      hooks: { UserPromptSubmit: [{ _workHookOwner: 'o', hooks: [{ type: 'command', command: 'work hook turn-start' }] }] },
+    });
 
-  it('installs into the default and each configured account, and removes from all of them', async () => {
+  it('from the default and each configured account; what else was there stays', async () => {
     withAccounts();
-    fs.mkdirSync(work, { recursive: true });
-    fs.writeFileSync(settings(work), JSON.stringify({ model: 'opus' }));
-    await claudeAgent.events!.install(hooks);
-    for (const dir of [path.join(home, '.claude'), work, alt]) expect(read(dir).hooks!.UserPromptSubmit).toHaveLength(1);
-    expect(read(work).model).toBe('opus'); // what was there stays
-    claudeAgent.events!.removeSync(hooks);
+    for (const dir of [path.join(home, '.claude'), work, alt]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(settings(dir), old(dir === work ? { model: 'opus' } : {}));
+    }
+    await claudeAgent.events!.removeInstalled(hooks);
     for (const dir of [path.join(home, '.claude'), work, alt]) expect(read(dir).hooks).toBeUndefined();
+    expect(read(work).model).toBe('opus');
   });
 
-  it('an account whose settings do not parse is left alone and the others still get their hooks', async () => {
+  it('an account whose settings do not parse is left alone and the others are still cleaned', async () => {
     withAccounts();
     fs.mkdirSync(work, { recursive: true });
     fs.writeFileSync(settings(work), '{ broken');
-    await claudeAgent.events!.install(hooks);
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    fs.writeFileSync(settings(path.join(home, '.claude')), old());
+    await claudeAgent.events!.removeInstalled(hooks);
     expect(fs.readFileSync(settings(work), 'utf-8')).toBe('{ broken');
-    expect(read(path.join(home, '.claude')).hooks!.UserPromptSubmit).toHaveLength(1);
-    expect(read(alt).hooks!.UserPromptSubmit).toHaveLength(1);
+    expect(read(path.join(home, '.claude')).hooks).toBeUndefined();
   });
 
   it('a configured account whose folder is not there yet is skipped, not made: hooks, status line and skills (X3)', async () => {
     writeConfig({ claudeAccounts: { work, alt } });
     fs.mkdirSync(work, { recursive: true });
-    await claudeAgent.events!.install(hooks);
+    await claudeAgent.events!.removeInstalled(hooks);
     await claudeUsage.setup!({ enabled: true, lean: false });
     const installs: Array<Record<string, string | null> | undefined> = [];
     await claudeSkillsWith((args, env) => {
       if (args[1] === 'install') installs.push(env);
       return { ok: true, stdout: 'moberg-plugins' };
     }).install({ skillsDir: null });
-    expect(read(work).hooks!.UserPromptSubmit).toHaveLength(1);
     expect(fs.existsSync(alt)).toBe(false);
     expect(installs.map((e) => e?.CLAUDE_CONFIG_DIR)).toEqual([null, work]);
-    claudeAgent.events!.removeSync(hooks);
-    expect(fs.existsSync(alt)).toBe(false);
-    // Once it is there (`work account add`, or the user), the next install reaches it.
-    fs.mkdirSync(alt);
-    await claudeAgent.events!.install(hooks);
-    expect(read(alt).hooks!.UserPromptSubmit).toHaveLength(1);
-  });
-
-  it('with no accounts only ~/.claude/settings.json is written', async () => {
-    writeConfig();
-    await claudeAgent.events!.install(hooks);
-    expect(read(path.join(home, '.claude')).hooks!.UserPromptSubmit).toHaveLength(1);
-    expect(fs.existsSync(settings(work))).toBe(false);
   });
 });
 
@@ -282,52 +274,50 @@ describe('the status line per account', () => {
     return Buffer.concat(chunks).toString('utf-8');
   }
 
-  it('wraps each account’s settings with its own saved original, and the hook shows the one of the Claude that runs it', async () => {
+  /** What an older work web left: the account's line wrapped, its original saved for it. */
+  const oldWrap = (dir: string, original: string | null, configDir?: string) => {
+    writeSettings(dir, {
+      statusLine: { type: 'command', command: original ? `work hook statusline || (${original})` : 'work hook statusline' },
+    });
+    fs.mkdirSync(path.dirname(savedPath(configDir)), { recursive: true });
+    fs.writeFileSync(savedPath(configDir), JSON.stringify({ original: original ? { type: 'command', command: original } : null }));
+  };
+
+  it('the hook shows the user’s own line of the account the Claude runs on, read from that account’s settings (nothing of work’s in them)', async () => {
     withAccounts();
     writeSettings(path.join(home, '.claude'), { statusLine: { type: 'command', command: 'echo default-line' } });
     writeSettings(work, { statusLine: { type: 'command', command: 'echo work-line' } });
     // alt has no settings and no status line.
-    expect(await claudeUsage.setup!({ enabled: true, lean: false })).toBe('status line wrapped: it records the plan limits');
-    expect(statusLine(path.join(home, '.claude'))!.command).toBe('work hook statusline || (echo default-line)');
-    expect(statusLine(work)!.command).toBe('work hook statusline || (echo work-line)');
-    expect(statusLine(alt)!.command).toBe('work hook statusline');
-
-    // One saved file per account: the default keeps statusline.json.
-    expect(path.basename(savedPath())).toBe('statusline.json');
-    expect(path.basename(savedPath(work))).toBe(`statusline-${accountOf(work)}.json`);
-    expect(path.basename(savedPath(path.join(home, '.claude')))).toBe('statusline.json');
-    expect(originalStatusLine(undefined, work)).toEqual({ command: 'echo work-line' });
-    expect(originalStatusLine()).toEqual({ command: 'echo default-line' });
-    expect(originalStatusLine(undefined, alt)).toBeNull();
-
-    // The hook picks the line from the CLAUDE_CONFIG_DIR of the Claude that runs it.
     expect((await run({ CLAUDE_CONFIG_DIR: work })).trim()).toBe('work-line');
     expect((await run({})).trim()).toBe('default-line');
     expect(await run({ CLAUDE_CONFIG_DIR: alt })).toBe('');
+    // A project's own line wins over the account's, as in Claude Code.
+    const project = path.join(home, 'proj');
+    writeSettings(path.join(project, '.claude'), { statusLine: { type: 'command', command: 'echo project-line' } });
+    expect(userStatusLine({ projectDir: project, home })).toEqual({ command: 'echo project-line' });
+    expect(userStatusLine({ home })).toEqual({ command: 'echo default-line' });
   });
 
-  it('wrapping again keeps each account’s first original; restore gives every account its own back', async () => {
+  it('settings an older work web wrapped: the hook runs the saved original meanwhile; work web’s start gives every account its own back', async () => {
     withAccounts();
-    writeSettings(path.join(home, '.claude'), { statusLine: { type: 'command', command: 'echo d' } });
-    writeSettings(work, { statusLine: { type: 'command', command: 'echo w' } });
-    await claudeUsage.setup!({ enabled: true, lean: false });
-    await claudeUsage.setup!({ enabled: true, lean: false });
-    expect(originalStatusLine(undefined, work)).toEqual({ command: 'echo w' });
-    const r = await claudeUsage.restore!();
-    expect(r.ok).toBe(true);
-    expect(r.message).toContain('work: ');
+    oldWrap(path.join(home, '.claude'), 'echo d');
+    oldWrap(work, 'echo w', work);
+    expect((await run({ CLAUDE_CONFIG_DIR: work })).trim()).toBe('w');
+    expect((await run({})).trim()).toBe('d');
+    expect(await claudeUsage.setup!({ enabled: true, lean: false })).toMatch(/given back in default, work/);
     expect(statusLine(path.join(home, '.claude'))).toEqual({ type: 'command', command: 'echo d' });
     expect(statusLine(work)).toEqual({ type: 'command', command: 'echo w' });
-    expect(statusLine(alt)).toBeUndefined();
     expect(fs.existsSync(savedPath(work))).toBe(false);
+    // The hook now reads them straight from the settings.
+    expect((await run({ CLAUDE_CONFIG_DIR: work })).trim()).toBe('w');
+    // Again: nothing to do.
+    expect(await claudeUsage.setup!({ enabled: true, lean: false })).toMatch(/nothing of work's/);
   });
 
-  it('an account whose settings are already ours but has nothing saved (copied from the default) runs the default’s original (X2)', async () => {
+  it('an account whose settings were copied from a wrapped default, with nothing saved for it, runs the default’s original (X2)', async () => {
     withAccounts();
-    writeSettings(path.join(home, '.claude'), { statusLine: { type: 'command', command: 'echo default-line' } });
-    await claudeUsage.setup!({ enabled: true, lean: false });
-    // alt's settings.json copied from the default's after the wrap: work's line, with nothing saved for alt.
-    fs.rmSync(savedPath(alt), { force: true });
+    oldWrap(path.join(home, '.claude'), 'echo default-line');
+    fs.mkdirSync(alt, { recursive: true });
     fs.copyFileSync(settings(path.join(home, '.claude')), settings(alt));
     expect(fs.existsSync(savedPath(alt))).toBe(false);
     expect(originalStatusLine(undefined, alt)).toEqual({ command: 'echo default-line' });
@@ -337,13 +327,12 @@ describe('the status line per account', () => {
     expect(originalStatusLine(undefined, alt)).toBeNull();
   });
 
-  it('disabling gives every account’s line back', async () => {
+  it('`work usage --restore` gives every account’s line back too', async () => {
     withAccounts();
-    writeSettings(work, { statusLine: { type: 'command', command: 'echo w' } });
-    await claudeUsage.setup!({ enabled: true, lean: false });
-    expect(await claudeUsage.setup!({ enabled: false, lean: false })).toBe('status line given back (usage.statusLine is false)');
+    oldWrap(work, 'echo w', work);
+    const r = await claudeUsage.restore!();
+    expect(r.ok).toBe(true);
     expect(statusLine(work)).toEqual({ type: 'command', command: 'echo w' });
-    expect(statusLine(alt)).toBeUndefined();
   });
 });
 

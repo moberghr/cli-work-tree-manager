@@ -1,14 +1,14 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { getConfigDir } from '../../platform/config-dir.js';
 import { detachHere, killTree } from '../../platform/process.js';
 import spawn from '../../platform/spawn.js';
 import { accountOf } from './rate-limits.js';
 
-// The status-line hook's half of statusline.ts: what runs on every refresh of every Claude. Light on purpose — no
-// settings editor, no locks, no registry; installing and removing the wrapper is statusline.ts.
+// The status-line hook's half: what runs on every refresh of every Claude work started. Light on purpose — no
+// settings editor, no locks, no registry; giving back the wrapper older builds put in the user's settings is statusline.ts.
 
-export const WORK_STATUSLINE = 'work hook statusline';
 /** Set on the user's own command: a status line that runs work's hook again (it called `work hook statusline` itself) records, and runs nothing more. */
 export const NESTED_ENV = 'WORK_STATUSLINE_NESTED';
 
@@ -68,6 +68,41 @@ export function originalStatusLine(onDamage?: (why: string) => void, configDir?:
   if (saved.kind === 'unreadable') onDamage?.(saved.why);
   const o = saved.kind === 'ok' ? saved.original : null;
   return o && typeof o.command === 'string' && o.command ? { command: o.command } : null;
+}
+
+/** A settings file's statusLine entry; null when it has none or can't be read. */
+function statusLineIn(file: string): StatusLine | null {
+  try {
+    const v: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return isRecord(v) && isRecord(v.statusLine) ? v.statusLine : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The status line the Claude running work's hook would show without it. work gives its Claudes its own line with
+ * `--settings` (session-settings.ts), which takes the place of the user's; the user's is what Claude Code would read
+ * otherwise — the project's local settings, the project's, then the account's own (`configDir`: its
+ * `CLAUDE_CONFIG_DIR`, else ~/.claude). One that is work's (an older work web wrapped the user's settings and it is
+ * not yet given back) is the saved original's (originalStatusLine). `onDamage` hears why a saved file couldn't be read.
+ */
+export function userStatusLine(
+  o: { configDir?: string; projectDir?: string; home?: string; onDamage?: (why: string) => void } = {},
+): { command: string } | null {
+  const files = [
+    ...(o.projectDir
+      ? [path.join(o.projectDir, '.claude', 'settings.local.json'), path.join(o.projectDir, '.claude', 'settings.json')]
+      : []),
+    path.join(o.configDir || path.join(o.home ?? os.homedir(), '.claude'), 'settings.json'),
+  ];
+  for (const file of files) {
+    const line = statusLineIn(file);
+    if (!line) continue;
+    if (isOurs(line)) return originalStatusLine(o.onDamage, o.configDir);
+    return typeof line.command === 'string' && line.command ? { command: line.command } : null;
+  }
+  return null;
 }
 
 /** The shell Claude Code runs a status line in: sh on POSIX, Git Bash on Windows. */

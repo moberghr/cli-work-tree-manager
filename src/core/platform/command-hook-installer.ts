@@ -109,6 +109,15 @@ export function syncCommandHooks(
   }, settingsFile);
 }
 
+/** Remove several owner + event entries in one write; a file that has none of them isn't written. `settingsFile`: another account's settings. */
+export function removeCommandHooks(remove: ReadonlyArray<{ owner: string; event: string }>, settingsFile?: string): Promise<void> {
+  return editSettings((s) => {
+    removeUntaggedWorkEntries(s, new Set(remove.map((r) => r.event)));
+    for (const r of remove) removeOwnerEntries(s, r.owner, r.event);
+    if (s.hooks && Object.keys(s.hooks).length === 0) delete s.hooks;
+  }, settingsFile);
+}
+
 /** Remove several owner + event entries in one write (signal handlers: synchronous). `settingsFile`: another account's settings. */
 export function removeCommandHooksSync(remove: Array<{ owner: string; event: string }>, settingsFile?: string): void {
   editSettingsSync((s) => {
