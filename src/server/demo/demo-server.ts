@@ -281,6 +281,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // Snoozes, in memory, by the real rules (snooze.ts).
   const snoozes = new Map<string, Snooze>();
+  /** Sessions you asked to keep once their PR merges. */
+  const kept = new Set<string>();
   // Live sessions; ?archived=1 adds the archived ones (as work web).
   app.get('/api/sessions', (c) =>
     c.json({
@@ -294,7 +296,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
             (b) => b.kind === 'pr' || scenario.list().some((x) => x.id === b.sessionId && !x.archivedAt),
           );
           const withBlocks = waiting.length ? { ...out, blockedBy: waiting } : out;
-          const noted = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
+          const withNote = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
+          const noted = kept.has(w.id) && !w.archivedAt ? { ...withNote, keepAfterMerge: true as const } : withNote;
           return z && snoozeActive(z, noted) ? { ...noted, snoozed: { until: z.until } } : noted;
         }),
     }),
@@ -536,6 +539,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     }));
     demoFolders = demoFolders.filter((f) => !ids.includes(f.sessionId));
     return c.json({ results, state: folderState() });
+  });
+
+  // Keeping a session once its PR merges.
+  app.post('/api/sessions/:id/keep', async (c) => {
+    const id = c.req.param('id');
+    if (!scenario.list().some((w) => w.id === id)) return c.json({ error: 'unknown session' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { keep?: unknown } | null;
+    if (typeof body?.keep !== 'boolean') return c.json({ error: 'keep: boolean' }, 400);
+    if (body.keep) kept.add(id);
+    else kept.delete(id);
+    broadcast({ event: 'sessions-changed', data: { ts: Date.now() } } as DemoEvent);
+    return c.json({ ok: true, keep: body.keep });
   });
 
   // Naming a session: accepted, not kept (the demo names them after their prompt).

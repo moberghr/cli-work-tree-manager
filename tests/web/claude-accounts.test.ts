@@ -308,6 +308,7 @@ describe('the account chip and the rail tooltip', () => {
   it('the rail tooltip mentions only a non-default account, and a switch waiting for its turn', () => {
     expect(railDetails(session({ account: 'work' }))).toBe('\naccount work');
     expect(railDetails(session())).toBe('');
+    expect(railDetails(session({ keepAfterMerge: true }))).toBe('\nkept after its PR merges');
     expect(railDetails(session({ accountPending: 'work' }))).toBe('\nmoves to account work after this turn');
   });
 });

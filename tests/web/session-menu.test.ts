@@ -255,3 +255,20 @@ describe('Snooze until…', () => {
     expect(sessionMenuItems(session('s1'), actions()).some((i) => i.label === 'Snooze until…')).toBe(false);
   });
 });
+
+describe('Keep after its PR merges', () => {
+  it('a live session offers it after Archive, and the way back once kept; an archived one neither', () => {
+    const setKeep = vi.fn();
+    const a = { ...actions(), setKeep };
+    const off = sessionMenuItems(session('k'), a);
+    expect(off.map((i) => i.label).slice(0, 2)).toEqual(['Archive', 'Keep after its PR merges']);
+    off[1].run();
+    expect(setKeep).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'k' }), true);
+    const on = sessionMenuItems(session('k', { keepAfterMerge: true }), a);
+    expect(on[1].label).toBe('Archive after its PR merges');
+    on[1].run();
+    expect(setKeep).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'k' }), false);
+    const labels = sessionMenuItems(session('k', { archivedAt: now, keepAfterMerge: true }), a).map((i) => i.label);
+    expect(labels.some((l) => l.includes('PR merges'))).toBe(false);
+  });
+});

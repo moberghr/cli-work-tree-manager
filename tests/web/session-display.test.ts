@@ -18,7 +18,7 @@ import {
   stableSessionOrder,
   statusBucket,
 } from '../../src/web/src/state/session-display.js';
-import { SessionRail, backgroundLine } from '../../src/web/src/components/Dashboard/SessionRail.js';
+import { KEEP_TITLE, SessionRail, backgroundLine } from '../../src/web/src/components/Dashboard/SessionRail.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -244,6 +244,15 @@ describe('SessionRail rows', () => {
     const row = container.querySelector('.wd-dash-rail-item')!;
     expect(row.querySelector('.wd-rail-dot-archiving')).not.toBeNull();
     expect(row.textContent).toContain('archiving…');
+  });
+
+  it('a session kept after its PR merges says so on its row: a "keep" mark with what it means; another row has none', () => {
+    const sessions = [s({ id: 'feat/kept', keepAfterMerge: true }), s({ id: 'feat/usual' })];
+    act(() => root.render(createElement(SessionRail, { sessions, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    const [kept, usual] = [...container.querySelectorAll('.wd-dash-rail-item')];
+    expect(kept.querySelector('.wd-rail-keep')?.textContent).toBe('keep');
+    expect(kept.querySelector('.wd-rail-keep')?.getAttribute('title')).toBe(KEEP_TITLE);
+    expect(usual.querySelector('.wd-rail-keep')).toBeNull();
   });
 
   it('an archived session being restored is back in the rail at once, as Restoring; one that is not stays out', () => {

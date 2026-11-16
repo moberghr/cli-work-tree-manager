@@ -579,6 +579,8 @@ export interface SessionWire {
   stackedChildren?: number;
   /** You have notes on it (session-notes.ts; GET /api/sessions/:id/note). */
   hasNote?: boolean;
+  /** You asked to keep it once its PR merges: neither the PR watch nor Ship's merge archives it. Absent: archived then, as usual. */
+  keepAfterMerge?: true;
   /** What it waits on that isn't done yet (session-blocks.ts): out of the Inbox meanwhile. */
   blockedBy?: BlockerWire[];
   /** It was stacked on a session that merged and is archived: it should move onto main (POST …/retarget). */

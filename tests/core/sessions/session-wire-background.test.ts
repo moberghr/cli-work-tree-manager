@@ -93,3 +93,11 @@ describe('sessionWire: In background', () => {
     });
   });
 });
+
+describe('sessionWire: kept after its PR merges', () => {
+  it('says so for a live session you asked to keep, and for no other', () => {
+    expect(sessionWire({ ...s, keepAfterMerge: true }, {}).keepAfterMerge).toBe(true);
+    expect(sessionWire(s, {})).not.toHaveProperty('keepAfterMerge');
+    expect(sessionWire({ ...s, keepAfterMerge: true, archivedAt: ended }, {})).not.toHaveProperty('keepAfterMerge');
+  });
+});

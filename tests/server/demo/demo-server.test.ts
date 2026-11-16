@@ -649,3 +649,21 @@ describe("Fix it myself's sessions in the demo (#64 F010)", () => {
     expect(() => sessions.note('nope', 'x')).toThrow('unknown session');
   });
 });
+
+describe('demo server: keep after its PR merges', () => {
+  it('records it on the session row and clears it; refuses as the real one does', async () => {
+    const [first] = await sessions();
+    const keep = (id: string, value: unknown) =>
+      fetch(server.url + `api/sessions/${id}/keep`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keep: value }),
+      });
+    expect((await keep(first.id, true)).status).toBe(200);
+    expect((await sessions()).find((x) => x.id === first.id)).toMatchObject({ keepAfterMerge: true });
+    await keep(first.id, false);
+    expect((await sessions()).find((x) => x.id === first.id)).not.toHaveProperty('keepAfterMerge');
+    expect((await keep('nope', true)).status).toBe(404);
+    expect((await keep(first.id, 'yes')).status).toBe(400);
+  });
+});

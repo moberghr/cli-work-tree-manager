@@ -160,6 +160,8 @@ export interface SessionSummary {
   stackedChildren?: number;
   /** You have notes on it. */
   hasNote?: boolean;
+  /** You asked to keep it once its PR merges (it isn't archived then). */
+  keepAfterMerge?: true;
   /** What it waits on that isn't done yet: out of the Inbox meanwhile. */
   blockedBy?: import('../../../core/api-types.js').BlockerWire[];
   /** It was stacked on a session that merged and is archived: it should move onto main. */
@@ -833,6 +835,19 @@ export async function renameSession(sessionId: string, title: string): Promise<v
     body: JSON.stringify({ title }),
   });
   if (!res.ok) throw new Error(`renaming failed (${res.status})`);
+}
+
+/** Keep a session once its PR merges, or (false) archive it then as usual. */
+export async function setKeepAfterMerge(sessionId: string, keep: boolean): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/keep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keep }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `failed (${res.status})`);
+  }
 }
 
 // ---- search in kept conversations (live and archived) -----------------------

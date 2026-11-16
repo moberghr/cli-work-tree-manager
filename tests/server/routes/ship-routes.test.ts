@@ -351,6 +351,39 @@ describe('ship routes', () => {
     expect(listReplies(id).find((r) => r.threadId === 'PRRT_abcdef')).toMatchObject({ status: 'draft', draft: 'Fixed in abc' });
   });
 
+  it('a session you asked to keep is not archived by Ship’s merge; the route sets and clears it', async () => {
+    const id = sessionIdFor(session);
+    expect((await post(app(), `/api/sessions/${id}/keep`, { keep: true })).status).toBe(200);
+    expect(findSession(loadHistory(), 'api', 'feat/x')?.keepAfterMerge).toBe(true);
+    expect(events).toContain('sessions-changed');
+    const res = await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', repos: [{ name: 'api', headSha: SHA }] });
+    expect(await res.json()).toMatchObject({ archived: false, allDone: true, results: [{ ok: true, merged: true }] });
+    expect(archivedAt()).toBeUndefined();
+    expect(disposePty).not.toHaveBeenCalled();
+    // Back to the usual; anything but a boolean, or an unknown session, is refused.
+    await post(app(), `/api/sessions/${id}/keep`, { keep: false });
+    expect(findSession(loadHistory(), 'api', 'feat/x')?.keepAfterMerge).toBeUndefined();
+    expect((await post(app(), `/api/sessions/${id}/keep`, { keep: 'yes' })).status).toBe(400);
+    expect((await post(app(), '/api/sessions/nope/keep', { keep: true })).status).toBe(404);
+  });
+
+  it('a Restore counts as entering it; one archived for its merge is kept from then on (reported: archived again by the next sweep)', async () => {
+    const id = sessionIdFor(session);
+    const row = () => findSession(loadHistory(), 'api', 'feat/x')!;
+    // Archived by you: restored, entered now, and still archived by itself once its PR merges.
+    await post(app(), `/api/sessions/${id}/archive`, { archived: true });
+    expect(row().lastAccessedAt).toBe('x');
+    await post(app(), `/api/sessions/${id}/archive`, { archived: false });
+    expect(Date.now() - Date.parse(row().lastAccessedAt)).toBeLessThan(60_000);
+    expect(row().keepAfterMerge).toBeUndefined();
+    // Archived by Ship's merge: restoring it says you still want it.
+    await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', repos: [{ name: 'api', headSha: SHA }] });
+    expect(readArchive(id)?.archivedBy).toBe('shipped');
+    await post(app(), `/api/sessions/${id}/archive`, { archived: false });
+    expect(row().archivedAt).toBeUndefined();
+    expect(row().keepAfterMerge).toBe(true);
+  });
+
   it('names a session, and an empty name goes back to the automatic one', async () => {
     const id = sessionIdFor(session);
     expect((await post(app(), `/api/sessions/${id}/title`, { title: '  Key rotation ' })).status).toBe(200);

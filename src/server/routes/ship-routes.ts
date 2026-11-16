@@ -2,9 +2,9 @@ import { whileRestoring } from '../../core/archive/archiving.js';
 import type { Hono } from 'hono';
 import { findSession } from '../../core/sessions/web-state.js';
 import { shipPreflightWithListed } from '../../core/pr/pr-watch-hosts.js';
-import { setSessionArchived, setSessionTitle } from '../../core/sessions/history.js';
+import { setSessionArchived, setSessionKeep, setSessionTitle } from '../../core/sessions/history.js';
 import { loadConfig } from '../../core/platform/config.js';
-import { archiveSession, restoreArchivedTranscripts } from '../../core/archive/session-archive.js';
+import { archivedForMerge, archiveSession, restoreArchivedTranscripts } from '../../core/archive/session-archive.js';
 import { defaultArchiveDeps } from '../../core/archive/session-archive-deps.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { isWorktreeFolder } from '../../core/worktree/leftover.js';
@@ -76,6 +76,8 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     if (!session) return { ok: false };
     let ok: boolean;
     let warnings: string[] = [];
+    // Archived for its merge and restored: you still want it, so it stays (the row says "keep"; its menu undoes it).
+    const keepOnRestore = !archived && archivedForMerge(id);
     if (archived) {
       // `merged`: Ship's merge archives it; otherwise it's your Archive (the button, its key, the bulk bar).
       const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), {
@@ -123,6 +125,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       restoreArchivedTranscripts(session);
       ok = await setSessionArchived(session.target, session.branch, false);
     }
+    if (ok && keepOnRestore) await setSessionKeep(session.target, session.branch, true);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return warnings.length ? { ok, warnings } : { ok };
   };
@@ -136,6 +139,17 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     await setSessionTitle(session.target, session.branch, body.title);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ ok: true });
+  });
+
+  // Keep a session once its PR merges ({keep}; false = archive it then, as usual).
+  app.post('/api/sessions/:id/keep', async (c) => {
+    const session = findSession(c.req.param('id'));
+    if (!session) return c.json({ error: 'unknown session' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { keep?: unknown } | null;
+    if (typeof body?.keep !== 'boolean') return c.json({ error: 'keep: boolean' }, 400);
+    await setSessionKeep(session.target, session.branch, body.keep);
+    opts.broadcast('sessions-changed', { ts: Date.now() });
+    return c.json({ ok: true, keep: body.keep });
   });
 
   app.get('/api/sessions/:id/ship', async (c) => {
@@ -180,7 +194,8 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     );
     opts.onRepoChanged?.(id);
     let archived = false;
-    if (outcome.mergedAny && outcome.allDone) {
+    // One you asked to keep after its merge stays (asked again now: the merge took a while).
+    if (outcome.mergedAny && outcome.allDone && !findSession(id)?.keepAfterMerge) {
       // Merged: drafts and notes are kept with the archive, not waited for (a turn in progress is).
       archived = (await archive(id, true, false, true)).ok;
     } else {

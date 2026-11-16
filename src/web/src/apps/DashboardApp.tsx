@@ -1,3 +1,4 @@
+import { setKeepAfterMerge } from '../api/client.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { ShortcutsHelp } from '../components/Dashboard/ShortcutsHelp.js';
@@ -302,6 +303,14 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           // A Restore with warnings is toasted by the RESTORE_WARNINGS listener (for every Restore button).
           (r) => !r.warnings?.length && showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
           (err: Error) => !archiveCancelled(err) && showToast({ text: err.message, kind: 'error' }),
+        ),
+      setKeep: (x: SessionSummary, keep: boolean) =>
+        void setKeepAfterMerge(x.id, keep).then(
+          () =>
+            showToast({
+              text: keep ? `${x.title ?? x.branch} stays after its PR merges` : `${x.title ?? x.branch} is archived once its PR merges`,
+            }),
+          (err: Error) => showToast({ text: err.message, kind: 'error' }),
         ),
       openTerminal: (x: SessionSummary) =>
         void openInTerminal(x.id).catch((err: Error) => showToast({ text: `Couldn't open a terminal: ${err.message}`, kind: 'error' })),

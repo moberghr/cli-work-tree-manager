@@ -242,6 +242,9 @@ export function conflictMessage(
  */
 export const REENTERED_GRACE_MS = 24 * 3600_000;
 
+/** The Activity note for a merged session left alone because you asked. */
+export const KEPT_ON_REQUEST = 'every PR merged, but kept: you asked to keep it after its PR merges (its right-click menu undoes that)';
+
 export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSession, 'lastAccessedAt'>, now: number): boolean {
   return autoArchiveVerdict(pre, session, now)?.archive === true;
 }
@@ -817,7 +820,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       const verdict = deps.ownCheckout?.(session) ? null : autoArchiveVerdict(pre, session, now());
       // Merged work decides it: drafts, notes and questions are kept with
       // the archive, not waited for. Only a turn in progress is.
-      if (verdict?.archive && deps.busy?.(id)) note('every PR merged; archiving once its Claude finishes this turn');
+      // You asked to keep this one (reported: a session archived before the release it was to make after its merge).
+      if (verdict?.archive && session.keepAfterMerge) note(KEPT_ON_REQUEST);
+      else if (verdict?.archive && deps.busy?.(id)) note('every PR merged; archiving once its Claude finishes this turn');
       else if (verdict?.archive) {
         try {
           const keptWhat = await deps.archive(id);
