@@ -26,6 +26,10 @@ export interface HeaderMenuActions {
   devStop: () => void;
   rename: () => void;
   remove: () => void;
+  /** Keep it once its PR merges, or go back to archiving it then (the rail menu's item). */
+  keep?: (keep: boolean) => void;
+  /** Open Processes…: what it holds in memory, and stopping one left running (a live session only). */
+  processes?: () => void;
   /** Open Add a repo… — offered only for a session folder that isn't archived (`canAddRepo`). */
   addRepo?: () => void;
   /** Open Claude account… — given only while more than one account exists; offered for a live Claude session. */
@@ -42,6 +46,13 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
         { label: 'Reconnect terminal', hint: sessionKey('reconnect'), run: a.reconnectTerminal },
         { label: 'Open in terminal', hint: sessionKey('terminal'), run: a.openTerminal },
         { label: 'Ship (push, PR, merge)…', hint: sessionKey('ship'), run: a.ship },
+        ...(a.keep
+          ? [
+              session.keepAfterMerge
+                ? { label: 'Archive after its PR merges', run: () => a.keep!(false) }
+                : { label: 'Keep after its PR merges', run: () => a.keep!(true) },
+            ]
+          : []),
         ...(a.account && canSwitchAccount(session) ? [{ label: 'Claude account…', hint: sessionKey('account'), run: a.account }] : []),
         ...(a.addRepo && canAddRepo(session) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: a.addRepo }] : []),
       ];
@@ -61,6 +72,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
     ...(archived ? [] : [{ label: 'Send a prompt…', hint: sessionKey('prompt'), run: a.sendPrompt }]),
     { label: session.hasNote ? 'Notes •' : 'Notes', hint: sessionKey('notes'), run: a.notes },
     ...devItem,
+    ...(!archived && a.processes ? [{ label: 'Processes…', run: a.processes }] : []),
     { label: 'Rename', hint: 'F2', run: a.rename, separated: true },
     { label: 'Delete…', hint: sessionKey('delete'), run: a.remove, danger: true },
   ];

@@ -33,14 +33,18 @@ export function reviewText(r: PrReviewWire): string {
   const [, ...described] = describeReview(r).split('\n');
   const drafts = r.drafts.filter((d) => d.state === 'draft');
   const posted = r.drafts.length - drafts.length;
+  const local = r.number === 0;
   return [
-    `${r.repo} PR #${r.number} by @${asData(r.author, 60)}: ${r.status}${r.why ? ` (${r.why})` : ''}`,
-    r.url,
+    // Number 0: a session's own changes (local-review.ts), which are no pull request and go to no host.
+    `${local ? `${r.repo}, your local changes` : `${r.repo} PR #${r.number} by @${asData(r.author, 60)}`}: ${r.status}${r.why ? ` (${r.why})` : ''}`,
+    ...(r.url ? [r.url] : []),
     `${r.branch} → ${r.base} at ${r.headSha.slice(0, 8)}`,
     ...described,
     ...(drafts.length
       ? [
-          'Draft comments (not posted: they go out only with the user’s Submit in the Reviews tab):',
+          local
+            ? 'Notes (posted nowhere: the user can hand them to the session’s agent from its Review tab):'
+            : 'Draft comments (not posted: they go out only with the user’s Submit in the Reviews tab):',
           ...drafts.map(
             (d) =>
               `- [${d.id}] ${asData(d.path, 160)}:${d.line} (${d.by === 'you' ? 'yours' : 'the AI step'}): <<< ${asData(d.body, MAX_DRAFT)} >>>`,

@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { mountAccountRoutes } from '../../../src/server/routes/account-routes.js';
 import { createAccountSwitcher, type AccountSwitchDeps } from '../../../src/core/sessions/account-switch.js';
 import { saveConfig } from '../../../src/core/platform/config.js';
-import type { AccountsWire, AccountSwitchWire } from '../../../src/core/api-types.js';
+import type { AccountsWire, AccountSwitchAllWire, AccountSwitchWire } from '../../../src/core/api-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 
 /** GET /api/accounts and POST /api/sessions/:id/account, over a switcher with fake I/O. */
@@ -301,5 +301,73 @@ describe('the Accounts page: add, default, remove, login', () => {
     const none = mount({ logins: false });
     expect(((await (await none.app.request('/api/accounts')).json()) as AccountsWire).canManage).toBe(false);
     expect((await none.call('POST', '/api/accounts/work/login')).status).toBe(409);
+  });
+});
+
+describe('POST /api/accounts/:name/sessions (every session to one account)', () => {
+  const live = (target: string, branch: string, account?: string): WorktreeSession => ({
+    target,
+    branch,
+    isGroup: false,
+    paths: ['/wt/' + branch],
+    createdAt: now,
+    lastAccessedAt: now,
+    ...(account ? { account } : {}),
+  });
+  function mount(lookOnly?: string) {
+    const all = [live('api', 'a'), live('api', 'b', 'work'), { ...live('api', 'old'), archivedAt: now }];
+    const asked: string[] = [];
+    const events: string[] = [];
+    const app = new Hono();
+    mountAccountRoutes(app, {
+      switcher: {
+        switchAccount: async (id: string, to: string) => {
+          asked.push(to);
+          return to === 'nobody'
+            ? { ok: false as const, status: 400 as const, error: 'Unknown account: nobody' }
+            : { ok: true as const, outcome: 'switched' as const, moved: id.length };
+        },
+        cancel: () => 'none' as const,
+      } as never,
+      broadcast: (e) => void events.push(e),
+      sessions: () => all,
+      ...(lookOnly ? { lookOnly } : {}),
+    });
+    const post = (name: string, body: unknown = {}) =>
+      app.request(`/api/accounts/${name}/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    return { post, asked, events };
+  }
+
+  it('moves every live session not on it, says how it went, and tells the pages', async () => {
+    const { post, asked, events } = mount();
+    const res = await post('work');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as AccountSwitchAllWire;
+    expect(body.sessions.map((r) => r.label)).toEqual(['api · a']);
+    expect(body.summary).toBe('1 session moved to work: 1 restarted on it');
+    expect(asked).toEqual(['work']);
+    expect(events).toEqual(['sessions-changed', 'accounts-changed']);
+  });
+
+  it('with "from": only the sessions on that account; none to move is said, not an error', async () => {
+    const { post } = mount();
+    const only = (await (await post('third', { from: 'work' })).json()) as AccountSwitchAllWire;
+    expect(only.sessions.map((r) => r.label)).toEqual(['api · b']);
+    const none = (await (await post('third', { from: 'ghost' })).json()) as AccountSwitchAllWire;
+    expect(none).toMatchObject({ ok: true, sessions: [], summary: 'No session to move: every one is on third already.' });
+  });
+
+  it('an account nobody knows is one refusal; a look-only server changes nothing', async () => {
+    const { post } = mount();
+    const res = await post('nobody');
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'Unknown account: nobody' });
+    const dev = mount('the dev server acts on nothing');
+    expect((await dev.post('work')).status).toBe(409);
+    expect(dev.asked).toEqual([]);
   });
 });

@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
 import type { ParsedFile } from '../../../../../../core/diff/diff-parse.js';
 import { DiffFile } from '../../../Diff/DiffFile.js';
-import { commentContext, gist, pageOf, splitPath, type ReviewPage } from '../../../../state/review-view.js';
+import { commentContext, gist, isLocalReview, pageOf, splitPath, type ReviewPage } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
 import { FileSummary, FileWhere, FolderPath, Prose } from './ReviewText.js';
 
@@ -23,6 +23,7 @@ export function CommentWalk({
   onGo,
   onStory,
   onClearDropped,
+  noteActions,
 }: {
   review: PrReviewWire;
   walk: ReviewDraftWire[];
@@ -34,6 +35,8 @@ export function CommentWalk({
   onGo: (at: number) => void;
   onStory: (page: number) => void;
   onClearDropped: () => void;
+  /** What can be done with the note shown (a session's review: send it to Claude, or dismiss it). */
+  noteActions?: (d: ReviewDraftWire) => ReactNode;
 }) {
   const d = walk[at];
   const file = useMemo(() => (d ? files?.find((f) => f.path === d.path) : undefined), [d, files]);
@@ -51,7 +54,9 @@ export function CommentWalk({
         <button type="button" className="wd-btn-secondary" disabled={at <= 0} onClick={() => onGo(at - 1)} aria-label="Previous comment">
           ←
         </button>
-        <strong className="wd-review-pager-pos">{walk.length ? `${at + 1} of ${walk.length}` : 'No comments'}</strong>
+        <strong className="wd-review-pager-pos">
+          {walk.length ? `${at + 1} of ${walk.length}` : isLocalReview(r) ? 'No notes' : 'No comments'}
+        </strong>
         <button
           type="button"
           className="wd-btn-secondary"
@@ -69,6 +74,7 @@ export function CommentWalk({
             <label className="wd-review-walk-looked">
               <input type="checkbox" checked={looked.has(d.id)} onChange={(e) => onLooked(d.id, e.target.checked)} /> Looked at
             </label>
+            {noteActions && <span className="wd-review-note-actions">{noteActions(d)}</span>}
             {page >= 0 && (
               <button type="button" className="wd-link-button" onClick={() => onStory(page)}>
                 Open in {pages[page].story ? `story ${page + 1}` : pages[page].label} →
@@ -78,7 +84,11 @@ export function CommentWalk({
         )}
       </div>
       <div className="wd-review-walk-pane">
-        {!d && <p className="wd-start-note">No draft comments on this review: add one on any line of a story&apos;s diff.</p>}
+        {!d && (
+          <p className="wd-start-note">
+            {isLocalReview(r) ? 'No notes on these changes.' : 'No draft comments on this review: add one on any line of a story’s diff.'}
+          </p>
+        )}
         {d && page >= 0 && (
           <p className="wd-start-note wd-review-walk-story">
             In <Prose text={pages[page].label} />

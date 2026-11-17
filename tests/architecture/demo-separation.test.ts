@@ -45,6 +45,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/diff/overlap.ts', // pure: which sessions change the same files
       'src/core/diff/diff-looks.ts', // pure: your looks at a diff (the mark moving forward)
       'src/core/sessions/saved-prompts.ts', // pure: the default one-click prompts
+      'src/core/sessions/process-stop.ts', // pure: may one of a session's processes be stopped
       'src/core/conversations/digest.ts', // pure: the Today digest from given inputs
       'src/core/platform/build-stamp.ts', // one stat of the entry file
       'src/core/cleanup/cleanup-verdict.ts', // pure: what to do with a worktree, given its git facts
@@ -72,6 +73,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/time/time-view.ts', // pure: the Time tab's days as shown
       'src/core/time/time-month.ts', // pure: the Month view and what posting the month would do
       'src/core/sessions/account-switch-rules.ts', // pure: when a switch of account is refused
+      'src/core/sessions/account-switch-all.ts', // pure but for what it is handed: the line saying how a move of all went
       'src/core/sessions/account-names.ts', // pure: an account name's rules
       'src/core/pty/account-login-id.ts', // pure: an account login terminal's id
       'src/core/review/review-build.ts', // pure: a PR's review from its diff (kinds, tests, stories)

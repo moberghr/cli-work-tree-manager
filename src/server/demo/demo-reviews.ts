@@ -149,6 +149,30 @@ const DIFF = [
 ].join('\n');
 
 const DEMO_ANSWER = JSON.stringify({
+  recommendation: {
+    verdict: 'fix-first',
+    text: 'Fix the refund limit before this is merged: nothing compares a refund with what the customer paid, so a refund can exceed the order total. Two refunds of one order at the same time can also both pass, which needs a decision on locking. The rounding change is fine on its own but moves amounts by a cent everywhere, so say so in the release notes.',
+  },
+  flows: [
+    {
+      change: 'added',
+      title: 'Support staff refund part of a paid order.',
+      steps: [
+        'A support user posts an amount to the order’s new refund endpoint.',
+        'RefundValidator rejects an amount that is not positive.',
+        'RefundHandler asks the payment provider to refund that amount.',
+        'The handler adds the amount to the order’s new Refunded total and saves the order.',
+      ],
+    },
+    {
+      change: 'changed',
+      title: 'Every price is rounded to cents.',
+      steps: [
+        'A price, total or refund amount is computed with more than two decimals.',
+        'Rounding.Cents rounds it half away from zero; before, it rounded half to the nearest even cent.',
+      ],
+    },
+  ],
   summary:
     'Adds partial refunds to paid orders: a POST endpoint, a handler that refunds through the payment provider and records the amount on the order, and a validator for the amount. A migration adds the column, and prices now round half away from zero.',
   stories: [

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { PrDiscussionThreadWire, PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
 import { AlreadyDiscussed } from './Discussion.js';
-import { FLAG_LABEL } from '../../../../../../core/review/review-plan.js';
+import { FLAG_LABEL, FLOW_CHANGE_LABEL, VERDICT_LABEL } from '../../../../../../core/review/review-plan.js';
 import {
   commentsByFile,
   gist,
@@ -12,6 +12,8 @@ import {
   shortWhere,
   storyCards,
   type ReviewPage,
+  isLocalReview,
+  pointsLabel,
 } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
 import { FileRow, FileWhere, Prose } from './ReviewText.js';
@@ -33,6 +35,7 @@ export function ReviewOverview({
   onClearDropped,
   aside = [],
   onFiles = () => undefined,
+  noteActions,
 }: {
   review: PrReviewWire;
   pages: ReviewPage[];
@@ -46,6 +49,8 @@ export function ReviewOverview({
   aside?: PrDiscussionThreadWire[];
   /** Opens the Files view. */
   onFiles?: () => void;
+  /** What can be done with one note, beside it (a session's review: send it to Claude, or dismiss it). */
+  noteActions?: (d: ReviewDraftWire) => ReactNode;
 }) {
   const [testsOpen, setTestsOpen] = useState(false);
   const [noiseOpen, setNoiseOpen] = useState(false);
@@ -77,14 +82,51 @@ export function ReviewOverview({
           <p className="wd-start-note">No summary: no AI step ran for this review.</p>
         )}
       </section>
-      <AlreadyDiscussed discussion={r.discussion} aside={aside} onFiles={onFiles} {...(r.host ? { host: r.host } : {})} />
+      {r.recommendation && (
+        <section className={`wd-review-recommendation wd-review-verdict-${r.recommendation.verdict}`} aria-label="Recommendation">
+          <h3>
+            Recommendation <span className="wd-start-note">· the AI step’s advice: you decide</span>
+          </h3>
+          <p>
+            <strong className="wd-review-verdict">{VERDICT_LABEL[r.recommendation.verdict]}.</strong> <Prose text={r.recommendation.text} />
+          </p>
+        </section>
+      )}
+      {r.flows && r.flows.length > 0 && (
+        <section className="wd-review-flows" aria-label="Flows">
+          <h3>
+            Flows <span className="wd-start-note">· what this adds, changes or removes, step by step</span>
+          </h3>
+          {r.flows.map((f, i) => (
+            <details key={i} className="wd-review-flow" open={r.flows!.length <= 2}>
+              <summary>
+                <span className={`wd-review-flow-change wd-review-flow-${f.change}`}>{FLOW_CHANGE_LABEL[f.change]}</span>{' '}
+                <Prose text={f.title} />
+              </summary>
+              <ol>
+                {f.steps.map((s, n) => (
+                  <li key={n}>
+                    <Prose text={s} />
+                  </li>
+                ))}
+              </ol>
+            </details>
+          ))}
+        </section>
+      )}
+      {/* A session's own changes are on no host: there is no discussion to read. */}
+      {!isLocalReview(r) && (
+        <AlreadyDiscussed discussion={r.discussion} aside={aside} onFiles={onFiles} {...(r.host ? { host: r.host } : {})} />
+      )}
       <div className="wd-review-overview-cols">
         <section className="wd-review-attention" aria-label="Needs your attention">
           <h3>
             Needs your attention{' '}
             <span className="wd-start-note">{walk.length ? `· ${left} of ${walk.length} to look at` : '· nothing flagged'}</span>
           </h3>
-          {walk.length === 0 && <p className="wd-start-note">No draft comments: the AI step found nothing to point at.</p>}
+          {walk.length === 0 && (
+            <p className="wd-start-note">{isLocalReview(r) ? 'No notes' : 'No draft comments'}: the AI step found nothing to point at.</p>
+          )}
           <ul>
             {walk.map((d, i) => (
               <li key={d.id} className={looked.has(d.id) ? 'wd-review-looked' : undefined}>
@@ -100,6 +142,7 @@ export function ReviewOverview({
                   {d.by === 'you' && <span className="wd-start-note"> · yours</span>}
                   <span className="wd-review-gist">{gist(d.body)}</span>
                 </button>
+                {noteActions && <span className="wd-review-note-actions">{noteActions(d)}</span>}
               </li>
             ))}
           </ul>
@@ -138,7 +181,7 @@ export function ReviewOverview({
                     </span>
                     <span className="wd-review-card-facts">
                       {c.codeFiles} file{c.codeFiles === 1 ? '' : 's'}
-                      {c.comments > 0 && ` · ${c.comments} comment${c.comments === 1 ? '' : 's'}`} ·{' '}
+                      {c.comments > 0 && ` · ${pointsLabel(r, c.comments)}`} ·{' '}
                       <span className={`wd-review-tests-${c.tests.state}`}>
                         {c.tests.state === 'covered' ? '✓ ' : ''}
                         {c.tests.text}

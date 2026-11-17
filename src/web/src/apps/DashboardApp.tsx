@@ -869,6 +869,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           onDelete={() => setDeleting(activeSession)}
           onAddRepo={() => menuActions.addRepo(activeSession)}
           onAccount={menuActions.account ? () => menuActions.account!(activeSession) : undefined}
+          onKeep={(keep) => menuActions.setKeep(activeSession, keep)}
           prs={prsFor(activeSession)}
           onShipped={backFromSession}
         />

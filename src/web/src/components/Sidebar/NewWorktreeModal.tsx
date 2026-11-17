@@ -47,6 +47,9 @@ export function branchNote(check: BranchCheck, suggested: boolean): { text: stri
     if (!check.free) return { text: `${check.branch} and its -2 … -9 are all taken: type a name for the branch.`, blocks: true };
     return null;
   }
+  // The branch the project's own folder is on: it can't be checked out twice, so Create opens that folder.
+  if (check.ownCheckout)
+    return { text: `${check.branch} is the branch the project's own folder is on: Create opens it there (no new worktree).` };
   if (check.session?.archived) return { text: `${check.branch} is an archived session: Create restores it and gives it the prompt.` };
   if (check.session) return { text: `${check.branch} already has a session: Create opens it and gives it the prompt.` };
   if (check.exists) return { text: `${check.branch} exists: Create checks it out, with the commits it has.` };

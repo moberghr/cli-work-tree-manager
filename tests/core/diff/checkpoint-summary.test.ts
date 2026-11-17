@@ -101,6 +101,16 @@ describe('internal runs, one lane per kind', () => {
     expect(events()).toEqual(['start a', 'end a', 'start b', 'end b', 'start c', 'end c', 'start d', 'end d']);
   }, 60_000);
 
+  it('a session’s own review has its own lane, where its passes run together', async () => {
+    const [a, b] = await Promise.all([
+      runInternal('e 1500', 30_000, { lane: 'localReviews' }),
+      runInternal('f 0', 30_000, { lane: 'localReviews' }),
+    ]);
+    expect([a, b]).toEqual(['e', 'f']);
+    // The second started, and ended, while the first still ran.
+    expect(events().indexOf('end f')).toBeLessThan(events().indexOf('end e'));
+  }, 60_000);
+
   it('a lane whose run times out lets the next one go (its tree killed)', async () => {
     const slow = runInternal('slow 60000', 1500, { lane: 'reviews' });
     const next = runInternal('next 0', 30_000, { lane: 'reviews' });

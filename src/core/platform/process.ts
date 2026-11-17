@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { programPath } from './program-path.js';
+import { timedSync } from './sync-work.js';
 
 /**
  * Process lifecycle rules for the long-lived pieces (work web, the PTY
@@ -201,6 +202,11 @@ function parseProcessTable(stdout: string, win: boolean): Map<number, string> {
  */
 export function processTable(): Map<number, string> {
   if (process.platform === 'linux') return linuxProcessTable();
+  // Named when slow (on Windows it takes a second or more): a blocked server says what it waited on (sync-work.ts).
+  return timedSync(() => 'listing every process (tasklist / ps)', readProcessTable);
+}
+
+function readProcessTable(): Map<number, string> {
   try {
     const win = process.platform === 'win32';
     const r = win

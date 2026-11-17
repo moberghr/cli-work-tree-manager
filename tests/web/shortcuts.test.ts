@@ -84,6 +84,7 @@ describe('runSessionKey', () => {
       'tab pr',
       'tab code',
       'tab branches',
+      'tab review',
       'header timeline',
       'archived true',
       'snooze',

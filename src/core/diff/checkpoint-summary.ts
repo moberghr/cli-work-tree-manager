@@ -15,7 +15,7 @@ import { computeRangeDiff } from './diff-pipeline.js';
 import { loadManifest } from './checkpoint.js';
 import { internalAgent, agentSettings } from '../agents/index.js';
 import { killTree } from '../platform/process.js';
-import { createSerialQueue } from '../platform/throttle.js';
+import { createLimitedQueue, createSerialQueue } from '../platform/throttle.js';
 import type { ParsedFile } from './diff-parse.js';
 import type { AgentReadOnly } from '../agents/types.js';
 
@@ -98,13 +98,19 @@ function heuristicLabel(files: ParsedFile[], added: number, deleted: number): st
  * Where an internal run waits its turn. Each lane runs one at a time, however many ask together, and lanes don't
  * wait on each other: `shared` is everything quick (checkpoint names, Catch me up, fork and archive summaries, the
  * Time AI step, the Jira watch, a group's instructions); `reviews` is the Reviews AI step alone, which may hold its
- * lane for minutes (a checkout run, then the fallback) and so must never keep the others waiting.
+ * lane for minutes (a checkout run, then the fallback) and so must never keep the others waiting. `localReviews` is
+ * a session's own review (local-review.ts), asked for on a click: its passes over several repos run together, up to
+ * `LOCAL_REVIEW_RUNS` at a time, and wait behind no pull request's review.
  */
-export type InternalLane = 'shared' | 'reviews';
+export type InternalLane = 'shared' | 'reviews' | 'localReviews';
+
+/** How many runs of a session's own review go at once (one over everything, and one per repo). */
+export const LOCAL_REVIEW_RUNS = 3;
 
 const lanes: Record<InternalLane, ReturnType<typeof createSerialQueue>> = {
   shared: createSerialQueue(),
   reviews: createSerialQueue(),
+  localReviews: createLimitedQueue(LOCAL_REVIEW_RUNS),
 };
 
 export interface InternalRunOptions {

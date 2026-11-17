@@ -5,7 +5,10 @@ import {
   clip,
   DIFF_ONLY_LINES,
   folderStories,
+  FLOW_CHANGE_LABEL,
   MAX_FILE_SUMMARY,
+  MAX_RECOMMENDATION,
+  VERDICT_LABEL,
   MAX_SUMMARY,
   MAX_TEXT,
   MAX_TITLE,
@@ -379,7 +382,7 @@ describe('the summary: what the PR does, in a few sentences', () => {
   it('asked first in the prompt, with the field in the JSON asked for', () => {
     const prompt = agentPrompt({ title: 'T', number: 1 }, [], []);
     expect(prompt).toContain('First, in "summary"');
-    expect(prompt).toContain('{"summary":"","stories":');
+    expect(prompt).toContain('{"summary":"","recommendation":');
     expect(prompt.indexOf('"summary"')).toBeLessThan(prompt.indexOf('\n<<<\n'));
   });
 
@@ -492,5 +495,73 @@ describe('stories and files explained in full sentences', () => {
     expect(planReview(kinds, tests, pass).fileSummaries).toEqual({ 'src/Shipping/Rates.cs': 'Rates change.' });
     expect(planReview(kinds, tests, { ...pass, stories: [] }).fileSummaries).toEqual({});
     expect(planReview(kinds, tests, null).fileSummaries).toEqual({});
+  });
+});
+
+describe('the recommendation and the flows (asked for: what the agent advises, and the flows added, changed or removed)', () => {
+  const files = ['src/a.cs'];
+  const answer = (extra: Record<string, unknown>) =>
+    JSON.stringify({ stories: [{ title: 'T', why: 'W', risk: 'R', riskLevel: 3, flags: [], files }], notes: [], ...extra });
+
+  it('the prompt asks for both, with the verdicts and the changes it may name, and they are in the JSON asked for', () => {
+    const p = agentPrompt({ title: 'T', number: 1 }, [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' }], []);
+    expect(p).toContain('In "recommendation", advise the reviewer on the change as it is.');
+    expect(p).toContain('ready, fix-first, discuss');
+    expect(p).toContain('In "flows", list the flows this change adds, changes or removes.');
+    expect(p).toContain('added, changed, removed');
+    expect(p).toContain('"recommendation":{"verdict":"fix-first","text":""},"flows":[{"change":"added","title":"","steps":[""]}]');
+    // The advice is asked for before the data, never inside the fence.
+    expect(p.indexOf('In "recommendation"')).toBeLessThan(p.indexOf('<<<\nTitle:'));
+  });
+
+  it('read strictly: a known verdict with its reasons; a flow with a known change, a title and steps', () => {
+    const pass = parseAgentPass(
+      answer({
+        recommendation: { verdict: 'fix-first', text: 'Fix the limit first.' },
+        flows: [
+          { change: 'added', title: 'A refund.', steps: ['One.', 'Two.', 7, ''] },
+          { change: 'renamed', title: 'Not a change we know.', steps: ['One.'] },
+          { change: 'removed', title: 'No steps.', steps: [] },
+          { change: 'changed', steps: ['No title.'] },
+          'not a flow',
+        ],
+      }),
+      files,
+    )!;
+    expect(pass.recommendation).toEqual({ verdict: 'fix-first', text: 'Fix the limit first.' });
+    expect(pass.flows).toEqual([{ change: 'added', title: 'A refund.', steps: ['One.', 'Two.'] }]);
+  });
+
+  it('an unknown verdict, one with no reasons, or neither field: none (and the rest of the answer still reads)', () => {
+    expect(parseAgentPass(answer({ recommendation: { verdict: 'approve', text: 'Yes.' } }), files)).not.toHaveProperty('recommendation');
+    expect(parseAgentPass(answer({ recommendation: { verdict: 'ready' } }), files)).not.toHaveProperty('recommendation');
+    expect(parseAgentPass(answer({ recommendation: 'ready', flows: 'none' }), files)).not.toHaveProperty('flows');
+    const plain = parseAgentPass(answer({}), files)!;
+    expect(plain.stories).toHaveLength(1);
+    expect(plain).not.toHaveProperty('recommendation');
+    expect(plain).not.toHaveProperty('flows');
+  });
+
+  it('long text is cut at a word, and at most twelve flows of ten steps are kept', () => {
+    const pass = parseAgentPass(
+      answer({
+        recommendation: { verdict: 'discuss', text: 'word '.repeat(400) },
+        flows: Array.from({ length: 20 }, (_, i) => ({
+          change: 'changed',
+          title: `Flow ${i}`,
+          steps: Array.from({ length: 15 }, () => 'A step.'),
+        })),
+      }),
+      files,
+    )!;
+    expect(pass.recommendation!.text.length).toBeLessThanOrEqual(MAX_RECOMMENDATION);
+    expect(pass.recommendation!.text.endsWith('…')).toBe(true);
+    expect(pass.flows).toHaveLength(12);
+    expect(pass.flows![0].steps).toHaveLength(10);
+  });
+
+  it('each verdict and each change has its words', () => {
+    expect(VERDICT_LABEL).toEqual({ ready: 'Ready to merge as it is', 'fix-first': 'Fix first', discuss: 'Needs a decision first' });
+    expect(FLOW_CHANGE_LABEL).toEqual({ added: 'New', changed: 'Changed', removed: 'Removed' });
   });
 });

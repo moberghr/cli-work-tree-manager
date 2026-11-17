@@ -130,6 +130,12 @@ export interface WorkConfig {
    */
   useBundledConpty?: boolean;
   /**
+   * Start each session's agent below normal priority, so the builds and tests it runs take the idle cores and give way
+   * to what you look at (the dashboard, your editor). Read at each agent start; a running one keeps what it has.
+   * Default off.
+   */
+  agentsLowPriority?: boolean;
+  /**
    * Archived conversations (archive-retention.ts): gzip them once this many
    * days old (default 30; 0 = never; lossless), and delete them after this
    * many (default 0 = never; the summary and prompts stay).
@@ -337,6 +343,7 @@ export function loadConfig(): WorkConfig | null {
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,
+      agentsLowPriority: typeof parsed.agentsLowPriority === 'boolean' ? parsed.agentsLowPriority : undefined,
       prompts: validatePrompts(parsed.prompts),
       time: validateTime(parsed.time),
       archive:

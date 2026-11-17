@@ -4,6 +4,8 @@ import type { BaseSpec } from '../git/base-spec.js';
 import type { WorkConfig } from '../platform/config.js';
 import { findSession, loadHistory } from '../sessions/history.js';
 import { openBaseCheckout, setupWorktree } from './worktree.js';
+import { ownsBranch } from './own-checkout.js';
+import { isEmptyBaseSpec } from '../git/base-spec.js';
 import { collectingReporter, withReporter } from '../platform/report.js';
 import { resolveProjectTarget } from './resolve.js';
 import { defaultRunner } from '../pr/ship.js';
@@ -268,7 +270,8 @@ export async function pruneWorktrees(
 export const createInProcess: CreateWorktree = async (req, config) => {
   const invalid = invalidRequest(req);
   if (invalid) return { ok: false, error: invalid };
-  if (!req.branch) {
+  // No branch, or the one the repo's own folder is on (it can't be checked out twice): that folder.
+  if (!req.branch || ((!req.base || isEmptyBaseSpec(req.base)) && ownsBranch(req.target, req.branch, config))) {
     const opened = await openBaseCheckout(req.target, config, { jiraKey: req.jiraKey, name: req.name, account: req.account });
     return opened.ok
       ? { ok: true, branch: opened.branch, launchDir: opened.repoPath, paths: [opened.repoPath] }

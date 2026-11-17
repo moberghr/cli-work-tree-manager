@@ -515,3 +515,16 @@ export function mdGist(body: string, max = 140): string {
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
   return gist(text, max);
 }
+
+/** A session's own changes read as a review (local-review.ts: number 0): no pull request, nothing on a host. Pure. */
+export function isLocalReview(r: Pick<PrReviewWire, 'number'>): boolean {
+  return r.number === 0;
+}
+
+/**
+ * What the AI step's points are called, counted: a pull request's are draft comments (they can be posted), a local
+ * review's are notes (they go nowhere but, if you say so, to the session's agent). "3 comments", "1 note". Pure.
+ */
+export function pointsLabel(r: Pick<PrReviewWire, 'number'>, n: number): string {
+  return `${n} ${isLocalReview(r) ? 'note' : 'comment'}${n === 1 ? '' : 's'}`;
+}
