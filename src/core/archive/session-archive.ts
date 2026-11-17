@@ -115,6 +115,15 @@ export interface ArchiveRecord {
   transcriptsDroppedAt?: string;
 }
 
+/**
+ * It was archived because its PR merged (the PR watch, or Ship's merge) — so a Restore is you saying you still want
+ * it, and it is kept after its merge from then on (`keepAfterMerge`), not archived again a day later.
+ */
+export function archivedForMerge(id: string): boolean {
+  const by = archivedByOf(readArchive(id) ?? {});
+  return by === 'pr-merged' || by === 'shipped';
+}
+
 /** Who archived it, as stored (archive.json is read back as JSON): only a value work writes. */
 export function archivedByOf(rec: { archivedBy?: unknown }): ArchivedBy | undefined {
   return ARCHIVED_BY.find((b) => b === rec.archivedBy);

@@ -13,6 +13,8 @@ import { canSwitchAccount } from './accounts.js';
  */
 export interface SessionMenuActions {
   setArchived: (s: SessionSummary, archived: boolean) => void;
+  /** Keep it once its PR merges, or go back to archiving it then. */
+  setKeep?: (s: SessionSummary, keep: boolean) => void;
   openTerminal: (s: SessionSummary) => void;
   openEditor: (s: SessionSummary) => void;
   copyBranch: (s: SessionSummary) => void;
@@ -37,6 +39,14 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
     archived
       ? { label: 'Restore', hint: sessionKey('archive'), run: () => a.setArchived(s, false) }
       : { label: 'Archive', hint: sessionKey('archive'), run: () => a.setArchived(s, true) },
+    // What happens once its PR merges: archived by itself, unless you keep it (to release from it, say).
+    ...(archived || !a.setKeep
+      ? []
+      : [
+          s.keepAfterMerge
+            ? { label: 'Archive after its PR merges', run: () => a.setKeep!(s, false) }
+            : { label: 'Keep after its PR merges', run: () => a.setKeep!(s, true) },
+        ]),
     // Snooze: out of the Inbox for a while (an archived one isn't in it).
     ...(archived
       ? []

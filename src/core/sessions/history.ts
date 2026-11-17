@@ -341,7 +341,12 @@ export async function setSessionArchived(target: string, branch: string, archive
     const s = getRow(d, target, branch);
     if (!s) return false;
     if (archived) s.archivedAt = new Date().toISOString();
-    else delete s.archivedAt;
+    else {
+      // A Restore is entering it: the PR watch's "merged after you last entered" must not read it as left since
+      // before the merge (reported: a restored session was archived again by the next sweep).
+      delete s.archivedAt;
+      s.lastAccessedAt = new Date().toISOString();
+    }
     putRow(d, s);
     return true;
   });
@@ -355,6 +360,18 @@ export async function setSessionTitle(target: string, branch: string, title: str
     const t = title.trim().slice(0, 120);
     if (t) s.title = t;
     else delete s.title;
+    putRow(d, s);
+    return true;
+  });
+}
+
+/** Keep a session once its PR merges, or go back to archiving it then: in one transaction. False for an unknown session. */
+export async function setSessionKeep(target: string, branch: string, keep: boolean): Promise<boolean> {
+  return tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s) return false;
+    if (keep) s.keepAfterMerge = true;
+    else delete s.keepAfterMerge;
     putRow(d, s);
     return true;
   });

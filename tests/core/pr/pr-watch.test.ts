@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   autoArchiveVerdict,
+  KEPT_ON_REQUEST,
   createPrWatch,
   ciFixMessage,
   conflictMessage,
@@ -689,6 +690,17 @@ describe('PR watch', () => {
     expect(activity.snapshot().recent[0].notes[0].text).toBe(
       'api feat/x: archived: every PR merged; 2 reply drafts kept for Restore (the conversation is kept)',
     );
+  });
+
+  it('never archives a session you asked to keep after its PR merges, and says so (reported: archived before its release)', async () => {
+    const activity = createActivityLog();
+    const h = harness([repo('api', merged(), true)], ON, false, null, {
+      activity,
+      sessions: () => [{ id: 's1', session: { ...session(), keepAfterMerge: true } }],
+    });
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+    expect(activity.snapshot().recent[0].notes[0].text).toContain(KEPT_ON_REQUEST);
   });
 
   it('never archives while its Claude is in the middle of a turn', async () => {

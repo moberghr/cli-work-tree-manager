@@ -172,6 +172,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const branches = s.archivedAt ? null : (opts.branchesFor?.(id, s) ?? null);
   if (branches?.length) wire.branches = branches;
   if (opts.hasNote?.(id)) wire.hasNote = true;
+  if (s.keepAfterMerge && !s.archivedAt) wire.keepAfterMerge = true;
   if (isArchiving(id)) wire.archiving = true;
   if (!s.archivedAt && isAsleep(readStatus(id)?.stoppedAt, wire.ptyStatus === 'running', wire.lastActivity ?? 0)) wire.asleep = true;
   const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);

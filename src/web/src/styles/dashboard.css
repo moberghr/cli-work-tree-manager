@@ -538,6 +538,23 @@ a.wd-pr-chip:hover {
   gap: 3px;
   margin-left: auto;
 }
+/* "keep": it stays once its PR merges. Beside the PR pills, dashed so it doesn't read as a PR. */
+.wd-rail-keep {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.wd-rail-keep + .wd-rail-prs {
+  margin-left: 3px;
+}
+.wd-st-keep {
+  border-style: dashed;
+}
 .wd-rail-prs .wd-pr-chip {
   font-size: 10px;
   line-height: 14px;

@@ -52,6 +52,8 @@ export interface WorktreeSession {
   /** The name you gave it (the dashboard's rename); otherwise it is named
    *  after its first prompt (session-title.ts). */
   title?: string;
+  /** You asked to keep it once its PR merges (the rail menu, `work keep`): the PR watch and Ship's merge don't archive it. */
+  keepAfterMerge?: boolean;
 }
 
 /** How a session folder's instructions file is made (WorktreeSession.instructions). */

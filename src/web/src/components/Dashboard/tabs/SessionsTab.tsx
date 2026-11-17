@@ -33,6 +33,7 @@ import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-gr
 import { DiffStatChip, overlapTitle } from '../SessionBits.js';
 import { ARCHIVED_BY_SHORT, archivedAge, archivedLine, lastActiveLine, listTime } from '../../../state/archive-view.js';
 import { RowMenu, type MenuItem } from '../RowMenu.js';
+import { KEEP_TITLE } from '../SessionRail.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -785,6 +786,11 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
             title={railTag === '📌' ? 'Pinned in the rail' : `In the rail's “${railTag}” section`}
           >
             {railTag}
+          </span>
+        )}
+        {s.keepAfterMerge && !archived && (
+          <span className="wd-st-rail wd-st-keep" title={KEEP_TITLE}>
+            keep
           </span>
         )}
         {full && (
