@@ -64,6 +64,7 @@ function echoAgent(): AgentAdapter {
     },
     events: {
       removeInstalled: async () => {},
+      bridge: async () => {},
       read: (edge, payload) => {
         const p = payload as { dir?: string; said?: string };
         return {

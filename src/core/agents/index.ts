@@ -149,11 +149,11 @@ export function agentById(id: string): AgentAdapter {
  * by the agent its binary names. One that can't be prepared (its settings file can't be written) starts as it is,
  * without hooks — said in the debug log: a session that doesn't start is worse than one the dashboard sees less of.
  */
-export function sessionToolFor(tool: AiToolSpec): AiToolSpec {
+export function sessionToolFor(tool: AiToolSpec, o: { write?: boolean } = {}): AiToolSpec {
   const prepare = agentById(tool.cmd).launch.sessionTool;
   if (!prepare) return tool;
   try {
-    return prepare(tool);
+    return prepare(tool, o);
   } catch (e) {
     logSwallowed(`prepare ${tool.cmd}'s hooks`, e);
     return tool;

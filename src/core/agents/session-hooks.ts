@@ -19,6 +19,9 @@ export const SESSION_HOOKS: readonly SessionHook[] = [
   { edge: 'notify', event: 'status-notify', timeoutSec: 5 },
 ];
 
+/** The owner a bridged hook (`AgentEvents.bridge`) is written under: one of the retired ones, so their removal takes it. */
+export const BRIDGE_OWNER: Record<TurnEdge, string> = { 'turn-start': 'web-turn', 'turn-end': 'web-turn', notify: 'web-status' };
+
 /**
  * The hooks work web once wrote into the user's own settings (every owner it used, at every edge): taken out at its
  * start, since the agents it starts carry their own now — left there, every other Claude on the machine ran them, with

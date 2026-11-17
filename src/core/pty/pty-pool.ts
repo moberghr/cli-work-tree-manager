@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { AgentAdapter } from '../agents/types.js';
-import { agentFor, agentSettings, assistantAgent } from '../agents/index.js';
+import { agentFor, agentSettings, assistantAgent, sessionToolFor } from '../agents/index.js';
 import { statusFromOutput, type PtyOutput } from './output-status.js';
 import type { SessionAttention } from '../api-types.js';
 import type { HostBeat } from './host-health.js';
@@ -172,7 +172,11 @@ export function assistantSpec(): { cwd: string; tool: ReturnType<AgentAdapter['l
   const agent = assistantAgent(settings);
   // Work's own session, not any session's: the configured default account (`launch.env(null)`).
   const agentEnv = agent.launch.env?.(null);
-  return { cwd: prepareAssistantDir(agent), tool: agent.launch.tool(settings), ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
+  return {
+    cwd: prepareAssistantDir(agent),
+    tool: sessionToolFor(agent.launch.tool(settings), { write: mayStartHost }),
+    ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}),
+  };
 }
 
 export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
@@ -183,7 +187,11 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
   const launch = agentFor(config, session).launch;
   // The session's account: its agent's folder env, applied by the host over whatever environment it starts with.
   const agentEnv = launch.env?.(session);
-  return { cwd, tool: launch.tool(config), port: session.port, ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
+  // Its hooks in the spec itself (`--settings`, agents/session-hooks.ts), so a PTY host from before this build — it
+  // outlives updates — starts it with them too; a current host replaces the flag with its own, never twice. The dev
+  // server names the file the installed work wrote, never its own build (`write: false`).
+  const tool = sessionToolFor(launch.tool(config), { write: mayStartHost });
+  return { cwd, tool, port: session.port, ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
 }
 
 /**

@@ -192,6 +192,26 @@ describe('spawnSpecFor', () => {
   });
 });
 
+describe("work's hooks in the spawn spec", () => {
+  it('a Claude session carries `--settings <work’s file>` in the spec itself, so a PTY host from before this build starts it with them', async () => {
+    const pool = await freshPool();
+    const file = path.join(os.homedir(), '.work', 'claude-settings.json');
+    expect(pool.spawnSpecFor(sessions.single as never)?.tool.baseArgs.slice(0, 2)).toEqual(['--settings', file]);
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8'))).toHaveProperty('hooks.Stop');
+    expect(pool.assistantSpec().tool.baseArgs.slice(0, 2)).toEqual(['--settings', file]);
+  });
+
+  it('the dev server names the file the installed work wrote and never rewrites it with its own build', async () => {
+    const pool = await freshPool();
+    const file = path.join(os.homedir(), '.work', 'claude-settings.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{"written":"by the installed work"}');
+    pool.configurePtyPool({ workBin: '/checkout/dist/bin.js', startHost: false });
+    expect(pool.spawnSpecFor(sessions.single as never)?.tool.baseArgs.slice(0, 2)).toEqual(['--settings', file]);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('{"written":"by the installed work"}');
+  });
+});
+
 describe("a session's Claude account in the spawn spec", () => {
   const work = path.resolve('/acc/work');
   afterEach(() => {

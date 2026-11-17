@@ -120,18 +120,58 @@ describe('work web takes out what older builds wrote into the user’s settings'
     );
     fs.writeFileSync(path.join(tmp, '.work', 'statusline.json'), JSON.stringify({ original: { type: 'command', command: 'mine-line' } }));
     const { removeRetiredAgentSetup } = await import('../../../src/commands/web.js');
-    await removeRetiredAgentSetup();
+    (await removeRetiredAgentSetup()).stop();
     expect(commands('Stop')).toEqual(['mine']);
     expect(commands('UserPromptSubmit')).toEqual([]);
     expect(commands('Notification')).toEqual([]);
     expect(JSON.parse(fs.readFileSync(settingsFile, 'utf-8')).statusLine).toEqual({ type: 'command', command: 'mine-line' });
   });
 
+  it('a session’s Claude from before the update still running: work’s hooks stay, as the very commands its new Claudes carry; gone once it is', async () => {
+    fs.writeFileSync(
+      settingsFile,
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            { hooks: [{ type: 'command', command: 'mine' }] },
+            { _workHookOwner: 'web-turn', hooks: [{ type: 'command', command: 'work hook turn-end' }] },
+          ],
+        },
+      }),
+    );
+    const { claudeAgent } = await import('../../../src/core/agents/claude/adapter.js');
+    const { claudeSessionSettings } = await import('../../../src/core/agents/claude/session-settings.js');
+    const running = [
+      { pid: 7, conversationId: 'c', cwd: '/wt/a', busy: false, state: 'idle' as const, stateAt: null, waitingFor: null, startedAt: 1 },
+    ];
+    const claude = { ...claudeAgent, live: { running: () => running } };
+    const { removeRetiredAgentSetup } = await import('../../../src/commands/web.js');
+    const io = {
+      agents: () => [claude],
+      commandLines: async () => new Map([[7, 'claude --continue']]),
+      inSession: () => true,
+      since: 1_000,
+    };
+    const first = await removeRetiredAgentSetup({ ...io, everyMs: 60_000 });
+    first.stop();
+    expect(first.first).toEqual([{ agent: 'claude', done: 'bridged', waitingOn: 1 }]);
+    // The bare `work hook turn-end` is replaced by the session file's own command: a Claude with both runs it once.
+    const session = claudeSessionSettings({ statusLine: true }) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    expect(commands('Stop')).toEqual(['mine', session.hooks.Stop![0]!.hooks[0]!.command]);
+    expect(commands('UserPromptSubmit')).toEqual([session.hooks.UserPromptSubmit![0]!.hooks[0]!.command]);
+    expect(commands('Stop').join(' ')).not.toMatch(/^work hook|\swork hook/);
+    // It was restarted (or quit): the next look takes them out.
+    running.splice(0);
+    (await removeRetiredAgentSetup({ ...io, everyMs: 60_000 })).stop();
+    expect(commands('Stop')).toEqual(['mine']);
+    expect(commands('UserPromptSubmit')).toEqual([]);
+  });
+
   it('settings with nothing of work’s aren’t written at all', async () => {
     const text = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'mine' }] }] } }, null, 1);
     fs.writeFileSync(settingsFile, text);
     const { removeRetiredAgentSetup } = await import('../../../src/commands/web.js');
-    await removeRetiredAgentSetup();
+    (await removeRetiredAgentSetup()).stop();
     expect(fs.readFileSync(settingsFile, 'utf-8')).toBe(text);
   });
 });

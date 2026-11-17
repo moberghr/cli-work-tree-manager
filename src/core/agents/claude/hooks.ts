@@ -4,6 +4,7 @@ import { pendingToolUse } from './permission.js';
 import { contentBlocks, readTranscriptTail } from './transcript.js';
 import type { StatusEvent } from '../../status/status-event.js';
 import type { AgentEvents, TurnEdge } from '../types.js';
+import { BRIDGE_OWNER, RETIRED_HOOK_OWNERS, SESSION_HOOKS } from '../session-hooks.js';
 
 /**
  * Claude Code's side of work's hooks (types.ts `AgentEvents`): the JSON Claude Code sends them on stdin, and how notes
@@ -87,6 +88,21 @@ export const claudeEvents: AgentEvents = {
     const inst = await loadInstaller();
     // One account's file that can't be written is reported by the editor and doesn't keep the others from being cleaned.
     for (const file of settingsFiles()) await inst.removeCommandHooks(hooks.map(toClaude), file);
+  },
+  bridge: async () => {
+    const inst = await loadInstaller();
+    const { workCommand } = await import('../../platform/work-command.js');
+    const add = SESSION_HOOKS.map((h) => ({
+      owner: BRIDGE_OWNER[h.edge],
+      event: CLAUDE_EVENT[h.edge],
+      // Word for word what session-settings.ts gives: a Claude with both runs it once.
+      command: workCommand(['hook', h.event]),
+      timeoutSec: h.timeoutSec,
+    }));
+    // The other retired owners' entries (a lean server's checkpoint hooks, the separate ones of before) go meanwhile.
+    const kept = new Set(add.map((a) => `${a.owner} ${a.event}`));
+    const remove = RETIRED_HOOK_OWNERS.map(toClaude).filter((r) => !kept.has(`${r.owner} ${r.event}`));
+    for (const file of settingsFiles()) await inst.syncCommandHooks(add, remove, file);
   },
   read: (edge, payload) => ({ cwd: str(asPayload(payload).cwd), status: claudeStatusEvent(edge, payload) }),
   // turn-start: stdout is added to the prompt. turn-end: `decision: block`

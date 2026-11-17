@@ -124,7 +124,12 @@ export interface AgentLaunch {
    * work's own file, claude/session-settings.ts). Applied at every spawn, restore and restart, so a stored tool from
    * before gets it too. Absent: started as `tool` says (no hooks).
    */
-  sessionTool?(tool: AiToolSpec): AiToolSpec;
+  sessionTool?(tool: AiToolSpec, o?: { write?: boolean }): AiToolSpec;
+  /**
+   * A running process of it, by its command line, was started with `sessionTool`'s hooks. One that wasn't — started
+   * before this build, by an older work — still needs the hooks older builds put in its own settings (`AgentEvents.bridge`).
+   */
+  startedWithSessionHooks?(commandLine: string): boolean;
 }
 
 /** Whether a keystroke may answer a permission request now (the dialog on its screen is that request's), and if not, why. */
@@ -224,6 +229,12 @@ export interface AgentEvents {
    * aren't written.
    */
   removeInstalled(hooks: ReadonlyArray<{ owner: string; edge: TurnEdge }>): Promise<void>;
+  /**
+   * While agents started before the update still run (they have no `sessionTool` hooks of their own, and the agent
+   * reads its settings live), put work's hooks in its own settings — the very commands `sessionTool` gives, so an agent
+   * that has both runs each once — under owners `removeInstalled` takes out once those agents are gone.
+   */
+  bridge(): Promise<void>;
   /** What a hook was sent (its stdin, parsed): the folder it fired in, and the status event it means. */
   read(edge: TurnEdge, payload: unknown): { cwd?: string; status: StatusEvent | null };
   /** The hook output that hands `text` (pending notes) to the agent: at a turn's start as more context, at its end as "go on with this". */

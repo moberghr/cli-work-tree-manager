@@ -298,6 +298,8 @@ describe('PtyRegistry launch options', () => {
     expect(spawned[1].spec).not.toHaveProperty('unsafe');
     expect(readSaved().a).not.toHaveProperty('unsafe');
     expect(readSaved().a.tool).not.toHaveProperty('unsafeFlag');
+    // The restart carries work's hooks too, once (the flag is the host's, never doubled).
+    expect(buildAiLaunchArgs(spawned[1].spec.tool, spawned[1].spec).args.filter((a) => a === '--settings')).toHaveLength(1);
   });
 
   it('never persists env, prompt or fresh; a restore continues', async () => {

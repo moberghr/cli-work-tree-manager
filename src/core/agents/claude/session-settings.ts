@@ -59,11 +59,20 @@ export function writeSessionSettings(o: { statusLine?: boolean; invocation?: Wor
 
 const isOurs = (p: string | undefined) => !!p && path.basename(p) === SESSION_SETTINGS_NAME;
 
+/** The file to name: written when `write` (the default), or when it isn't there yet (a Claude given a missing file won't start). */
+export function sessionSettingsFile(o: { write?: boolean } = {}): string {
+  const file = sessionSettingsPath();
+  return o.write === false && fs.existsSync(file) ? file : writeSessionSettings();
+}
+
+/** A Claude's command line names work's file: it was started with work's hooks. */
+export const startedWithSessionSettings = (commandLine: string): boolean => commandLine.includes(SESSION_SETTINGS_NAME);
+
 /**
  * The tool as work starts it for a session: `--settings <work's file>` first, once — an older one (a restore entry
  * written before, or under another home) replaced. `file`: tests.
  */
-export function withSessionSettings(tool: AiToolSpec, file: string = writeSessionSettings()): AiToolSpec {
+export function withSessionSettings(tool: AiToolSpec, file: string = sessionSettingsFile()): AiToolSpec {
   const rest: string[] = [];
   for (let i = 0; i < tool.baseArgs.length; i++) {
     if (tool.baseArgs[i] === '--settings' && isOurs(tool.baseArgs[i + 1])) {

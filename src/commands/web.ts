@@ -2,11 +2,14 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../server/web-server.js';
 import { knownAgents } from '../core/agents/index.js';
-import { RETIRED_HOOK_OWNERS } from '../core/agents/session-hooks.js';
+import { settleAgentHooks, type HookMigrationIo, type HookMigrationStep } from '../core/agents/hook-migration.js';
+import { findSessionForCwd } from '../core/comments/pending-delivery.js';
+import { listProcesses } from '../core/platform/running-from.js';
+import { debugLog } from '../core/platform/logger.js';
 import { setupAgentUsage } from '../core/usage/usage-setup.js';
 import { loadConfig } from '../core/platform/config.js';
 import { openUrl } from '../core/platform/launch.js';
-import { configurePtyPool, resumePersistedSessions } from '../core/pty/pty-pool.js';
+import { configurePtyPool, ptyPids, resumePersistedSessions } from '../core/pty/pty-pool.js';
 import { resolveWorkBinPath } from '../core/platform/work-bin.js';
 import { setAutostart } from '../core/platform/autostart.js';
 import { startDemoServer } from '../server/demo/demo-server.js';
@@ -25,7 +28,10 @@ import {
   writeWebDiscovery,
 } from '../core/platform/web-discovery.js';
 import { pendingMigration } from '../core/platform/db.js';
-import { bestEffort, swallow } from '../core/platform/best-effort.js';
+import { bestEffort, logSwallowed, swallow } from '../core/platform/best-effort.js';
+
+/** How often a work web looks again while agents from before the update still run on the old hooks. */
+const HOOK_MIGRATION_EVERY_MS = 2 * 60_000;
 
 /**
  * Take out what older work webs wrote into each agent's own settings (Claude: ~/.claude/settings.json and every
@@ -33,12 +39,45 @@ import { bestEffort, swallow } from '../core/platform/best-effort.js';
  * (agents/session-hooks.ts, `AgentLaunch.sessionTool`); left in the user's settings, every agent run on the machine fired
  * them, with whatever `work` its PATH found. Settings already clean aren't written. Lean too: wd's server once
  * installed its checkpoint hooks the same way.
+ *
+ * Without a session missing a turn (agents/hook-migration.ts): while a session's agent started before this work web
+ * still runs, the hooks stay — as the exact commands its new agents carry — and go once none is left. Looked at again
+ * every two minutes until then. Resolves when the first step is done; returns a stop for the timer.
  */
-export async function removeRetiredAgentSetup(): Promise<void> {
-  for (const agent of knownAgents()) {
-    if (agent.events) await agent.events.removeInstalled(RETIRED_HOOK_OWNERS).catch(swallow(`remove ${agent.name}'s old hooks`));
-  }
+export async function removeRetiredAgentSetup(
+  io: Partial<HookMigrationIo> & { everyMs?: number } = {},
+): Promise<{ stop: () => void; first: HookMigrationStep[] }> {
+  const since = io.since ?? Date.now();
+  const migrationIo: HookMigrationIo = {
+    since,
+    commandLines: io.commandLines ?? (async () => new Map((await listProcesses()).map((p) => [p.pid, p.command]))),
+    inSession: io.inSession ?? ((cwd) => findSessionForCwd(cwd) !== null),
+    hostPids: io.hostPids ?? ptyPids,
+    ...(io.agents ? { agents: io.agents } : {}),
+  };
+  const step = async (): Promise<HookMigrationStep[]> => {
+    try {
+      const done = await settleAgentHooks(migrationIo);
+      for (const d of done)
+        if (d.done === 'bridged')
+          debugLog('INFO', `[hooks] ${d.agent}: kept in its settings for ${d.waitingOn} session(s) started before the update`);
+      return done;
+    } catch (err) {
+      logSwallowed("move the agents' hooks out of their settings", err);
+      return [];
+    }
+  };
+  // The status line older builds wrapped goes back at once: a running agent then shows the user's own (its readings
+  // come from the agents started since), never a broken line.
   await setupAgentUsage(knownAgents(), loadConfig(), false).catch(swallow("give back the agents' status lines"));
+  const first = await step();
+  let last = first;
+  const timer = setInterval(() => {
+    if (last.length > 0 && last.every((d) => d.done === 'removed')) return clearInterval(timer);
+    void step().then((d) => (last = d));
+  }, io.everyMs ?? HOOK_MIGRATION_EVERY_MS);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer), first };
 }
 
 function info(message: string): void {
@@ -253,10 +292,11 @@ export const webCommand: CommandModule = {
 
     // The hooks and status line live with the Claudes work starts (`--settings`, agents/session-hooks.ts): nothing is
     // installed in the user's settings any more, and what older builds put there goes.
-    await removeRetiredAgentSetup();
+    const hookMigration = await removeRetiredAgentSetup();
 
     shutdown = (how: string) => {
       life.end(how);
+      hookMigration.stop();
       info(chalk.gray(`\nStopping work web (${how}).`));
       clearWebDiscovery(process.pid);
       void handle.stop().finally(() => process.exit(0));
