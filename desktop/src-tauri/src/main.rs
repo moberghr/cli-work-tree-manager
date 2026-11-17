@@ -362,6 +362,24 @@ fn open_in_browser(url: &Url) {
     }
 }
 
+/// A navigation of the window itself that belongs in the user's browser: an
+/// http(s) page off this machine (a link in a comment or a PR description
+/// that has no target=_blank). Followed in the window, it replaced the
+/// dashboard and there was no way back. work web, the loading page
+/// (`tauri.localhost` on Windows, `tauri://` elsewhere) and anything else
+/// local stay in the window.
+fn belongs_in_browser(url: &Url) -> bool {
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = url.host_str() else { return false };
+    let host = host.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => !ip.is_loopback(),
+        Err(_) => host != "localhost" && !host.ends_with(".localhost"),
+    }
+}
+
 /// Register the Claude Code plugin (the `work` npm package's postinstall),
 /// in the background: it may take a minute, and failing is fine.
 fn register_plugin(rt: &runtime::Runtime) {
@@ -471,7 +489,12 @@ fn main() {
                         }
                         false
                     }
-                    None => url.host_str() != Some(updates::ASK_HOST),
+                    None if url.host_str() == Some(updates::ASK_HOST) => false,
+                    None if belongs_in_browser(&url) => {
+                        open_in_browser(&url);
+                        false
+                    }
+                    None => true,
                 });
             // For scripts/terminal-latency.ts: a DevTools port to drive the page through. Tauri sets
             // WebView2's browser arguments itself, which overrides WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
@@ -614,6 +637,23 @@ mod tests {
         spawn_collected_to(&mut cmd, None, move |line| tx.send(line).unwrap()).unwrap();
         // Collected without a word: the sender goes with the thread, nothing sent.
         assert!(rx.recv_timeout(std::time::Duration::from_secs(20)).is_err());
+    }
+
+    #[test]
+    fn only_pages_off_this_machine_go_to_the_browser() {
+        let out = |u: &str| belongs_in_browser(&Url::parse(u).unwrap());
+        assert!(out("https://my.adventures.is/"));
+        assert!(out("http://github.com/org/repo/pull/1"));
+        assert!(out("https://10.0.0.5:8080/"));
+        // work web, the loading page, a local server: the window.
+        assert!(!out("http://127.0.0.1:49674/#/sessions"));
+        assert!(!out("http://localhost:5173/"));
+        assert!(!out("http://[::1]:3000/"));
+        assert!(!out("http://tauri.localhost/index.html"));
+        assert!(!out("tauri://localhost/index.html"));
+        assert!(!out("about:blank"));
+        // The page's asks are the app's, never the browser's (handled before this).
+        assert!(out("http://work-desktop.invalid/check"));
     }
 
     #[test]
