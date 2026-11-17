@@ -21,6 +21,10 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'work-test-home-'));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 process.env.WORK_TEST_REAL_HOME = real; // for the guard test only
+// The Claude config folder follows the throwaway home too. A session work started on a second account has
+// CLAUDE_CONFIG_DIR set (found when this repo's own session was moved to another account: two tests read the real
+// account's folder), and a test that wants one sets it itself.
+delete process.env.CLAUDE_CONFIG_DIR;
 
 afterAll(() => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

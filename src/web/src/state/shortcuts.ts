@@ -19,6 +19,7 @@ export type SessionAction =
   | 'tab-review'
   | 'timeline'
   | 'archive'
+  | 'keep'
   | 'snooze'
   | 'block'
   | 'menu'
@@ -53,6 +54,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   'tab-review': { key: '6', label: 'Review tab (its changes as a review)' },
   timeline: { key: 'l', label: 'Timeline (how it got here)' },
   archive: { key: 'e', label: 'Archive (Restore when archived)' },
+  keep: { key: 'k', shift: true, label: 'Keep after its PR merges (again: archive after it merges)' },
   snooze: { key: 'z', label: 'Snooze…' },
   block: { key: 'b', label: 'Blocked by…' },
   menu: { key: '.', label: 'Its ⋯ menu' },
@@ -193,6 +195,8 @@ export interface SessionActionDetail {
 export interface SessionKeyHandlers {
   tab: (sub: 'term' | 'diff' | 'pr' | 'code' | 'branches' | 'review') => void;
   setArchived: (archived: boolean) => void;
+  /** Turn Keep after its PR merges on, or off when it is on. */
+  toggleKeep: () => void;
   snoozeMenu: () => void;
   blockBy: () => void;
   openEditor: () => void;
@@ -225,6 +229,8 @@ export function runSessionKey(action: SessionAction, s: { archived: boolean }, h
       return h.tab('review');
     case 'archive':
       return h.setArchived(live);
+    case 'keep':
+      return live ? h.toggleKeep() : undefined;
     case 'snooze':
       return live ? h.snoozeMenu() : undefined;
     case 'block':

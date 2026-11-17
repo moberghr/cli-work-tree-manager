@@ -19,7 +19,14 @@ import { claudeEvents } from './hooks.js';
 import { claudeSessionsDirs, readLiveClaudes } from './live.js';
 import { ANSWER_KEYS, checkDialog } from './permission.js';
 import { typeThenEnter } from '../typing.js';
-import { CLAUDE_READ_ONLY_LINES, claudeSettingsFile, internalClaudeReadOnlySpawn, internalClaudeSpawn } from './internal.js';
+import {
+  CLAUDE_READ_ONLY_LINES,
+  CLAUDE_READ_ONLY_LOCAL_LINES,
+  claudeReadDenyRules,
+  claudeSettingsFile,
+  internalClaudeReadOnlySpawn,
+  internalClaudeSpawn,
+} from './internal.js';
 import { claudeWorkspace } from './workspace.js';
 import { claudeSkills } from './skills.js';
 import { claudeUsage } from './usage.js';
@@ -99,12 +106,14 @@ export const claudeAgent: AgentAdapter = {
   oneShot: {
     command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
     readOnly: {
-      command: ({ small, cwd }) => ({
+      command: ({ small, cwd, deny }) => ({
         cmd: 'claude',
-        ...internalClaudeReadOnlySpawn({ cwd, ...(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
+        ...internalClaudeReadOnlySpawn({ cwd, ...(small ? { model: CLAUDE_SMALL_MODEL } : {}), ...(deny ? { deny } : {}) }),
       }),
       isSettingsFile: claudeSettingsFile,
       promptLines: CLAUDE_READ_ONLY_LINES,
+      localLines: CLAUDE_READ_ONLY_LOCAL_LINES,
+      denyRules: (repos) => claudeReadDenyRules(repos),
       // Its flags were measured on one Claude Code (READ_ONLY_MIN_VERSION): an older one gets no checkout run.
       // Loaded when a review asks: the hook processes load this adapter on every turn edge.
       available: async () => (await import('./version.js')).claudeReadOnlyAvailable(),

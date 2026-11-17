@@ -351,6 +351,26 @@ export function fetchAccounts(): Promise<import('../../../core/api-types.js').Ac
  * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
  */
 /** Move every session on another account to `name` (POST /api/accounts/:name/sessions). Throws the server's reason when refused. */
+/** Dismiss a note of a session's review (`undo`: bring it back); resolves with the review as it is kept now. */
+export async function dismissSessionReviewNote(sessionId: string, noteId: string, undo = false): Promise<SessionReview> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/dismiss`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: noteId, ...(undo ? { undo: true } : {}) }),
+  });
+  const body = (await res.json().catch(() => ({}))) as SessionReview & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `dismiss: ${res.status}`);
+  return body;
+}
+
+/** Whether a session's kept review is of its changes as they are now (GET …/review/current); true when it can't be told. */
+export async function fetchSessionReviewCurrent(sessionId: string): Promise<boolean> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/current`);
+  if (!res.ok) return true;
+  const body = (await res.json().catch(() => ({}))) as { current?: boolean };
+  return body.current !== false;
+}
+
 export async function moveAllSessionsToAccount(name: string): Promise<import('../../../core/api-types.js').AccountSwitchAllWire> {
   const res = await fetch(`/api/accounts/${encodeURIComponent(name)}/sessions`, {
     method: 'POST',

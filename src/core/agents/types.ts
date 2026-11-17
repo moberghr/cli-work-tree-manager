@@ -157,7 +157,7 @@ export interface AgentOneShot {
 
 /** The agent's read-only one-shot in a folder (`AgentOneShot.readOnly`), and what only the agent knows about it. */
 export interface AgentReadOnly {
-  command(opts: { small?: boolean; cwd: string }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  command(opts: { small?: boolean; cwd: string; deny?: string[] }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
   /**
    * A file of the folder (its path relative to it, `/` or `\`) the agent would read as its own settings — hooks, env,
    * permissions, tool servers: deleted from the copy before the run (the folder is someone else's). Whatever case it's
@@ -166,6 +166,16 @@ export interface AgentReadOnly {
   isSettingsFile(relPath: string): boolean;
   /** What the run's prompt says of the folder in the agent's own words: its tools, and which of its files it was given. */
   promptLines: string[];
+  /**
+   * The same for a run in YOUR folder (a session's own changes, core/review/local-review-tree.ts): nothing is
+   * deleted there. Absent: the agent's read-only run is for a temporary checkout only.
+   */
+  localLines?: string[];
+  /**
+   * The files the repos' own settings forbid reading, as rules for `command`'s `deny` (the run loads none of the
+   * folder's settings, so they wouldn't hold otherwise). `sub`: the repo's folder under where the run starts.
+   */
+  denyRules?(repos: ReadonlyArray<{ dir: string; sub: string | null }>): string[];
   /**
    * Whether the installed agent can run it as it was measured (Claude: its version, at least the one its flags were
    * measured on). Not ok: no checkout run, and `why` says so. Absent: always.

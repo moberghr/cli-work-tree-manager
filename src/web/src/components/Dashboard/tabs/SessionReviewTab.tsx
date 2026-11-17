@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PrReviewWire, SessionReviewWire } from '../../../../../core/api-types.js';
 import type { ParsedFile } from '../../../../../core/diff/diff-parse.js';
 import {
+  dismissSessionReviewNote,
   fetchSessionReview,
+  fetchSessionReviewCurrent,
   fetchSessionReviewDiff,
   prepareSessionReview,
   sendSessionReviewNotes,
@@ -34,13 +36,16 @@ export function localReviewLine(w: SessionReviewWire, now: number = Date.now()):
     : '';
   if (w.status === 'running')
     return r ? `Preparing it again… (showing the last one: ${what})` : 'Preparing… reading the changes takes a minute or two.';
-  return `${what} · prepared ${w.at ? timeAgo(w.at, now) : 'just now'}${r?.why ? ` · ${r.why}` : ''}`;
+  return `${what} · prepared ${w.at ? timeAgo(w.at, now) : 'just now'}${w.how ? ` · ${w.how}` : ''}${r?.why ? ` · ${r.why}` : ''}`;
 }
 
 /** The review with the notes you set aside taken out (they stay out until it is prepared again). Pure. */
 export function withoutNotes(r: PrReviewWire, removed: ReadonlySet<string>): PrReviewWire {
   return removed.size ? { ...r, drafts: r.drafts.filter((d) => !removed.has(d.id)) } : r;
 }
+
+/** How often an open tab asks whether the changes have moved since its review was prepared. */
+export const STALE_CHECK_MS = 60_000;
 
 /** The notes not handed to the agent yet, in the walk's order. Pure. */
 export function unsentNotes<T extends { id: string }>(walk: readonly T[], sent: ReadonlySet<string>): T[] {
@@ -81,11 +86,10 @@ export function SessionReviewTab({
   const [file, setFile] = useState<string | undefined>(undefined);
   const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [looked, setLooked] = useState<Set<string>>(new Set());
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
-  /** The notes already handed to the agent (until the review is prepared again). */
-  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  /** The changes have moved since the review was prepared (asked again every minute while the tab is open). */
+  const [moved, setMoved] = useState(false);
 
   const load = useCallback(() => {
     fetchSessionReview(id).then(
@@ -106,8 +110,6 @@ export function SessionReviewTab({
     setFiles(null);
     setViewed(new Set());
     setLooked(new Set());
-    setRemoved(new Set());
-    setSentIds(new Set());
     setSent(null);
     setMode('overview');
     if (!signature) return;
@@ -117,6 +119,35 @@ export function SessionReviewTab({
     );
   }, [id, signature]);
 
+  // Is it still of the changes as they are? Asked when it is shown, and every minute after: the session goes on working.
+  const status = data?.status;
+  useEffect(() => {
+    setMoved(false);
+    if (!signature || status !== 'ready') return;
+    let gone = false;
+    const check = () => {
+      if (document.hidden) return;
+      void fetchSessionReviewCurrent(id).then((current) => {
+        if (!gone) setMoved(!current);
+      });
+    };
+    check();
+    const timer = setInterval(check, STALE_CHECK_MS);
+    return () => {
+      gone = true;
+      clearInterval(timer);
+    };
+  }, [id, signature, status]);
+
+  // What was sent and dismissed is the server's (kept with the review, across restarts and reloads).
+  const dismissedKey = (data?.dismissed ?? []).join(' ');
+  const sentKey = (data?.sent ?? []).join(' ');
+  const removed = useMemo(() => new Set(dismissedKey ? dismissedKey.split(' ') : []), [dismissedKey]);
+  const sentIds = useMemo(() => new Set(sentKey ? sentKey.split(' ') : []), [sentKey]);
+  const dismiss = useCallback(
+    (noteId: string) => dismissSessionReviewNote(id, noteId).then(setData, (e: Error) => setError(e.message)),
+    [id],
+  );
   const r = useMemo(() => (raw ? withoutNotes(raw, removed) : null), [raw, removed]);
   const pages = useMemo(() => (r ? reviewPages(r) : []), [r]);
   const walk = useMemo(() => (r ? commentWalk(r, pages) : []), [r, pages]);
@@ -131,7 +162,7 @@ export function SessionReviewTab({
         throw new Error('Add your own comments in the Diff tab: there they go to this session’s Claude.');
       },
       delete: async (draftId: string) => {
-        setRemoved((s) => new Set(s).add(draftId));
+        await dismiss(draftId);
         return { comments: (await now()).filter((c) => c.id !== draftId) };
       },
       resolve: async () => ({ comments: await now() }),
@@ -142,7 +173,7 @@ export function SessionReviewTab({
       matchesEvent: () => false,
       draftsOnly: true,
     };
-  }, []);
+  }, [dismiss]);
   const hostThreads = useMemo(() => ({ inline: new Map() }), []);
 
   const prepare = (repo?: string) => {
@@ -158,8 +189,8 @@ export function SessionReviewTab({
     sendSessionReviewNotes(id, ids)
       .then(
         (n) => {
-          setSentIds((s) => new Set([...s, ...ids]));
           setSent(`${n} note${n === 1 ? '' : 's'} handed to its Claude.`);
+          load();
         },
         (e: Error) => setError(e.message),
       )
@@ -184,8 +215,8 @@ export function SessionReviewTab({
         <button
           type="button"
           className="wd-link-button"
-          onClick={() => setRemoved((s) => new Set(s).add(d.id))}
-          title="You don't agree with it: takes it out of this review (it is back when the review is prepared again)"
+          onClick={() => void dismiss(d.id)}
+          title="You don't agree with it: takes it out of this review (a review prepared again starts over)"
         >
           Dismiss
         </button>
@@ -262,6 +293,12 @@ export function SessionReviewTab({
             )}
           </div>
         </div>
+        {moved && !running && (
+          <p className="wd-start-note wd-session-review-moved" role="status">
+            The changes have moved since this was prepared: a note may be about code that is different now. <strong>Prepare again</strong>{' '}
+            reads them as they are.
+          </p>
+        )}
         {error && <p className="wd-tab-error">{error}</p>}
         {sent && (
           <p className="wd-start-note">

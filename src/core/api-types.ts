@@ -1706,6 +1706,8 @@ export interface ReviewDraftWire {
   url?: string;
   /** Who wrote it: the AI step, or you (added on the diff). Absent: the AI step (from before). */
   by?: 'ai' | 'you';
+  /** How much it matters, the AI step's word: a likely bug, worth checking, or minor. Absent: not said (yours, or from before). */
+  level?: import('./review/review-plan.js').NoteLevel;
 }
 
 /** One comment of a PR's existing discussion on its host: someone else's words (or yours), read only. */
@@ -1966,6 +1968,12 @@ export interface SessionProcessesWire {
  * GET /api/sessions/:id/review — a session's own changes read as a review, before there is a pull request
  * (local-review.ts). `review` is a `PrReviewWire` with no number, link or host: nothing of it goes anywhere.
  */
+/** GET /api/sessions/:id/review/current: whether the kept review is of the changes as they are now. */
+export interface SessionReviewCurrentWire {
+  /** False: the changes have moved since it was prepared. */
+  current: boolean;
+}
+
 export interface SessionReviewWire {
   /** none: never prepared (or work web restarted since: they are kept in memory). */
   status: 'none' | 'running' | 'ready' | 'failed';
@@ -1977,5 +1985,10 @@ export interface SessionReviewWire {
   at?: string;
   /** The last one prepared — still there while another is being prepared. */
   review?: PrReviewWire;
+  /** How the AI step read the changes of `review`: "read in its folder", or from the diff alone and why. */
+  how?: string;
+  /** Of `review`: the notes handed to the session's agent, and the ones you dismissed (kept across restarts). */
+  sent?: string[];
+  dismissed?: string[];
   error?: string;
 }

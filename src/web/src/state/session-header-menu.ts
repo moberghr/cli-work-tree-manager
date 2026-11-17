@@ -49,8 +49,8 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
         ...(a.keep
           ? [
               session.keepAfterMerge
-                ? { label: 'Archive after its PR merges', run: () => a.keep!(false) }
-                : { label: 'Keep after its PR merges', run: () => a.keep!(true) },
+                ? { label: 'Archive after its PR merges', hint: sessionKey('keep'), run: () => a.keep!(false) }
+                : { label: 'Keep after its PR merges', hint: sessionKey('keep'), run: () => a.keep!(true) },
             ]
           : []),
         ...(a.account && canSwitchAccount(session) ? [{ label: 'Claude account…', hint: sessionKey('account'), run: a.account }] : []),

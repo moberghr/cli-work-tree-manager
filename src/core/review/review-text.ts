@@ -1,6 +1,7 @@
 import type { PrReviewWire } from '../api-types.js';
 import { asData } from '../time/fence.js';
 import { describeReview } from './review-build.js';
+import { NOTE_LEVEL_LABEL } from './review-plan.js';
 
 /**
  * The Reviews tab's reviews as text, for `work review` (a terminal, another session's agent, the Ctrl+K assistant):
@@ -47,7 +48,7 @@ export function reviewText(r: PrReviewWire): string {
             : 'Draft comments (not posted: they go out only with the user’s Submit in the Reviews tab):',
           ...drafts.map(
             (d) =>
-              `- [${d.id}] ${asData(d.path, 160)}:${d.line} (${d.by === 'you' ? 'yours' : 'the AI step'}): <<< ${asData(d.body, MAX_DRAFT)} >>>`,
+              `- [${d.id}] ${asData(d.path, 160)}:${d.line} (${d.by === 'you' ? 'yours' : 'the AI step'}${d.level ? `; ${NOTE_LEVEL_LABEL[d.level].toLowerCase()}` : ''}): <<< ${asData(d.body, MAX_DRAFT)} >>>`,
           ),
         ]
       : []),

@@ -118,6 +118,8 @@ export interface InternalRunOptions {
   small?: boolean;
   /** The lane it waits in (default `shared`). */
   lane?: InternalLane;
+  /** A read-only run: files it may not read (the agent's rules, `AgentReadOnly.denyRules`). */
+  deny?: string[];
 }
 
 /**
@@ -129,7 +131,7 @@ export interface InternalRunOptions {
 export function runInternal(prompt: string, timeoutMs = 25_000, opts: InternalRunOptions = {}): Promise<string | null> {
   const oneShot = internalAgent(agentSettings()).oneShot;
   if (!oneShot) return Promise.resolve(null);
-  const { lane = 'shared', ...agentOpts } = opts;
+  const { lane = 'shared', deny: _noFiles, ...agentOpts } = opts;
   const command = oneShot.command(agentOpts);
   return lanes[lane](() => runNow(prompt, timeoutMs, command));
 }
@@ -143,12 +145,17 @@ export function internalCanRead(): boolean {
  * What only the summarising agent knows of its read-only run: which files of a folder it reads as settings (deleted
  * from a checkout before it starts), and how its prompt names its tools and instructions. Null: it has no such run.
  */
-export function internalReadOnly(): Pick<AgentReadOnly, 'isSettingsFile' | 'promptLines' | 'available'> | null {
+export function internalReadOnly(): Pick<
+  AgentReadOnly,
+  'isSettingsFile' | 'promptLines' | 'available' | 'localLines' | 'denyRules'
+> | null {
   const mode = internalAgent(agentSettings()).oneShot?.readOnly;
   if (!mode) return null;
   return {
     isSettingsFile: (p) => mode.isSettingsFile(p),
     promptLines: mode.promptLines,
+    ...(mode.localLines ? { localLines: mode.localLines } : {}),
+    ...(mode.denyRules ? { denyRules: (repos) => mode.denyRules!(repos) } : {}),
     ...(mode.available ? { available: () => mode.available!() } : {}),
   };
 }

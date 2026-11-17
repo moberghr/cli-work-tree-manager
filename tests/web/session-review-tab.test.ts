@@ -4,7 +4,7 @@ import type { PrReviewWire, SessionReviewWire } from '../../src/core/api-types.j
 import { localReviewLine, sendRestLabel, unsentNotes, withoutNotes } from '../../src/web/src/components/Dashboard/tabs/SessionReviewTab.js';
 import { parseHash } from '../../src/web/src/state/dashboard-route.js';
 import { SESSION_KEYS, sessionActionFor } from '../../src/web/src/state/shortcuts.js';
-import { isLocalReview, pointsLabel } from '../../src/web/src/state/review-view.js';
+import { attentionOrder, flowPages, isLocalReview, pointsLabel, type ReviewPage } from '../../src/web/src/state/review-view.js';
 import { parseSessionReviewPage, sessionReviewPagePath, sessionReviewPageTitle } from '../../src/web/src/state/session-review-page.js';
 
 /** A session's Review tab: what it says above the review, the notes set aside, its route and its key. */
@@ -104,5 +104,33 @@ describe('sending notes one at a time (asked for: you may not agree with some)',
     expect(sendRestLabel(16, 1)).toBe('Send the 1 remaining note');
     expect(sendRestLabel(16, 0)).toBe('All 16 notes are sent');
     expect(sendRestLabel(1, 0)).toBe('The note is sent');
+  });
+});
+
+describe('what needs your attention, in order', () => {
+  it('the likely bugs first, then the ones worth checking (a note with no level among them), in the walk’s order; the minor ones apart', () => {
+    const walk = [
+      { id: 'a', level: 'minor' as const },
+      { id: 'b' },
+      { id: 'c', level: 'bug' as const },
+      { id: 'd', level: 'check' as const },
+      { id: 'e', level: 'bug' as const },
+    ];
+    const { main, minor } = attentionOrder(walk);
+    expect(main.map((r) => r.d.id)).toEqual(['c', 'e', 'b', 'd']);
+    // Each keeps its place in the walk: what a click on it opens.
+    expect(main.map((r) => r.at)).toEqual([2, 4, 1, 3]);
+    expect(minor).toEqual([{ d: walk[0], at: 0 }]);
+    expect(attentionOrder([])).toEqual({ main: [], minor: [] });
+  });
+});
+
+describe('a flow’s links', () => {
+  it('the pages its files are on, in the review’s order, each once; a file on no page, or no files: none', () => {
+    const page = (paths: string[]) => ({ code: paths.map((p) => ({ path: p })), tests: [] }) as unknown as ReviewPage;
+    const pages = [page(['a.cs', 'b.cs']), page(['c.cs'])];
+    expect(flowPages({ files: ['c.cs', 'a.cs', 'b.cs', 'gone.cs'] }, pages)).toEqual([0, 1]);
+    expect(flowPages({ files: ['gone.cs'] }, pages)).toEqual([]);
+    expect(flowPages({}, pages)).toEqual([]);
   });
 });

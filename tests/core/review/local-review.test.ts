@@ -5,6 +5,8 @@ import {
   focusLines,
   inRepo,
   localMeta,
+  localSignature,
+  pickChanges,
   localReviewNote,
   prepareLocalReview,
   withFocusNotes,
@@ -388,5 +390,36 @@ describe('localReviewNote', () => {
     expect(several).toContain("A review of this branch's changes in api + web raised 2 points.");
     expect(several.split('\n')[1]).toBe("Each path starts with its repo's name.");
     expect(localReviewNote(review)).not.toContain('Each path starts');
+  });
+});
+
+describe('pickChanges and localSignature (is a kept review still of the changes as they are?)', () => {
+  const web = parseGitDiff(`${added('src/pages/Refunds.tsx', ['export const Refunds = () => null;'])}\n`);
+  const both = {
+    repos: [
+      { name: 'api', files },
+      { name: 'web', files: web },
+      { name: 'docs', files: [] },
+    ],
+    resolvedBase: 'origin/main',
+  };
+
+  it('all the repos with changes, their paths under the repo’s name; one repo, or one named: its files as they are; none: nothing', () => {
+    const all = pickChanges(both, undefined);
+    expect(all).toMatchObject({ repos: ['api', 'web'], together: true });
+    expect(all.all.map((f) => f.path)).toContain('web/src/pages/Refunds.tsx');
+    expect(pickChanges(both, 'web')).toMatchObject({ together: false, all: web });
+    expect(pickChanges(both, 'docs')).toMatchObject({ picked: [], all: [] });
+  });
+
+  it('the signature now is the prepared review’s while nothing moved, and another once a file changes', async () => {
+    const diff = () => both;
+    const p = await prepareLocalReview(session, undefined, { diff });
+    expect(localSignature(both, undefined)).toBe(p.review.headSha);
+    const one = await prepareLocalReview(session, 'web', { diff });
+    expect(localSignature(both, 'web')).toBe(one.review.headSha);
+    expect(localSignature(both, 'web')).not.toBe(p.review.headSha);
+    const moved = { ...both, repos: [both.repos[0], { name: 'web', files: [] }] };
+    expect(localSignature(moved, undefined)).not.toBe(p.review.headSha);
   });
 });

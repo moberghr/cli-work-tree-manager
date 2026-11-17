@@ -26,6 +26,15 @@ export interface LocalReviewDeps {
   diff: (session: WorktreeSession) => LocalDiff;
   /** The AI step on the diff alone (no tools); absent: stories are by folder. */
   agent?: (prompt: string) => Promise<string | null>;
+  /**
+   * The AI step read-only in the session's folder (local-review-tree.ts), for these repos (their names as the diff
+   * has them): the lines its prompt carries and the ask — or why it can't, and the diff alone is read. Absent: the
+   * diff alone. A pass that gets no answer there is asked again on the diff alone.
+   */
+  inTree?: (
+    session: WorktreeSession,
+    names: string[],
+  ) => Promise<{ lines: string[]; ask: (prompt: string) => Promise<string | null> } | { why: string }>;
   rules?: () => KindRule[] | undefined;
   now?: () => Date;
 }
@@ -120,12 +129,38 @@ export function withFocusNotes(
 
 export interface PreparedLocal {
   review: PrReviewWire;
+  /** How the AI step read the changes: in the session's folder, or from the diff alone and why (absent: no AI step). */
+  how?: string;
   /** The repo it is of; null: all the session's repos with changes, in one review. */
   repo: string | null;
   /** The diff it was made of (designer files left out, as in a PR's review). */
   files: ParsedFile[];
   /** The session's repos that have changes, the reviewed one included. */
   repos: string[];
+}
+
+/**
+ * The changes a review of `repo` (absent: every repo with any) is made of: the repos picked, and their files as the
+ * review reads them — each path starting with its repo's name when there are several. Pure.
+ */
+export function pickChanges(
+  diff: LocalDiff,
+  repo: string | undefined,
+): { repos: string[]; picked: LocalDiff['repos']; together: boolean; all: ParsedFile[] } {
+  const changed = diff.repos.filter((r) => r.files.length > 0);
+  const picked = repo === undefined ? changed : changed.filter((r) => r.name === repo);
+  const together = picked.length > 1;
+  const all = together ? picked.flatMap((r) => r.files.map((f) => inRepo(r.name, f))) : (picked[0]?.files ?? []);
+  return { repos: changed.map((r) => r.name), picked, together, all };
+}
+
+/**
+ * The signature a review of these changes would have now (`repo`: the one it is of; absent: all of them): compared
+ * with a kept review's `headSha`, it says whether the changes have moved since (reported: a session goes on changing
+ * after its review is prepared, and notes on code already fixed were sent). Pure.
+ */
+export function localSignature(diff: LocalDiff, repo: string | undefined): string {
+  return diffSignature(pickChanges(diff, repo).all);
 }
 
 /**
@@ -142,18 +177,14 @@ export async function prepareLocalReview(
   deps: LocalReviewDeps,
 ): Promise<PreparedLocal> {
   const diff = deps.diff(session);
-  const changed = diff.repos.filter((r) => r.files.length > 0);
-  const repos = changed.map((r) => r.name);
   if (repo !== undefined && !diff.repos.some((r) => r.name === repo)) throw new Error(`${repo} is not one of this session's repos`);
-  const picked = repo === undefined ? changed : changed.filter((r) => r.name === repo);
+  const { repos, picked, together, all } = pickChanges(diff, repo);
   if (picked.length === 0)
     throw new Error(
       repo
         ? `Nothing has changed in ${repo} since ${diff.resolvedBase}.`
         : `Nothing has changed on this branch since ${diff.resolvedBase}.`,
     );
-  const together = picked.length > 1;
-  const all = together ? picked.flatMap((r) => r.files.map((f) => inRepo(r.name, f))) : picked[0].files;
   const { files, ignored } = splitIgnored(all);
   // Git's own word on whitespace-only and generated files isn't asked here: the rules and the lines decide.
   const extras = { whitespaceOnly: new Set<string>(), generated: new Set<string>() };
@@ -162,18 +193,38 @@ export async function prepareLocalReview(
   const kinds = kindsOf(files, extras, rules);
   const agent = deps.agent;
   const prompt = agent ? reviewPrompt(meta, files, kinds) : null;
-  const ask = (p: string | null) => (p && agent ? agent(p).catch(() => null) : Promise.resolve(null));
+  // Read in the session's folder when the agent can: it can then answer what the diff alone leaves open.
+  const tree =
+    prompt && agent && deps.inTree
+      ? await deps
+          .inTree(
+            session,
+            picked.map((r) => r.name),
+          )
+          .catch((err: Error) => ({ why: err.message }))
+      : null;
+  const inTree = tree && 'ask' in tree ? tree : null;
+  let fellBack = 0;
+  let passesAsked = 0;
+  /** One pass: in the folder, and on the diff alone when that gave no answer (or there is no such run). */
+  const ask = async (opts: { focus?: string[]; first?: (path: string) => boolean } = {}): Promise<string | null> => {
+    if (!agent) return null;
+    passesAsked++;
+    if (inTree) {
+      const there = reviewPrompt(meta, files, kinds, { ...opts, checkout: inTree.lines });
+      const answer = there ? await inTree.ask(there).catch(() => null) : null;
+      if (answer) return answer;
+      fellBack++;
+    }
+    const plain = reviewPrompt(meta, files, kinds, opts);
+    return plain ? agent(plain).catch(() => null) : null;
+  };
   // Each repo's own notes pass, beside the pass over everything: a repo no file of which is asked about has none.
   const asked = promptPaths(kinds);
   const focused = together && prompt ? picked.map((r) => r.name).filter((name) => asked.some((p) => p.startsWith(`${name}/`))) : [];
   const [main, ...passes] =
     prompt && agent
-      ? await Promise.all([
-          ask(prompt),
-          ...focused.map((name) =>
-            ask(reviewPrompt(meta, files, kinds, { focus: focusLines(name), first: (p) => p.startsWith(`${name}/`) })),
-          ),
-        ])
+      ? await Promise.all([ask(), ...focused.map((name) => ask({ focus: focusLines(name), first: (p) => p.startsWith(`${name}/`) }))])
       : [undefined];
   const answer =
     main === undefined
@@ -189,17 +240,52 @@ export async function prepareLocalReview(
     ...(deps.agent ? {} : { notAskedWhy: 'no agent for the AI step: stories are by folder' }),
     ignored,
   });
-  return { review, repo: together ? null : picked[0].name, files, repos };
+  const how = !prompt
+    ? undefined
+    : inTree
+      ? fellBack === 0
+        ? 'read in its folder'
+        : fellBack === passesAsked
+          ? 'read from the diff alone (the run in its folder gave no answer)'
+          : `read in its folder (${fellBack} of ${passesAsked} passes from the diff alone: the run in its folder gave no answer)`
+      : tree && 'why' in tree
+        ? `read from the diff alone (${tree.why})`
+        : 'read from the diff alone';
+  return { review, repo: together ? null : picked[0].name, files, repos, ...(how ? { how } : {}) };
+}
+
+/** A session's review as it is kept across restarts (local-review-store.ts). */
+export interface StoredLocalReview {
+  /** The one repo it is of; null: all the session's repos with changes. */
+  repo: string | null;
+  repos: string[];
+  prepared: PreparedLocal;
+  /** When it was prepared (ISO). */
+  at: string;
+  /** The notes handed to the session's agent. */
+  sent: string[];
+  /** The notes you dismissed. */
+  dismissed: string[];
+}
+
+/** Where the kept reviews outlive a restart (local-review-store.ts); absent: memory only. */
+export interface LocalReviewStore {
+  read: (sessionId: string) => StoredLocalReview | null;
+  save: (sessionId: string, review: StoredLocalReview) => void;
+  drop: (sessionId: string) => void;
 }
 
 /**
- * The reviews prepared for sessions, in memory (one per session: asking for one repo, or all, replaces it). `start`
- * answers at once and prepares in the background; a second ask while one runs joins it.
+ * The reviews prepared for sessions (one per session: asking for one repo, or all, replaces it), with which of its
+ * notes were sent to the agent and which you dismissed. `start` answers at once and prepares in the background; a
+ * second ask while one runs joins it. A ready one is written to `store` and read back from it after a restart; one
+ * being prepared or that failed is memory's alone.
  */
 export function createLocalReviews(deps: {
   prepare: (session: WorktreeSession, repo: string | undefined) => Promise<PreparedLocal>;
   onChange: (sessionId: string) => void;
   now?: () => Date;
+  store?: LocalReviewStore;
 }) {
   interface Kept {
     status: 'running' | 'ready' | 'failed';
@@ -208,9 +294,34 @@ export function createLocalReviews(deps: {
     prepared?: PreparedLocal;
     error?: string;
     at: string;
+    /** Of `prepared`: the notes sent, and the ones dismissed. */
+    sent: string[];
+    dismissed: string[];
   }
   const kept = new Map<string, Kept>();
   const now = () => (deps.now?.() ?? new Date()).toISOString();
+  /** What is kept for a session: memory's, else the stored one (read once). */
+  const of = (sessionId: string): Kept | undefined => {
+    const k = kept.get(sessionId);
+    if (k) return k;
+    const s = deps.store?.read(sessionId);
+    if (!s) return undefined;
+    const back: Kept = {
+      status: 'ready',
+      repo: s.repo,
+      repos: s.repos,
+      prepared: s.prepared,
+      at: s.at,
+      sent: s.sent,
+      dismissed: s.dismissed,
+    };
+    kept.set(sessionId, back);
+    return back;
+  };
+  const persist = (sessionId: string, k: Kept): void => {
+    if (k.status !== 'ready' || !k.prepared) return;
+    deps.store?.save(sessionId, { repo: k.repo, repos: k.repos, prepared: k.prepared, at: k.at, sent: k.sent, dismissed: k.dismissed });
+  };
   const wire = (k: Kept | undefined): SessionReviewWire =>
     !k
       ? { status: 'none', repo: null, repos: [] }
@@ -219,40 +330,81 @@ export function createLocalReviews(deps: {
           repo: k.repo,
           repos: k.repos,
           at: k.at,
-          ...(k.prepared ? { review: k.prepared.review } : {}),
+          ...(k.prepared ? { review: k.prepared.review, sent: k.sent, dismissed: k.dismissed } : {}),
+          ...(k.prepared?.how ? { how: k.prepared.how } : {}),
           ...(k.error ? { error: k.error } : {}),
         };
+  /** Change what is kept of a ready review's notes; false when none is ready. */
+  const mark = (sessionId: string, change: (k: Kept, ids: Set<string>) => void): boolean => {
+    const k = of(sessionId);
+    if (!k?.prepared) return false;
+    change(k, new Set(k.prepared.review.drafts.map((d) => d.id)));
+    persist(sessionId, k);
+    return true;
+  };
   return {
-    state: (sessionId: string): SessionReviewWire => wire(kept.get(sessionId)),
+    state: (sessionId: string): SessionReviewWire => wire(of(sessionId)),
     /** The diff the kept review was made of; null when none is ready. */
-    files: (sessionId: string): ParsedFile[] | null => kept.get(sessionId)?.prepared?.files ?? null,
+    files: (sessionId: string): ParsedFile[] | null => of(sessionId)?.prepared?.files ?? null,
     start(sessionId: string, session: WorktreeSession, repo: string | undefined): SessionReviewWire {
-      const was = kept.get(sessionId);
+      const was = of(sessionId);
       if (was?.status === 'running') return wire(was);
-      // The last one stays on screen while the new one is prepared.
+      // The last one stays on screen while the new one is prepared, with what was sent and dismissed of it.
       const running: Kept = {
         status: 'running',
         repo: repo ?? null,
         repos: was?.repos ?? [],
         at: now(),
+        sent: was?.prepared ? was.sent : [],
+        dismissed: was?.prepared ? was.dismissed : [],
         ...(was?.prepared ? { prepared: was.prepared } : {}),
       };
       kept.set(sessionId, running);
       void deps
         .prepare(session, repo)
         .then(
-          (p): Kept => ({ status: 'ready', repo: p.repo, repos: p.repos, prepared: p, at: now() }),
-          (err: Error): Kept => ({ status: 'failed', repo: repo ?? null, repos: running.repos, error: err.message, at: now() }),
+          // Another review: none of its notes is sent or dismissed yet.
+          (p): Kept => ({ status: 'ready', repo: p.repo, repos: p.repos, prepared: p, at: now(), sent: [], dismissed: [] }),
+          // The one from before stays the kept one (and the stored one): only this try failed.
+          (err: Error): Kept => ({
+            status: 'failed',
+            repo: repo ?? null,
+            repos: running.repos,
+            error: err.message,
+            at: now(),
+            sent: running.sent,
+            dismissed: running.dismissed,
+            ...(running.prepared ? { prepared: running.prepared } : {}),
+          }),
         )
         .then((next) => {
           // Dropped meanwhile (the session went): nothing to keep.
           if (kept.get(sessionId) !== running) return;
           kept.set(sessionId, next);
+          persist(sessionId, next);
           deps.onChange(sessionId);
         });
       return wire(running);
     },
-    drop: (sessionId: string): void => void kept.delete(sessionId),
+    /** These notes were handed to the agent (only ones the review has). */
+    markSent: (sessionId: string, ids: readonly string[]): boolean =>
+      mark(sessionId, (k, known) => {
+        k.sent = [...new Set([...k.sent, ...ids.filter((x) => known.has(x))])];
+      }),
+    /** Dismiss a note (`on` false: bring it back). False when no review is ready, or it has no such note. */
+    dismiss(sessionId: string, noteId: string, on = true): boolean {
+      let found = false;
+      const ok = mark(sessionId, (k, known) => {
+        found = known.has(noteId);
+        if (!found) return;
+        k.dismissed = on ? [...new Set([...k.dismissed, noteId])] : k.dismissed.filter((x) => x !== noteId);
+      });
+      return ok && found;
+    },
+    drop: (sessionId: string): void => {
+      kept.delete(sessionId);
+      deps.store?.drop(sessionId);
+    },
   };
 }
 

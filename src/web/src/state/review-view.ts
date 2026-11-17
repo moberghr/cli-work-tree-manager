@@ -1,6 +1,6 @@
 import type { PrReviewWire, ReviewDraftWire, ReviewFileWire, ReviewSummaryWire } from '../../../core/api-types.js';
 import type { ParsedFile } from '../../../core/diff/diff-parse.js';
-import type { Story, StoryFlag } from '../../../core/review/review-plan.js';
+import { noteLevel, type NoteLevel, type Story, type StoryFlag } from '../../../core/review/review-plan.js';
 import { FOLDED_KINDS, KIND_LABEL, KIND_ORDER, type ChangeKind } from '../../../core/review/change-kinds.js';
 import { fixStateRefusal } from '../../../core/review/review-fix-rules.js';
 
@@ -527,4 +527,26 @@ export function isLocalReview(r: Pick<PrReviewWire, 'number'>): boolean {
  */
 export function pointsLabel(r: Pick<PrReviewWire, 'number'>, n: number): string {
   return `${n} ${isLocalReview(r) ? 'note' : 'comment'}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The notes as the overview lists them: the likely bugs first, then the ones worth checking, each group in the
+ * walk's order; the minor ones apart (folded). `at` is the note's place in the walk (what a click opens). Pure.
+ */
+export function attentionOrder<T extends { level?: NoteLevel }>(
+  walk: readonly T[],
+): { main: Array<{ d: T; at: number }>; minor: Array<{ d: T; at: number }> } {
+  const rows = walk.map((d, at) => ({ d, at }));
+  const of = (l: NoteLevel) => rows.filter((r) => noteLevel(r.d) === l);
+  return { main: [...of('bug'), ...of('check')], minor: of('minor') };
+}
+
+/** The pages (stories, or a kind's page) a flow runs through, in the review's order, each once: its links. Pure. */
+export function flowPages(flow: { files?: string[] }, pages: ReviewPage[]): number[] {
+  const found = new Set<number>();
+  for (const f of flow.files ?? []) {
+    const p = pageOf(pages, f);
+    if (p >= 0) found.add(p);
+  }
+  return [...found].sort((a, b) => a - b);
 }

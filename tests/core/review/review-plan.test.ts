@@ -8,6 +8,8 @@ import {
   FLOW_CHANGE_LABEL,
   MAX_FILE_SUMMARY,
   MAX_RECOMMENDATION,
+  NOTE_LEVEL_LABEL,
+  noteLevel,
   VERDICT_LABEL,
   MAX_SUMMARY,
   MAX_TEXT,
@@ -509,7 +511,9 @@ describe('the recommendation and the flows (asked for: what the agent advises, a
     expect(p).toContain('ready, fix-first, discuss');
     expect(p).toContain('In "flows", list the flows this change adds, changes or removes.');
     expect(p).toContain('added, changed, removed');
-    expect(p).toContain('"recommendation":{"verdict":"fix-first","text":""},"flows":[{"change":"added","title":"","steps":[""]}]');
+    expect(p).toContain(
+      '"recommendation":{"verdict":"fix-first","text":""},"flows":[{"change":"added","title":"","steps":[""],"files":["path"]}]',
+    );
     // The advice is asked for before the data, never inside the fence.
     expect(p.indexOf('In "recommendation"')).toBeLessThan(p.indexOf('<<<\nTitle:'));
   });
@@ -563,5 +567,70 @@ describe('the recommendation and the flows (asked for: what the agent advises, a
   it('each verdict and each change has its words', () => {
     expect(VERDICT_LABEL).toEqual({ ready: 'Ready to merge as it is', 'fix-first': 'Fix first', discuss: 'Needs a decision first' });
     expect(FLOW_CHANGE_LABEL).toEqual({ added: 'New', changed: 'Changed', removed: 'Removed' });
+  });
+});
+
+describe('a note’s level (reported: sixteen notes in one list, a likely bug beside "probably fine")', () => {
+  const files = ['src/a.cs'];
+  const answer = (notes: unknown[]) =>
+    JSON.stringify({ stories: [{ title: 'T', why: 'W', risk: 'R', riskLevel: 3, flags: [], files }], notes });
+
+  it('the prompt asks for it on every note, with what each level means, and it is in the JSON asked for', () => {
+    const p = agentPrompt({ title: 'T', number: 1 }, [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' }], []);
+    expect(p).toContain('Give each note a "level": bug, check, minor');
+    expect(p).toContain('"notes":[{"path":"","line":1,"level":"check","body":""}]');
+  });
+
+  it('a known level is kept; an unknown or missing one is left out, and reads as worth checking', () => {
+    const pass = parseAgentPass(
+      answer([
+        { path: 'src/a.cs', line: 1, level: 'bug', body: 'Wrong.' },
+        { path: 'src/a.cs', line: 2, level: 'critical', body: 'Unknown level.' },
+        { path: 'src/a.cs', line: 3, body: 'No level.' },
+        { path: 'src/a.cs', line: 4, level: 'minor', body: 'A name.' },
+      ]),
+      files,
+    )!;
+    expect(pass.notes.map((n) => n.level)).toEqual(['bug', undefined, undefined, 'minor']);
+    expect(pass.notes.map(noteLevel)).toEqual(['bug', 'check', 'check', 'minor']);
+    expect(NOTE_LEVEL_LABEL).toEqual({ bug: 'Likely bug', check: 'Worth checking', minor: 'Minor' });
+  });
+
+  it('the level reaches the review’s drafts', () => {
+    const kinds: FileKind[] = [{ path: 'src/a.cs', kind: 'logic', why: '', by: 'rule' } as FileKind];
+    const tests = {
+      tests: [],
+      counts: { added: 0, changed: 0, removed: 0, skipped: 0 },
+      gaps: [],
+      coverage: { covers: {}, coveredBy: {} },
+      unitOnlyForSchema: false,
+    };
+    const plan = planReview(
+      kinds,
+      tests as unknown as TestBreakdown,
+      parseAgentPass(answer([{ path: 'src/a.cs', line: 1, level: 'bug', body: 'Wrong.' }]), files),
+    );
+    expect(plan.drafts).toEqual([{ id: 'd1', path: 'src/a.cs', line: 1, body: 'Wrong.', level: 'bug' }]);
+  });
+});
+
+describe('a flow names the files it runs through (its links to the stories)', () => {
+  it('asked for in the prompt, and only listed files are kept, each once', () => {
+    const p = agentPrompt({ title: 'T', number: 1 }, [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' }], []);
+    expect(p).toContain('In "files", the files listed under "Files:" that the flow runs through');
+    const pass = parseAgentPass(
+      JSON.stringify({
+        stories: [{ title: 'T', why: 'W', risk: 'R', riskLevel: 3, flags: [], files: ['src/a.cs'] }],
+        flows: [
+          { change: 'added', title: 'With files.', steps: ['One.'], files: ['src/a.cs', 'src/a.cs', 'src/unknown.cs', 7] },
+          { change: 'changed', title: 'Without.', steps: ['One.'] },
+        ],
+      }),
+      ['src/a.cs'],
+    )!;
+    expect(pass.flows).toEqual([
+      { change: 'added', title: 'With files.', steps: ['One.'], files: ['src/a.cs'] },
+      { change: 'changed', title: 'Without.', steps: ['One.'] },
+    ]);
   });
 });

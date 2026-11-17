@@ -263,6 +263,27 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     broadcast({ event: 'session-review-changed', data: { sessionId: w.id } } as DemoEvent);
     return c.json(demoLocalReview(w));
   });
+  // A note dismissed (or brought back): kept for the demo's run.
+  const demoDismissed = new Map<string, Set<string>>();
+  app.post('/api/sessions/:id/review/dismiss', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const body = await json(c);
+    const review = demoLocalReview(w).review;
+    if (typeof body.id !== 'string' || !review?.drafts.some((d) => d.id === body.id))
+      return c.json({ error: 'no such note in the review prepared for it' }, 404);
+    const set = demoDismissed.get(w.id) ?? new Set<string>();
+    if (body.undo === true) set.delete(body.id);
+    else set.add(body.id);
+    demoDismissed.set(w.id, set);
+    return c.json({ ...demoLocalReview(w), sent: [], dismissed: [...set] });
+  });
+  // The demo's changes never move.
+  app.get('/api/sessions/:id/review/current', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    return localReviews.has(w.id) ? c.json({ current: true }) : c.json({ error: 'no review of it is prepared' }, 404);
+  });
   app.get('/api/sessions/:id/review/diff', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
     if (!w) return notFound(c);

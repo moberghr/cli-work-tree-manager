@@ -732,6 +732,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         {
           tab: setSubTab,
           setArchived: (archived) => menuActions.setArchived(s, archived),
+          toggleKeep: () => menuActions.setKeep(s, !s.keepAfterMerge),
           snoozeMenu: () => {
             const items = sessionMenu(s).filter((i) => /^(Snooze|Unsnooze)/.test(i.label));
             setKeyMenu({ items: items.map((i) => ({ ...i, separated: false })), ...near() });

@@ -7257,3 +7257,36 @@ button.wd-review-filerow-current:hover:not(:disabled) {
 .wd-review-pagerbar .wd-review-note-actions {
   padding-top: 0;
 }
+
+/* A note's level in the overview, the minor notes folded, and "the changes have moved" on a session's review. */
+.wd-review-note-level {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.wd-review-note-bug {
+  background: var(--danger-bg, #c5303022);
+}
+.wd-review-minor {
+  margin: 2px 0 8px;
+  font-size: 13px;
+}
+.wd-review-minor summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.wd-session-review-moved {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--warn, #b7791f);
+}
+
+.wd-review-flow-links {
+  margin: 0 0 8px 34px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-review-flow-links .wd-link-button {
+  margin-right: 10px;
+}

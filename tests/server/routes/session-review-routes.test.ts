@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { mountSessionReviewRoutes } from '../../../src/server/routes/session-review-routes.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
-import { prepareLocalReview } from '../../../src/core/review/local-review.js';
+import { localSignature, prepareLocalReview } from '../../../src/core/review/local-review.js';
 import { parseGitDiff } from '../../../src/core/diff/diff-parse.js';
 import type { SessionReviewWire } from '../../../src/core/api-types.js';
 
@@ -73,6 +73,8 @@ function app(
         diff: () => ({ repos: [{ name: 'api', files: changed ? files : [] }], resolvedBase: 'origin/main' }),
         agent: async () => answer,
       }),
+    signature: (_s, r) =>
+      localSignature({ repos: [{ name: 'api', files: changed ? files : [] }], resolvedBase: 'origin/main' }, r ?? undefined),
     tell,
     broadcast: (e) => void events.push(e),
   });
@@ -149,5 +151,58 @@ describe('session review routes', () => {
     expect((await a.request('/api/sessions/nope/review/diff')).status).toBe(404);
     expect((await post(a, '/send', {}, 'nope')).status).toBe(404);
     expect((await post(a, '', { repo: 3 })).status).toBe(400);
+  });
+});
+
+describe('GET /api/sessions/:id/review/current (have the changes moved since it was prepared?)', () => {
+  it('none prepared: 404; the same changes: current; other changes: not; an unknown session: 404', async () => {
+    const a = app();
+    expect((await a.request(`/api/sessions/${id}/review/current`)).status).toBe(404);
+    await post(a, '');
+    await settled();
+    expect(await (await a.request(`/api/sessions/${id}/review/current`)).json()).toEqual({ current: true });
+    // The session went on working: what the review read is no longer what is there.
+    changed = false;
+    expect(await (await a.request(`/api/sessions/${id}/review/current`)).json()).toEqual({ current: false });
+    expect((await a.request('/api/sessions/nope/review/current')).status).toBe(404);
+  });
+});
+
+describe('which notes were sent and dismissed (kept with the review)', () => {
+  const note = async (a: Hono) => (await state(a)).review!.drafts[0].id;
+
+  it('a send is recorded on the review, and the pages are told', async () => {
+    const a = app();
+    await post(a, '');
+    await settled();
+    const one = await note(a);
+    events = [];
+    expect((await post(a, '/send', { ids: [one] })).status).toBe(200);
+    expect((await state(a)).sent).toEqual([one]);
+    expect(events).toEqual(['session-review-changed']);
+  });
+
+  it('dismiss takes a note out (and undo brings it back); a send of all leaves the dismissed ones out', async () => {
+    const a = app();
+    await post(a, '');
+    await settled();
+    const one = await note(a);
+    const res = await post(a, '/dismiss', { id: one });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as SessionReviewWire).dismissed).toEqual([one]);
+    // The only note is dismissed: there is none to hand over.
+    expect((await post(a, '/send')).status).toBe(409);
+    expect(told).toEqual([]);
+    expect(((await (await post(a, '/dismiss', { id: one, undo: true })).json()) as SessionReviewWire).dismissed).toEqual([]);
+    expect((await post(a, '/send')).status).toBe(200);
+  });
+
+  it('refuses a note the review doesn’t have, a body with no id, and an unknown session', async () => {
+    const a = app();
+    await post(a, '');
+    await settled();
+    expect((await post(a, '/dismiss', { id: 'nope' })).status).toBe(404);
+    expect((await post(a, '/dismiss', {})).status).toBe(400);
+    expect((await post(a, '/dismiss', { id: 'd1' }, 'nope')).status).toBe(404);
   });
 });

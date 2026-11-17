@@ -25,8 +25,10 @@ import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
 import { mountSessionProcessRoutes } from './routes/session-process-routes.js';
 import { mountSessionReviewRoutes } from './routes/session-review-routes.js';
-import { prepareLocalReview } from '../core/review/local-review.js';
-import { runInternal } from '../core/diff/checkpoint-summary.js';
+import { localSignature, prepareLocalReview } from '../core/review/local-review.js';
+import { dropLocalReview, readLocalReview, saveLocalReview } from '../core/review/local-review-store.js';
+import { LOCAL_TREE_TIMEOUT_MS, localTreeRun } from '../core/review/local-review-tree.js';
+import { internalReadOnly, runInternal, runInternalReadOnly } from '../core/diff/checkpoint-summary.js';
 import { rulesWith } from '../core/review/change-kinds.js';
 import { listProcessUsage } from '../core/platform/process-usage.js';
 import { leftoverSummary, sweepLeftovers } from '../core/sessions/leftover-sweep.js';
@@ -1107,8 +1109,17 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       prepareLocalReview(session, repo, {
         diff: (s) => computeSessionDiff(s, 'branch'),
         agent: (prompt) => runInternal(prompt, 240_000, { lane: 'localReviews' }),
+        // Read-only in the session's own folder when the agent can: it then answers what the diff leaves open.
+        inTree: (s, names) =>
+          localTreeRun(s.paths, names, {
+            readOnly: internalReadOnly,
+            run: (prompt, cwd, deny) => runInternalReadOnly(prompt, cwd, LOCAL_TREE_TIMEOUT_MS, { lane: 'localReviews', deny }),
+            exists: (dir) => fs.existsSync(dir),
+          }),
         rules: () => rulesWith(loadConfig()?.reviews?.rules),
       }),
+    signature: (s, repo) => localSignature(computeSessionDiff(s, 'branch'), repo ?? undefined),
+    store: { read: readLocalReview, save: saveLocalReview, drop: dropLocalReview },
     tell: noteThroughComments(app),
     broadcast,
   });
