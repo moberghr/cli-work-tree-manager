@@ -373,6 +373,8 @@ export interface BranchCheck {
   session: { id: string; archived: boolean } | null;
   /** The first free name from it (`branch`, `branch-2`, …); null when none is, or it isn't valid. */
   free: string | null;
+  /** It is the branch the repo's own folder is on: Create opens that folder (no new worktree). */
+  ownCheckout?: true;
 }
 
 // ---- assistant (Ctrl+K) ---------------------------------------------------
@@ -1406,7 +1408,8 @@ export type ActivityKind =
   | 'updates'
   | 'time'
   | 'agents'
-  | 'accounts';
+  | 'accounts'
+  | 'processes';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {
@@ -1569,6 +1572,14 @@ export interface AccountSwitchWire {
   moved?: number;
 }
 
+/** POST /api/accounts/:name/sessions {from?}: every session moved to that account, each with how it went (account-switch-all.ts). */
+export interface AccountSwitchAllWire {
+  ok: true;
+  /** What happened, in a line. */
+  summary: string;
+  sessions: import('./sessions/account-switch-all.js').SwitchAllRow[];
+}
+
 /** GET /api/agents: the agents in the PTY host still running a version from before their tool was updated (agent-restart.ts). */
 export interface AgentsWire {
   /** When the newest of their tools was installed (ISO): what a "Later" is for. Null when none is on PATH. */
@@ -1695,6 +1706,8 @@ export interface ReviewDraftWire {
   url?: string;
   /** Who wrote it: the AI step, or you (added on the diff). Absent: the AI step (from before). */
   by?: 'ai' | 'you';
+  /** How much it matters, the AI step's word: a likely bug, worth checking, or minor. Absent: not said (yours, or from before). */
+  level?: import('./review/review-plan.js').NoteLevel;
 }
 
 /** One comment of a PR's existing discussion on its host: someone else's words (or yours), read only. */
@@ -1800,6 +1813,10 @@ export interface PrReviewWire {
   };
   /** What the PR does in two or three sentences (the AI step's; absent: none ran, or a review from before). */
   summary?: string;
+  /** What the AI step advises doing with the change as it is, and why (absent: none ran, or a review from before). Advice: you decide. */
+  recommendation?: import('./review/review-plan.js').Recommendation;
+  /** The flows the change adds, changes or removes, each as its steps (the AI step's; absent: none named, or a review from before). */
+  flows?: import('./review/review-plan.js').Flow[];
   stories: import('./review/review-plan.js').Story[];
   /** Logic files no story names (never hidden). */
   unstoried: string[];
@@ -1921,4 +1938,57 @@ export interface RepoSettingsWire {
   requiredChecks: string[] | null;
   devCommand: string | null;
   reviews: 'all' | 'asked' | 'off' | null;
+}
+
+/** One process of a session: its agent, something the agent started, or something running from its folder. */
+export interface SessionProcessWire {
+  pid: number;
+  /** Its name and command, the session's folder shortened to "…". */
+  what: string;
+  /** The memory it holds for itself; null when the system didn't say. */
+  memBytes: number | null;
+  /** When it started (ms); null when the system didn't say. Sent back with a stop, to tell it from a reused pid. */
+  startedAt: number | null;
+  /** The session's agent itself (stopped from the session, never here). */
+  agent?: true;
+  /** Not the agent, and running for over a day: likely a forgotten dev server or watcher. */
+  leftover?: true;
+}
+
+/** GET /api/sessions/:id/processes — what a session holds in memory right now, most first. */
+export interface SessionProcessesWire {
+  /** When it was looked at (ms). */
+  at: number;
+  totalBytes: number;
+  leftovers: number;
+  processes: SessionProcessWire[];
+}
+
+/**
+ * GET /api/sessions/:id/review — a session's own changes read as a review, before there is a pull request
+ * (local-review.ts). `review` is a `PrReviewWire` with no number, link or host: nothing of it goes anywhere.
+ */
+/** GET /api/sessions/:id/review/current: whether the kept review is of the changes as they are now. */
+export interface SessionReviewCurrentWire {
+  /** False: the changes have moved since it was prepared. */
+  current: boolean;
+}
+
+export interface SessionReviewWire {
+  /** none: never prepared (or work web restarted since: they are kept in memory). */
+  status: 'none' | 'running' | 'ready' | 'failed';
+  /** The one repo it is of; null: all the session's repos with changes, in one review (paths start with the repo's name). */
+  repo: string | null;
+  /** The session's repos that had changes when it was prepared. */
+  repos: string[];
+  /** When the status last changed (ISO). */
+  at?: string;
+  /** The last one prepared — still there while another is being prepared. */
+  review?: PrReviewWire;
+  /** How the AI step read the changes of `review`: "read in its folder", or from the diff alone and why. */
+  how?: string;
+  /** Of `review`: the notes handed to the session's agent, and the ones you dismissed (kept across restarts). */
+  sent?: string[];
+  dismissed?: string[];
+  error?: string;
 }

@@ -19,9 +19,23 @@ import { noteThroughComments } from './session-note.js';
 import { addRepoInChild } from '../core/worktree/add-repo-child.js';
 import { defaultForkDeps } from '../core/sessions/fork-deps.js';
 import { createInChild, keyedQueue, oneAtATime, type CreateWorktree } from '../core/worktree/setup-child.js';
+import { removeWorktreeInChild } from '../core/worktree/remove-child.js';
 import { allSnoozes } from '../core/rail/snooze-store.js';
 import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
+import { mountSessionProcessRoutes } from './routes/session-process-routes.js';
+import { mountSessionReviewRoutes } from './routes/session-review-routes.js';
+import { localSignature, prepareLocalReview } from '../core/review/local-review.js';
+import { dropLocalReview, readLocalReview, saveLocalReview } from '../core/review/local-review-store.js';
+import { LOCAL_TREE_TIMEOUT_MS, localTreeRun } from '../core/review/local-review-tree.js';
+import { internalReadOnly, runInternal, runInternalReadOnly } from '../core/diff/checkpoint-summary.js';
+import { rulesWith } from '../core/review/change-kinds.js';
+import { listProcessUsage } from '../core/platform/process-usage.js';
+import { leftoverSummary, sweepLeftovers } from '../core/sessions/leftover-sweep.js';
+
+/** How often work web looks for processes sessions left running. */
+const LEFTOVERS_EVERY_MS = 60 * 60_000;
+import { killTreeAsync } from '../core/platform/process.js';
 import { mountCodeRoutes } from './routes/code-routes.js';
 import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
 import { mountDiffPageRoutes } from './routes/diff-page-routes.js';
@@ -566,7 +580,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     activity,
     // The PR merged: nothing waiting in it holds it up — the archive keeps it.
     archive: (id) =>
-      archiveMergedSession(id, defaultArchiveDeps({ release: releaseSession }), () => broadcast('sessions-changed', { ts: Date.now() })),
+      archiveMergedSession(id, defaultArchiveDeps({ release: releaseSession, removeWorktree: removeWorktreeInChild(getWorkBin) }), () =>
+        broadcast('sessions-changed', { ts: Date.now() }),
+      ),
   });
   // The dev server looks less often: it shares GitHub's API limit with the real one.
   const stopPrWatch = lean ? null : prWatch.start(dev ? 10 * 60_000 : 180_000);
@@ -916,6 +932,37 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       blocksBusy = false;
     }
   };
+  // What sessions left running for over a day (a dev server, a watcher): said in Activity, nothing stopped.
+  const leftoversSchedule = !jobs ? null : activity.schedule('processes', 'Processes left running', LEFTOVERS_EVERY_MS);
+  let leftoversBusy = false;
+  const sweepLeftoversNow = async () => {
+    leftoversSchedule?.next(Date.now() + LEFTOVERS_EVERY_MS);
+    if (leftoversBusy) return;
+    leftoversBusy = true;
+    const run = activity.start('processes', 'Looking for processes left running');
+    try {
+      const found = await sweepLeftovers({
+        sessions: () =>
+          loadHistory()
+            .filter((x) => !x.archivedAt)
+            .map((x) => ({ id: sessionIdFor(x), name: `${x.target} · ${x.branch}`, paths: x.paths })),
+        list: () => listProcessUsage(),
+        agentPid: ptyPid,
+        note: (text, o) => run.note(text, o),
+      });
+      if (found) run.done(leftoverSummary(found));
+      else run.fail(leftoverSummary(found));
+    } catch (err) {
+      run.fail((err as Error).message);
+    } finally {
+      leftoversBusy = false;
+    }
+  };
+  // The first look once things have settled after a start, then hourly.
+  const leftoversFirst = !jobs ? null : setTimeout(() => void sweepLeftoversNow(), 10 * 60_000);
+  leftoversFirst?.unref?.();
+  const leftoversTimer = !jobs ? null : setInterval(() => void sweepLeftoversNow(), LEFTOVERS_EVERY_MS);
+  leftoversTimer?.unref?.();
   const blocksTimer = !jobs ? null : setInterval(() => void sweepBlocksNow(), BLOCKS_EVERY_MS);
   blocksTimer?.unref?.();
 
@@ -1024,7 +1071,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     const s = findSession(id);
     if (s) scopeApi?.releaseSessionScope(s.paths, false);
   };
-  mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession, create: makeWorktree });
+  mountShipRoutes(app, {
+    broadcast,
+    onRepoChanged: (id) => diffStats.invalidate(id),
+    release: releaseSession,
+    create: makeWorktree,
+    removeWorktree: removeWorktreeInChild(getWorkBin),
+  });
   // Add a repo to a session folder (add-repo.ts): in a child, its scope released first, its Claude told.
   mountSessionRepoRoutes(app, {
     broadcast,
@@ -1049,6 +1102,28 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountRailRoutes(app, { broadcast });
   // Your notes on a session.
   mountNoteRoutes(app, { broadcast });
+  // A session's own changes as a review (prepared on a click, kept in memory). Its AI step reads the diff alone,
+  // in a lane of its own: its passes (one over everything, one per repo) run together, behind no PR's review.
+  mountSessionReviewRoutes(app, {
+    prepare: (session, repo) =>
+      prepareLocalReview(session, repo, {
+        diff: (s) => computeSessionDiff(s, 'branch'),
+        agent: (prompt) => runInternal(prompt, 240_000, { lane: 'localReviews' }),
+        // Read-only in the session's own folder when the agent can: it then answers what the diff leaves open.
+        inTree: (s, names) =>
+          localTreeRun(s.paths, names, {
+            readOnly: internalReadOnly,
+            run: (prompt, cwd, deny) => runInternalReadOnly(prompt, cwd, LOCAL_TREE_TIMEOUT_MS, { lane: 'localReviews', deny }),
+            exists: (dir) => fs.existsSync(dir),
+          }),
+        rules: () => rulesWith(loadConfig()?.reviews?.rules),
+      }),
+    signature: (s, repo) => localSignature(computeSessionDiff(s, 'branch'), repo ?? undefined),
+    store: { read: readLocalReview, save: saveLocalReview, drop: dropLocalReview },
+    tell: noteThroughComments(app),
+    broadcast,
+  });
+  mountSessionProcessRoutes(app, { list: () => listProcessUsage(), agentPid: ptyPid, kill: killTreeAsync });
   mountCodeRoutes(app);
   // How far you have looked at a session's diff (its Diff tab's "Since you looked").
   mountDiffSeenRoutes(app);
@@ -1159,6 +1234,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       offArchived();
       offArchiving();
       if (blocksTimer) clearInterval(blocksTimer);
+      if (leftoversTimer) clearInterval(leftoversTimer);
+      if (leftoversFirst) clearTimeout(leftoversFirst);
       if (hostTick) clearInterval(hostTick);
       loop.stop();
       jiraWatch.stop();

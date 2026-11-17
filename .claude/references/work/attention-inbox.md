@@ -15,7 +15,7 @@
 - **The change counter**: `session_status` writes bump `rev:sessions` (db triggers, schema v3), and the 1 s poll broadcasts even when no nudge arrived.
 - **File watches**: transcripts and `~/.claude/sessions` (Claude Code's own state). Plus the 10 s tick for time-based changes.
 
-Every broadcast drops the sessions cache. The SPA refetches at most 400 ms after the first event of a burst (`coalesce` throttles: a debounce kept the list stale while any Claude wrote), and again whenever its event stream (re)connects. `watchLoop` (`server/loop-watch.ts`) reports a blocked event loop (≥ 1 s) with the slowest request, in the log and the Activity panel (`server`).
+Every broadcast drops the sessions cache. The SPA refetches at most 400 ms after the first event of a burst (`coalesce` throttles: a debounce kept the list stale while any Claude wrote), and again whenever its event stream (re)connects. `watchLoop` (`server/loop-watch.ts`) reports a blocked event loop (≥ 1 s) with the slowest request, in the log and the Activity panel (`server`) — and with the slowest synchronous command the server ran itself in that window ("; it ran: git worktree remove … (23.8 s)"; `core/platform/sync-work.ts`: the sync spawn wrapper and the process listing note what they ran and how long, `timedSync` / `noteSyncWork`, taken every window so one from a quiet window is never blamed later; reported: 105 of a day's 126 stalls had no slow request, so nothing said what blocked).
 
 § Keep `/api/sessions` and `/api/status-changed` free of slow synchronous work: everything, statuses included, waits behind a blocked loop.
 

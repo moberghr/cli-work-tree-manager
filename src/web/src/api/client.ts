@@ -350,6 +350,38 @@ export function fetchAccounts(): Promise<import('../../../core/api-types.js').Ac
  * Move a session's Claude to another account (POST /api/sessions/:id/account): switched, queued
  * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
  */
+/** Move every session on another account to `name` (POST /api/accounts/:name/sessions). Throws the server's reason when refused. */
+/** Dismiss a note of a session's review (`undo`: bring it back); resolves with the review as it is kept now. */
+export async function dismissSessionReviewNote(sessionId: string, noteId: string, undo = false): Promise<SessionReview> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/dismiss`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: noteId, ...(undo ? { undo: true } : {}) }),
+  });
+  const body = (await res.json().catch(() => ({}))) as SessionReview & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `dismiss: ${res.status}`);
+  return body;
+}
+
+/** Whether a session's kept review is of its changes as they are now (GET …/review/current); true when it can't be told. */
+export async function fetchSessionReviewCurrent(sessionId: string): Promise<boolean> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/current`);
+  if (!res.ok) return true;
+  const body = (await res.json().catch(() => ({}))) as { current?: boolean };
+  return body.current !== false;
+}
+
+export async function moveAllSessionsToAccount(name: string): Promise<import('../../../core/api-types.js').AccountSwitchAllWire> {
+  const res = await fetch(`/api/accounts/${encodeURIComponent(name)}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `move all: ${res.status}`);
+  return body as import('../../../core/api-types.js').AccountSwitchAllWire;
+}
+
 export async function switchSessionAccount(sessionId: string, to: string): Promise<import('../../../core/api-types.js').AccountSwitchWire> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, {
     method: 'POST',
@@ -835,6 +867,51 @@ export async function renameSession(sessionId: string, title: string): Promise<v
     body: JSON.stringify({ title }),
   });
   if (!res.ok) throw new Error(`renaming failed (${res.status})`);
+}
+
+type SessionReview = import('../../../core/api-types.js').SessionReviewWire;
+async function reviewCall<T>(sessionId: string, tail: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review${tail}`, {
+    ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  const out = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(out.error ?? `failed (${res.status})`);
+  return out;
+}
+/** The review kept for a session's own changes (its Review tab), or that none is. */
+export const fetchSessionReview = (sessionId: string): Promise<SessionReview> => reviewCall(sessionId, '');
+/** Prepare it now (a repo of a session folder, else the first with changes): answers "running" at once. */
+export const prepareSessionReview = (sessionId: string, repo?: string): Promise<SessionReview> =>
+  reviewCall(sessionId, '', repo ? { repo } : {});
+/** The diff the kept review was made of. */
+export const fetchSessionReviewDiff = (sessionId: string): Promise<{ files: import('../../../core/diff/diff-parse.js').ParsedFile[] }> =>
+  reviewCall(sessionId, '/diff');
+/** Hand these notes of it to the session's agent; answers how many went. */
+export const sendSessionReviewNotes = (sessionId: string, ids: string[]): Promise<number> =>
+  reviewCall<{ sent: number }>(sessionId, '/send', { ids }).then((r) => r.sent);
+
+/** What a session's agent and the things it started hold in memory now (a listing takes a second). */
+export async function fetchSessionProcesses(sessionId: string): Promise<import('../../../core/api-types.js').SessionProcessesWire> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/processes`);
+  const body = (await res.json().catch(() => ({}))) as import('../../../core/api-types.js').SessionProcessesWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `failed (${res.status})`);
+  return body;
+}
+
+/** Stop one of them (and what it started); the server checks it is still the process that was listed. */
+export async function stopSessionProcess(
+  sessionId: string,
+  pid: number,
+  startedAt: number | null,
+): Promise<import('../../../core/api-types.js').SessionProcessesWire> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/processes/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid, startedAt }),
+  });
+  const body = (await res.json().catch(() => ({}))) as import('../../../core/api-types.js').SessionProcessesWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `failed (${res.status})`);
+  return body;
 }
 
 /** Keep a session once its PR merges, or (false) archive it then as usual. */

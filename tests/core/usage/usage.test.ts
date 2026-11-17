@@ -42,6 +42,27 @@ describe('meterWindow', () => {
     expect(got).toMatchObject({ agent: 'claude', name: 'CLAUDE', account: 'default', window: { id: 'seven_day' } });
   });
 
+  it('reads the account in use, the one new sessions start on, not a fuller one beside it (reported: the bar stayed at the old account’s 98%)', () => {
+    const at = new Date(now).toISOString();
+    const two: AgentUsage = {
+      agent: 'claude',
+      name: 'CLAUDE',
+      accounts: [
+        { account: 'default', at, windows: [win('seven_day', 98, '2027-01-16T04:00:00Z')] },
+        {
+          account: 'admin',
+          isDefault: true,
+          at,
+          windows: [win('five_hour', 4, '2027-01-15T14:50:00Z'), win('seven_day', 1, '2027-01-21T03:00:00Z')],
+        },
+      ],
+    };
+    expect(meterWindow([two], now)).toMatchObject({ account: 'admin', window: { id: 'five_hour', usedPercent: 4 } });
+    // None marked (one account, or an older reading): every account counts, as before.
+    const unmarked = { ...two, accounts: two.accounts.map(({ isDefault: _, ...x }) => x) };
+    expect(meterWindow([unmarked], now)).toMatchObject({ account: 'default', window: { usedPercent: 98 } });
+  });
+
   it('counts a window that has reset as 0', () => {
     const got = meterWindow(
       [agent('claude', [win('five_hour', 90, '2027-01-15T11:00:00Z'), win('seven_day', 10, '2027-01-20T00:00:00Z')])],

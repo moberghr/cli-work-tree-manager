@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import chalk from 'chalk';
 import { archiveWaiting } from '../core/archive/session-archive-deps.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
@@ -7,6 +8,7 @@ import { ensureConfig } from '../core/platform/config.js';
 import { resolveProjectTarget, getAllTargetNames } from '../core/worktree/resolve.js';
 import { teardownWorktree, wouldRefuseRemoval } from '../core/worktree/worktree.js';
 import { findSession, loadHistory, removeSession } from '../core/sessions/history.js';
+import { WORKTREE_REMOVED } from '../core/worktree/remove-child.js';
 
 export const removeCommand: CommandModule = {
   command: 'remove <target> <branch>',
@@ -28,7 +30,9 @@ export const removeCommand: CommandModule = {
         describe: 'Force remove even with uncommitted/unpushed changes',
         type: 'boolean',
         default: false,
-      }),
+      })
+      // work web's Archive: only the folders, the session kept, its agent already stopped (remove-child.ts).
+      .option('worktree-only', { type: 'boolean', default: false, hidden: true }),
   handler: async (argv) => {
     const targetName = argv.target as string;
     const branchName = argv.branch as string;
@@ -42,6 +46,16 @@ export const removeCommand: CommandModule = {
       console.error(`Project or group not found: ${targetName}`);
       console.log(chalk.yellow(`Available: ${allNames.join(', ')}`));
       process.exitCode = 1;
+      return;
+    }
+
+    // work web's Archive, in a child so its git doesn't hold the server up: the folders only. The archive has
+    // already checked nothing is lost, saved what's uncommitted and stopped the agent; the session stays.
+    if (argv['worktree-only']) {
+      const s = findSession(loadHistory(), targetName, branchName);
+      const gone = !s || s.paths.every((p) => !fs.existsSync(p));
+      const removed = gone || teardownWorktree(targetName, s.isGroup, branchName, config, true, s.paths);
+      console.log(`${WORKTREE_REMOVED}${removed === true}`);
       return;
     }
 

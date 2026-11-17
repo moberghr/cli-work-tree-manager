@@ -192,6 +192,14 @@ export const SETTINGS: readonly SettingField[] = [
     false,
     'at the next terminal start',
   ),
+  bool(
+    'agentsLowPriority',
+    'Agents & terminals',
+    'Run agents below normal priority',
+    'What an agent runs (builds, tests) uses the cores nothing else wants and gives way to what you look at. Try it if the computer freezes while sessions build.',
+    false,
+    'at the next agent start (a running one: restart it)',
+  ),
   // ---- Pull requests
   bool(
     'prWatch.autoArchive',

@@ -138,6 +138,7 @@ describe('AccountsTab', () => {
       load: vi.fn(async () => o.wire ?? WIRE),
       add: vi.fn(async (name: string) => ({ dir: `~/.claude-${name}` })),
       makeDefault: vi.fn(async () => ({ ok: true })),
+      moveAll: vi.fn(async () => ({ summary: '' })),
       remove: o.remove ?? vi.fn(async () => ({ ok: true })),
     };
     act(() =>
@@ -248,5 +249,26 @@ describe('Claude account… with one account', () => {
     expect(container.querySelector('[role="radiogroup"]')).toBeNull();
     await click(button('Add another account…')!);
     expect(onAddAccount).toHaveBeenCalled();
+  });
+});
+
+describe('Move all sessions here', () => {
+  it('is offered with the count of live sessions on the other accounts; never on one that isn’t logged in, or with none elsewhere', async () => {
+    const { sessionsElsewhere } = await import('../../src/web/src/state/accounts.js');
+    const account = (name: string, liveSessions: number, loggedIn: boolean | null = true) => ({
+      name,
+      dir: '/' + name,
+      isDefault: name === 'default',
+      loggedIn,
+      liveSessions: Array.from({ length: liveSessions }, (_, i) => `s${i}`),
+      archivedSessions: [],
+      usage: null,
+    });
+    const data = { accounts: [account('default', 8), account('admin', 0), account('out', 1, false)], default: 'default', canManage: true };
+    expect(sessionsElsewhere(data as never, 'admin')).toBe(9);
+    expect(sessionsElsewhere(data as never, 'default')).toBe(1);
+    expect(sessionsElsewhere(data as never, 'out')).toBe(0);
+    expect(sessionsElsewhere(data as never, 'ghost')).toBe(0);
+    expect(sessionsElsewhere({ ...data, accounts: [account('default', 3)] } as never, 'default')).toBe(0);
   });
 });

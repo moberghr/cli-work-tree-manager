@@ -406,6 +406,10 @@ describe('branchNote and moreLabel', () => {
     expect(branchNote(c({ free: null, exists: true }), true)).toMatchObject({ blocks: true });
     expect(branchNote(c({ session: { id: 's', archived: true } }), false)!.text).toContain('restores it');
     expect(branchNote(c({ exists: true }), false)!.text).toContain('checks it out');
+    // The branch the project's own folder is on (reported: "main" was refused as already checked out): it opens that folder.
+    expect(branchNote(c({ branch: 'main', exists: true, ownCheckout: true }), false)).toEqual({
+      text: "main is the branch the project's own folder is on: Create opens it there (no new worktree).",
+    });
     expect(branchNote(c({ valid: false, free: null }), false)).toMatchObject({ blocks: true });
   });
   it('names what a folded More options holds', () => {

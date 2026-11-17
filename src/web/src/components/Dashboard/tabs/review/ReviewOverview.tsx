@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { PrDiscussionThreadWire, PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
 import { AlreadyDiscussed } from './Discussion.js';
-import { FLAG_LABEL } from '../../../../../../core/review/review-plan.js';
+import { FLAG_LABEL, FLOW_CHANGE_LABEL, NOTE_LEVEL_LABEL, VERDICT_LABEL } from '../../../../../../core/review/review-plan.js';
 import {
   commentsByFile,
   gist,
@@ -12,6 +12,10 @@ import {
   shortWhere,
   storyCards,
   type ReviewPage,
+  attentionOrder,
+  flowPages,
+  isLocalReview,
+  pointsLabel,
 } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
 import { FileRow, FileWhere, Prose } from './ReviewText.js';
@@ -33,6 +37,7 @@ export function ReviewOverview({
   onClearDropped,
   aside = [],
   onFiles = () => undefined,
+  noteActions,
 }: {
   review: PrReviewWire;
   pages: ReviewPage[];
@@ -46,6 +51,8 @@ export function ReviewOverview({
   aside?: PrDiscussionThreadWire[];
   /** Opens the Files view. */
   onFiles?: () => void;
+  /** What can be done with one note, beside it (a session's review: send it to Claude, or dismiss it). */
+  noteActions?: (d: ReviewDraftWire) => ReactNode;
 }) {
   const [testsOpen, setTestsOpen] = useState(false);
   const [noiseOpen, setNoiseOpen] = useState(false);
@@ -54,7 +61,27 @@ export function ReviewOverview({
   const noise = notWorthReading(r);
   const kinds = pages.map((p, i) => ({ p, i })).filter(({ p }) => !p.story && !p.folded);
   const t = r.tests;
-  const left = walk.filter((d) => !looked.has(d.id)).length;
+  // The likely bugs first, the minor notes folded below: the list is what needs you, not everything said.
+  const attention = attentionOrder(walk);
+  const left = attention.main.filter(({ d }) => !looked.has(d.id)).length;
+  const noteRow = ({ d, at: i }: { d: ReviewDraftWire; at: number }) => (
+    <li key={d.id} className={looked.has(d.id) ? 'wd-review-looked' : undefined}>
+      <input
+        type="checkbox"
+        checked={looked.has(d.id)}
+        onChange={(e) => onLooked(d.id, e.target.checked)}
+        aria-label={`Looked at ${shortWhere(d)}`}
+        title="Looked at (only in this browser)"
+      />
+      <button type="button" className="wd-review-attention-item" onClick={() => onComment(i)} title={`${d.path}:${d.line}`}>
+        <FileWhere path={d.path} line={d.line} {...(fileOf.get(d.path) ? { status: fileOf.get(d.path)!.status } : {})} />
+        {d.level === 'bug' && <span className="wd-review-note-level wd-review-note-bug"> {NOTE_LEVEL_LABEL.bug}</span>}
+        {d.by === 'you' && <span className="wd-start-note"> · yours</span>}
+        <span className="wd-review-gist">{gist(d.body)}</span>
+      </button>
+      {noteActions && <span className="wd-review-note-actions">{noteActions(d)}</span>}
+    </li>
+  );
   const fileOf = new Map(r.files.map((f) => [f.path, f]));
   const comments = commentsByFile(r);
   return (
@@ -77,32 +104,78 @@ export function ReviewOverview({
           <p className="wd-start-note">No summary: no AI step ran for this review.</p>
         )}
       </section>
-      <AlreadyDiscussed discussion={r.discussion} aside={aside} onFiles={onFiles} {...(r.host ? { host: r.host } : {})} />
+      {r.recommendation && (
+        <section className={`wd-review-recommendation wd-review-verdict-${r.recommendation.verdict}`} aria-label="Recommendation">
+          <h3>
+            Recommendation <span className="wd-start-note">· the AI step’s advice: you decide</span>
+          </h3>
+          <p>
+            <strong className="wd-review-verdict">{VERDICT_LABEL[r.recommendation.verdict]}.</strong> <Prose text={r.recommendation.text} />
+            {walk.length > 0 && (
+              <>
+                {' '}
+                <button type="button" className="wd-link-button" onClick={() => onComment(attention.main[0]?.at ?? 0)}>
+                  Read the {pointsLabel(r, walk.length)} →
+                </button>
+              </>
+            )}
+          </p>
+        </section>
+      )}
+      {r.flows && r.flows.length > 0 && (
+        <section className="wd-review-flows" aria-label="Flows">
+          <h3>
+            Flows <span className="wd-start-note">· what this adds, changes or removes, step by step</span>
+          </h3>
+          {r.flows.map((f, i) => (
+            <details key={i} className="wd-review-flow" open={r.flows!.length <= 2}>
+              <summary>
+                <span className={`wd-review-flow-change wd-review-flow-${f.change}`}>{FLOW_CHANGE_LABEL[f.change]}</span>{' '}
+                <Prose text={f.title} />
+              </summary>
+              <ol>
+                {f.steps.map((s, n) => (
+                  <li key={n}>
+                    <Prose text={s} />
+                  </li>
+                ))}
+              </ol>
+              {flowPages(f, pages).length > 0 && (
+                <p className="wd-review-flow-links">
+                  Its code:{' '}
+                  {flowPages(f, pages).map((p) => (
+                    <button key={p} type="button" className="wd-link-button" onClick={() => onStory(p)}>
+                      {pages[p].story ? `story ${p + 1}` : pages[p].label} →
+                    </button>
+                  ))}
+                </p>
+              )}
+            </details>
+          ))}
+        </section>
+      )}
+      {/* A session's own changes are on no host: there is no discussion to read. */}
+      {!isLocalReview(r) && (
+        <AlreadyDiscussed discussion={r.discussion} aside={aside} onFiles={onFiles} {...(r.host ? { host: r.host } : {})} />
+      )}
       <div className="wd-review-overview-cols">
         <section className="wd-review-attention" aria-label="Needs your attention">
           <h3>
             Needs your attention{' '}
-            <span className="wd-start-note">{walk.length ? `· ${left} of ${walk.length} to look at` : '· nothing flagged'}</span>
+            <span className="wd-start-note">{walk.length ? `· ${left} of ${attention.main.length} to look at` : '· nothing flagged'}</span>
           </h3>
-          {walk.length === 0 && <p className="wd-start-note">No draft comments: the AI step found nothing to point at.</p>}
-          <ul>
-            {walk.map((d, i) => (
-              <li key={d.id} className={looked.has(d.id) ? 'wd-review-looked' : undefined}>
-                <input
-                  type="checkbox"
-                  checked={looked.has(d.id)}
-                  onChange={(e) => onLooked(d.id, e.target.checked)}
-                  aria-label={`Looked at ${shortWhere(d)}`}
-                  title="Looked at (only in this browser)"
-                />
-                <button type="button" className="wd-review-attention-item" onClick={() => onComment(i)} title={`${d.path}:${d.line}`}>
-                  <FileWhere path={d.path} line={d.line} {...(fileOf.get(d.path) ? { status: fileOf.get(d.path)!.status } : {})} />
-                  {d.by === 'you' && <span className="wd-start-note"> · yours</span>}
-                  <span className="wd-review-gist">{gist(d.body)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {walk.length === 0 && (
+            <p className="wd-start-note">{isLocalReview(r) ? 'No notes' : 'No draft comments'}: the AI step found nothing to point at.</p>
+          )}
+          <ul>{attention.main.map(noteRow)}</ul>
+          {attention.minor.length > 0 && (
+            <details className="wd-review-minor">
+              <summary>
+                {attention.minor.length} minor {attention.minor.length === 1 ? 'point' : 'points'}
+              </summary>
+              <ul>{attention.minor.map(noteRow)}</ul>
+            </details>
+          )}
           {r.dropped && r.dropped.length > 0 && <DroppedDrafts dropped={r.dropped} onClear={onClearDropped} />}
         </section>
         <section className="wd-review-stories" aria-label="Stories">
@@ -138,7 +211,7 @@ export function ReviewOverview({
                     </span>
                     <span className="wd-review-card-facts">
                       {c.codeFiles} file{c.codeFiles === 1 ? '' : 's'}
-                      {c.comments > 0 && ` · ${c.comments} comment${c.comments === 1 ? '' : 's'}`} ·{' '}
+                      {c.comments > 0 && ` · ${pointsLabel(r, c.comments)}`} ·{' '}
                       <span className={`wd-review-tests-${c.tests.state}`}>
                         {c.tests.state === 'covered' ? '✓ ' : ''}
                         {c.tests.text}

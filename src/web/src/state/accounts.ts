@@ -156,3 +156,13 @@ export function removeRefusal(e: { message: string; sessions: string[]; kind?: '
     return { text: `${e.message}${names}. Remove it anyway? Their Restore then starts on the default account.`, canForce: true };
   return { text: `${e.message}${names}.`, canForce: false };
 }
+
+/**
+ * How many live sessions a "Move all sessions here" on `name` would move: the ones on every other account. 0: the
+ * button isn't offered (and never on an account that isn't logged in). Pure.
+ */
+export function sessionsElsewhere(data: AccountsWire, name: string): number {
+  const here = data.accounts.find((a) => a.name === name);
+  if (!here || here.loggedIn === false) return 0;
+  return data.accounts.filter((a) => a.name !== name).reduce((n, a) => n + (a.liveSessions?.length ?? 0), 0);
+}

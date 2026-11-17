@@ -273,7 +273,8 @@ describe('takeCheckpoint', () => {
     const manifest = loadManifest('hashP');
     const sorted = [...manifest.entries].sort((a, b) => a.id - b.id);
     sorted.forEach((entry, i) => expect(entry.id).toBe(i));
-  });
+    // Six real git snapshots: 20 s was not enough in a full run on a loaded machine (it passes alone in 2 s).
+  }, 90_000);
 
   it('keeps SHAs distinct when repos share a basename (no manifest key collision)', async () => {
     // Two repos with the same basename ("app"). If the manifest key

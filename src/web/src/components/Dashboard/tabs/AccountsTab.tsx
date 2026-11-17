@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AccountsWire } from '../../../../../core/api-types.js';
-import { AccountChangeError, addAccount, makeDefaultAccount, removeAccount } from '../../../api/client.js';
+import { AccountChangeError, addAccount, makeDefaultAccount, moveAllSessionsToAccount, removeAccount } from '../../../api/client.js';
 import { useAccounts } from '../../../hooks/use-accounts.js';
-import { accountPageRows, addAccountProblem, DEFAULT_ACCOUNT, defaultAccountFolder, removeRefusal } from '../../../state/accounts.js';
+import {
+  accountPageRows,
+  addAccountProblem,
+  DEFAULT_ACCOUNT,
+  defaultAccountFolder,
+  removeRefusal,
+  sessionsElsewhere,
+} from '../../../state/accounts.js';
 import { AccountLoginPanel } from '../AccountLoginPanel.js';
 
 /** The calls the page makes (tests swap them). */
@@ -11,9 +18,16 @@ export interface AccountsApi {
   add: (name: string, folder?: string) => Promise<{ dir: string }>;
   makeDefault: (name: string) => Promise<unknown>;
   remove: (name: string, force?: boolean) => Promise<unknown>;
+  /** Move every session on another account to this one; resolves with what happened, in a line. */
+  moveAll: (name: string) => Promise<{ summary: string }>;
 }
 
-const httpAccounts: AccountsApi = { add: addAccount, makeDefault: makeDefaultAccount, remove: removeAccount };
+const httpAccounts: AccountsApi = {
+  add: addAccount,
+  makeDefault: makeDefaultAccount,
+  remove: removeAccount,
+  moveAll: moveAllSessionsToAccount,
+};
 
 interface Props {
   api?: AccountsApi;
@@ -48,6 +62,8 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Pending | null>(null);
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
+  /** What the last "Move all sessions here" did, by account. */
+  const [movedNote, setMovedNote] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!startAdding) return;
@@ -213,6 +229,21 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
                       Make default
                     </button>
                   )}
+                  {data && sessionsElsewhere(data, r.name) > 0 && (
+                    <button
+                      type="button"
+                      className="wd-btn-secondary"
+                      onClick={() =>
+                        act(`moveall:${r.name}`, () =>
+                          api.moveAll(r.name).then((x) => setMovedNote((m) => ({ ...m, [r.name]: x.summary }))),
+                        )
+                      }
+                      disabled={busy !== null}
+                      title={`Moves the ${sessionsElsewhere(data, r.name)} session(s) on other accounts to this one, with their conversations: an idle Claude restarts on it, a working one switches when its turn ends`}
+                    >
+                      {busy === `moveall:${r.name}` ? 'Moving…' : 'Move all sessions here'}
+                    </button>
+                  )}
                   {r.name !== DEFAULT_ACCOUNT && (
                     <button
                       type="button"
@@ -227,9 +258,14 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
                 </>
               )}
             </span>
-            {(rowError[`remove:${r.name}`] ?? rowError[`default:${r.name}`]) && (
+            {(rowError[`remove:${r.name}`] ?? rowError[`default:${r.name}`] ?? rowError[`moveall:${r.name}`]) && (
               <span className="wd-accounts-error" role="alert">
-                {rowError[`remove:${r.name}`] ?? rowError[`default:${r.name}`]}
+                {rowError[`remove:${r.name}`] ?? rowError[`default:${r.name}`] ?? rowError[`moveall:${r.name}`]}
+              </span>
+            )}
+            {movedNote[r.name] && (
+              <span className="wd-start-note wd-accounts-moved" role="status">
+                {movedNote[r.name]}
               </span>
             )}
           </li>

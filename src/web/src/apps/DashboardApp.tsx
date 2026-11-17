@@ -732,6 +732,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         {
           tab: setSubTab,
           setArchived: (archived) => menuActions.setArchived(s, archived),
+          toggleKeep: () => menuActions.setKeep(s, !s.keepAfterMerge),
           snoozeMenu: () => {
             const items = sessionMenu(s).filter((i) => /^(Snooze|Unsnooze)/.test(i.label));
             setKeyMenu({ items: items.map((i) => ({ ...i, separated: false })), ...near() });
@@ -869,6 +870,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           onDelete={() => setDeleting(activeSession)}
           onAddRepo={() => menuActions.addRepo(activeSession)}
           onAccount={menuActions.account ? () => menuActions.account!(activeSession) : undefined}
+          onKeep={(keep) => menuActions.setKeep(activeSession, keep)}
           prs={prsFor(activeSession)}
           onShipped={backFromSession}
         />

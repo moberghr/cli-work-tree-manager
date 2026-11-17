@@ -3,6 +3,7 @@ import type { ChildProcess, SpawnOptions, SpawnSyncOptions, SpawnSyncReturns } f
 import type CrossSpawnModule from 'cross-spawn';
 import { explainNotOnPath, programPath } from './program-path.js';
 import { shellEnv } from './shell-env.js';
+import { commandName, timedSync } from './sync-work.js';
 
 /**
  * cross-spawn, loaded on first use. core's modules all spawn through it, and
@@ -79,7 +80,11 @@ const spawn = Object.assign(
   },
   {
     sync: (...args: unknown[]) => {
-      const r = (load().sync as unknown as (...a: unknown[]) => SpawnSyncReturns<unknown>)(...onPathOnly(args));
+      // Named when slow: a blocked server says what it was waiting on (sync-work.ts).
+      const r = timedSync(
+        () => commandName(args),
+        () => (load().sync as unknown as (...a: unknown[]) => SpawnSyncReturns<unknown>)(...onPathOnly(args)),
+      );
       if (r?.error) explainNotOnPath(r.error);
       return r;
     },

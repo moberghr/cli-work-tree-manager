@@ -61,6 +61,7 @@ describe('runSessionKey', () => {
     const h: SessionKeyHandlers = {
       tab: (t) => calls.push(`tab ${t}`),
       setArchived: (a) => calls.push(`archived ${a}`),
+      toggleKeep: () => calls.push('keep'),
       snoozeMenu: () => calls.push('snooze'),
       blockBy: () => calls.push('block'),
       openEditor: () => calls.push('editor'),
@@ -84,8 +85,10 @@ describe('runSessionKey', () => {
       'tab pr',
       'tab code',
       'tab branches',
+      'tab review',
       'header timeline',
       'archived true',
+      'keep',
       'snooze',
       'block',
       'header menu',
@@ -154,5 +157,16 @@ describe('an open review’s keys', () => {
       .find((g) => g.title === 'An open review')!
       .rows.map((r) => r.keys);
     expect(listed).toEqual(['[', ']', 'o', 's', 'm', 'f']);
+  });
+});
+
+describe('Keep after its PR merges has a key (asked for)', () => {
+  it('⇧K toggles it for a live session, and does nothing for an archived one', () => {
+    expect(SESSION_KEYS.keep).toMatchObject({ key: 'k', shift: true });
+    const calls: string[] = [];
+    const handlers = new Proxy({}, { get: (_t, name) => () => void calls.push(String(name)) }) as never;
+    runSessionKey('keep', { archived: false }, handlers);
+    runSessionKey('keep', { archived: true }, handlers);
+    expect(calls).toEqual(['toggleKeep']);
   });
 });

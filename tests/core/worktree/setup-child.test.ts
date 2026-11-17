@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { git } from '../../../src/core/git/git.js';
 import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
-import { findSession, loadHistory } from '../../../src/core/sessions/history.js';
+import { findSession, loadHistory, removeSession } from '../../../src/core/sessions/history.js';
 import {
   baseArgs,
   childArgs,
@@ -133,6 +133,21 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     // What the child warned about comes back with it (this repo has no upstream to pull its main from).
     expect(r.ok && r.warnings?.join(' ')).toMatch(/Could not pull 'main'/);
     expect(ticks).toBeGreaterThan(5); // nothing here waited on git
+  }, 150_000);
+
+  it('the branch the repo’s own folder is on opens that folder, as no branch does (reported: "main" was refused as already checked out)', async () => {
+    const own = config.repos.web;
+    // Through the child (work web), and in process (the CLI): the same answer, no worktree made.
+    const viaChild = await create({ target: 'web', branch: 'main' }, config);
+    expect(viaChild).toMatchObject({ ok: true, branch: 'main', launchDir: own, paths: [own] });
+    expect(await createInProcess({ target: 'web', branch: 'main' }, config)).toMatchObject({ ok: true, launchDir: own, paths: [own] });
+    expect(fs.existsSync(path.join(config.worktreesRoot, 'web', 'main'))).toBe(false);
+    expect(findSession(loadHistory(), 'web', 'main')?.paths).toEqual([own]);
+    // With a base it is a fork, which a branch that exists can't be: refused as before, not opened.
+    const forked = await createInProcess({ target: 'web', branch: 'main', base: { default: 'main', perRepo: {} } }, config);
+    expect(forked.ok).toBe(false);
+    // The tests after this one make their own session on that folder.
+    await removeSession('web', 'main');
   }, 150_000);
 
   it("a new session's own repos (--repos): made as a session folder holding them", async () => {

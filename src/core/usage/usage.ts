@@ -35,7 +35,12 @@ export function agedWindow(w: UsageWindow, now: number): UsageWindow {
   return { ...w, usedPercent: 0, reset: true };
 }
 
-/** The window closest to its limit across every agent and account, for the top bar. Ties go to the one resetting later. */
+/**
+ * The window closest to its limit, for the top bar: of each agent's account in use — the one new sessions start on
+ * (`isDefault`) — and of every account while none is marked (reported: after moving every session to a second
+ * account and making it the default, the bar still showed the old account's 98%). The panel lists them all. Ties go
+ * to the one resetting later.
+ */
 export function meterWindow(
   agents: AgentUsage[],
   now: number,
@@ -43,7 +48,8 @@ export function meterWindow(
   let best: { agent: string; name: string; account: string; window: UsageWindow } | null = null;
   const resetMs = (w: UsageWindow) => (w.resetsAt === null ? -Infinity : Date.parse(w.resetsAt) || -Infinity);
   for (const a of agents) {
-    for (const acc of a.accounts) {
+    const inUse = a.accounts.filter((x) => x.isDefault);
+    for (const acc of inUse.length ? inUse : a.accounts) {
       for (const raw of acc.windows) {
         const window = agedWindow(raw, now);
         if (

@@ -1,3 +1,5 @@
+import path from 'node:path';
+import fs from 'node:fs';
 import os from 'node:os';
 import { internalRunEnv } from '../../platform/internal-run.js';
 import { applyEnvDelta } from '../../platform/env-delta.js';
@@ -63,7 +65,7 @@ export const READ_ONLY_TOOLS = 'Read,Grep,Glob';
  *   repeat, neither seen; an import inside the folder was). Claude Code loads an import from outside the project only
  *   once someone approved it in a dialog, which a `-p` run never shows.
  */
-export function internalClaudeReadOnlySpawn(opts: { cwd: string; model?: string }): {
+export function internalClaudeReadOnlySpawn(opts: { cwd: string; model?: string; deny?: string[] }): {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -83,6 +85,9 @@ export function internalClaudeReadOnlySpawn(opts: { cwd: string; model?: string 
       '--permission-mode',
       'dontAsk',
       ...(opts.model ? ['--model', opts.model] : []),
+      // Files this run may not read (a session's own folder: its repos' deny rules, which this run doesn't load itself).
+      // Measured on 2.1.317 (2026-11): a denied file's Read is refused, and Grep prints nothing from it.
+      ...(opts.deny?.length ? ['--disallowedTools', ...opts.deny] : []),
     ],
     cwd: opts.cwd,
     env: { ...base.env, CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' },
@@ -105,3 +110,56 @@ export const CLAUDE_READ_ONLY_LINES = [
   'You are in a read-only checkout of this pull request at its head commit, with the Read, Grep and Glob tools. Read any file you need to understand the change: its callers, the interfaces and types it uses, the existing tests of the code it touches.',
   "The repository's CLAUDE.md and .claude/rules (already given to you) describe its conventions; a CLAUDE.md in a subfolder applies to the files under it — read the ones next to the files you look at. Judge the change by those conventions.",
 ];
+
+/** What a read-only review run is told of YOUR folder (a session's own changes, local-review-tree.ts), in Claude Code's terms. */
+export const CLAUDE_READ_ONLY_LOCAL_LINES = [
+  'You are in the folder these changes are being made in, as it is now (uncommitted changes included), with the Read, Grep and Glob tools: you can read, and nothing else. Read any file you need to understand the change: its callers, the interfaces and types it uses, the existing tests of the code it touches.',
+  'Before you write a note that asks how something works or whether something holds, look for the answer in the code. If the code answers it, leave the note out, or say what you found and why it is still a problem; write a question only for what the code leaves open.',
+  "The repository's CLAUDE.md and .claude/rules (already given to you) describe its conventions; a CLAUDE.md in a subfolder applies to the files under it — read the ones next to the files you look at. Judge the change by those conventions.",
+];
+
+/** How many deny rules are carried into a run at most. */
+const MAX_DENY_RULES = 60;
+
+/**
+ * The files a repo's own settings forbid reading (`permissions.deny` in its `.claude/settings.json` and
+ * `settings.local.json`: `Read(...)` rules), as rules for a read-only run started in `cwd`: that run loads the user's
+ * settings only, so a repo's "never read the production settings" would otherwise not hold for it. `sub`: the repo
+ * is that folder under where the run starts, so a rule that is relative to the repo is moved under it (`**`, `/`, `//`
+ * and `~` rules mean the same anywhere). A settings file that isn't there or isn't JSON gives none. `read`: a test's.
+ */
+export function claudeReadDenyRules(
+  repos: ReadonlyArray<{ dir: string; sub: string | null }>,
+  read: (file: string) => string | null = (file) => {
+    try {
+      return fs.readFileSync(file, 'utf-8');
+    } catch {
+      return null;
+    }
+  },
+): string[] {
+  const rules = new Set<string>();
+  for (const r of repos) {
+    for (const name of ['settings.json', 'settings.local.json']) {
+      const text = read(path.join(r.dir, '.claude', name));
+      if (!text) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      const deny = (parsed as { permissions?: { deny?: unknown } } | null)?.permissions?.deny;
+      if (!Array.isArray(deny)) continue;
+      for (const rule of deny) {
+        const m = typeof rule === 'string' ? /^Read\(([^()\r\n]{1,300})\)$/.exec(rule.trim()) : null;
+        if (!m) continue;
+        const pattern = m[1];
+        const anywhere = /^(\*\*|\/|~)/.test(pattern);
+        const moved = r.sub === null || anywhere ? pattern : `${r.sub}/${pattern.replace(/^\.\//, '')}`;
+        rules.add(`Read(${moved})`);
+      }
+    }
+  }
+  return [...rules].slice(0, MAX_DENY_RULES);
+}

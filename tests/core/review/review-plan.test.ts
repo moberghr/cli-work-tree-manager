@@ -5,7 +5,12 @@ import {
   clip,
   DIFF_ONLY_LINES,
   folderStories,
+  FLOW_CHANGE_LABEL,
   MAX_FILE_SUMMARY,
+  MAX_RECOMMENDATION,
+  NOTE_LEVEL_LABEL,
+  noteLevel,
+  VERDICT_LABEL,
   MAX_SUMMARY,
   MAX_TEXT,
   MAX_TITLE,
@@ -379,7 +384,7 @@ describe('the summary: what the PR does, in a few sentences', () => {
   it('asked first in the prompt, with the field in the JSON asked for', () => {
     const prompt = agentPrompt({ title: 'T', number: 1 }, [], []);
     expect(prompt).toContain('First, in "summary"');
-    expect(prompt).toContain('{"summary":"","stories":');
+    expect(prompt).toContain('{"summary":"","recommendation":');
     expect(prompt.indexOf('"summary"')).toBeLessThan(prompt.indexOf('\n<<<\n'));
   });
 
@@ -492,5 +497,140 @@ describe('stories and files explained in full sentences', () => {
     expect(planReview(kinds, tests, pass).fileSummaries).toEqual({ 'src/Shipping/Rates.cs': 'Rates change.' });
     expect(planReview(kinds, tests, { ...pass, stories: [] }).fileSummaries).toEqual({});
     expect(planReview(kinds, tests, null).fileSummaries).toEqual({});
+  });
+});
+
+describe('the recommendation and the flows (asked for: what the agent advises, and the flows added, changed or removed)', () => {
+  const files = ['src/a.cs'];
+  const answer = (extra: Record<string, unknown>) =>
+    JSON.stringify({ stories: [{ title: 'T', why: 'W', risk: 'R', riskLevel: 3, flags: [], files }], notes: [], ...extra });
+
+  it('the prompt asks for both, with the verdicts and the changes it may name, and they are in the JSON asked for', () => {
+    const p = agentPrompt({ title: 'T', number: 1 }, [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' }], []);
+    expect(p).toContain('In "recommendation", advise the reviewer on the change as it is.');
+    expect(p).toContain('ready, fix-first, discuss');
+    expect(p).toContain('In "flows", list the flows this change adds, changes or removes.');
+    expect(p).toContain('added, changed, removed');
+    expect(p).toContain(
+      '"recommendation":{"verdict":"fix-first","text":""},"flows":[{"change":"added","title":"","steps":[""],"files":["path"]}]',
+    );
+    // The advice is asked for before the data, never inside the fence.
+    expect(p.indexOf('In "recommendation"')).toBeLessThan(p.indexOf('<<<\nTitle:'));
+  });
+
+  it('read strictly: a known verdict with its reasons; a flow with a known change, a title and steps', () => {
+    const pass = parseAgentPass(
+      answer({
+        recommendation: { verdict: 'fix-first', text: 'Fix the limit first.' },
+        flows: [
+          { change: 'added', title: 'A refund.', steps: ['One.', 'Two.', 7, ''] },
+          { change: 'renamed', title: 'Not a change we know.', steps: ['One.'] },
+          { change: 'removed', title: 'No steps.', steps: [] },
+          { change: 'changed', steps: ['No title.'] },
+          'not a flow',
+        ],
+      }),
+      files,
+    )!;
+    expect(pass.recommendation).toEqual({ verdict: 'fix-first', text: 'Fix the limit first.' });
+    expect(pass.flows).toEqual([{ change: 'added', title: 'A refund.', steps: ['One.', 'Two.'] }]);
+  });
+
+  it('an unknown verdict, one with no reasons, or neither field: none (and the rest of the answer still reads)', () => {
+    expect(parseAgentPass(answer({ recommendation: { verdict: 'approve', text: 'Yes.' } }), files)).not.toHaveProperty('recommendation');
+    expect(parseAgentPass(answer({ recommendation: { verdict: 'ready' } }), files)).not.toHaveProperty('recommendation');
+    expect(parseAgentPass(answer({ recommendation: 'ready', flows: 'none' }), files)).not.toHaveProperty('flows');
+    const plain = parseAgentPass(answer({}), files)!;
+    expect(plain.stories).toHaveLength(1);
+    expect(plain).not.toHaveProperty('recommendation');
+    expect(plain).not.toHaveProperty('flows');
+  });
+
+  it('long text is cut at a word, and at most twelve flows of ten steps are kept', () => {
+    const pass = parseAgentPass(
+      answer({
+        recommendation: { verdict: 'discuss', text: 'word '.repeat(400) },
+        flows: Array.from({ length: 20 }, (_, i) => ({
+          change: 'changed',
+          title: `Flow ${i}`,
+          steps: Array.from({ length: 15 }, () => 'A step.'),
+        })),
+      }),
+      files,
+    )!;
+    expect(pass.recommendation!.text.length).toBeLessThanOrEqual(MAX_RECOMMENDATION);
+    expect(pass.recommendation!.text.endsWith('…')).toBe(true);
+    expect(pass.flows).toHaveLength(12);
+    expect(pass.flows![0].steps).toHaveLength(10);
+  });
+
+  it('each verdict and each change has its words', () => {
+    expect(VERDICT_LABEL).toEqual({ ready: 'Ready to merge as it is', 'fix-first': 'Fix first', discuss: 'Needs a decision first' });
+    expect(FLOW_CHANGE_LABEL).toEqual({ added: 'New', changed: 'Changed', removed: 'Removed' });
+  });
+});
+
+describe('a note’s level (reported: sixteen notes in one list, a likely bug beside "probably fine")', () => {
+  const files = ['src/a.cs'];
+  const answer = (notes: unknown[]) =>
+    JSON.stringify({ stories: [{ title: 'T', why: 'W', risk: 'R', riskLevel: 3, flags: [], files }], notes });
+
+  it('the prompt asks for it on every note, with what each level means, and it is in the JSON asked for', () => {
+    const p = agentPrompt({ title: 'T', number: 1 }, [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' }], []);
+    expect(p).toContain('Give each note a "level": bug, check, minor');
+    expect(p).toContain('"notes":[{"path":"","line":1,"level":"check","body":""}]');
+  });
+
+  it('a known level is kept; an unknown or missing one is left out, and reads as worth checking', () => {
+    const pass = parseAgentPass(
+      answer([
+        { path: 'src/a.cs', line: 1, level: 'bug', body: 'Wrong.' },
+        { path: 'src/a.cs', line: 2, level: 'critical', body: 'Unknown level.' },
+        { path: 'src/a.cs', line: 3, body: 'No level.' },
+        { path: 'src/a.cs', line: 4, level: 'minor', body: 'A name.' },
+      ]),
+      files,
+    )!;
+    expect(pass.notes.map((n) => n.level)).toEqual(['bug', undefined, undefined, 'minor']);
+    expect(pass.notes.map(noteLevel)).toEqual(['bug', 'check', 'check', 'minor']);
+    expect(NOTE_LEVEL_LABEL).toEqual({ bug: 'Likely bug', check: 'Worth checking', minor: 'Minor' });
+  });
+
+  it('the level reaches the review’s drafts', () => {
+    const kinds: FileKind[] = [{ path: 'src/a.cs', kind: 'logic', why: '', by: 'rule' } as FileKind];
+    const tests = {
+      tests: [],
+      counts: { added: 0, changed: 0, removed: 0, skipped: 0 },
+      gaps: [],
+      coverage: { covers: {}, coveredBy: {} },
+      unitOnlyForSchema: false,
+    };
+    const plan = planReview(
+      kinds,
+      tests as unknown as TestBreakdown,
+      parseAgentPass(answer([{ path: 'src/a.cs', line: 1, level: 'bug', body: 'Wrong.' }]), files),
+    );
+    expect(plan.drafts).toEqual([{ id: 'd1', path: 'src/a.cs', line: 1, body: 'Wrong.', level: 'bug' }]);
+  });
+});
+
+describe('a flow names the files it runs through (its links to the stories)', () => {
+  it('asked for in the prompt, and only listed files are kept, each once', () => {
+    const p = agentPrompt({ title: 'T', number: 1 }, [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' }], []);
+    expect(p).toContain('In "files", the files listed under "Files:" that the flow runs through');
+    const pass = parseAgentPass(
+      JSON.stringify({
+        stories: [{ title: 'T', why: 'W', risk: 'R', riskLevel: 3, flags: [], files: ['src/a.cs'] }],
+        flows: [
+          { change: 'added', title: 'With files.', steps: ['One.'], files: ['src/a.cs', 'src/a.cs', 'src/unknown.cs', 7] },
+          { change: 'changed', title: 'Without.', steps: ['One.'] },
+        ],
+      }),
+      ['src/a.cs'],
+    )!;
+    expect(pass.flows).toEqual([
+      { change: 'added', title: 'With files.', steps: ['One.'], files: ['src/a.cs'] },
+      { change: 'changed', title: 'Without.', steps: ['One.'] },
+    ]);
   });
 });

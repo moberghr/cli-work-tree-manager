@@ -10,7 +10,7 @@ import { removeAgentAccount } from '../core/sessions/account-users.js';
 import { accountOverview, addAgentAccount, setDefaultAgentAccount } from '../core/sessions/account-admin.js';
 import { listHostPtys } from '../core/pty/pty-pool.js';
 import { agedWindow, usageText } from '../core/usage/usage.js';
-import type { AccountSwitchWire } from '../core/api-types.js';
+import type { AccountSwitchAllWire, AccountSwitchWire } from '../core/api-types.js';
 import { sessionFromArgs } from './shared/session-arg.js';
 
 /**
@@ -132,6 +132,21 @@ const OUTCOME_TEXT: Record<AccountSwitchWire['outcome'], string> = {
   recorded: 'its Claude is not running: the next start uses it',
 };
 
+/** Move every session (or those on `from`) to the account `to`: work web does it, one session after another. */
+async function switchAll(to: string | undefined, from: string | undefined): Promise<void> {
+  if (!to) return fail('Usage: work account switch --all --to <name> [--from <name>]');
+  const r = await callWorkWeb<AccountSwitchAllWire>(
+    'POST',
+    `/api/accounts/${encodeURIComponent(to)}/sessions`,
+    from ? { from } : {},
+    900_000,
+  );
+  if (!r.ok) return fail(r.status === 0 ? 'work web is not running: start it (or open the app) and run this again' : r.error);
+  console.log(chalk.green(r.body.summary));
+  for (const s of r.body.sessions)
+    console.log(s.outcome ? chalk.gray(`  ${s.label}: ${OUTCOME_TEXT[s.outcome]}`) : chalk.yellow(`  ${s.label}: ${s.error}`));
+}
+
 /** Move the session for `target` / `branch` (or this folder) to the account `to`. */
 async function switchSession(target: string | undefined, branch: string | undefined, to: string | undefined): Promise<void> {
   if (!to) return fail('Usage: work account switch [target] [branch] --to <name>');
@@ -177,6 +192,8 @@ export const accountCommand: CommandModule = {
         type: 'string',
       })
       .option('to', { type: 'string', describe: 'switch: the account to move the session to' })
+      .option('all', { type: 'boolean', describe: 'switch: every session (not archived ones), not one' })
+      .option('from', { type: 'string', describe: 'switch --all: only the sessions on this account' })
       .option('json', { type: 'boolean', describe: 'list: print JSON' })
       .option('force', {
         type: 'boolean',
@@ -200,6 +217,7 @@ export const accountCommand: CommandModule = {
           return await setDefault(name);
         case 'switch':
           // For a switch the two positionals are the session's: <target> [branch] (none: the session for this folder).
+          if (argv.all) return await switchAll(argv.to as string | undefined, argv.from as string | undefined);
           return await switchSession(name, argv.folder as string | undefined, argv.to as string | undefined);
         case 'remove':
           return await remove(name, argv.force === true);

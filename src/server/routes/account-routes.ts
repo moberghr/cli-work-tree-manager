@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { AccountAdminError, agentFor, type AgentAccounts } from '../../core/agents/index.js';
 import { DEFAULT_ACCOUNT, loadConfig } from '../../core/platform/config.js';
 import type { AccountSwitcher } from '../../core/sessions/account-switch.js';
+import { switchAllSessions, switchAllSummary } from '../../core/sessions/account-switch-all.js';
+import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { accountOverview, addAgentAccount, setDefaultAgentAccount, type AccountLogins } from '../../core/sessions/account-admin.js';
 import { removeAgentAccount } from '../../core/sessions/account-users.js';
 import { loadHistory } from '../../core/sessions/history.js';
@@ -14,6 +16,7 @@ import type {
   AccountLoginWire,
   AccountRefusalWire,
   AccountsWire,
+  AccountSwitchAllWire,
   AccountSwitchWire,
   AccountWire,
 } from '../../core/api-types.js';
@@ -28,6 +31,7 @@ import type {
  *   DELETE /api/accounts/:name[?force=1] → forget it (its folder stays); 409 while sessions are on it (archived: force)
  *   POST /api/accounts/:name/login       → AccountLoginWire: its login terminal in the PTY host
  *   DELETE /api/accounts/:name/login     → stop it (work's skills then go into a new account's folder, in the background)
+ *   POST /api/accounts/:name/sessions {from?} → AccountSwitchAllWire: every session (or those on `from`) moved to it
  *   POST /api/sessions/:id/account  {to} → AccountSwitchWire: switched / queued (its turn first) / recorded (not running)
  *   DELETE /api/sessions/:id/account     → drop the switch waiting for its turn (409: none waits, or it is being done now)
  *
@@ -167,6 +171,28 @@ export function mountAccountRoutes(
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) } satisfies AccountRefusalWire, 502);
     }
+  });
+
+  app.post('/api/accounts/:name/sessions', zValidator('json', z.object({ from: z.string().min(1).max(64).optional() })), async (c) => {
+    if (opts.lookOnly) return c.json({ error: opts.lookOnly } satisfies AccountRefusalWire, 409);
+    const to = c.req.param('name');
+    const { from } = c.req.valid('json');
+    const rows = await switchAllSessions(
+      {
+        sessions,
+        accountOf: (s) => s.account ?? DEFAULT_ACCOUNT,
+        idOf: sessionIdFor,
+        switchAccount: (id, name) => opts.switcher.switchAccount(id, name),
+      },
+      to,
+      from,
+    );
+    // An account nobody knows is refused for every session: said once, as one refusal.
+    if (rows.length > 0 && rows.every((r) => r.error) && new Set(rows.map((r) => r.error)).size === 1)
+      return c.json({ error: rows[0].error ?? '' } satisfies AccountRefusalWire, 409);
+    opts.broadcast('sessions-changed', { ts: Date.now() });
+    changed();
+    return c.json({ ok: true, summary: switchAllSummary(rows, to), sessions: rows } satisfies AccountSwitchAllWire);
   });
 
   app.post('/api/sessions/:id/account', zValidator('json', z.object({ to: z.string().min(1).max(64) })), async (c) => {

@@ -5,6 +5,7 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/platform/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
 import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
+import { ownsBranch } from '../core/worktree/own-checkout.js';
 import { findSession, loadHistory } from '../core/sessions/history.js';
 import { clearLaunchedUnsafeWhenIdle } from '../core/sessions/legacy-unsafe-io.js';
 import { retiredUnsafeOption, warnRetiredUnsafe } from './shared/retired-unsafe.js';
@@ -242,6 +243,12 @@ export const treeCommand: CommandModule = {
       console.log(chalk.yellow('Add a new project with: work config add <alias> <path>'));
       process.exitCode = 1;
       return;
+    }
+
+    // The branch the repo's own folder is on can't be checked out a second time: asking for it means that folder.
+    if (branchName && isEmptyBaseSpec(baseSpec) && !target.isGroup && ownsBranch(targetName, branchName, config)) {
+      console.log(chalk.gray(`${branchName} is the branch ${targetName}'s own folder is on: opening it there.`));
+      branchName = undefined;
     }
 
     // No branch specified — work directly on the base repo

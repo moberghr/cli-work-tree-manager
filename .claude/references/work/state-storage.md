@@ -6,3 +6,5 @@ First open (`PRAGMA user_version` 0) creates the schema and imports the pre-SQLi
 
 § WHEN reading-then-writing state, do it in one `tx()`. A transaction can't span an `await`, so async work (port probing in `upsertSessionWithPort`) goes optimistic: compute outside, re-check inside, retry.
 § Tests run with `WORK_DB_EPHEMERAL=1` (tests/setup): the connection closes after each outermost call so temp HOMEs can be deleted on Windows. A test that doesn't mock `os.homedir()` must not reach `db.ts` (it would write the developer's real state.db); inject a store instead, as the PTY registry does with `sessionsPath`.
+
+**`session_reviews`** (schema v14): a session's own review, the last one prepared, with the notes sent and dismissed (`core/review/local-review-store.ts`); per session, deleted in `purgeSessionRows`, exported with the other per-session tables.

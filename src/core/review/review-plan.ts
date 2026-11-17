@@ -61,18 +61,80 @@ export interface Story {
   by: 'ai' | 'folder';
 }
 
+/**
+ * How much a note matters (reported: sixteen notes sat in one list, a likely bug beside "probably fine"): a likely
+ * bug, something worth checking, or a minor point. A note without one (your own, or a review from before) reads as
+ * worth checking.
+ */
+export const NOTE_LEVELS = ['bug', 'check', 'minor'] as const;
+export type NoteLevel = (typeof NOTE_LEVELS)[number];
+export const NOTE_LEVEL_LABEL: Record<NoteLevel, string> = { bug: 'Likely bug', check: 'Worth checking', minor: 'Minor' };
+
+/** A note's level, for one that has none. Pure. */
+export function noteLevel(d: { level?: NoteLevel }): NoteLevel {
+  return d.level ?? 'check';
+}
+
 export interface DraftComment {
   id: string;
   path: string;
   line: number;
   body: string;
+  /** How much it matters (the AI step's; absent: not said). */
+  level?: NoteLevel;
 }
 
+/** What the AI step advises doing with the change as it is: it can go in, something should be fixed first, or a decision is needed. */
+export const VERDICTS = ['ready', 'fix-first', 'discuss'] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
+/** The AI step's advice on the whole change (asked for: a review should say what the agent recommends). Advice: you decide. */
+export interface Recommendation {
+  verdict: Verdict;
+  /** Its reasons, naming what to fix or decide first. */
+  text: string;
+}
+
+export const FLOW_CHANGES = ['added', 'changed', 'removed'] as const;
+export type FlowChange = (typeof FLOW_CHANGES)[number];
+
+/**
+ * A flow the change adds, changes or removes (asked for: a review should describe them): a path through the system
+ * from a trigger to its outcome — a login, a request to an endpoint, a job run — as its steps in order.
+ */
+export interface Flow {
+  change: FlowChange;
+  title: string;
+  steps: string[];
+  /** The changed files it runs through, as listed (absent: none named): what its links to the stories are made of. */
+  files?: string[];
+}
+
+/** The verdict in words, as the review shows it. */
+export const VERDICT_LABEL: Record<Verdict, string> = {
+  ready: 'Ready to merge as it is',
+  'fix-first': 'Fix first',
+  discuss: 'Needs a decision first',
+};
+/** A flow's change in a word. */
+export const FLOW_CHANGE_LABEL: Record<FlowChange, string> = { added: 'New', changed: 'Changed', removed: 'Removed' };
+
+/** A recommendation's reasons at most. */
+export const MAX_RECOMMENDATION = 900;
+/** One step of a flow at most. */
+export const MAX_STEP = 300;
+const MAX_FLOWS = 12;
+const MAX_STEPS = 10;
+
 export interface AgentPass {
+  /** What it advises doing with the change (absent: it gave none). */
+  recommendation?: Recommendation;
+  /** The flows the change adds, changes or removes (absent: it named none). */
+  flows?: Flow[];
   /** What the PR does, in two or three sentences for a reviewer who hasn't read it (absent: the agent gave none). */
   summary?: string;
   stories: Array<{ title: string; what?: string; why: string; risk: string; riskLevel: number; flags: StoryFlag[]; files: string[] }>;
-  notes: Array<{ path: string; line: number; body: string }>;
+  notes: Array<{ path: string; line: number; body: string; level?: NoteLevel }>;
   /** A test's name → what it actually asserts, in a line ("only that nothing throws"). */
   asserts: Record<string, string>;
   /** A listed file → what changed in it and why it matters, in a few sentences (absent: none given). */
@@ -175,7 +237,7 @@ const rangesText = (lines: Array<[number, number]> | undefined): string => {
 /**
  * The agent pass's prompt: the instructions, then everything from the PR — its title, the names of its tests, every
  * changed file of the kinds asked about (`PROMPT_KINDS`) with its +/− and changed lines, and as many of their diffs as
- * `maxChars` has room for, most important first (`byImportance`) — fenced as data between `<<<` and `>>>` (a PR is its
+ * `maxChars` has room for, most important first (`byImportance`; `opts.first`: those paths before the rest) — fenced as data between `<<<` and `>>>` (a PR is its
  * author's text: a title, a path or a test name could be written as an instruction). Nothing of the PR is outside
  * the fence. `checkout`: the agent reads it in a checkout of the PR and may read the files left out; else it has only
  * the prompt and is told which files were left out and why.
@@ -185,10 +247,13 @@ export function agentPrompt(
   files: PromptFile[],
   tests: FoundTest[],
   maxChars = 60_000,
-  opts: { checkout?: string[]; discussion?: string[] } = {},
+  opts: { checkout?: string[]; discussion?: string[]; focus?: string[]; first?: (path: string) => boolean } = {},
 ): string {
   const discussion = opts.discussion ?? [];
+  const first = opts.first;
   const ordered = [...files].sort(byImportance);
+  // The files a pass is about get the room before the ones it only reads as context.
+  if (first) ordered.sort((a, b) => Number(first(b.path)) - Number(first(a.path)));
   let budget = maxChars;
   const inlined = new Set<string>();
   const blocks: string[] = [];
@@ -216,8 +281,12 @@ export function agentPrompt(
     ...(opts.checkout ? [...opts.checkout, ...CHECKOUT_LINES] : DIFF_ONLY_LINES),
     ...WRITING_LINES,
     ...(discussion.length ? DISCUSSION_LINES : []),
+    // What this pass is asked to look at, of all it is shown (a notes pass on one repo of several: local-review.ts).
+    ...(opts.focus ?? []),
     '',
     'First, in "summary", say what the pull request does for a reviewer who has not read it yet: two or three short plain sentences, under 400 characters, the gist rather than every detail.',
+    `In "recommendation", advise the reviewer on the change as it is. "verdict" is one of: ${VERDICTS.join(', ')} — ready when it can be merged as it is, fix-first when something should be fixed before it is merged, discuss when a decision or an answer is needed before it can be judged. "text" gives your reasons in two to four full sentences, naming what to fix or decide first, the most important first (under 700 characters). It is advice: the reviewer decides.`,
+    `In "flows", list the flows this change adds, changes or removes. A flow is a path through the system from a trigger to its outcome, which a user, a caller or a scheduled job goes through: a login, a request to an endpoint, a job run, a deploy step. For each give "change" (${FLOW_CHANGES.join(', ')}), "title" (one plain sentence, under ${MAX_TITLE} characters) and "steps": three to eight short full sentences in order, each naming who or what acts. For an added flow, the steps as they now are; for a changed one, the steps as they now are, saying in the step where it differs what it did before; for a removed one, the steps it had. In "files", the files listed under "Files:" that the flow runs through, as listed. An empty list when the change touches no flow.`,
     'Group the hand-written changes listed under "Files:" into stories: hunks across files that do one thing together. Every listed logic file belongs in a story. Order them riskiest first.',
     'For each story give:',
     `- "title": one plain sentence saying what the change does and for whom, under ${MAX_TITLE} characters — never a list of nouns. For example: "Admins can now turn a partner's submission directly into a working merchant, with its contracts, bank accounts and default settlement."`,
@@ -227,12 +296,13 @@ export function agentPrompt(
     `- "riskLevel" 1-5, and "flags" from this list only: ${FLAGS.join(', ')}.`,
     'In "fileSummaries", for every file listed under "Files:", keyed by its path as listed: what changed in it and why it matters, in 2 to 4 short full sentences (under 450 characters each). Keep them short: there may be many files.',
     'Add review notes only where a reviewer should look (a likely bug, a missing case, an unclear name): each on one listed file and one of the changed lines listed for it (a line of the new side).',
+    `Give each note a "level": ${NOTE_LEVELS.join(', ')} — bug when the code as written is likely wrong or will fail in a case you can name; check when it may be fine but someone who knows the system should confirm it; minor for style, naming, small performance or a nice-to-have. Be strict: most notes are check or minor.`,
     names.length
       ? 'For each test listed under "Tests:" in the data, say in a few words what it actually asserts (a test that only checks "no exception" should say so), keyed by its name as listed.'
       : '',
     '',
     'Answer with JSON only, no prose:',
-    '{"summary":"","stories":[{"title":"","what":"","why":"","risk":"","riskLevel":3,"flags":[],"files":["path"]}],"fileSummaries":{"path":""},"notes":[{"path":"","line":1,"body":""}],"asserts":{"testName":""}}',
+    '{"summary":"","recommendation":{"verdict":"fix-first","text":""},"flows":[{"change":"added","title":"","steps":[""],"files":["path"]}],"stories":[{"title":"","what":"","why":"","risk":"","riskLevel":3,"flags":[],"files":["path"]}],"fileSummaries":{"path":""},"notes":[{"path":"","line":1,"level":"check","body":""}],"asserts":{"testName":""}}',
     '',
     '<<<',
     `Title: ${asData(pr.title, 200)}`,
@@ -278,7 +348,15 @@ export function parseAgentPass(answer: string | null, files: string[], tests: st
     return null;
   }
   if (!raw || typeof raw !== 'object') return null;
-  const o = raw as { summary?: unknown; stories?: unknown; notes?: unknown; asserts?: unknown; fileSummaries?: unknown };
+  const o = raw as {
+    summary?: unknown;
+    stories?: unknown;
+    notes?: unknown;
+    asserts?: unknown;
+    fileSummaries?: unknown;
+    recommendation?: unknown;
+    flows?: unknown;
+  };
   if (!Array.isArray(o.stories)) return null;
   const known = new Set(files);
   const flags = new Set<string>(FLAGS);
@@ -305,10 +383,12 @@ export function parseAgentPass(answer: string | null, files: string[], tests: st
   const notes = (Array.isArray(o.notes) ? o.notes : [])
     .map((n) => {
       const x = (n ?? {}) as Record<string, unknown>;
+      const level = NOTE_LEVELS.find((l) => l === x.level);
       return {
         path: typeof x.path === 'string' ? x.path : '',
         line: typeof x.line === 'number' ? Math.round(x.line) : 0,
         body: str(x.body, MAX_NOTE),
+        ...(level ? { level } : {}),
       };
     })
     .filter((n) => known.has(n.path) && n.line > 0 && n.body)
@@ -331,8 +411,31 @@ export function parseAgentPass(answer: string | null, files: string[], tests: st
       if (path && text) fileSummaries[path] = text;
     }
   const summary = str(o.summary, MAX_SUMMARY);
+  // The advice: only a known verdict with its reasons.
+  const rec = (o.recommendation && typeof o.recommendation === 'object' ? o.recommendation : {}) as Record<string, unknown>;
+  const verdict = VERDICTS.find((v) => v === rec.verdict);
+  const recText = str(rec.text, MAX_RECOMMENDATION);
+  // The flows: a known change, a title and at least one step.
+  const flows: Flow[] = (Array.isArray(o.flows) ? o.flows : [])
+    .map((f) => {
+      const x = (f ?? {}) as Record<string, unknown>;
+      const through = Array.isArray(x.files) ? [...new Set(x.files.filter((p): p is string => typeof p === 'string' && known.has(p)))] : [];
+      return {
+        change: FLOW_CHANGES.find((c) => c === x.change),
+        title: str(x.title, MAX_TITLE),
+        steps: (Array.isArray(x.steps) ? x.steps : [])
+          .map((s) => str(s, MAX_STEP))
+          .filter(Boolean)
+          .slice(0, MAX_STEPS),
+        ...(through.length ? { files: through } : {}),
+      };
+    })
+    .filter((f): f is Flow => !!f.change && !!f.title && f.steps.length > 0)
+    .slice(0, MAX_FLOWS);
   return {
     ...(summary ? { summary } : {}),
+    ...(verdict && recText ? { recommendation: { verdict, text: recText } } : {}),
+    ...(flows.length ? { flows } : {}),
     stories,
     notes,
     asserts,
@@ -358,6 +461,10 @@ export function folderStories(logicFiles: string[]): AgentPass['stories'] {
 }
 
 export interface ReviewPlan {
+  /** The agent's advice on the whole change (absent: none, or no agent pass). */
+  recommendation?: Recommendation;
+  /** The flows the change adds, changes or removes (the agent's; none with stories by folder). */
+  flows: Flow[];
   /** The agent's few sentences on what the PR does (absent: none, or no agent pass). */
   summary?: string;
   groups: Array<{ kind: ChangeKind; folded: boolean; files: FileKind[] }>;
@@ -398,6 +505,8 @@ export function planReview(kinds: FileKind[], tests: TestBreakdown, pass: AgentP
   const storied = new Set(stories.flatMap((s) => s.files));
   return {
     ...(pass?.summary && by === 'ai' ? { summary: pass.summary } : {}),
+    ...(pass?.recommendation && by === 'ai' ? { recommendation: pass.recommendation } : {}),
+    flows: by === 'ai' ? (pass?.flows ?? []) : [],
     groups: groupByKind(kinds).map((g) => ({ kind: g.kind, folded: FOLDED_KINDS.has(g.kind), files: g.files })),
     stories,
     unstoried: logic.filter((f) => !storied.has(f)),

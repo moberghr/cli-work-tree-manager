@@ -7117,3 +7117,176 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   margin: 16px;
   max-width: 80ch;
 }
+
+/* ⋯ → Processes…: what a session holds in memory (SessionProcesses). */
+.wd-procs {
+  width: min(760px, 94vw);
+}
+.wd-procs-summary {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.wd-procs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.wd-procs-table td {
+  padding: 4px 6px;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+.wd-procs-mem {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wd-procs-what {
+  max-width: 0;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, monospace);
+}
+.wd-procs-note {
+  white-space: nowrap;
+  color: var(--muted);
+}
+.wd-procs-leftover .wd-procs-note {
+  color: var(--warn-fg, #b7791f);
+  font-weight: 600;
+}
+.wd-procs-hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* A session's Review tab: the Reviews tab's views, inside the session page (SessionReviewTab). */
+.wd-session-review {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px;
+}
+.wd-session-review-note {
+  padding: 14px;
+}
+
+/* The session's review on a page of its own (/session-review/<id>, SessionReviewApp): the tab, the window's height. */
+.wd-session-review-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+.wd-session-review-page-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px 0;
+}
+.wd-session-review-page-head h1 {
+  margin: 0;
+  font-size: 16px;
+}
+.wd-session-review-page .wd-session-review {
+  flex: 1;
+}
+
+/* The review's recommendation (the AI step's advice) and the flows the change adds, changes or removes. */
+.wd-review-recommendation,
+.wd-review-flows {
+  margin-bottom: 16px;
+}
+.wd-review-recommendation p {
+  margin: 0;
+  max-width: 110ch;
+  padding: 8px 12px;
+  border-left: 3px solid var(--border);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.wd-review-verdict-ready p {
+  border-left-color: var(--ok, #2f855a);
+}
+.wd-review-verdict-fix-first p {
+  border-left-color: var(--warn, #b7791f);
+}
+.wd-review-verdict-discuss p {
+  border-left-color: var(--accent, #2b6cb0);
+}
+.wd-review-flow {
+  max-width: 110ch;
+  padding: 4px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.wd-review-flow summary {
+  cursor: pointer;
+}
+.wd-review-flow ol {
+  margin: 6px 0 8px;
+  padding-left: 34px;
+}
+.wd-review-flow-change {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--warn-bg, #b7791f22);
+}
+.wd-review-flow-added {
+  background: var(--ok-bg, #2f855a22);
+}
+.wd-review-flow-removed {
+  background: var(--danger-bg, #c5303022);
+}
+
+/* A note's own actions in a session's review (Send, Dismiss, or "sent"). */
+.wd-review-note-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  padding-top: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wd-review-pagerbar .wd-review-note-actions {
+  padding-top: 0;
+}
+
+/* A note's level in the overview, the minor notes folded, and "the changes have moved" on a session's review. */
+.wd-review-note-level {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.wd-review-note-bug {
+  background: var(--danger-bg, #c5303022);
+}
+.wd-review-minor {
+  margin: 2px 0 8px;
+  font-size: 13px;
+}
+.wd-review-minor summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.wd-session-review-moved {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--warn, #b7791f);
+}
+
+.wd-review-flow-links {
+  margin: 0 0 8px 34px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-review-flow-links .wd-link-button {
+  margin-right: 10px;
+}

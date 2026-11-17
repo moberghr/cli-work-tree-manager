@@ -9,6 +9,7 @@ import { batchArgProblem, programFor } from '../platform/batch-launch.js';
 import { shellEnv } from '../platform/shell-env.js';
 import childProcess from 'node:child_process';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
@@ -193,6 +194,30 @@ export function conptyOptions(platform: NodeJS.Platform, useBundled: boolean): {
   return platform === 'win32' && useBundled ? { useConptyDll: true } : {};
 }
 
+/** Config `agentsLowPriority`, read at each start (off when config can't be read). */
+function readAgentsLowPriority(): boolean {
+  try {
+    return loadConfig()?.agentsLowPriority === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Put a just-started agent below normal priority (config `agentsLowPriority`; reported: two sessions' test runs and a
+ * compile filled a 15-watt CPU, and the window you type in froze). What it starts inherits it — Windows hands a
+ * below-normal parent's class to its children, POSIX the nice value — so its builds and tests take the idle cores and
+ * give way to what you look at. Null when done, else why not (the agent runs on at normal priority).
+ */
+export function lowerPriority(pid: number, set: (pid: number, priority: number) => void = os.setPriority): string | null {
+  try {
+    set(pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+    return null;
+  } catch (err) {
+    return (err as Error).message;
+  }
+}
+
 /**
  * What a terminal start that took `ms` is worth saying (node-pty's start is synchronous, so the host answered nothing
  * meanwhile): a note in the debug line from 1 s, a warning from 5 s. Pure.
@@ -277,6 +302,11 @@ export class PtySession {
     const slow = slowStart(Date.now() - started);
     debug('PtySession spawned pid=', this.pty.pid, slow.note);
     if (slow.warn) report('warn', slow.warn);
+    // An agent only: a login terminal or another custom command is yours to type in.
+    if (aiOptions && readAgentsLowPriority()) {
+      const why = lowerPriority(this.pty.pid);
+      debug(why ? `PtySession: couldn't lower the agent's priority (${why})` : 'PtySession: agent started below normal priority');
+    }
 
     this.pty.onData((data) => {
       this.terminal.write(data);

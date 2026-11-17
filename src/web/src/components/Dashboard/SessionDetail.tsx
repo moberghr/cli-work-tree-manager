@@ -1,3 +1,5 @@
+import { SessionReviewTab } from './tabs/SessionReviewTab.js';
+import { SessionProcesses } from './SessionProcesses.js';
 import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
 import { requestTerminalReconnect } from '../../state/terminal-reconnect.js';
@@ -56,6 +58,8 @@ interface Props {
   onAddRepo?: () => void;
   /** Opens Claude account… (given while more than one account exists). */
   onAccount?: () => void;
+  /** Keep it once its PR merges, or go back to archiving it then. */
+  onKeep?: (keep: boolean) => void;
   /** Open PRs for this session (PRs pane data). */
   prs?: PrInfo[];
   /** A merge from the Ship panel went through (session now archived). */
@@ -95,6 +99,7 @@ export function SessionDetail({
   onDelete,
   onAddRepo,
   onAccount,
+  onKeep,
   prs = [],
   onShipped,
   startOnLastTurn = false,
@@ -156,6 +161,7 @@ export function SessionDetail({
         onDelete={onDelete}
         onAddRepo={onAddRepo}
         onAccount={onAccount}
+        onKeep={onKeep}
         onShipped={onShipped}
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
@@ -184,6 +190,7 @@ export function SessionDetail({
           />
         )}
         <SubTabButton label="Code" active={subTab === 'code'} onClick={() => onSelectSubTab('code')} />
+        <SubTabButton label="Review" active={subTab === 'review'} onClick={() => onSelectSubTab('review')} />
         {(branchCount > 0 || subTab === 'branches') && (
           <SubTabButton
             label="Branches"
@@ -225,6 +232,7 @@ export function SessionDetail({
             onSearch={isArchived(session) ? undefined : () => setSearching(true)}
           />
         )}
+        {subTab === 'review' && <SessionReviewTab key={session.id} session={session} onShowTerminal={() => onSelectSubTab('term')} />}
         {subTab === 'branches' && (
           <BranchesTab key={session.id} session={session} onShowBranch={showBranch} onShowDiff={() => onSelectSubTab('diff')} />
         )}
@@ -250,6 +258,8 @@ interface HeaderProps {
   onDelete: () => void;
   onAddRepo?: () => void;
   onAccount?: () => void;
+  /** Keep it once its PR merges, or go back to archiving it then. */
+  onKeep?: (keep: boolean) => void;
   onShipped?: () => void;
   onOpenSession?: (id: string) => void;
   /** Open the PR tab (absent while it's the one shown). */
@@ -271,6 +281,7 @@ function SessionHeader({
   onDelete,
   onAddRepo,
   onAccount,
+  onKeep,
   onShipped,
   onOpenSession,
   onOpenPr,
@@ -283,6 +294,7 @@ function SessionHeader({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [shipOpen, setShipOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [processesOpen, setProcessesOpen] = useState(false);
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [renameKey, setRenameKey] = useState(0);
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
@@ -358,12 +370,14 @@ function SessionHeader({
     timeline: () => onShowTimeline?.(),
     sendPrompt: () => setPromptsOpen(true),
     notes: () => setNotesOpen((o) => !o),
+    processes: () => setProcessesOpen(true),
     devStart: () => dev.act('start'),
     devStop: () => dev.act('stop'),
     rename: () => setRenameKey((k) => k + 1),
     remove: onDelete,
     ...(onAddRepo ? { addRepo: onAddRepo } : {}),
     ...(onAccount ? { account: onAccount } : {}),
+    ...(onKeep ? { keep: onKeep } : {}),
   });
   // A session folder's repos, beside its name (a single repo's session: its target says it).
   const repos = headerRepos(session);
@@ -455,6 +469,7 @@ function SessionHeader({
       </div>
       <CatchUpPanel catchUp={catchUp} />
       {notesOpen && <SessionNotes session={session} onClose={() => setNotesOpen(false)} />}
+      {processesOpen && <SessionProcesses session={session} onClose={() => setProcessesOpen(false)} />}
       {needs && <NeedsYouBar text={needs} onOpen={onOpenPr} />}
       {shipOpen && (
         <ShipPanel

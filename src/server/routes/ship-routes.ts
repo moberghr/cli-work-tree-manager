@@ -8,6 +8,7 @@ import { archivedForMerge, archiveSession, restoreArchivedTranscripts } from '..
 import { defaultArchiveDeps } from '../../core/archive/session-archive-deps.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { isWorktreeFolder } from '../../core/worktree/leftover.js';
+import type { RemoveWorktree } from '../../core/worktree/remove-child.js';
 import type { Holders } from '../../core/platform/running-from.js';
 import { freeLeftovers, leftoversOf, lookAtLeftovers, openInLeftovers } from '../../core/archive/restore-leftovers.js';
 import {
@@ -27,6 +28,8 @@ export interface ShipRoutesOptions {
   run?: CommandRunner;
   /** Let go of a session's folders before its worktree is removed (watchers). */
   release?: (sessionId: string) => Promise<void>;
+  /** How an archived session's worktree is removed (work web: in a child process, remove-child.ts). */
+  removeWorktree?: RemoveWorktree;
   /** How a removed worktree is made again on Restore (work web: in a child process, setup-child.ts). */
   create?: CreateWorktree;
   /** What runs from or names a folder, and stopping it (running-from.ts; tests swap them). */
@@ -80,7 +83,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     const keepOnRestore = !archived && archivedForMerge(id);
     if (archived) {
       // `merged`: Ship's merge archives it; otherwise it's your Archive (the button, its key, the bulk bar).
-      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), {
+      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release, removeWorktree: opts.removeWorktree }), {
         force,
         merged,
         by: merged ? 'shipped' : 'you',
