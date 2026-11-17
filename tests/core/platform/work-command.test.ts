@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { shQuote, workCommand, workInvocation } from '../../../src/core/platform/work-command.js';
+import { shellFor } from '../../../src/core/agents/claude/statusline-run.js';
 
 /**
  * How Claude Code runs THIS work for a hook or its status line. Reported: a bare `work hook turn-end` ran an old
@@ -12,9 +14,10 @@ describe('workInvocation', () => {
       workInvocation({ argv1: '/usr/lib/node_modules/w/dist/bin.js', execPath: '/usr/bin/node', configDir: '/h/.work', platform: 'linux' }),
     ).toEqual(['/usr/bin/node', '/usr/lib/node_modules/w/dist/bin.js']);
     // Run as `wd`: its sibling, the `work` binary.
+    // (the sibling is joined with this platform's separator: resolveWorkBinPath's own)
     expect(workInvocation({ argv1: '/x/dist/wd-bin.js', execPath: '/n', configDir: '/h/.work', platform: 'linux' })).toEqual([
       '/n',
-      '/x/dist/bin.js',
+      path.join('/x/dist', 'bin.js'),
     ]);
   });
 
@@ -46,7 +49,9 @@ describe('shQuote', () => {
   it('leaves plain words as they are and quotes the rest so sh reads them back unchanged', () => {
     expect(shQuote('/usr/bin/node', 'linux')).toBe('/usr/bin/node');
     for (const w of ["/home/o'neil/work", '/a b/$HOME/`x`', 'a;b&c|d']) {
-      const out = spawnSync('/bin/sh', ['-c', `printf %s ${shQuote(w, 'linux')}`], { encoding: 'utf-8', windowsHide: true }).stdout;
+      // The shell Claude Code runs hooks in: sh, Git Bash on Windows.
+      const sh = shellFor();
+      const out = spawnSync(sh.file, sh.args(`printf %s ${shQuote(w, 'linux')}`), { encoding: 'utf-8', windowsHide: true }).stdout;
       expect(out).toBe(w);
     }
   });
