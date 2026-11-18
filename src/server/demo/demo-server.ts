@@ -1047,6 +1047,41 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     scenario.accountsChanged();
     return c.json({ ok: true, installingSkills: false });
   });
+  // An account's setup copied to another: made up (the demo's accounts have no folders).
+  const demoSetup = (from: string, to: string, done: boolean) => ({
+    from,
+    to,
+    summary: done
+      ? `Copied 3 of 3 things from ${from} to ${to}. Restart a session's Claude for it to see them.`
+      : `3 things to copy from ${from} to ${to}.`,
+    items: [
+      { kind: 'file', name: 'CLAUDE.md', does: 'adds' as const, ...(done ? { ok: true } : {}) },
+      {
+        kind: 'mcp',
+        name: 'atlassian',
+        does: 'adds' as const,
+        note: `needs its own sign-in on ${to}: /mcp → atlassian → Authenticate`,
+        ...(done ? { ok: true } : {}),
+      },
+      {
+        kind: 'plugin',
+        name: 'typescript-lsp@claude-plugins-official',
+        does: 'adds' as const,
+        note: 'installed from its marketplace',
+        ...(done ? { ok: true } : {}),
+      },
+    ],
+  });
+  app.get('/api/accounts/:name/setup', (c) => {
+    const from = c.req.query('from') ?? '';
+    return from ? c.json(demoSetup(from, c.req.param('name'), false)) : c.json({ error: 'from is required' }, 400);
+  });
+  app.post('/api/accounts/:name/setup', async (c) => {
+    const from = (await json(c)).from;
+    return typeof from === 'string' && from
+      ? c.json(demoSetup(from, c.req.param('name'), true))
+      : c.json({ error: 'from is required' }, 400);
+  });
   // Every session to one account: each recorded, as one switch is.
   app.post('/api/accounts/:name/sessions', async (c) => {
     const to = c.req.param('name');

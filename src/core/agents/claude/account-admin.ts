@@ -10,6 +10,7 @@ import { AccountAdminError, type AccountUsers, type AgentAccountAdmin } from '..
 import { accountDir, accountEnv, accountForbiddenRoots, accountProblem, expandAccountDir, validateClaudeAccounts } from './accounts.js';
 import { withoutParentSession } from './env.js';
 import { installClaudeSkillsFor } from './skills.js';
+import { applySetupCopy, planSetupCopy, type SetupAccount } from './setup-copy.js';
 
 /**
  * Changes to the Claude accounts in config.json, as raw JSON under the config's lock (repo-admin.ts does the same), so a
@@ -122,4 +123,17 @@ export const claudeAccountAdmin: AgentAccountAdmin = {
     if (!dir) return { ok: false, message: `no account “${name}”` };
     return installClaudeSkillsFor(dir);
   },
+  setupPlan: (from, to) => planSetupCopy(...setupPair(from, to)),
+  copySetup: (from, to) => applySetupCopy(...setupPair(from, to)),
 };
+
+/** The two accounts of a setup copy, with their folders; refused when either is unknown or they are one account. */
+export function setupPair(from: string, to: string): [SetupAccount, SetupAccount] {
+  const [a, b] = [from, to].map((name) => {
+    const dir = accountDir(name);
+    if (!dir) throw new AccountAdminError(`no account “${name}”`);
+    return { name, dir };
+  });
+  if (a.name === b.name) throw new AccountAdminError('an account’s setup can’t be copied to itself');
+  return [a, b];
+}

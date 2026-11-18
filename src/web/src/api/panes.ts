@@ -9,6 +9,8 @@ export interface ProjectSummary {
   kind: 'single' | 'group';
   path?: string;
   members?: string[];
+  /** A repo: the branch its own folder is on now (null: detached); absent from an older server. */
+  ownBranch?: string | null;
 }
 
 export interface PrInfo {

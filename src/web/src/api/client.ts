@@ -350,6 +350,28 @@ export function fetchAccounts(): Promise<import('../../../core/api-types.js').Ac
  * Move a session's Claude to another account (POST /api/sessions/:id/account): switched, queued
  * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
  */
+type AccountSetup = import('../../../core/api-types.js').AccountSetupWire;
+
+/** What copying `from`'s setup to `to` would do (a read). Throws the server's reason when refused. */
+export async function fetchAccountSetupPlan(to: string, from: string): Promise<AccountSetup> {
+  const res = await fetch(`/api/accounts/${encodeURIComponent(to)}/setup?from=${encodeURIComponent(from)}`);
+  const body = (await res.json().catch(() => ({}))) as AccountSetup & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `setup: ${res.status}`);
+  return body;
+}
+
+/** Copy `from`'s setup to `to`; resolves with each thing and how it went. */
+export async function copyAccountSetup(to: string, from: string): Promise<AccountSetup> {
+  const res = await fetch(`/api/accounts/${encodeURIComponent(to)}/setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from }),
+  });
+  const body = (await res.json().catch(() => ({}))) as AccountSetup & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `copy setup: ${res.status}`);
+  return body;
+}
+
 /** Move every session on another account to `name` (POST /api/accounts/:name/sessions). Throws the server's reason when refused. */
 /** Dismiss a note of a session's review (`undo`: bring it back); resolves with the review as it is kept now. */
 export async function dismissSessionReviewNote(sessionId: string, noteId: string, undo = false): Promise<SessionReview> {

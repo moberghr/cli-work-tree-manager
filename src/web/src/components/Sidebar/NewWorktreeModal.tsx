@@ -77,6 +77,17 @@ export function moreLabel(name: string, base: string, account = ''): string {
  * The branch field's placeholder: the branch an empty field makes — the suggestion (or the free
  * name it gave way to) when there is a prompt, else the project's own checkout. Pure.
  */
+/**
+ * What Create does with no branch name, said under the empty field: it opens the project's own folder, on whatever
+ * branch that folder is on now — which may not be main. Null for a group (it needs a name) or a branch that is set. Pure.
+ */
+export function ownFolderNote(project: Pick<ProjectSummary, 'name' | 'kind' | 'ownBranch'> | undefined, branch: string): string | null {
+  if (!project || project.kind !== 'single' || branch.trim()) return null;
+  if (project.ownBranch)
+    return `No branch: opens ${project.name}’s own folder, which is on ${project.ownBranch} now (no new worktree). For another branch, type its name.`;
+  return project.ownBranch === null ? `No branch: opens ${project.name}’s own folder as it is (it is on no branch now).` : null;
+}
+
 export function branchPlaceholder(branch: string, suggested: boolean, isGroup: boolean, hasPrompt: boolean): string {
   if (suggested && branch && hasPrompt) return `${branch} (suggested; type to name your own)`;
   return isGroup ? 'feat/whatever (a group needs one)' : 'empty: the project as it is, on its own checkout';
@@ -166,7 +177,11 @@ export function NewWorktreeModal({
   const checkFor = check && check.target === target.trim() && check.branch === wanted.trim() ? check : null;
   // A suggestion that's taken gives way to a free name: new work never lands on an old branch unasked.
   const branch = suggested && checkFor?.free ? checkFor.free : wanted;
-  const note = checkFor ? branchNote(checkFor, suggested) : null;
+  const ownNote = ownFolderNote(
+    projects?.singles.find((p) => p.name === target.trim()),
+    branch,
+  );
+  const note = checkFor ? branchNote(checkFor, suggested) : ownNote ? { text: ownNote } : null;
   const checkRef = useRef(checkBranch);
   checkRef.current = checkBranch;
   useEffect(() => {

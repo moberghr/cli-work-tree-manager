@@ -113,6 +113,7 @@ describe('session header', () => {
     act(() => more().click());
     expect(menuItems()).toEqual([
       'Reconnect terminal⇧R',
+      'Restart Claude (reads settings, MCP servers, plugins again)',
       'Open in terminal⇧T',
       'Ship (push, PR, merge)…⇧S',
       'Catch me upr',

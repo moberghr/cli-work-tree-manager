@@ -132,6 +132,41 @@ const OUTCOME_TEXT: Record<AccountSwitchWire['outcome'], string> = {
   recorded: 'its Claude is not running: the next start uses it',
 };
 
+/** Copy `from`'s setup to `to` (`work account copy-setup <to> --from <from>`); `dryRun`: only say what it would do. */
+async function copySetup(to: string | undefined, from: string | undefined, dryRun: boolean): Promise<void> {
+  if (!to || !from) return fail('Usage: work account copy-setup <to> --from <from> [--dry-run]');
+  const found = accountsOrFail();
+  if (!found) return;
+  const admin = found.accounts.admin;
+  if (!admin?.setupPlan || !admin.copySetup) return fail(`${found.name} has no setup to copy`);
+  const plan = admin.setupPlan(from, to);
+  if (plan.length === 0) return void console.log(chalk.green(`${to} already has ${from}'s setup: nothing to copy.`));
+  if (dryRun) {
+    console.log(`Copying ${from}'s setup to ${to} would do ${plan.length} thing${plan.length === 1 ? '' : 's'}:`);
+    for (const i of plan) console.log(`  ${i.does} ${i.kind} ${i.name}${i.note ? chalk.gray(` — ${i.note}`) : ''}`);
+    return;
+  }
+  console.log(
+    chalk.gray(
+      `Copying ${plan.length} thing${plan.length === 1 ? '' : 's'} from ${from} to ${to} (plugins are installed from their marketplaces: this can take a minute)…`,
+    ),
+  );
+  const done = await admin.copySetup(from, to);
+  for (const i of done)
+    console.log(
+      i.ok
+        ? `  ${chalk.green('✓')} ${i.kind} ${i.name}${i.note ? chalk.gray(` — ${i.note}`) : ''}`
+        : `  ${chalk.red('✗')} ${i.kind} ${i.name}: ${i.error}`,
+    );
+  const failed = done.filter((i) => !i.ok).length;
+  console.log(
+    (failed ? chalk.yellow : chalk.green)(
+      `Copied ${done.length - failed} of ${done.length}${failed ? `; ${failed} failed` : ''}. Restart a session's Claude for it to see them.`,
+    ),
+  );
+  if (failed) process.exitCode = 1;
+}
+
 /** Move every session (or those on `from`) to the account `to`: work web does it, one session after another. */
 async function switchAll(to: string | undefined, from: string | undefined): Promise<void> {
   if (!to) return fail('Usage: work account switch --all --to <name> [--from <name>]');
@@ -174,12 +209,13 @@ async function switchSession(target: string | undefined, branch: string | undefi
 
 export const accountCommand: CommandModule = {
   command: 'account <action> [name] [folder]',
-  describe: "The agent's accounts (Claude Code logins): add, list, default, remove, switch (also on the dashboard's Accounts page)",
+  describe:
+    "The agent's accounts (Claude Code logins): add, list, default, remove, switch, copy-setup (also on the dashboard's Accounts page)",
   builder: (yargs) =>
     yargs
       .positional('action', {
         describe: 'What to do',
-        choices: ['add', 'list', 'default', 'remove', 'switch', 'skills'] as const,
+        choices: ['add', 'list', 'default', 'remove', 'switch', 'skills', 'copy-setup'] as const,
         type: 'string',
         demandOption: true,
       })
@@ -193,7 +229,11 @@ export const accountCommand: CommandModule = {
       })
       .option('to', { type: 'string', describe: 'switch: the account to move the session to' })
       .option('all', { type: 'boolean', describe: 'switch: every session (not archived ones), not one' })
-      .option('from', { type: 'string', describe: 'switch --all: only the sessions on this account' })
+      .option('from', {
+        type: 'string',
+        describe: 'switch --all: only the sessions on this account; copy-setup: the account whose setup is copied',
+      })
+      .option('dry-run', { type: 'boolean', describe: 'copy-setup: only say what it would copy' })
       .option('json', { type: 'boolean', describe: 'list: print JSON' })
       .option('force', {
         type: 'boolean',
@@ -215,6 +255,8 @@ export const accountCommand: CommandModule = {
           return list(argv.json === true);
         case 'default':
           return await setDefault(name);
+        case 'copy-setup':
+          return await copySetup(name, argv.from as string | undefined, argv.dryRun === true);
         case 'switch':
           // For a switch the two positionals are the session's: <target> [branch] (none: the session for this folder).
           if (argv.all) return await switchAll(argv.to as string | undefined, argv.from as string | undefined);

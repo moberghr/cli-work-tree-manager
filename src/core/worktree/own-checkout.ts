@@ -44,3 +44,22 @@ export function ownsBranch(
   const repo = config.repos[target];
   return !!repo && read(repo) === branch;
 }
+
+/**
+ * The projects as the New worktree dialog lists them: each repo with the branch its own folder is on now (reported:
+ * a session started with no branch name landed on a feature branch the repo's folder had been left on, not on main —
+ * the dialog didn't say where "the project as it is" was). `ownBranch` null: detached, or its folder can't be read.
+ * The branch is read from the HEAD file: no git.
+ */
+export function projectList(
+  config: { repos: Record<string, string>; groups?: Record<string, string[]> },
+  read: (checkout: string) => string | null = checkedOutBranch,
+): {
+  singles: Array<{ name: string; kind: 'single'; path: string; ownBranch: string | null }>;
+  groups: Array<{ name: string; kind: 'group'; members: string[] }>;
+} {
+  return {
+    singles: Object.entries(config.repos).map(([name, p]) => ({ name, kind: 'single' as const, path: p, ownBranch: read(p) })),
+    groups: Object.entries(config.groups ?? {}).map(([name, members]) => ({ name, kind: 'group' as const, members })),
+  };
+}

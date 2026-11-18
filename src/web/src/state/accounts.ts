@@ -166,3 +166,18 @@ export function sessionsElsewhere(data: AccountsWire, name: string): number {
   if (!here || here.loggedIn === false) return 0;
   return data.accounts.filter((a) => a.name !== name).reduce((n, a) => n + (a.liveSessions?.length ?? 0), 0);
 }
+
+/**
+ * The account a "Copy setup from…" on `name` copies from: the default account, or for the default account itself
+ * none (it is the one the others are set up from). Null: not offered. Pure.
+ */
+export function setupSource(data: AccountsWire, name: string): string | null {
+  return name === data.default || !data.accounts.some((a) => a.name === data.default) ? null : data.default;
+}
+
+/** A setup item as one line: "adds mcp atlassian — needs its own sign-in". Pure. */
+export function setupItemLine(i: { kind: string; name: string; does: string; note?: string; ok?: boolean; error?: string }): string {
+  const what = `${i.does} ${i.kind} ${i.name}`;
+  if (i.ok === false) return `✗ ${what}: ${i.error ?? 'it failed'}`;
+  return `${i.ok ? '✓ ' : ''}${what}${i.note ? ` — ${i.note}` : ''}`;
+}

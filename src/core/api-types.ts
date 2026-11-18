@@ -1572,6 +1572,18 @@ export interface AccountSwitchWire {
   moved?: number;
 }
 
+/**
+ * GET /api/accounts/:name/setup?from=x: what copying `from`'s setup to it would do (a read) — and
+ * POST the same {from}: it done, each thing with how it went (`AgentAccountAdmin.setupPlan` / `copySetup`).
+ */
+export interface AccountSetupWire {
+  from: string;
+  to: string;
+  /** What happened, or would, in a line. */
+  summary: string;
+  items: Array<import('./agents/types.js').AccountSetupItem & { ok?: boolean; error?: string }>;
+}
+
 /** POST /api/accounts/:name/sessions {from?}: every session moved to that account, each with how it went (account-switch-all.ts). */
 export interface AccountSwitchAllWire {
   ok: true;

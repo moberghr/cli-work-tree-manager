@@ -43,7 +43,8 @@ import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/LazyPtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
-import { openInTerminal } from '../../api/panes.js';
+import { openInTerminal, restartAgents } from '../../api/panes.js';
+import { restartNote } from '../../state/agent-restart-view.js';
 import { markdownHtml, writeRich } from '../../state/rich-copy.js';
 import { ARCHIVED_BY_SHORT, archivedLine } from '../../state/archive-view.js';
 import { headerRepos } from '../../state/add-repo.js';
@@ -314,6 +315,14 @@ function SessionHeader({
     onShowTerminal?.();
     requestTerminalReconnect(session.id);
   };
+  // Restart its agent on the same conversation: what it reads once at its start (settings, MCP servers, plugins) is read again.
+  const restartAgent = () => {
+    setNote({ text: 'Restarting its Claude…' });
+    restartAgents({ ids: [session.id] }).then(
+      (r) => setNote(restartNote(r, session.id)),
+      (err: Error) => setNote({ text: err.message, error: true }),
+    );
+  };
   const openTerminal = () => {
     setNote({ text: 'Opening in a terminal…' });
     openInTerminal(session.id).then(
@@ -364,6 +373,7 @@ function SessionHeader({
   const items = sessionHeaderItems(session, dev.state, {
     openTerminal,
     reconnectTerminal,
+    restartAgent,
     ship: () => setShipOpen(true),
     catchUp: catchUp.run,
     copyReply,

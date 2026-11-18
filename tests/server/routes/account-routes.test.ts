@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { mountAccountRoutes } from '../../../src/server/routes/account-routes.js';
 import { createAccountSwitcher, type AccountSwitchDeps } from '../../../src/core/sessions/account-switch.js';
 import { saveConfig } from '../../../src/core/platform/config.js';
-import type { AccountsWire, AccountSwitchAllWire, AccountSwitchWire } from '../../../src/core/api-types.js';
+import type { AccountSetupWire, AccountsWire, AccountSwitchAllWire, AccountSwitchWire } from '../../../src/core/api-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 
 /** GET /api/accounts and POST /api/sessions/:id/account, over a switcher with fake I/O. */
@@ -369,5 +369,73 @@ describe('POST /api/accounts/:name/sessions (every session to one account)', () 
     const dev = mount('the dev server acts on nothing');
     expect((await dev.post('work')).status).toBe(409);
     expect(dev.asked).toEqual([]);
+  });
+});
+
+describe('an account’s setup copied to another (GET and POST /api/accounts/:name/setup)', () => {
+  const item = { kind: 'mcp', name: 'atlassian', does: 'adds' as const, note: 'needs its own sign-in on work' };
+  function mount(opts: { lookOnly?: string; admin?: Record<string, unknown> | null } = {}) {
+    const asked: string[] = [];
+    const events: string[] = [];
+    const admin =
+      opts.admin === null
+        ? undefined
+        : {
+            setupPlan: (from: string, to: string) => (asked.push(`plan ${from}→${to}`), from === 'ghost' ? [] : [item]),
+            copySetup: async (from: string, to: string) => (
+              asked.push(`copy ${from}→${to}`),
+              [
+                { ...item, ok: true },
+                { ...item, name: 'x', ok: false, error: 'no' },
+              ]
+            ),
+            ...opts.admin,
+          };
+    const app = new Hono();
+    mountAccountRoutes(app, {
+      switcher: {} as never,
+      broadcast: (e) => void events.push(e),
+      accounts: () => ({ admin }) as never,
+      ...(opts.lookOnly ? { lookOnly: opts.lookOnly } : {}),
+    });
+    const post = (name: string, body: unknown) =>
+      app.request(`/api/accounts/${name}/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    return { app, post, asked, events };
+  }
+
+  it('GET says what it would do and changes nothing; nothing to copy is said, not an error', async () => {
+    const { app, asked, events } = mount();
+    const plan = (await (await app.request('/api/accounts/work/setup?from=default')).json()) as AccountSetupWire;
+    expect(plan).toEqual({ from: 'default', to: 'work', summary: '1 thing to copy from default to work.', items: [item] });
+    const none = (await (await app.request('/api/accounts/work/setup?from=ghost')).json()) as AccountSetupWire;
+    expect(none.summary).toBe("work already has ghost's setup: nothing to copy.");
+    expect(asked).toEqual(['plan default→work', 'plan ghost→work']);
+    expect(events).toEqual([]);
+    expect((await app.request('/api/accounts/work/setup')).status).toBe(400);
+  });
+
+  it('POST does it, says how each thing went and that a session needs a restart, and tells the pages', async () => {
+    const { post, asked, events } = mount();
+    const res = await post('work', { from: 'default' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as AccountSetupWire;
+    expect(body.summary).toBe("Copied 1 of 2 things from default to work; 1 failed. Restart a session's Claude for it to see them.");
+    expect(body.items.map((i) => i.ok)).toEqual([true, false]);
+    expect(asked).toEqual(['copy default→work']);
+    expect(events).toEqual(['accounts-changed']);
+  });
+
+  it('refused: a look-only server, an agent with no setup to copy, a body with no "from"', async () => {
+    const dev = mount({ lookOnly: 'the dev server acts on nothing' });
+    expect((await dev.post('work', { from: 'default' })).status).toBe(409);
+    expect(dev.asked).toEqual([]);
+    const none = mount({ admin: { setupPlan: undefined, copySetup: undefined } });
+    expect((await none.post('work', { from: 'default' })).status).toBe(409);
+    expect((await none.app.request('/api/accounts/work/setup?from=default')).status).toBe(409);
+    expect((await mount().post('work', {})).status).toBe(400);
   });
 });

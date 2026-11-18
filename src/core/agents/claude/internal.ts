@@ -86,7 +86,7 @@ export function internalClaudeReadOnlySpawn(opts: { cwd: string; model?: string;
       'dontAsk',
       ...(opts.model ? ['--model', opts.model] : []),
       // Files this run may not read (a session's own folder: its repos' deny rules, which this run doesn't load itself).
-      // Measured on 2.1.317 (2026-11): a denied file's Read is refused, and Grep prints nothing from it.
+      // Measured on 2.1.317 (2026-11): a denied file's Read is refused, Grep prints nothing from it and Glob doesn't list it.
       ...(opts.deny?.length ? ['--disallowedTools', ...opts.deny] : []),
     ],
     cwd: opts.cwd,

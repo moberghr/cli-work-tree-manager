@@ -26,6 +26,8 @@ export interface HeaderMenuActions {
   devStop: () => void;
   rename: () => void;
   remove: () => void;
+  /** Restart its agent, resuming its conversation: it reads its settings, MCP servers and plugins again. */
+  restartAgent?: () => void;
   /** Keep it once its PR merges, or go back to archiving it then (the rail menu's item). */
   keep?: (keep: boolean) => void;
   /** Open Processes…: what it holds in memory, and stopping one left running (a live session only). */
@@ -44,6 +46,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
     ? []
     : [
         { label: 'Reconnect terminal', hint: sessionKey('reconnect'), run: a.reconnectTerminal },
+        ...(a.restartAgent ? [{ label: 'Restart Claude (reads settings, MCP servers, plugins again)', run: a.restartAgent }] : []),
         { label: 'Open in terminal', hint: sessionKey('terminal'), run: a.openTerminal },
         { label: 'Ship (push, PR, merge)…', hint: sessionKey('ship'), run: a.ship },
         ...(a.keep

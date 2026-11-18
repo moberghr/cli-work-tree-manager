@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AccountsWire } from '../../../../../core/api-types.js';
-import { AccountChangeError, addAccount, makeDefaultAccount, moveAllSessionsToAccount, removeAccount } from '../../../api/client.js';
+import type { AccountSetupWire, AccountsWire } from '../../../../../core/api-types.js';
+import {
+  AccountChangeError,
+  addAccount,
+  copyAccountSetup,
+  fetchAccountSetupPlan,
+  makeDefaultAccount,
+  moveAllSessionsToAccount,
+  removeAccount,
+} from '../../../api/client.js';
 import { useAccounts } from '../../../hooks/use-accounts.js';
 import {
   accountPageRows,
@@ -9,6 +17,8 @@ import {
   defaultAccountFolder,
   removeRefusal,
   sessionsElsewhere,
+  setupItemLine,
+  setupSource,
 } from '../../../state/accounts.js';
 import { AccountLoginPanel } from '../AccountLoginPanel.js';
 
@@ -20,6 +30,9 @@ export interface AccountsApi {
   remove: (name: string, force?: boolean) => Promise<unknown>;
   /** Move every session on another account to this one; resolves with what happened, in a line. */
   moveAll: (name: string) => Promise<{ summary: string }>;
+  /** What copying `from`'s setup to `to` would do, and doing it. */
+  setupPlan: (to: string, from: string) => Promise<AccountSetupWire>;
+  copySetup: (to: string, from: string) => Promise<AccountSetupWire>;
 }
 
 const httpAccounts: AccountsApi = {
@@ -27,6 +40,8 @@ const httpAccounts: AccountsApi = {
   makeDefault: makeDefaultAccount,
   remove: removeAccount,
   moveAll: moveAllSessionsToAccount,
+  setupPlan: fetchAccountSetupPlan,
+  copySetup: copyAccountSetup,
 };
 
 interface Props {
@@ -62,6 +77,8 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Pending | null>(null);
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
+  /** A setup copy shown before it is done (its plan), then with how each thing went. */
+  const [setup, setSetup] = useState<(AccountSetupWire & { done?: boolean }) | null>(null);
   /** What the last "Move all sessions here" did, by account. */
   const [movedNote, setMovedNote] = useState<Record<string, string>>({});
 
@@ -173,6 +190,49 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
         </form>
       )}
 
+      {setup && (
+        <div className="wd-accounts-setup" role="dialog" aria-label="Copy setup">
+          <p>
+            <strong>{setup.summary}</strong>
+          </p>
+          {setup.items.length > 0 && (
+            <ul>
+              {setup.items.map((i) => (
+                <li key={`${i.kind}:${i.name}`} className={i.ok === false ? 'wd-accounts-error' : undefined}>
+                  {setupItemLine(i)}
+                </li>
+              ))}
+            </ul>
+          )}
+          {!setup.done && setup.items.length > 0 && (
+            <p className="wd-start-note">
+              Logins and tokens are never copied, nor conversations. Nothing on {setup.to} is deleted. Plugins are installed from their
+              marketplaces, which can take a minute.
+            </p>
+          )}
+          {!setup.done && setup.items.length > 0 && (
+            <button
+              type="button"
+              className="wd-btn-primary"
+              disabled={busy !== null}
+              onClick={() =>
+                act(`setup:${setup.to}`, () => api.copySetup(setup.to, setup.from).then((r) => setSetup({ ...r, done: true })))
+              }
+            >
+              {busy === `setup:${setup.to}` ? 'Copying…' : `Copy to ${setup.to}`}
+            </button>
+          )}
+          <button type="button" className="wd-btn-secondary" onClick={() => setSetup(null)} disabled={busy === `setup:${setup.to}`}>
+            {setup.done || setup.items.length === 0 ? 'Close' : 'Cancel'}
+          </button>
+          {rowError[`setup:${setup.to}`] && (
+            <span className="wd-accounts-error" role="alert">
+              {rowError[`setup:${setup.to}`]}
+            </span>
+          )}
+        </div>
+      )}
+
       {pending && (
         <div className="wd-repos-confirm wd-accounts-confirm" role="alertdialog" aria-label="Confirm">
           <span>{pending.text}</span>
@@ -229,6 +289,20 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
                       Make default
                     </button>
                   )}
+                  {data && setupSource(data, r.name) && (
+                    <button
+                      type="button"
+                      className="wd-btn-secondary"
+                      onClick={() => {
+                        const from = setupSource(data, r.name)!;
+                        act(`plan:${r.name}`, () => api.setupPlan(r.name, from).then(setSetup));
+                      }}
+                      disabled={busy !== null}
+                      title={`Shows what ${r.name} lacks of ${setupSource(data, r.name)}'s setup (its instructions, agents, commands, settings, MCP servers, plugins), then copies it when you say so. Never a login.`}
+                    >
+                      Copy setup from {setupSource(data, r.name)}…
+                    </button>
+                  )}
                   {data && sessionsElsewhere(data, r.name) > 0 && (
                     <button
                       type="button"
@@ -258,9 +332,15 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
                 </>
               )}
             </span>
-            {(rowError[`remove:${r.name}`] ?? rowError[`default:${r.name}`] ?? rowError[`moveall:${r.name}`]) && (
+            {(rowError[`remove:${r.name}`] ??
+              rowError[`default:${r.name}`] ??
+              rowError[`moveall:${r.name}`] ??
+              rowError[`plan:${r.name}`]) && (
               <span className="wd-accounts-error" role="alert">
-                {rowError[`remove:${r.name}`] ?? rowError[`default:${r.name}`] ?? rowError[`moveall:${r.name}`]}
+                {rowError[`remove:${r.name}`] ??
+                  rowError[`default:${r.name}`] ??
+                  rowError[`moveall:${r.name}`] ??
+                  rowError[`plan:${r.name}`]}
               </span>
             )}
             {movedNote[r.name] && (

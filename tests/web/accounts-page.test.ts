@@ -139,6 +139,8 @@ describe('AccountsTab', () => {
       add: vi.fn(async (name: string) => ({ dir: `~/.claude-${name}` })),
       makeDefault: vi.fn(async () => ({ ok: true })),
       moveAll: vi.fn(async () => ({ summary: '' })),
+      setupPlan: vi.fn(async () => ({ from: 'default', to: 'work', summary: '', items: [] })),
+      copySetup: vi.fn(async () => ({ from: 'default', to: 'work', summary: '', items: [] })),
       remove: o.remove ?? vi.fn(async () => ({ ok: true })),
     };
     act(() =>
@@ -270,5 +272,23 @@ describe('Move all sessions here', () => {
     expect(sessionsElsewhere(data as never, 'out')).toBe(0);
     expect(sessionsElsewhere(data as never, 'ghost')).toBe(0);
     expect(sessionsElsewhere({ ...data, accounts: [account('default', 3)] } as never, 'default')).toBe(0);
+  });
+});
+
+describe('Copy setup from…', () => {
+  it('is offered on every account but the default one, from the default one; a line says what each thing does or how it went', async () => {
+    const { setupSource, setupItemLine } = await import('../../src/web/src/state/accounts.js');
+    const data = { accounts: [{ name: 'default' }, { name: 'admin' }], default: 'default', canManage: true } as never;
+    expect(setupSource(data, 'admin')).toBe('default');
+    expect(setupSource(data, 'default')).toBeNull();
+    // The default is another account now: the others copy from it.
+    expect(setupSource({ accounts: [{ name: 'default' }, { name: 'admin' }], default: 'admin' } as never, 'default')).toBe('admin');
+    expect(setupItemLine({ kind: 'mcp', name: 'atlassian', does: 'adds', note: 'needs its own sign-in' })).toBe(
+      'adds mcp atlassian — needs its own sign-in',
+    );
+    expect(setupItemLine({ kind: 'file', name: 'CLAUDE.md', does: 'replaces', ok: true })).toBe('✓ replaces file CLAUDE.md');
+    expect(setupItemLine({ kind: 'plugin', name: 'x@y', does: 'adds', ok: false, error: 'not found' })).toBe(
+      '✗ adds plugin x@y: not found',
+    );
   });
 });

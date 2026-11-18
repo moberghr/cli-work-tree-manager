@@ -515,3 +515,22 @@ describe('closing on the backdrop', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('no branch name (reported: a session meant for main started on a feature branch the folder was left on)', () => {
+  it('says which branch the project’s own folder is on, only while the field is empty and the project is a repo', async () => {
+    const { ownFolderNote } = await import('../../src/web/src/components/Sidebar/NewWorktreeModal.js');
+    const repo = { name: 'inventhor', kind: 'single' as const, ownBranch: 'feat/access-overview' };
+    expect(ownFolderNote(repo, '')).toBe(
+      'No branch: opens inventhor’s own folder, which is on feat/access-overview now (no new worktree). For another branch, type its name.',
+    );
+    expect(ownFolderNote(repo, '  ')).not.toBeNull();
+    expect(ownFolderNote(repo, 'main')).toBeNull();
+    expect(ownFolderNote({ ...repo, ownBranch: null }, '')).toBe(
+      'No branch: opens inventhor’s own folder as it is (it is on no branch now).',
+    );
+    // An older server says nothing of it; a group needs a name; no project picked yet.
+    expect(ownFolderNote({ name: 'inventhor', kind: 'single' }, '')).toBeNull();
+    expect(ownFolderNote({ name: 'shop', kind: 'group' }, '')).toBeNull();
+    expect(ownFolderNote(undefined, '')).toBeNull();
+  });
+});

@@ -56,7 +56,9 @@ describe.skipIf(!hasBuild)('work hook statusline (built binary)', { timeout: 30_
 
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('hi\n');
-    expect(r.ms).toBeLessThan(3000);
+    // Far under the child's 30 s: it didn't wait for it. Not 3 s: starting the built binary alone took longer than
+    // that in a full run on a loaded machine.
+    expect(r.ms).toBeLessThan(15_000);
     const reading = JSON.parse(fs.readFileSync(path.join(home, '.work', 'usage', 'claude-default.json'), 'utf-8')) as {
       windows: Array<{ id: string; usedPercent: number }>;
     };

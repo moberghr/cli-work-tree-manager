@@ -113,12 +113,14 @@ describe('runStatusLineCommand', () => {
     const node = process.execPath.replace(/\\/g, '/');
     const js = 'require("fs").writeFileSync(process.argv[1], String(process.pid)); setTimeout(() => {}, 30000)';
     const cmd = `'${node}' -e '${js}' '${pidFile.replace(/\\/g, '/')}'`;
-    const run = runStatusLineCommand(cmd, '', { timeoutMs: 1500 });
-    expect(await waitFor(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf-8') !== '')).toBe(true);
+    // 6 s before the timeout: the child must have started and written its pid by then, and Node's start alone took
+    // more than 1.5 s in a full run on a loaded machine (the test then failed waiting for the pid file).
+    const run = runStatusLineCommand(cmd, '', { timeoutMs: 6000 });
+    expect(await waitFor(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf-8') !== '', 6000)).toBe(true);
     const child = Number(fs.readFileSync(pidFile, 'utf-8'));
     expect(isPidAlive(child)).toBe(true);
     expect(await run).toBe('');
-    expect(await waitFor(() => !isPidAlive(child))).toBe(true);
+    expect(await waitFor(() => !isPidAlive(child), 10_000)).toBe(true);
     fs.rmSync(path.dirname(pidFile), { recursive: true, force: true });
-  });
+  }, 40_000);
 });

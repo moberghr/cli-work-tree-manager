@@ -15,6 +15,7 @@ import type {
   AccountAddWire,
   AccountLoginWire,
   AccountRefusalWire,
+  AccountSetupWire,
   AccountsWire,
   AccountSwitchAllWire,
   AccountSwitchWire,
@@ -31,6 +32,8 @@ import type {
  *   DELETE /api/accounts/:name[?force=1] → forget it (its folder stays); 409 while sessions are on it (archived: force)
  *   POST /api/accounts/:name/login       → AccountLoginWire: its login terminal in the PTY host
  *   DELETE /api/accounts/:name/login     → stop it (work's skills then go into a new account's folder, in the background)
+ *   GET  /api/accounts/:name/setup?from=x → AccountSetupWire: what copying x's setup to it would do (a read)
+ *   POST /api/accounts/:name/setup {from}  → AccountSetupWire: it done (instructions, settings, tool servers, plugins; never a login)
  *   POST /api/accounts/:name/sessions {from?} → AccountSwitchAllWire: every session (or those on `from`) moved to it
  *   POST /api/sessions/:id/account  {to} → AccountSwitchWire: switched / queued (its turn first) / recorded (not running)
  *   DELETE /api/sessions/:id/account     → drop the switch waiting for its turn (409: none waits, or it is being done now)
@@ -170,6 +173,49 @@ export function mountAccountRoutes(
       return c.json({ ok: true, installingSkills: skills !== null });
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) } satisfies AccountRefusalWire, 502);
+    }
+  });
+
+  /** "3 things to copy from default to admin" / "admin already has default's setup". */
+  const planSummary = (n: number, from: string, to: string) =>
+    n === 0 ? `${to} already has ${from}'s setup: nothing to copy.` : `${n} thing${n === 1 ? '' : 's'} to copy from ${from} to ${to}.`;
+
+  app.get('/api/accounts/:name/setup', (c) => {
+    const accounts = accountsNow();
+    const from = c.req.query('from') ?? '';
+    const to = c.req.param('name');
+    if (!accounts?.admin?.setupPlan) return c.json({ error: 'its accounts have no setup to copy' } satisfies AccountRefusalWire, 409);
+    if (!from) return c.json({ error: 'from is required' } satisfies AccountRefusalWire, 400);
+    try {
+      const items = accounts.admin.setupPlan(from, to);
+      return c.json({ from, to, summary: planSummary(items.length, from, to), items } satisfies AccountSetupWire);
+    } catch (e) {
+      return refused(c, e);
+    }
+  });
+
+  app.post('/api/accounts/:name/setup', zValidator('json', z.object({ from: z.string().min(1).max(64) })), async (c) => {
+    const accounts = accountsNow();
+    const no = cantManage(accounts);
+    if (no) return c.json({ error: no } satisfies AccountRefusalWire, 409);
+    if (!accounts?.admin?.copySetup) return c.json({ error: 'its accounts have no setup to copy' } satisfies AccountRefusalWire, 409);
+    const { from } = c.req.valid('json');
+    const to = c.req.param('name');
+    try {
+      const items = await accounts.admin.copySetup(from, to);
+      const ok = items.filter((i) => i.ok).length;
+      changed();
+      return c.json({
+        from,
+        to,
+        summary:
+          items.length === 0
+            ? planSummary(0, from, to)
+            : `Copied ${ok} of ${items.length} thing${items.length === 1 ? '' : 's'} from ${from} to ${to}${ok < items.length ? `; ${items.length - ok} failed` : ''}. Restart a session's Claude for it to see them.`,
+        items,
+      } satisfies AccountSetupWire);
+    } catch (e) {
+      return refused(c, e);
     }
   });
 

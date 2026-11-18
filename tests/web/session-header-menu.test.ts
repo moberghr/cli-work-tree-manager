@@ -161,3 +161,16 @@ describe('Keep after its PR merges, from the header too', () => {
     ).toBe(false);
   });
 });
+
+describe('Restart Claude (asked for: a way to restart a session from the app, to pick up changes)', () => {
+  it('says what happened: restarted now, after its turn, refused, or not running', async () => {
+    const { restartNote } = await import('../../src/web/src/state/agent-restart-view.js');
+    expect(restartNote({ now: ['s1'], later: [], failed: [] }, 's1').text).toContain('Its Claude restarted');
+    expect(restartNote({ now: [], later: ['s1'], failed: [] }, 's1').text).toContain('restarts when this turn ends');
+    expect(restartNote({ now: [], later: [], failed: [{ id: 's1', error: 'no host' }] }, 's1')).toEqual({
+      text: 'Couldn’t restart its Claude: no host',
+      error: true,
+    });
+    expect(restartNote({ now: ['other'], later: [], failed: [] }, 's1').text).toContain('is not running');
+  });
+});

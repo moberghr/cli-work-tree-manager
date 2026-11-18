@@ -290,6 +290,21 @@ export class AccountAdminError extends Error {
   }
 }
 
+/** One thing a copy of an account's setup to another does (`AgentAccountAdmin.setupPlan`). */
+export interface AccountSetupItem {
+  /** What kind of thing it is, in the agent's own words (Claude: file, folder, settings, mcp, marketplace, plugin). */
+  kind: string;
+  name: string;
+  does: 'adds' | 'replaces' | 'merges into';
+  /** Something to know of it (a sign-in it needs on the other account, where it comes from). */
+  note?: string;
+}
+
+export interface AccountSetupResult extends AccountSetupItem {
+  ok: boolean;
+  error?: string;
+}
+
 /** Adding, choosing and forgetting an agent's accounts (`work account`). Never deletes an account's folder: its login and conversations are the user's. */
 export interface AgentAccountAdmin {
   /** Record a new account (its folder: `dir`, else the agent's default place for it), made when missing. Returns the folder. */
@@ -312,6 +327,14 @@ export interface AgentAccountAdmin {
   loginLaunch(name: string): { tool: AiToolSpec; agentEnv: EnvDelta };
   /** Give the account work's skills (the install at setup reaches only the accounts there were then). */
   installSkills(name: string): { ok: boolean; message: string };
+  /**
+   * What copying `from`'s setup to `to` would do (its instructions, agents, commands, settings, tool servers,
+   * plugins — never a login, a token or a conversation): a read. Empty: `to` is set up the same already. Throws an
+   * AccountAdminError for an unknown account, or one copied to itself. Absent: the agent has no setup to copy.
+   */
+  setupPlan?(from: string, to: string): AccountSetupItem[];
+  /** Do it, each thing reported; one that fails is said and the rest still go. Nothing on `to` is deleted. */
+  copySetup?(from: string, to: string): Promise<AccountSetupResult[]>;
 }
 
 /** Running a session on one of several logins of the agent, and moving it from one to another. */
