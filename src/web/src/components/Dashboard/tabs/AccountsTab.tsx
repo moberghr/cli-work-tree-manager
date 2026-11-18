@@ -9,6 +9,8 @@ import {
   moveAllSessionsToAccount,
   removeAccount,
 } from '../../../api/client.js';
+import { restartAgents } from '../../../api/panes.js';
+import { restartAllNote } from '../../../state/agent-restart-view.js';
 import { useAccounts } from '../../../hooks/use-accounts.js';
 import {
   accountPageRows,
@@ -33,6 +35,8 @@ export interface AccountsApi {
   /** What copying `from`'s setup to `to` would do, and doing it. */
   setupPlan: (to: string, from: string) => Promise<AccountSetupWire>;
   copySetup: (to: string, from: string) => Promise<AccountSetupWire>;
+  /** Restart every session's agent on its own conversation; resolves with what happened, in a line. */
+  restartAll: () => Promise<{ text: string; error?: boolean }>;
 }
 
 const httpAccounts: AccountsApi = {
@@ -42,6 +46,7 @@ const httpAccounts: AccountsApi = {
   moveAll: moveAllSessionsToAccount,
   setupPlan: fetchAccountSetupPlan,
   copySetup: copyAccountSetup,
+  restartAll: () => restartAgents({ all: true }).then(restartAllNote),
 };
 
 interface Props {
@@ -77,6 +82,8 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Pending | null>(null);
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
+  /** What the last "Restart all Claudes" did. */
+  const [restarted, setRestarted] = useState<{ text: string; error?: boolean } | null>(null);
   /** A setup copy shown before it is done (its plan), then with how each thing went. */
   const [setup, setSetup] = useState<(AccountSetupWire & { done?: boolean }) | null>(null);
   /** What the last "Move all sessions here" did, by account. */
@@ -140,6 +147,15 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
           Claude accounts <span className="wd-tab-header-muted">{rows.length}</span>
         </h1>
         <div className="wd-tab-controls">
+          <button
+            type="button"
+            className="wd-btn-secondary"
+            onClick={() => act('restart-all', () => api.restartAll().then(setRestarted))}
+            disabled={busy !== null}
+            title="Restarts every session's Claude on its own conversation, so each reads its settings, plugins and MCP servers again: an idle one at once, a working one when its turn ends. Use it after you turn a plugin on or off, or change Claude's setup."
+          >
+            {busy === 'restart-all' ? 'Restarting…' : 'Restart all Claudes'}
+          </button>
           {canManage && !adding && (
             <button type="button" className="wd-btn-primary" onClick={() => setAdding(true)}>
               Add account…
@@ -148,6 +164,11 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
         </div>
       </header>
 
+      {(restarted ?? (rowError['restart-all'] ? { text: rowError['restart-all'], error: true } : null)) && (
+        <p className={'wd-start-note' + ((restarted?.error ?? !!rowError['restart-all']) ? ' wd-accounts-error' : '')} role="status">
+          {restarted?.text ?? rowError['restart-all']}
+        </p>
+      )}
       <p className="wd-accounts-intro">
         Each account is a Claude Code login with its own folder, limits and conversations. When one runs out, move a session to another with
         Claude account… (<kbd>⇧C</kbd>) — its conversation goes with it.

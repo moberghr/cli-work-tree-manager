@@ -427,8 +427,9 @@ export const markNotesSeen = (version: string) => postUpdates<{ ok: true }>('/ap
 export function fetchAgents(): Promise<AgentsWire> {
   return getJson('/api/agents');
 }
-/** Restart agents: the outdated ones, or these (POST /api/agents/restart). */
-export const restartAgents = (which: { outdated: true } | { ids: string[] }) => postUpdates<RestartWire>('/api/agents/restart', which);
+/** Restart agents: the outdated ones, all of them, or these (POST /api/agents/restart). */
+export const restartAgents = (which: { outdated: true } | { all: true } | { ids: string[] }) =>
+  postUpdates<RestartWire>('/api/agents/restart', which);
 export function fetchReleaseNotes(): Promise<{ releases: ReleaseNote[]; checkError: string | null }> {
   return getJson('/api/updates/notes');
 }

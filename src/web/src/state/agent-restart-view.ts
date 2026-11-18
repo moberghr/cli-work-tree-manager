@@ -88,3 +88,18 @@ export function restartNote(r: Pick<RestartWire, 'now' | 'later' | 'failed'>, se
     return { text: 'Its Claude restarted: the conversation goes on, with its settings, MCP servers and plugins read again.' };
   return { text: 'Its Claude is not running: it starts fresh when you open its terminal.' };
 }
+
+/**
+ * What "Restart all Claudes" says once asked (reported: turning a plugin off, or any change to Claude's own setup,
+ * reached no running session until each was restarted by hand): how many restarted, how many wait for their turn,
+ * and the first that couldn't. Pure.
+ */
+export function restartAllNote(r: Pick<RestartWire, 'now' | 'later' | 'failed'>): { text: string; error?: boolean } {
+  const text = restartCountsText({
+    restarted: r.now.length,
+    later: r.later.length,
+    failed: r.failed.length,
+    ...(r.failed[0] ? { firstError: r.failed[0].error } : {}),
+  });
+  return { text, ...(r.failed.length && !r.now.length && !r.later.length ? { error: true } : {}) };
+}

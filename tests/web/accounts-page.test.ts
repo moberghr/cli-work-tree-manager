@@ -141,6 +141,7 @@ describe('AccountsTab', () => {
       moveAll: vi.fn(async () => ({ summary: '' })),
       setupPlan: vi.fn(async () => ({ from: 'default', to: 'work', summary: '', items: [] })),
       copySetup: vi.fn(async () => ({ from: 'default', to: 'work', summary: '', items: [] })),
+      restartAll: vi.fn(async () => ({ text: '' })),
       remove: o.remove ?? vi.fn(async () => ({ ok: true })),
     };
     act(() =>
@@ -290,5 +291,22 @@ describe('Copy setup from…', () => {
     expect(setupItemLine({ kind: 'plugin', name: 'x@y', does: 'adds', ok: false, error: 'not found' })).toBe(
       '✗ adds plugin x@y: not found',
     );
+  });
+});
+
+describe('Restart all Claudes (asked for: a plugin turned off, or any change to Claude’s setup, should reach every session)', () => {
+  it('says how many restarted, how many wait for their turn, and the first that couldn’t; all failing is an error', async () => {
+    const { restartAllNote } = await import('../../src/web/src/state/agent-restart-view.js');
+    expect(restartAllNote({ now: ['a', 'b'], later: ['c'], failed: [] })).toEqual({
+      text: '2 sessions restarted · 1 restarts when its turn ends.',
+    });
+    expect(restartAllNote({ now: ['a'], later: [], failed: [{ id: 'b', error: 'no host' }] }).text).toBe(
+      "1 session restarted · 1 couldn't: no host.",
+    );
+    expect(restartAllNote({ now: [], later: [], failed: [{ id: 'b', error: 'no host' }] })).toEqual({
+      text: "1 couldn't: no host.",
+      error: true,
+    });
+    expect(restartAllNote({ now: [], later: [], failed: [] }).text).toBe('Nothing to restart.');
   });
 });
