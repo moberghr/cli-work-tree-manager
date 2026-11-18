@@ -293,6 +293,23 @@ export function SessionReviewTab({
             )}
           </div>
         </div>
+        {removed.size > 0 && (
+          <p className="wd-start-note" role="status">
+            {removed.size} dismissed.{' '}
+            <button
+              type="button"
+              className="wd-link-button"
+              onClick={() =>
+                void Promise.all([...removed].map((noteId) => dismissSessionReviewNote(id, noteId, true))).then(load, (e: Error) =>
+                  setError(e.message),
+                )
+              }
+              title="Puts the notes you dismissed back in this review"
+            >
+              Bring {removed.size === 1 ? 'it' : 'them'} back
+            </button>
+          </p>
+        )}
         {moved && !running && (
           <p className="wd-start-note wd-session-review-moved" role="status">
             The changes have moved since this was prepared: a note may be about code that is different now. <strong>Prepare again</strong>{' '}

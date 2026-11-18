@@ -277,13 +277,14 @@ describe('Move all sessions here', () => {
 });
 
 describe('Copy setup from…', () => {
-  it('is offered on every account but the default one, from the default one; a line says what each thing does or how it went', async () => {
-    const { setupSource, setupItemLine } = await import('../../src/web/src/state/accounts.js');
-    const data = { accounts: [{ name: 'default' }, { name: 'admin' }], default: 'default', canManage: true } as never;
-    expect(setupSource(data, 'admin')).toBe('default');
-    expect(setupSource(data, 'default')).toBeNull();
-    // The default is another account now: the others copy from it.
-    expect(setupSource({ accounts: [{ name: 'default' }, { name: 'admin' }], default: 'admin' } as never, 'default')).toBe('admin');
+  it('is offered on every account, from each of the others; a line says what each thing does or how it went', async () => {
+    const { setupSources, setupItemLine } = await import('../../src/web/src/state/accounts.js');
+    const data = { accounts: [{ name: 'default' }, { name: 'admin' }, { name: 'third' }], default: 'admin', canManage: true } as never;
+    // Any other account, whichever is the default (found for real: only the default could be copied from).
+    expect(setupSources(data, 'admin')).toEqual(['default', 'third']);
+    expect(setupSources(data, 'default')).toEqual(['admin', 'third']);
+    expect(setupSources(data, 'ghost')).toEqual([]);
+    expect(setupSources({ accounts: [{ name: 'default' }], default: 'default' } as never, 'default')).toEqual([]);
     expect(setupItemLine({ kind: 'mcp', name: 'atlassian', does: 'adds', note: 'needs its own sign-in' })).toBe(
       'adds mcp atlassian — needs its own sign-in',
     );

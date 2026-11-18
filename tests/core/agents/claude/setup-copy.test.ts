@@ -3,12 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  alreadyThere,
   applySetupCopy,
   globalConfigFile,
   marketplaceAddArgs,
+  marketplaceKey,
   mergeSettings,
   planSetupCopy,
+  realSetupIo,
   setupEnv,
+  settingsChanges,
   setupSummary,
   type SetupRun,
 } from '../../../../src/core/agents/claude/setup-copy.js';
@@ -186,5 +190,80 @@ describe('applySetupCopy', () => {
   it('an account is never copied to itself; an account set up the same has nothing to copy', async () => {
     await expect(applySetupCopy(from, { name: 'same', dir: from.dir })).rejects.toThrow('can’t be copied to itself');
     expect(setupSummary([], 'default', 'admin')).toBe("admin already has default's setup: nothing to copy.");
+  });
+});
+
+describe('only what a copy would change (found on the first real use)', () => {
+  it('after a copy, a second one has nothing to do: identical files and folders aren’t listed again', async () => {
+    const run: SetupRun = () => ({ ok: true, out: '' });
+    await applySetupCopy(from, to, run);
+    // What Claude Code would have written for the things it added.
+    write(path.join(to.dir, '.claude.json'), { userID: 'B', mcpServers: read(path.join(home, '.claude.json')).mcpServers });
+    write(path.join(to.dir, 'plugins', 'known_marketplaces.json'), read(path.join(from.dir, 'plugins', 'known_marketplaces.json')));
+    write(path.join(to.dir, 'plugins', 'installed_plugins.json'), { plugins: { 'ts@official': [{}] } });
+    expect(planSetupCopy(from, to)).toEqual([]);
+    // One file changes: only it is listed, as a replacement.
+    write(path.join(from.dir, 'CLAUDE.md'), '# changed\n');
+    expect(planSetupCopy(from, to).map((i) => `${i.does} ${i.name}`)).toEqual(['replaces CLAUDE.md']);
+  });
+
+  it('a folder is there already when each of its files is, whatever else the target has', () => {
+    const a = path.join(home, 'a');
+    const b = path.join(home, 'b');
+    write(path.join(a, 'x.md'), 'x');
+    write(path.join(a, 'sub', 'y.md'), 'y');
+    write(path.join(b, 'x.md'), 'x');
+    write(path.join(b, 'sub', 'y.md'), 'y');
+    write(path.join(b, 'extra.md'), 'only here');
+    expect(alreadyThere(a, b, realSetupIo)).toBe(true);
+    write(path.join(b, 'sub', 'y.md'), 'different');
+    expect(alreadyThere(a, b, realSetupIo)).toBe(false);
+    expect(alreadyThere(a, path.join(home, 'missing'), realSetupIo)).toBe(false);
+  });
+
+  it('a marketplace the target has under another name isn’t offered again: it is the same when it comes from the same place', () => {
+    write(path.join(to.dir, 'plugins', 'known_marketplaces.json'), {
+      official: { source: { source: 'github', repo: 'anthropics/official' } },
+      'team-as-claude-named-it': { source: { source: 'github', repo: 'Me/Team' } },
+    });
+    expect(planSetupCopy(from, to).filter((i) => i.kind === 'marketplace')).toEqual([]);
+    expect(marketplaceKey({ source: 'github', repo: 'Me/Team' })).toBe(
+      marketplaceKey({ source: 'github', repo: 'me/team', sparsePaths: ['x'] }),
+    );
+    expect(marketplaceKey({ source: 'directory', path: 'C:\\m\\' })).toBe('c:/m');
+    expect(marketplaceKey({ source: 'npm' })).toBeNull();
+  });
+});
+
+describe('a settings merge says what it would change (found on the first real use)', () => {
+  it('names each plugin switched, how many rules and hooks are added, and what is set; never a value', () => {
+    const source = {
+      enabledPlugins: { 'mtk@team': true, 'new@team': false },
+      permissions: { allow: ['Bash(git:*)', 'Bash(npm:*)'], defaultMode: 'acceptEdits' },
+      env: { API_KEY: 'do-not-print', OTHER: 'x' },
+      effortLevel: 'high',
+      statusLine: { command: 'never copied' },
+      hooks: { Notification: [{ hooks: [{ type: 'command', command: 'notify-me' }] }] },
+    };
+    const target = { enabledPlugins: { 'mtk@team': false }, permissions: { allow: ['Bash(git:*)'] }, effortLevel: 'high', theme: 'dark' };
+    const changes = settingsChanges(source, target);
+    expect(changes).toEqual([
+      'turns on plugin mtk@team',
+      'turns off plugin new@team (new here)',
+      'adds 1 allow rule',
+      'sets permissions.defaultMode',
+      'env: API_KEY, OTHER',
+      'adds 1 of your hook',
+    ]);
+    expect(changes.join(' ')).not.toContain('do-not-print');
+    // Nothing differs once merged: nothing to say.
+    expect(settingsChanges(source, mergeSettings(source, target))).toEqual([]);
+  });
+
+  it('the plan’s settings line carries it', () => {
+    const line = planSetupCopy(from, to).find((i) => i.kind === 'settings')!;
+    expect(line.note).toContain('turns on plugin ts@official (new here)');
+    expect(line.note).toContain('adds 1 allow rule');
+    expect(line.note).toContain('sets effortLevel');
   });
 });

@@ -101,6 +101,44 @@ export function mergeSettings(source: Record<string, unknown>, target: Record<st
   return out;
 }
 
+/**
+ * What merging `source` into `target` would change, in a few words each (found on the first real use: the plan said
+ * "merges into settings" for one plugin that would be switched back on, which is the thing to know before saying
+ * yes). Names only, never a value that could be a key (`env`). Pure.
+ */
+export function settingsChanges(source: Record<string, unknown>, target: Record<string, unknown>): string[] {
+  const merged = mergeSettings(source, target);
+  const out: string[] = [];
+  for (const key of Object.keys(merged)) {
+    const now = merged[key];
+    const was = target[key];
+    if (same(now, was)) continue;
+    if (key === 'enabledPlugins' && isObject(now)) {
+      const before = isObject(was) ? was : {};
+      for (const [id, on] of Object.entries(now))
+        if (before[id] !== on) out.push(`${on === true ? 'turns on' : 'turns off'} plugin ${id}${id in before ? '' : ' (new here)'}`);
+    } else if (key === 'permissions' && isObject(now)) {
+      const before = isObject(was) ? was : {};
+      for (const [k, v] of Object.entries(now)) {
+        if (same(v, before[k])) continue;
+        if (Array.isArray(v)) {
+          const n = v.length - (Array.isArray(before[k]) ? (before[k] as unknown[]).length : 0);
+          out.push(`adds ${n} ${k} rule${n === 1 ? '' : 's'}`);
+        } else out.push(`sets permissions.${k}`);
+      }
+    } else if (key === 'hooks' && isObject(now)) {
+      const count = (h: unknown) => (isObject(h) ? Object.values(h).reduce((n: number, l) => n + (Array.isArray(l) ? l.length : 0), 0) : 0);
+      const n = count(now) - count(was);
+      out.push(`adds ${n} of your hook${n === 1 ? '' : 's'}`);
+    } else if (MAPS.has(key) && isObject(now)) {
+      const before = isObject(was) ? was : {};
+      const names = Object.keys(now).filter((k) => !same(now[k], before[k]));
+      out.push(`${key}: ${names.slice(0, 4).join(', ')}${names.length > 4 ? ` and ${names.length - 4} more` : ''}`);
+    } else out.push(`sets ${key}`);
+  }
+  return out;
+}
+
 /** What `claude plugin marketplace add` is given for a marketplace as Claude Code recorded it; null: a kind we don't know how to add. */
 export function marketplaceAddArgs(source: unknown): string[] | null {
   if (!isObject(source)) return null;
@@ -129,6 +167,26 @@ export interface SetupIo {
   isDir: (p: string) => boolean;
   list: (dir: string) => string[];
   readJson: (file: string) => unknown;
+  /** A file's bytes; null when it can't be read. */
+  read: (file: string) => Buffer | null;
+}
+
+/**
+ * Every file of `from` (a file, or a folder and all under it) is in `to` with the same content: copying it would
+ * change nothing (found on the first real use: a second copy listed CLAUDE.md, the agents and every skill as
+ * "replaces" though they were identical). What `to` has besides doesn't matter: a copy deletes nothing. Pure but for `io`.
+ */
+export function alreadyThere(from: string, to: string, io: SetupIo): boolean {
+  if (io.isDir(from)) return io.isDir(to) && io.list(from).every((name) => alreadyThere(path.join(from, name), path.join(to, name), io));
+  const a = io.read(from);
+  const b = io.read(to);
+  return !!a && !!b && a.equals(b);
+}
+
+/** Where a marketplace comes from, as one key: two names for one source are one marketplace (`moberghr` and `moberghr-claude-helpers`). */
+export function marketplaceKey(source: unknown): string | null {
+  const args = marketplaceAddArgs(source);
+  return args ? args[3].replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() : null;
 }
 
 export const realSetupIo: SetupIo = {
@@ -145,6 +203,13 @@ export const realSetupIo: SetupIo = {
       return fs.readdirSync(dir);
     } catch {
       return [];
+    }
+  },
+  read: (file) => {
+    try {
+      return fs.readFileSync(file);
+    } catch {
+      return null;
     }
   },
   readJson: (file) => {
@@ -171,12 +236,16 @@ export function userMcpServers(dir: string, io: SetupIo = realSetupIo): Record<s
 export function planSetupCopy(from: SetupAccount, to: SetupAccount, io: SetupIo = realSetupIo): SetupItem[] {
   const items: SetupItem[] = [];
   const there = (rel: string) => io.exists(path.join(to.dir, rel));
-  for (const f of FILES) if (io.exists(path.join(from.dir, f))) items.push({ kind: 'file', name: f, does: there(f) ? 'replaces' : 'adds' });
+  // Only what a copy would change: a file or folder the target has with the same content already isn't listed.
+  const differs = (rel: string) => !alreadyThere(path.join(from.dir, rel), path.join(to.dir, rel), io);
+  for (const f of FILES)
+    if (io.exists(path.join(from.dir, f)) && differs(f)) items.push({ kind: 'file', name: f, does: there(f) ? 'replaces' : 'adds' });
   for (const d of FOLDERS)
-    if (io.isDir(path.join(from.dir, d)) && io.list(path.join(from.dir, d)).length)
+    if (io.isDir(path.join(from.dir, d)) && io.list(path.join(from.dir, d)).length && differs(d))
       items.push({ kind: 'folder', name: `${d}/`, does: there(d) ? 'merges into' : 'adds' });
   for (const skill of io.list(path.join(from.dir, 'skills')).filter((s) => s !== 'synced' && io.isDir(path.join(from.dir, 'skills', s))))
-    items.push({ kind: 'folder', name: `skills/${skill}/`, does: there(path.join('skills', skill)) ? 'replaces' : 'adds' });
+    if (differs(path.join('skills', skill)))
+      items.push({ kind: 'folder', name: `skills/${skill}/`, does: there(path.join('skills', skill)) ? 'replaces' : 'adds' });
   for (const s of SETTINGS) {
     const source = io.readJson(path.join(from.dir, s));
     if (!isObject(source)) continue;
@@ -187,7 +256,8 @@ export function planSetupCopy(from: SetupAccount, to: SetupAccount, io: SetupIo 
         kind: 'settings',
         name: s,
         does: 'merges into',
-        note: 'permissions, plugins and your own hooks; never the status line or work’s hooks',
+        // What it would change, by name; the rest of the file stays (the status line and work's hooks always).
+        note: settingsChanges(source, have).join('; '),
       });
   }
   const servers = userMcpServers(from.dir, io);
@@ -204,8 +274,17 @@ export function planSetupCopy(from: SetupAccount, to: SetupAccount, io: SetupIo 
   }
   const markets = io.readJson(path.join(from.dir, 'plugins', 'known_marketplaces.json'));
   const haveMarkets = io.readJson(path.join(to.dir, 'plugins', 'known_marketplaces.json'));
+  // By where each comes from, not its name: Claude Code names one after its own manifest, so the same marketplace
+  // can carry another name on the other account (found on the first real use: two were offered again).
+  const haveSources = new Set(
+    Object.values(isObject(haveMarkets) ? haveMarkets : {})
+      .map((m) => marketplaceKey(isObject(m) ? m.source : null))
+      .filter((k): k is string => k !== null),
+  );
   for (const [name, m] of Object.entries(isObject(markets) ? markets : {})) {
     if (isObject(haveMarkets) && name in haveMarkets) continue;
+    const key = marketplaceKey(isObject(m) ? m.source : null);
+    if (key && haveSources.has(key)) continue;
     const args = marketplaceAddArgs(isObject(m) ? m.source : null);
     if (args) items.push({ kind: 'marketplace', name, does: 'adds', note: args[3] });
   }

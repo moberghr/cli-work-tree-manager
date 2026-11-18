@@ -168,11 +168,12 @@ export function sessionsElsewhere(data: AccountsWire, name: string): number {
 }
 
 /**
- * The account a "Copy setup from…" on `name` copies from: the default account, or for the default account itself
- * none (it is the one the others are set up from). Null: not offered. Pure.
+ * The accounts a "Copy setup from…" on `name` can copy from: every other one, in the page's order (found on the
+ * first real use: it was always the default account, so once the new account was made the default, the only button
+ * copied it back onto the old one, and the direction that was wanted wasn't offered). Pure.
  */
-export function setupSource(data: AccountsWire, name: string): string | null {
-  return name === data.default || !data.accounts.some((a) => a.name === data.default) ? null : data.default;
+export function setupSources(data: AccountsWire, name: string): string[] {
+  return data.accounts.some((a) => a.name === name) ? data.accounts.map((a) => a.name).filter((n) => n !== name) : [];
 }
 
 /** A setup item as one line: "adds mcp atlassian — needs its own sign-in". Pure. */

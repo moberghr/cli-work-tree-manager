@@ -20,7 +20,7 @@ import {
   removeRefusal,
   sessionsElsewhere,
   setupItemLine,
-  setupSource,
+  setupSources,
 } from '../../../state/accounts.js';
 import { AccountLoginPanel } from '../AccountLoginPanel.js';
 
@@ -310,20 +310,19 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
                       Make default
                     </button>
                   )}
-                  {data && setupSource(data, r.name) && (
-                    <button
-                      type="button"
-                      className="wd-btn-secondary"
-                      onClick={() => {
-                        const from = setupSource(data, r.name)!;
-                        act(`plan:${r.name}`, () => api.setupPlan(r.name, from).then(setSetup));
-                      }}
-                      disabled={busy !== null}
-                      title={`Shows what ${r.name} lacks of ${setupSource(data, r.name)}'s setup (its instructions, agents, commands, settings, MCP servers, plugins), then copies it when you say so. Never a login.`}
-                    >
-                      Copy setup from {setupSource(data, r.name)}…
-                    </button>
-                  )}
+                  {data &&
+                    setupSources(data, r.name).map((from) => (
+                      <button
+                        key={from}
+                        type="button"
+                        className="wd-btn-secondary"
+                        onClick={() => act(`plan:${r.name}`, () => api.setupPlan(r.name, from).then(setSetup))}
+                        disabled={busy !== null}
+                        title={`Shows what ${r.name} lacks of ${from}'s setup (its instructions, agents, commands, settings, MCP servers, plugins), then copies it INTO ${r.name} when you say so. Never a login.`}
+                      >
+                        Copy setup from {from}…
+                      </button>
+                    ))}
                   {data && sessionsElsewhere(data, r.name) > 0 && (
                     <button
                       type="button"
