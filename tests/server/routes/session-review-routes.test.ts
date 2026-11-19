@@ -101,7 +101,8 @@ describe('session review routes', () => {
     const ready = await state(a);
     expect(ready).toMatchObject({ status: 'ready', repo: 'api', repos: ['api'] });
     expect(ready.review).toMatchObject({ number: 0, author: 'you', title: 'Local changes on feat/x', aiStep: 'done' });
-    expect(events).toEqual(['session-review-changed']);
+    // The row's refresh at the start, then at the finish: the tab's event, the row's refresh, and a notification.
+    expect(events).toEqual(['sessions-changed', 'session-review-changed', 'sessions-changed', 'notify']);
     const diff = (await (await a.request(`/api/sessions/${id}/review/diff`)).json()) as { files: Array<{ path: string }> };
     expect(diff.files.map((f) => f.path)).toEqual([HANDLER]);
   });
@@ -204,5 +205,40 @@ describe('which notes were sent and dismissed (kept with the review)', () => {
     expect((await post(a, '/dismiss', { id: 'nope' })).status).toBe(404);
     expect((await post(a, '/dismiss', {})).status).toBe(400);
     expect((await post(a, '/dismiss', { id: 'd1' }, 'nope')).status).toBe(404);
+  });
+});
+
+describe('a finished review is announced, and Mark seen clears it', () => {
+  it('ready: the session’s row is told to refresh and a notification goes out; seen is a POST that clears it once', async () => {
+    const sent: Array<{ event: string; data: unknown }> = [];
+    const a = new Hono();
+    const { row } = mountSessionReviewRoutes(a, {
+      prepare: (session, repo) =>
+        prepareLocalReview(session, repo, {
+          diff: () => ({ repos: [{ name: 'api', files }], resolvedBase: 'origin/main' }),
+          agent: async () => answer,
+        }),
+      signature: () => 'x',
+      tell: async () => {},
+      broadcast: (event, data) => void sent.push({ event, data }),
+    });
+    expect(row(id)).toBeNull();
+    await post(a, '');
+    expect(row(id)?.status).toBe('running');
+    await settled();
+    expect(row(id)).toMatchObject({ status: 'ready', seen: false });
+    expect(sent.map((s) => s.event)).toEqual(['sessions-changed', 'session-review-changed', 'sessions-changed', 'notify']);
+    expect(sent[3].data).toMatchObject({ sessionId: id, kind: 'review', title: 'feat/x: review ready' });
+    sent.length = 0;
+    // A GET changes nothing (§1.5): the review is still unseen after one.
+    await a.request(`/api/sessions/${id}/review`);
+    expect(row(id)?.seen).toBe(false);
+    expect((await post(a, '/seen')).status).toBe(200);
+    expect(row(id)?.seen).toBe(true);
+    expect(sent.map((s) => s.event)).toEqual(['sessions-changed']);
+    // Again: nothing to clear, nothing announced.
+    await post(a, '/seen');
+    expect(sent).toHaveLength(1);
+    expect((await post(a, '/seen', {}, 'nope')).status).toBe(404);
   });
 });

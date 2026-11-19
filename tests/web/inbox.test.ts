@@ -416,3 +416,33 @@ describe('Follow up from the Inbox (asked for: a finished session could only be 
     expect(container.querySelector('.wd-inbox-followup')).toBeNull();
   });
 });
+
+describe('a session whose review finished (asked for: nothing said it was done)', () => {
+  it('is in Needs you with the review’s line, opens on its Review tab, and has its own Mark seen', () => {
+    const opened: Array<[string, string]> = [];
+    const waiting = {
+      ...session('reviewed', att('idle', true, 30)),
+      localReview: { status: 'ready' as const, seen: false, line: 'Review ready: Fix first · 3 stories · 7 notes' },
+    };
+    act(() =>
+      root.render(
+        createElement(InboxTab, { sessions: [waiting], onOpenSession: (id: string, sub: string) => void opened.push([id, sub]) }),
+      ),
+    );
+    expect([...container.querySelectorAll('.wd-inbox-section h2')].map((h) => text(h))).toEqual(['Needs you · 1']);
+    expect(text(container.querySelector('.wd-inbox-owed'))).toBe('Review ready: Fix first · 3 stories · 7 notes');
+    act(() => (container.querySelector('.wd-inbox-row') as HTMLButtonElement).click());
+    expect(opened).toEqual([['reviewed', 'review']]);
+    expect([...container.querySelectorAll('.wd-inbox-more button')].map((b) => b.textContent)).toContain('Mark seen');
+  });
+
+  it('once seen, or while it is still being prepared, it isn’t in the Inbox', () => {
+    const seen = { ...session('seen', att('idle', true, 30)), localReview: { status: 'ready' as const, seen: true, line: 'Review ready' } };
+    const running = {
+      ...session('running', att('idle', true, 30)),
+      localReview: { status: 'running' as const, seen: true, line: 'Preparing its review…' },
+    };
+    act(() => root.render(createElement(InboxTab, { sessions: [seen, running], onOpenSession: () => {} })));
+    expect(container.querySelectorAll('.wd-inbox-section')).toHaveLength(0);
+  });
+});

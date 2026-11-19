@@ -3,6 +3,7 @@ import type { PrReviewWire, SessionReviewWire } from '../../../../../core/api-ty
 import type { ParsedFile } from '../../../../../core/diff/diff-parse.js';
 import {
   dismissSessionReviewNote,
+  markSessionReviewSeen,
   fetchSessionReview,
   fetchSessionReviewCurrent,
   fetchSessionReviewDiff,
@@ -118,6 +119,12 @@ export function SessionReviewTab({
       () => setFiles([]),
     );
   }, [id, signature]);
+
+  // Shown: you have looked at it, so it leaves the Inbox (a finished one, ready or failed; each finish once).
+  const finishedAt = data && (data.status === 'ready' || data.status === 'failed') ? data.at : undefined;
+  useEffect(() => {
+    if (finishedAt) void markSessionReviewSeen(id);
+  }, [id, finishedAt]);
 
   // Is it still of the changes as they are? Asked when it is shown, and every minute after: the session goes on working.
   const status = data?.status;

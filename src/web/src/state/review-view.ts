@@ -555,3 +555,14 @@ export function flowPages(flow: { files?: string[] }, pages: ReviewPage[]): numb
   }
   return [...found].sort((a, b) => a - b);
 }
+
+/**
+ * What a session's Review tab says beside its name: being prepared, or finished and not looked at yet (asked for:
+ * a review takes minutes and nothing said it was done). Nothing once you have seen it. Pure.
+ */
+export function reviewTabMeta(r: { status: string; seen?: boolean } | null | undefined): string | undefined {
+  if (!r) return undefined;
+  if (r.status === 'running') return 'preparing…';
+  if (r.seen) return undefined;
+  return r.status === 'ready' ? 'ready' : r.status === 'failed' ? 'failed' : undefined;
+}

@@ -177,6 +177,8 @@ interface SessionPrFacts {
   openReviewThreads?: number;
   replyDrafts?: number;
   isGroup?: boolean;
+  /** Its own review, when it has one: its line is what its row says while it waits for you. */
+  localReview?: { status: string; seen?: boolean; line?: string } | null;
 }
 
 /**
@@ -225,6 +227,8 @@ export function prNeedsLine(s: SessionPrFacts): string | null {
         return named((p) => p.kind !== 'conflict' && pressingPr(p), 'checks_failing');
       case 'merge':
         return named((p) => p.kind === 'ready', 'ready');
+      case 'review':
+        return [s.localReview?.line ?? 'its review is ready'];
     }
   });
   return parts.length ? parts.join(' · ') : null;

@@ -1,3 +1,4 @@
+import type { SessionLocalReviewWire } from '../core/api-types.js';
 import fs from 'node:fs';
 import { mountSessionControlRoutes } from './routes/session-control-routes.js';
 import { defaultRunner } from '../core/pr/ship.js';
@@ -186,6 +187,9 @@ interface SessionDiffResult {
  * Per-repo `resolvedBase` is included on each entry so the UI can label
  * per-repo if it wants to (groups may have different parents per repo).
  */
+/** Where a session's own review stands, for its row: the review routes' (mounted after the sessions list is first built). */
+let localReviewRow: (sessionId: string) => SessionLocalReviewWire | null = () => null;
+
 function computeSessionDiff(s: WorktreeSession, base: DiffBase): SessionDiffResult {
   const resolved = s.paths.map((p) => resolveRepoDiff(p, base, s.baseBranches?.[p] ?? s.baseBranch));
   const repos = s.paths.map((p, i) => ({
@@ -425,6 +429,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
               sessionWire(s, {
                 diffStatFor,
                 claudesFor,
+                // Its own review: being prepared, or finished and waiting for you (the Inbox, its Review tab's mark).
+                localReviewFor: (id) => localReviewRow(id),
                 liveKnown: !!table && table.size > 0,
                 snoozeFor: (id) => snoozes.get(id) ?? null,
                 behindFor: (id, s, lastActivity) =>
@@ -1108,7 +1114,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountSessionShowRoutes(app, { broadcast });
   // A session's own changes as a review (prepared on a click, kept in memory). Its AI step reads the diff alone,
   // in a lane of its own: its passes (one over everything, one per repo) run together, behind no PR's review.
-  mountSessionReviewRoutes(app, {
+  localReviewRow = mountSessionReviewRoutes(app, {
     prepare: (session, repo) =>
       prepareLocalReview(session, repo, {
         diff: (s) => computeSessionDiff(s, 'branch'),
@@ -1128,7 +1134,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     store: { read: readLocalReview, save: saveLocalReview, drop: dropLocalReview },
     tell: noteThroughComments(app),
     broadcast,
-  });
+  }).row;
   mountSessionProcessRoutes(app, { list: () => listProcessUsage(), agentPid: ptyPid, kill: killTreeAsync });
   mountCodeRoutes(app);
   // How far you have looked at a session's diff (its Diff tab's "Since you looked").

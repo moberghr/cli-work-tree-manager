@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
-import type { PrReviewWire, SessionReviewWire } from '../api-types.js';
+import type { PrReviewWire, SessionLocalReviewWire, SessionReviewWire } from '../api-types.js';
 import type { ParsedFile } from '../diff/diff-parse.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { asData } from '../time/fence.js';
 import type { KindRule } from './change-kinds.js';
 import { buildReview, kindsOf, promptPaths, reviewPrompt, splitIgnored, type ReviewMeta } from './review-build.js';
-import { parseAgentPass } from './review-plan.js';
+import { parseAgentPass, VERDICT_LABEL } from './review-plan.js';
 
 /**
  * A session's own changes read as a review, before there is a pull request (reported: the Reviews tab only took open
@@ -271,6 +271,25 @@ export interface StoredLocalReview {
   sent: string[];
   /** The notes you dismissed. */
   dismissed: string[];
+  /** You looked at it since it was prepared (absent: yes — a review kept from before this was recorded). */
+  seen?: boolean;
+}
+
+/**
+ * A session's review as its row says it, in a line (the Inbox, a notification). Pure.
+ */
+export function localReviewLine(k: { status: 'running' | 'ready' | 'failed'; review?: PrReviewWire; error?: string }): string {
+  if (k.status === 'running') return 'Preparing its review…';
+  if (k.status === 'failed') return `Review couldn’t be prepared: ${k.error ?? 'unknown reason'}`;
+  const r = k.review;
+  if (!r) return 'Review ready';
+  const notes = r.drafts.filter((d) => d.state === 'draft').length;
+  const parts = [
+    r.recommendation ? VERDICT_LABEL[r.recommendation.verdict] : '',
+    `${r.stories.length} ${r.stories.length === 1 ? 'story' : 'stories'}`,
+    `${notes} note${notes === 1 ? '' : 's'}`,
+  ].filter(Boolean);
+  return `Review ready: ${parts.join(' · ')}`;
 }
 
 /** Where the kept reviews outlive a restart (local-review-store.ts); absent: memory only. */
@@ -302,8 +321,21 @@ export function createLocalReviews(deps: {
     /** Of `prepared`: the notes sent, and the ones dismissed. */
     sent: string[];
     dismissed: string[];
+    /** You looked at it since it finished (ready or failed). */
+    seen: boolean;
   }
   const kept = new Map<string, Kept>();
+  /** Each session's row line, for the ones not in memory: read from the store once (a stored review is large), then kept small. */
+  const lines = new Map<string, SessionLocalReviewWire | null>();
+  const rowOf = (k: Kept): SessionLocalReviewWire => ({
+    status: k.status,
+    seen: k.status === 'running' ? true : k.seen,
+    line: localReviewLine({
+      status: k.status,
+      ...(k.prepared && k.status === 'ready' ? { review: k.prepared.review } : {}),
+      ...(k.error ? { error: k.error } : {}),
+    }),
+  });
   const now = () => (deps.now?.() ?? new Date()).toISOString();
   /** What is kept for a session: memory's, else the stored one (read once). */
   const of = (sessionId: string): Kept | undefined => {
@@ -319,13 +351,22 @@ export function createLocalReviews(deps: {
       at: s.at,
       sent: s.sent,
       dismissed: s.dismissed,
+      seen: s.seen ?? true,
     };
     kept.set(sessionId, back);
     return back;
   };
   const persist = (sessionId: string, k: Kept): void => {
     if (k.status !== 'ready' || !k.prepared) return;
-    deps.store?.save(sessionId, { repo: k.repo, repos: k.repos, prepared: k.prepared, at: k.at, sent: k.sent, dismissed: k.dismissed });
+    deps.store?.save(sessionId, {
+      repo: k.repo,
+      repos: k.repos,
+      prepared: k.prepared,
+      at: k.at,
+      sent: k.sent,
+      dismissed: k.dismissed,
+      seen: k.seen,
+    });
   };
   const wire = (k: Kept | undefined): SessionReviewWire =>
     !k
@@ -362,14 +403,17 @@ export function createLocalReviews(deps: {
         at: now(),
         sent: was?.prepared ? was.sent : [],
         dismissed: was?.prepared ? was.dismissed : [],
+        seen: true,
         ...(was?.prepared ? { prepared: was.prepared } : {}),
       };
       kept.set(sessionId, running);
+      lines.delete(sessionId);
       void deps
         .prepare(session, repo)
         .then(
           // Another review: none of its notes is sent or dismissed yet.
-          (p): Kept => ({ status: 'ready', repo: p.repo, repos: p.repos, prepared: p, at: now(), sent: [], dismissed: [] }),
+          // Finished: yours to look at (the tab marks it seen when it shows it).
+          (p): Kept => ({ status: 'ready', repo: p.repo, repos: p.repos, prepared: p, at: now(), sent: [], dismissed: [], seen: false }),
           // The one from before stays the kept one (and the stored one): only this try failed.
           (err: Error): Kept => ({
             status: 'failed',
@@ -379,6 +423,7 @@ export function createLocalReviews(deps: {
             at: now(),
             sent: running.sent,
             dismissed: running.dismissed,
+            seen: false,
             ...(running.prepared ? { prepared: running.prepared } : {}),
           }),
         )
@@ -406,8 +451,34 @@ export function createLocalReviews(deps: {
       });
       return ok && found;
     },
+    /**
+     * Where a session's review stands, for its row: null when it has none. One not in memory is read from the store
+     * once and only its line kept.
+     */
+    row(sessionId: string): SessionLocalReviewWire | null {
+      const k = kept.get(sessionId);
+      if (k) return rowOf(k);
+      if (!lines.has(sessionId)) {
+        const s = deps.store?.read(sessionId);
+        lines.set(
+          sessionId,
+          s ? { status: 'ready', seen: s.seen ?? true, line: localReviewLine({ status: 'ready', review: s.prepared.review }) } : null,
+        );
+      }
+      return lines.get(sessionId) ?? null;
+    },
+    /** You looked at it. False when there is none, or it was seen already. */
+    markSeen(sessionId: string): boolean {
+      const k = of(sessionId);
+      if (!k || k.status === 'running' || k.seen) return false;
+      k.seen = true;
+      lines.delete(sessionId);
+      persist(sessionId, k);
+      return true;
+    },
     drop: (sessionId: string): void => {
       kept.delete(sessionId);
+      lines.delete(sessionId);
       deps.store?.drop(sessionId);
     },
   };

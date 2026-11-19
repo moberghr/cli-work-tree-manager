@@ -274,6 +274,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     broadcast({ event: 'session-review-changed', data: { sessionId: w.id } } as DemoEvent);
     return c.json(demoLocalReview(w));
   });
+  // The demo's review is ready at once: nothing waits to be seen.
+  app.post('/api/sessions/:id/review/seen', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ ok: true }) : notFound(c),
+  );
   // A note dismissed (or brought back): kept for the demo's run.
   const demoDismissed = new Map<string, Set<string>>();
   app.post('/api/sessions/:id/review/dismiss', async (c) => {

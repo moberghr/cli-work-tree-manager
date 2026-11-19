@@ -1,6 +1,7 @@
 import { SessionReviewTab } from './tabs/SessionReviewTab.js';
 import { ShownFilePane } from './ShownFilePane.js';
 import { useShownFile } from '../../hooks/use-shown-file.js';
+import { reviewTabMeta } from '../../state/review-view.js';
 import { showSessionFile } from '../../api/client.js';
 import { SessionProcesses } from './SessionProcesses.js';
 import { useEffect, useRef, useState } from 'react';
@@ -196,7 +197,12 @@ export function SessionDetail({
           />
         )}
         <SubTabButton label="Code" active={subTab === 'code'} onClick={() => onSelectSubTab('code')} />
-        <SubTabButton label="Review" active={subTab === 'review'} onClick={() => onSelectSubTab('review')} />
+        <SubTabButton
+          label="Review"
+          meta={reviewTabMeta(session.localReview)}
+          active={subTab === 'review'}
+          onClick={() => onSelectSubTab('review')}
+        />
         {(branchCount > 0 || subTab === 'branches') && (
           <SubTabButton
             label="Branches"

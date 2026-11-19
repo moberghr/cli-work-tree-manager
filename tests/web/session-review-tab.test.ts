@@ -134,3 +134,27 @@ describe('a flow’s links', () => {
     expect(flowPages({}, pages)).toEqual([]);
   });
 });
+
+describe('the Review tab’s mark, and the row’s words (asked for: nothing said a review was done)', () => {
+  it('preparing while it runs; ready or failed until you look; nothing after, or with no review', async () => {
+    const { reviewTabMeta } = await import('../../src/web/src/state/review-view.js');
+    expect(reviewTabMeta({ status: 'running', seen: true })).toBe('preparing…');
+    expect(reviewTabMeta({ status: 'ready', seen: false })).toBe('ready');
+    expect(reviewTabMeta({ status: 'failed', seen: false })).toBe('failed');
+    expect(reviewTabMeta({ status: 'ready', seen: true })).toBeUndefined();
+    expect(reviewTabMeta(null)).toBeUndefined();
+    expect(reviewTabMeta(undefined)).toBeUndefined();
+  });
+
+  it('the Inbox row of a session whose review waits says the review’s line', async () => {
+    const { prNeedsLine } = await import('../../src/web/src/state/pr-tab.js');
+    expect(prNeedsLine({ localReview: { status: 'ready', seen: false, line: 'Review ready: Fix first · 3 stories · 7 notes' } })).toBe(
+      'Review ready: Fix first · 3 stories · 7 notes',
+    );
+    expect(prNeedsLine({ localReview: { status: 'ready', seen: true, line: 'x' } })).toBeNull();
+    // With something on its PR too, both are said.
+    expect(prNeedsLine({ replyDrafts: 1, localReview: { status: 'ready', seen: false, line: 'Review ready: 1 story · 0 notes' } })).toBe(
+      '1 reply to post · Review ready: 1 story · 0 notes',
+    );
+  });
+});

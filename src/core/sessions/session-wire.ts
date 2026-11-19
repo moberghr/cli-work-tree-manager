@@ -1,3 +1,4 @@
+import type { SessionLocalReviewWire } from '../api-types.js';
 import fs from 'node:fs';
 import { agentOf, agentWire } from '../agents/index.js';
 import { readStatus } from '../status/session-status.js';
@@ -52,6 +53,8 @@ export interface SessionWireOptions {
   reviewThreadsFor?: (id: string) => number;
   /** Reply drafts its Claude wrote for you to post (pr-replies.ts). */
   replyDraftsFor?: (id: string) => number;
+  /** Where its own review stands (local-review.ts `row`); null: it has none. */
+  localReviewFor?: (id: string) => SessionLocalReviewWire | null;
   /** Where its PR stands (pr-stage.ts over the PR watch's last check), and whether you've seen it there. */
   prStageFor?: (id: string) => PrStageWire | null;
   /** You have notes on it (session-notes.ts). */
@@ -92,6 +95,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const reviewThreads = s.archivedAt ? 0 : (opts.reviewThreadsFor?.(id) ?? 0);
   const replyDrafts = s.archivedAt ? 0 : (opts.replyDraftsFor?.(id) ?? 0);
   const prStage = s.archivedAt ? null : (opts.prStageFor?.(id) ?? null);
+  const localReview = s.archivedAt ? null : (opts.localReviewFor?.(id) ?? null);
   const wire: SessionWire = {
     id,
     target: s.target,
@@ -154,6 +158,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     ...(reviewThreads > 0 ? { openReviewThreads: reviewThreads } : {}),
     ...(replyDrafts > 0 ? { replyDrafts } : {}),
     ...(prStage ? { prStage } : {}),
+    ...(localReview ? { localReview } : {}),
     ...otherBranches(s),
   };
   // Snoozed: only while it holds (a time not yet reached, or the status it

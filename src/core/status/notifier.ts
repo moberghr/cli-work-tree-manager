@@ -13,13 +13,14 @@
 import spawn from '../platform/spawn.js';
 import { detachHere } from '../platform/process.js';
 
-export type NotifyKind = 'idle' | 'needs_input' | 'unblocked' | 'pr';
+export type NotifyKind = 'idle' | 'needs_input' | 'unblocked' | 'pr' | 'review';
 
 const MESSAGES: Record<NotifyKind, string> = {
   idle: 'Idle — finished its turn',
   needs_input: 'Needs your input',
   unblocked: 'No longer waiting — what it waited on is done',
   pr: 'Its pull request needs you',
+  review: 'Its review is ready',
 };
 
 /** Drop control characters that could break notifier argument parsing. */

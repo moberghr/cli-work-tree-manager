@@ -235,6 +235,8 @@ export const OWED_SHORT: Record<Owed['kind'], (n: number) => string> = {
   conflict: () => 'conflict',
   checks: () => 'CI',
   merge: () => 'merge',
+  // "review" is a finished turn's word already (its diff to review): the session's own review says what it is.
+  review: () => 'review ready',
 };
 export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
   turn: () => 'a finished turn to review',
@@ -243,6 +245,7 @@ export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
   conflict: (n) => (n === 1 ? 'a merge conflict' : `${n} PRs with merge conflicts`),
   checks: (n) => (n === 1 ? 'checks failing' : `${n} PRs with checks failing`),
   merge: () => 'ready to merge',
+  review: () => 'its review finished: open its Review tab',
 };
 
 export interface OwedBadge {

@@ -179,6 +179,8 @@ export interface SessionSummary {
   replyDrafts?: number;
   /** Where its pull request stands (pr-stage.ts); `seen` once you looked at it there. */
   prStage?: import('../../../core/api-types.js').PrStageWire;
+  /** Its own review (its Review tab): being prepared, ready or failed, and whether you have looked since. */
+  localReview?: import('../../../core/api-types.js').SessionLocalReviewWire;
 }
 
 // ---- Ship / archive ---------------------------------------------------
@@ -398,6 +400,11 @@ export async function showSessionFile(sessionId: string, repo: string, path: str
 export async function closeSessionShown(sessionId: string): Promise<void> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`close: ${res.status}`);
+}
+
+/** You looked at a session's review: it leaves the Inbox (POST …/review/seen). Never throws: a mark that fails shows again. */
+export async function markSessionReviewSeen(sessionId: string): Promise<void> {
+  await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/seen`, { method: 'POST' }).catch(() => undefined);
 }
 
 /** Dismiss a note of a session's review (`undo`: bring it back); resolves with the review as it is kept now. */

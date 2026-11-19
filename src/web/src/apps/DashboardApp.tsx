@@ -404,9 +404,10 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       'sessions-changed': () => setRefreshKey((n) => n + 1),
       'comments-changed': () => setRefreshKey((n) => n + 1),
       notify: (data) =>
-        showNotify(data as NotifyEvent, notifyTarget.current.sessionId, (id) =>
-          // Its terminal, as every way into a session (a finished turn too: where you pick it up).
-          notifyTarget.current.open(id, 'term'),
+        showNotify(data as NotifyEvent, notifyTarget.current.sessionId, (id, kind) =>
+          // Its terminal, as every way into a session (a finished turn too: where you pick it up); its Review tab
+          // when it is its review that finished.
+          notifyTarget.current.open(id, kind === 'review' ? 'review' : 'term'),
         ),
     },
   });

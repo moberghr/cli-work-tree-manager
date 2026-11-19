@@ -648,6 +648,8 @@ export interface SessionWire {
   openReviewThreads?: number;
   /** Replies its Claude drafted for you to post on those threads (pr-replies.ts). */
   replyDrafts?: number;
+  /** Its own review (its Review tab, local-review.ts): being prepared, ready or failed; `seen` once you looked. Absent: none. */
+  localReview?: SessionLocalReviewWire;
   /** Where its pull request stands (pr-stage.ts, the PR watch's last check); `seen` once you
    *  opened the session at this stage. Absent with no PR or before the first check. */
   prStage?: PrStageWire;
@@ -1080,7 +1082,7 @@ export interface PresenceReport {
 /** SSE `notify` — a session wants the user and nobody is looking at it. */
 export interface NotifyEvent {
   sessionId: string;
-  kind: 'idle' | 'needs_input' | 'unblocked' | 'pr';
+  kind: 'idle' | 'needs_input' | 'unblocked' | 'pr' | 'review';
   title: string;
   body?: string;
 }
@@ -1984,6 +1986,15 @@ export interface SessionProcessesWire {
  * GET /api/sessions/:id/review — a session's own changes read as a review, before there is a pull request
  * (local-review.ts). `review` is a `PrReviewWire` with no number, link or host: nothing of it goes anywhere.
  */
+/** A session's own review as its row says it (`SessionWire.localReview`): where it stands, in a line. */
+export interface SessionLocalReviewWire {
+  status: 'running' | 'ready' | 'failed';
+  /** You have looked at it since it finished (its Review tab, or Mark seen); always true while it is being prepared. */
+  seen: boolean;
+  /** "Review ready: Fix first · 3 stories · 7 notes", "Review couldn't be prepared: …", "Preparing its review…". */
+  line: string;
+}
+
 /** GET /api/sessions/:id/show: the file a session shows beside its terminal (core/sessions/shown-file.ts), or none. */
 export interface SessionShownWire {
   shown: (import('./sessions/shown-file.js').ShownFile & { kind: import('./sessions/shown-file.js').ShownKind }) | null;
