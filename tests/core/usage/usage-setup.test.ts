@@ -64,10 +64,10 @@ describe('setupAgentUsage (work web at start)', () => {
     expect(logged.some((l) => l.includes("X's usage readings") && l.includes('settings locked'))).toBe(true);
   });
 
-  it("with the real registry, a lean server leaves Claude's settings alone", async () => {
+  it("with the real registry, settings with nothing of work's in them are left as they are", async () => {
     const { knownAgents } = await import('../../../src/core/agents/index.js');
     const done = await setupAgentUsage(knownAgents(), null, true);
-    expect(done).toEqual([{ agent: 'claude', message: 'status line left alone (lean server)' }]);
+    expect(done).toEqual([{ agent: 'claude', message: "status line: nothing of work's in your settings" }]);
   });
 });
 

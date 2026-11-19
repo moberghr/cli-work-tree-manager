@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { agentFor } from '../core/agents/index.js';
+import { agentFor, sessionToolFor } from '../core/agents/index.js';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/platform/config.js';
@@ -176,7 +176,8 @@ export const treeCommand: CommandModule = {
       // still runs in another terminal, which keeps the flag and its guards (legacy-unsafe.ts; remove next release).
       clearLaunchedUnsafeWhenIdle(sessionKey.target, sessionKey.branch);
       console.log(`Starting ${tool.cmd}...`);
-      launchAi(dir, tool, { initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
+      // With work's hooks for this process (--settings), never the user's settings' (agents/session-hooks.ts).
+      launchAi(dir, sessionToolFor(tool), { initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
     };
 
     // --pr: the PR's repo and branch, and a first prompt saying whose branch it is.

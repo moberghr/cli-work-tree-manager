@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir } from '../platform/config.js';
 import { atomicWriteFile } from '../platform/fs-safe.js';
+import { workCommand } from '../platform/work-command.js';
 import type { AssistantView, SessionWire } from '../api-types.js';
 import { DISPLAY_LABEL, displayStatus } from '../sessions/session-view.js';
 import type { AgentAdapter, AllowRule, WorkHook } from './types.js';
@@ -59,8 +60,9 @@ export const ASSISTANT_ALLOW: AllowRule[] = [
 ];
 
 /** Its hook: what the dashboard shows, added at the start of each turn. */
-export const ASSISTANT_HOOKS: WorkHook[] = [
-  { owner: 'assistant', edge: 'turn-start', command: 'work hook assistant-context', timeoutSec: 5 },
+/** Its hooks: the view as context for each prompt — run by the work that wrote them, never PATH's (work-command.ts). */
+export const assistantHooks = (): WorkHook[] => [
+  { owner: 'assistant', edge: 'turn-start', command: workCommand(['hook', 'assistant-context']), timeoutSec: 5 },
 ];
 
 export const ASSISTANT_INSTRUCTIONS = `# You are the work dashboard's assistant
@@ -118,7 +120,7 @@ export function prepareAssistantDir(agent: Pick<AgentAdapter, 'instructionsFile'
   fs.mkdirSync(dir, { recursive: true });
   const before = readWritten();
   atomicWriteFile(path.join(dir, agent.instructionsFile), ASSISTANT_INSTRUCTIONS);
-  const written = [agent.instructionsFile, ...(agent.workspace?.write(dir, { allow: ASSISTANT_ALLOW, hooks: ASSISTANT_HOOKS }) ?? [])].map(
+  const written = [agent.instructionsFile, ...(agent.workspace?.write(dir, { allow: ASSISTANT_ALLOW, hooks: assistantHooks() }) ?? [])].map(
     (f) => path.normalize(f),
   );
   const root = path.resolve(dir);

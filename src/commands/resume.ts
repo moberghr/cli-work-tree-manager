@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { agentFor } from '../core/agents/index.js';
+import { agentFor, sessionToolFor } from '../core/agents/index.js';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
@@ -70,6 +70,12 @@ export const resumeCommand: CommandModule = {
       console.log(chalk.yellow(`No prior ${tool.cmd} conversation found for this worktree — starting a fresh session.`));
     }
     console.log(`Starting ${tool.cmd}...`);
-    launchAi(launchPath, tool, { resume: hasConversation }, choice.port, ...envArgs(agentFor(config, choice).launch.env?.(choice)));
+    launchAi(
+      launchPath,
+      sessionToolFor(tool),
+      { resume: hasConversation },
+      choice.port,
+      ...envArgs(agentFor(config, choice).launch.env?.(choice)),
+    );
   },
 };

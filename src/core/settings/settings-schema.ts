@@ -449,9 +449,9 @@ export const SETTINGS: readonly SettingField[] = [
     'usage.statusLine',
     'Archive & usage',
     "Read plan limits from Claude's status line",
-    "The Usage meter's source. Off gives Claude Code its own status line back.",
+    "The Usage meter's source: work's line on the Claudes work starts. Off: they show your own. Your own settings are never changed.",
     true,
-    'at the next work web start',
+    'when each Claude next starts',
   ),
 ];
 

@@ -86,7 +86,7 @@ work pty-host [--status|--stop|--restart] [--force] # Internal/hidden — the lo
 work state [--export <dir>]                        # What ~/.work/state.db holds; --export writes it back as the pre-SQLite JSON files (rollback / inspection)
 work move export <dir> [--force]                   # A bundle to take work to another computer (core/move/move.ts): refuses while anything is uncommitted or unpushed (worktrees come back from origin)
 work move import <dir> [--repos-root p] [--worktrees-root p] [--clone] [--force]  # On the other computer, with work web and the PTY host stopped: paths moved, missing repos cloned, worktrees recreated, conversations put back
-work hook <event>                                  # Internal — invoked by Claude Code via ~/.claude/settings.json (hidden)
+work hook <event>                                  # Internal — run by the Claudes work starts, from work's own settings file (`--settings ~/.work/claude-settings.json`; hidden)
 work install-skills                                # Internal — give each agent work's skills its own way (hidden; npm's postinstall and the desktop app run the same as dist/install-skills-bin.js, never the whole CLI, so an install writes nothing to ~/.work)
 ```
 

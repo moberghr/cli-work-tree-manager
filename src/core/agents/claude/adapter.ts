@@ -16,6 +16,7 @@ import { accountDir, accountEnv, configDirEnv, defaultAccountName, sessionAccoun
 import { readTranscriptTail } from './transcript.js';
 import { claudeContextWindow, claudeEntries } from './entries.js';
 import { claudeEvents } from './hooks.js';
+import { sessionSettingsFile, startedWithSessionSettings, withSessionSettings } from './session-settings.js';
 import { claudeSessionsDirs, readLiveClaudes } from './live.js';
 import { ANSWER_KEYS, checkDialog } from './permission.js';
 import { typeThenEnter } from '../typing.js';
@@ -65,6 +66,10 @@ export const claudeAgent: AgentAdapter = {
     cleanEnv: (env) => withoutParentSession(env),
     // The session's account (null: work's own runs, on the configured default).
     env: (session) => accountEnv(session ? sessionAccount(session) : defaultAccountName()),
+    // `--settings ~/.work/claude-settings.json`: work's hooks and status line for this Claude alone.
+    // (`write: false`: the dev server names the file the installed work wrote, never its own build.)
+    sessionTool: (tool, o) => withSessionSettings(tool, sessionSettingsFile(o)),
+    startedWithSessionHooks: startedWithSessionSettings,
   },
   conversation: {
     files: (s) => listTranscripts(s),

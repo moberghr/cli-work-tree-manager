@@ -284,7 +284,8 @@ describe('PtyRegistry launch options', () => {
     await reg.restore();
     expect(spawned).toHaveLength(1);
     const { args } = buildAiLaunchArgs(spawned[0].spec.tool, spawned[0].spec);
-    expect(args).toEqual(['--continue']);
+    // Started normally: work's own hooks file (`--settings`, given to every session's Claude) and its resume flag.
+    expect(args).toEqual(['--settings', path.join(os.homedir(), '.work', 'claude-settings.json'), '--continue']);
     // The entry it rewrites says it starts normally: what lifts the one-release guards (legacy-unsafe.ts).
     expect(readSaved().a).not.toHaveProperty('unsafe');
     expect(readSaved().a.tool).not.toHaveProperty('unsafeFlag');
@@ -297,6 +298,8 @@ describe('PtyRegistry launch options', () => {
     expect(spawned[1].spec).not.toHaveProperty('unsafe');
     expect(readSaved().a).not.toHaveProperty('unsafe');
     expect(readSaved().a.tool).not.toHaveProperty('unsafeFlag');
+    // The restart carries work's hooks too, once (the flag is the host's, never doubled).
+    expect(buildAiLaunchArgs(spawned[1].spec.tool, spawned[1].spec).args.filter((a) => a === '--settings')).toHaveLength(1);
   });
 
   it('never persists env, prompt or fresh; a restore continues', async () => {

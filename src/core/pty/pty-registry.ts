@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { agentById } from '../agents/index.js';
+import { agentById, sessionToolFor } from '../agents/index.js';
+import type { AiToolSpec } from '../platform/ai-launcher.js';
 import { ASSISTANT_ID } from '../agents/assistant.js';
 import { isAccountLoginId } from './account-login-id.js';
 import { loadConfig } from '../platform/config.js';
@@ -108,6 +109,8 @@ export interface RegistryDeps {
    *  never touch the user's state.db). */
   sessionsPath?: string;
   cwdExists?: (cwd: string) => boolean;
+  /** The tool as it is started (default: its agent's `sessionTool`, which gives a Claude work's hooks). */
+  sessionTool?: (tool: AiToolSpec) => AiToolSpec;
 }
 
 /** A restore list in a plain JSON file, written under the file lock. */
@@ -146,6 +149,7 @@ export class PtyRegistry {
   private readonly store: PtySessionsStore;
   private readonly cwdExists: (cwd: string) => boolean;
   private readonly keepEnvNames: () => string[];
+  private readonly sessionTool: (tool: AiToolSpec) => AiToolSpec;
   /** Serializes persistence writes inside this process. */
   private writeChain: Promise<void> = Promise.resolve();
 
@@ -155,6 +159,7 @@ export class PtyRegistry {
     this.store = deps.sessions ?? (deps.sessionsPath ? fileSessionsStore(deps.sessionsPath) : dbPtySessions);
     this.cwdExists = deps.cwdExists ?? ((p) => fs.existsSync(p));
     this.keepEnvNames = deps.keepEnvNames ?? (() => loadConfig()?.hostEnv ?? []);
+    this.sessionTool = deps.sessionTool ?? sessionToolFor;
   }
 
   list(): PtyInfo[] {
@@ -174,7 +179,9 @@ export class PtyRegistry {
     // `unsafeFlag`: neither is started with, nor written back — the entry this host records says it starts normally,
     // which is what lifts the one-release guards (sessions/legacy-unsafe.ts). REMOVE the strip with them next release.
     const { unsafeFlag: _retired, ...tool } = spec.tool as typeof spec.tool & { unsafeFlag?: unknown };
-    spec = { ...spec, tool };
+    // Started — and recorded for a restore — with work's hooks for this process (`--settings`, a restore entry from
+    // before gets it too), never the user's settings' (agents/session-hooks.ts).
+    spec = { ...spec, tool: this.sessionTool(tool) };
 
     // A spawn from a shell keeps the variables config `hostEnv` names; a
     // restore — or a respawn without a shell (the Terminal tab) — runs with
@@ -517,6 +524,8 @@ export class PtyRegistry {
   private async resumeEntry(e: Entry, agentEnv?: EnvDelta): Promise<PtyInfo | null> {
     if (this.entries.get(e.id) !== e) return this.get(e.id); // killed meanwhile
     if (agentEnv) this.useAgentEnv(e, agentEnv);
+    // Its hooks as this build gives them (an entry started by an older host had none of its own).
+    e.spec = { ...e.spec, tool: this.sessionTool(e.spec.tool) };
     let pty: PtyLike;
     try {
       const env = e.env ?? this.launchEnv(e.spec);

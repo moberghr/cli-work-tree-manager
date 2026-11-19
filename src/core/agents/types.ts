@@ -118,6 +118,18 @@ export interface AgentLaunch {
    * own runs (the assistant, one-shot summaries), on the configured default. Absent: nothing to change.
    */
   env?(session: Pick<WorktreeSession, 'account'> | null): EnvDelta;
+  /**
+   * The tool as work starts it for a session, its hooks (session-hooks.ts) given to this process alone — never written
+   * into the user's settings, where every other agent run on the machine would fire them (Claude: `--settings` with
+   * work's own file, claude/session-settings.ts). Applied at every spawn, restore and restart, so a stored tool from
+   * before gets it too. Absent: started as `tool` says (no hooks).
+   */
+  sessionTool?(tool: AiToolSpec, o?: { write?: boolean }): AiToolSpec;
+  /**
+   * A running process of it, by its command line, was started with `sessionTool`'s hooks. One that wasn't — started
+   * before this build, by an older work — still needs the hooks older builds put in its own settings (`AgentEvents.bridge`).
+   */
+  startedWithSessionHooks?(commandLine: string): boolean;
 }
 
 /** Whether a keystroke may answer a permission request now (the dialog on its screen is that request's), and if not, why. */
@@ -208,7 +220,7 @@ export interface AgentLive {
 /** A point in an agent's turn work hooks into: a prompt arrives, the turn ends, the agent notifies (a permission prompt, idle). */
 export type TurnEdge = 'turn-start' | 'turn-end' | 'notify';
 
-/** One of work's hooks: the command (`work hook <edge>`) an agent runs at a turn edge, under an owner (which work web installed it). */
+/** One of work's hooks in a folder's own settings (the Ctrl+K assistant's): the command an agent runs at a turn edge, under an owner. */
 export interface WorkHook {
   owner: string;
   edge: TurnEdge;
@@ -216,12 +228,23 @@ export interface WorkHook {
   timeoutSec?: number;
 }
 
-/** How work hears an agent's turns: hooks the agent runs at each edge, and what it sends them. */
+/**
+ * How work hears an agent's turns: hooks the agent runs at each edge (given to the processes work starts,
+ * `AgentLaunch.sessionTool`), and what it sends them.
+ */
 export interface AgentEvents {
-  /** Install these hooks in the agent's settings in one write, replacing those owners' earlier ones, and removing `remove`. */
-  install(hooks: WorkHook[], remove?: Array<{ owner: string; edge: TurnEdge }>): Promise<void>;
-  /** Remove hooks synchronously (a shutdown handler can't wait). */
-  removeSync(hooks: Array<{ owner: string; edge: TurnEdge }>): void;
+  /**
+   * Take hooks of these owners out of the agent's own settings (every account's): work once installed them there, and
+   * every agent run on the machine fired them (session-hooks.ts `RETIRED_HOOK_OWNERS`). Settings already without them
+   * aren't written.
+   */
+  removeInstalled(hooks: ReadonlyArray<{ owner: string; edge: TurnEdge }>): Promise<void>;
+  /**
+   * While agents started before the update still run (they have no `sessionTool` hooks of their own, and the agent
+   * reads its settings live), put work's hooks in its own settings — the very commands `sessionTool` gives, so an agent
+   * that has both runs each once — under owners `removeInstalled` takes out once those agents are gone.
+   */
+  bridge(): Promise<void>;
   /** What a hook was sent (its stdin, parsed): the folder it fired in, and the status event it means. */
   read(edge: TurnEdge, payload: unknown): { cwd?: string; status: StatusEvent | null };
   /** The hook output that hands `text` (pending notes) to the agent: at a turn's start as more context, at its end as "go on with this". */

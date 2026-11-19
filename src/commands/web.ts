@@ -1,13 +1,15 @@
-import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../server/web-server.js';
-import { agentAccountFolders, knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
-import { startAccountSync, type AccountSync } from '../core/agents/account-sync.js';
+import { knownAgents } from '../core/agents/index.js';
+import { settleAgentHooks, type HookMigrationIo, type HookMigrationStep } from '../core/agents/hook-migration.js';
+import { findSessionForCwd } from '../core/comments/pending-delivery.js';
+import { listProcesses } from '../core/platform/running-from.js';
+import { debugLog } from '../core/platform/logger.js';
 import { setupAgentUsage } from '../core/usage/usage-setup.js';
 import { loadConfig } from '../core/platform/config.js';
 import { openUrl } from '../core/platform/launch.js';
-import { configurePtyPool, resumePersistedSessions } from '../core/pty/pty-pool.js';
+import { configurePtyPool, ptyPids, resumePersistedSessions } from '../core/pty/pty-pool.js';
 import { resolveWorkBinPath } from '../core/platform/work-bin.js';
 import { setAutostart } from '../core/platform/autostart.js';
 import { startDemoServer } from '../server/demo/demo-server.js';
@@ -26,72 +28,56 @@ import {
   writeWebDiscovery,
 } from '../core/platform/web-discovery.js';
 import { pendingMigration } from '../core/platform/db.js';
-import { bestEffort, swallow } from '../core/platform/best-effort.js';
+import { bestEffort, logSwallowed, swallow } from '../core/platform/best-effort.js';
+
+/** How often a work web looks again while agents from before the update still run on the old hooks. */
+const HOOK_MIGRATION_EVERY_MS = 2 * 60_000;
 
 /**
- * The Claude hooks work web installs. Full dashboard: ONE hook per turn
- * edge — `turn-start` (seal the checkpoint step, record "working", attach
- * pending comments) and `turn-end` (checkpoint, record "done", deliver) —
- * instead of three, each a `work` (node) start for every turn of every
- * Claude on the machine; plus the permission-prompt Notification. Lean
- * (`wd`): checkpoints only.
+ * Take out what older work webs wrote into each agent's own settings (Claude: ~/.claude/settings.json and every
+ * account's): their hooks, and the status line they wrapped. The agents work starts carry both themselves now
+ * (agents/session-hooks.ts, `AgentLaunch.sessionTool`); left in the user's settings, every agent run on the machine fired
+ * them, with whatever `work` its PATH found. Settings already clean aren't written. Lean too: wd's server once
+ * installed its checkpoint hooks the same way.
+ *
+ * Without a session missing a turn (agents/hook-migration.ts): while a session's agent started before this work web
+ * still runs, the hooks stay — as the exact commands its new agents carry — and go once none is left. Looked at again
+ * every two minutes until then. Resolves when the first step is done; returns a stop for the timer.
  */
-export const FULL_HOOKS: WorkHook[] = [
-  { owner: 'web-turn', edge: 'turn-start', command: 'work hook turn-start', timeoutSec: 10 },
-  { owner: 'web-turn', edge: 'turn-end', command: 'work hook turn-end', timeoutSec: 10 },
-  { owner: 'web-status', edge: 'notify', command: 'work hook status-notify', timeoutSec: 5 },
-];
-export const LEAN_HOOKS: WorkHook[] = [
-  { owner: 'web-checkpoint', edge: 'turn-end', command: 'work hook checkpoint', timeoutSec: 5 },
-  { owner: 'web-checkpoint', edge: 'turn-start', command: 'work hook checkpoint-seal', timeoutSec: 5 },
-];
-/** The separate hooks of before (and lean's, which the full set replaces): removed. */
-export const LEGACY_HOOKS: Array<{ owner: string; edge: TurnEdge }> = [
-  { owner: 'web', edge: 'turn-start' },
-  { owner: 'web', edge: 'turn-end' },
-  { owner: 'web-status', edge: 'turn-start' },
-  { owner: 'web-status', edge: 'turn-end' },
-  { owner: 'web-checkpoint', edge: 'turn-start' },
-  { owner: 'web-checkpoint', edge: 'turn-end' },
-];
-
-/** The agents whose hooks work web installs: every one it has an adapter with hooks for. */
-const hookedAgents = () => knownAgents().filter((a) => a.events);
-
-/** Install work's hooks in every such agent's settings (full: one per turn edge + notify, and the old ones go; lean: checkpoints). */
-export async function installAgentHooks(lean: boolean, onError: (agent: string) => (err: unknown) => void = () => () => {}): Promise<void> {
-  for (const agent of hookedAgents()) {
-    await agent.events!.install(lean ? LEAN_HOOKS : FULL_HOOKS, lean ? [] : LEGACY_HOOKS).catch(onError(agent.name));
-  }
-}
-
-/** The hooks and the usage readings again, in every account's settings: an account added while work web runs (account-sync.ts). */
-export async function reinstallAgentSetup(lean: boolean): Promise<void> {
-  await installAgentHooks(lean, (name) => swallow(`install ${name} hooks`));
-  await setupAgentUsage(knownAgents(), loadConfig(), lean);
-}
-
-/**
- * Follow the accounts while work web runs (account-sync.ts): the set of account folders that exist — an account whose
- * folder isn't there yet is set up once it is (installing into it would make it) — looked at every `everyMs`, and the
- * hooks and the usage readings installed again when it changed. `apply` / `folders` are for tests.
- */
-export function startAccountSetupSync(
-  lean: boolean,
-  o: { apply?: () => Promise<void>; folders?: () => string[]; everyMs?: number } = {},
-): AccountSync {
-  return startAccountSync({
-    folders: () => (o.folders ?? agentAccountFolders)().filter((dir) => fs.existsSync(dir)),
-    apply: o.apply ?? (() => reinstallAgentSetup(lean)),
-    onError: swallow('set up a changed Claude account'),
-    ...(o.everyMs !== undefined ? { everyMs: o.everyMs } : {}),
-  });
-}
-
-/** Remove them again, synchronously (shutdown). */
-export function removeAgentHooksSync(lean: boolean): void {
-  const ours = (lean ? LEAN_HOOKS : FULL_HOOKS).map(({ owner, edge }) => ({ owner, edge }));
-  for (const agent of hookedAgents()) bestEffort(`remove ${agent.name} hooks`, () => agent.events!.removeSync([...ours, ...LEGACY_HOOKS]));
+export async function removeRetiredAgentSetup(
+  io: Partial<HookMigrationIo> & { everyMs?: number } = {},
+): Promise<{ stop: () => void; first: HookMigrationStep[] }> {
+  const since = io.since ?? Date.now();
+  const migrationIo: HookMigrationIo = {
+    since,
+    commandLines: io.commandLines ?? (async () => new Map((await listProcesses()).map((p) => [p.pid, p.command]))),
+    inSession: io.inSession ?? ((cwd) => findSessionForCwd(cwd) !== null),
+    hostPids: io.hostPids ?? ptyPids,
+    ...(io.agents ? { agents: io.agents } : {}),
+  };
+  const step = async (): Promise<HookMigrationStep[]> => {
+    try {
+      const done = await settleAgentHooks(migrationIo);
+      for (const d of done)
+        if (d.done === 'bridged')
+          debugLog('INFO', `[hooks] ${d.agent}: kept in its settings for ${d.waitingOn} session(s) started before the update`);
+      return done;
+    } catch (err) {
+      logSwallowed("move the agents' hooks out of their settings", err);
+      return [];
+    }
+  };
+  // The status line older builds wrapped goes back at once: a running agent then shows the user's own (its readings
+  // come from the agents started since), never a broken line.
+  await setupAgentUsage(knownAgents(), loadConfig(), false).catch(swallow("give back the agents' status lines"));
+  const first = await step();
+  let last = first;
+  const timer = setInterval(() => {
+    if (last.length > 0 && last.every((d) => d.done === 'removed')) return clearInterval(timer);
+    void step().then((d) => (last = d));
+  }, io.everyMs ?? HOOK_MIGRATION_EVERY_MS);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer), first };
 }
 
 function info(message: string): void {
@@ -226,8 +212,7 @@ export const webCommand: CommandModule = {
     }
 
     // Singleton enforcement. Two work web servers running at once is
-    // strictly bad: they fight over `~/.work/settings.json` hooks,
-    // each one holds a port, and only the most-recently-started is
+    // strictly bad: each one holds a port, and only the most-recently-started is
     // discoverable via `web.url`. Detect a live previous instance and
     // either reuse it (open browser) or refuse to start.
     const lean = !!argv.lean || process.env.WORK_WEB_LEAN === '1';
@@ -305,30 +290,21 @@ export const webCommand: CommandModule = {
       );
     }
 
-    // Claude hooks (one write of ~/.claude/settings.json, see HOOKS):
-    // the full dashboard puts delivery, status and checkpoints in one hook
-    // per turn edge; the lean `wd` server only needs the checkpoints.
-    await installAgentHooks(lean, (name) => swallow(`install ${name} hooks`));
-    // Each agent's usage readings (Claude's come only through its status line, which this wraps; config
-    // usage.statusLine: false gives it back). Not undone on shutdown — the wrapper passes the user's own line through.
-    await setupAgentUsage(knownAgents(), loadConfig(), lean).catch(swallow('set up the usage readings'));
-    // An account added (or removed) while this runs gets the same, within seconds (account-sync.ts).
-    const accountSync = startAccountSetupSync(lean);
+    // The hooks and status line live with the Claudes work starts (`--settings`, agents/session-hooks.ts): nothing is
+    // installed in the user's settings any more, and what older builds put there goes.
+    const hookMigration = await removeRetiredAgentSetup();
 
     shutdown = (how: string) => {
       life.end(how);
-      accountSync.stop();
+      hookMigration.stop();
       info(chalk.gray(`\nStopping work web (${how}).`));
       clearWebDiscovery(process.pid);
-      removeAgentHooksSync(lean);
       void handle.stop().finally(() => process.exit(0));
     };
     stopOnSignals(process, (how) => shutdown(how));
     // Still the one? Two can start at once (a restart racing the desktop
-    // app's watchdog); the one not in web.pid steps aside. It leaves the
-    // Claude hooks alone — they are removed by owner, and the other server
-    // installed the same ones — and the discovery files, which are the
-    // other's. Nothing recorded: put ours back.
+    // app's watchdog); the one not in web.pid steps aside, leaving the
+    // discovery files, which are the other's. Nothing recorded: put ours back.
     const discoveryTimer = setInterval(() => {
       life.beat(); // still alive: the next one can tell when this one was last seen
       void discoveryCheck({ pid: process.pid, url: handle.url }).then((d) => {
