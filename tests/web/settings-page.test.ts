@@ -133,6 +133,7 @@ describe("a repo's settings", () => {
     requiredChecks: null,
     devCommand: null,
     reviews: null,
+    reviewFocus: null,
     ...over,
   });
 

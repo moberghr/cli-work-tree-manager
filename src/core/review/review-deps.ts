@@ -2,6 +2,7 @@ import { loadConfig } from '../platform/config.js';
 import { defaultRunner, type CommandRunner } from '../platform/command-runner.js';
 import { hostForRepo } from '../hosts/index.js';
 import { internalReadOnly, runInternal, runInternalReadOnly } from '../diff/checkpoint-summary.js';
+import { reviewFocus } from './review-focus.js';
 import type { AgentReadOnly } from '../agents/types.js';
 import { sweepReviewTrees, withReviewTree, type ReviewTreeAt } from './review-tree.js';
 import { bootTime, isPidAlive } from '../platform/process.js';
@@ -94,6 +95,7 @@ export function realReviewQueueDeps(opts: { activity?: ActivityLog; changed: () 
       }),
     sweepTrees: () => sweepReviewTrees(defaultRunner, { olderThanMs: TREE_SWEEP_MIN_AGE_MS }),
     rules: () => rulesWith(config().reviews?.rules),
+    attention: (alias) => reviewFocus(config(), [alias]),
     store: { read: readReview, update: updateReview, upsert: upsertReview, all: allReviews, keepOnly },
     limits: () => reviewLimits(config()),
     changed: opts.changed,

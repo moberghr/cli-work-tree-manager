@@ -37,6 +37,8 @@ export interface LocalReviewDeps {
   ) => Promise<{ lines: string[]; ask: (prompt: string) => Promise<string | null> } | { why: string }>;
   rules?: () => KindRule[] | undefined;
   now?: () => Date;
+  /** What a review of this session is told to pay attention to (review-focus.ts); absent: nothing. */
+  attention?: (session: WorktreeSession) => string[];
 }
 
 /** What the changes are, as one short id: a review made of the same diff has the same one (your Viewed ticks hold). Pure. */
@@ -192,7 +194,9 @@ export async function prepareLocalReview(
   const meta = localMeta(session, picked.map((r) => r.name).join(REPOS_JOIN), diff.resolvedBase, diffSignature(all));
   const kinds = kindsOf(files, extras, rules);
   const agent = deps.agent;
-  const prompt = agent ? reviewPrompt(meta, files, kinds) : null;
+  const attention = deps.attention?.(session) ?? [];
+  const told = attention.length ? { attention } : {};
+  const prompt = agent ? reviewPrompt(meta, files, kinds, told) : null;
   // Read in the session's folder when the agent can: it can then answer what the diff alone leaves open.
   const tree =
     prompt && agent && deps.inTree
@@ -211,12 +215,12 @@ export async function prepareLocalReview(
     if (!agent) return null;
     passesAsked++;
     if (inTree) {
-      const there = reviewPrompt(meta, files, kinds, { ...opts, checkout: inTree.lines });
+      const there = reviewPrompt(meta, files, kinds, { ...opts, ...told, checkout: inTree.lines });
       const answer = there ? await inTree.ask(there).catch(() => null) : null;
       if (answer) return answer;
       fellBack++;
     }
-    const plain = reviewPrompt(meta, files, kinds, opts);
+    const plain = reviewPrompt(meta, files, kinds, { ...opts, ...told });
     return plain ? agent(plain).catch(() => null) : null;
   };
   // Each repo's own notes pass, beside the pass over everything: a repo no file of which is asked about has none.
@@ -238,6 +242,7 @@ export async function prepareLocalReview(
     ...(rules ? { rules } : {}),
     ...(deps.now ? { now: deps.now() } : {}),
     ...(deps.agent ? {} : { notAskedWhy: 'no agent for the AI step: stories are by folder' }),
+    ...(attention.length ? { attention } : {}),
     ignored,
   });
   const how = !prompt

@@ -120,6 +120,24 @@ export function RepoSettings({
               PR.
             </p>
           </div>
+
+          <div className="wd-setting">
+            <label className="wd-setting-label" htmlFor={`repo-${alias}-focus`}>
+              Reviews pay attention to
+            </label>
+            <div className="wd-setting-control">
+              <SettingInput
+                id={`repo-${alias}-focus`}
+                kind={{ type: 'list', placeholder: 'e.g. a migration has a way back' }}
+                value={data.reviewFocus ?? NO_CHECKS}
+                onSave={save('reviewFocus')}
+              />
+            </div>
+            <p className="wd-setting-help">
+              Things a review of this repo should look for, one a line, besides the ones every review is given (Settings → Reviews). They
+              apply to its pull requests’ reviews and to a session’s own review.
+            </p>
+          </div>
         </>
       )}
     </section>

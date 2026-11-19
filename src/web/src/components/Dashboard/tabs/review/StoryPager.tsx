@@ -3,7 +3,7 @@ import type { PrDiscussionThreadWire, PrReviewWire } from '../../../../../../cor
 import { openThreadsByFile } from '../../../../../../core/review/review-discussion.js';
 import { DiscussionAside } from './Discussion.js';
 import type { ParsedFile } from '../../../../../../core/diff/diff-parse.js';
-import { FLAG_LABEL } from '../../../../../../core/review/review-plan.js';
+import { FLAG_LABEL, STORY_VERDICT_LABEL } from '../../../../../../core/review/review-plan.js';
 import { DiffFile } from '../../../Diff/DiffFile.js';
 import { ResizeDivider, useResizableSize, type ResizeSpec } from '../../../Layout/ResizeDivider.js';
 import {
@@ -246,8 +246,18 @@ export function StoryPager({
                         {FLAG_LABEL[f]}
                       </span>
                     ))}
+                    {s.verdict && (
+                      <span className={`wd-review-story-verdict wd-review-story-verdict-${s.verdict}`}>
+                        {STORY_VERDICT_LABEL[s.verdict]}
+                      </span>
+                    )}
                     {s.by === 'ai' && <span className="wd-start-note"> · written by the AI step</span>}
                   </p>
+                  {s.verdict && s.verdictWhy && (
+                    <p className="wd-review-story-verdict-why">
+                      <strong>{STORY_VERDICT_LABEL[s.verdict]}.</strong> <Prose text={s.verdictWhy} />
+                    </p>
+                  )}
                   <div className="wd-review-story-text">
                     {s.what && (
                       <section aria-label="What it does">

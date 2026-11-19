@@ -117,6 +117,8 @@ describe('the overview', () => {
         lead: 'A refund request for an order is sent to the payment provider for the requested amount, and the amount is then added to the order’s new Refunded total.',
         riskLevel: 5,
         flags: ['data-loss', 'concurrency'],
+        verdict: 'fix-first',
+        verdictWhy: 'Cap a refund at what the customer paid before this goes in.',
         codeFiles: 2,
         comments: 2,
         // Its validator is on the Untested list: the card says so beside the tests that cover the handler.
@@ -129,6 +131,8 @@ describe('the overview', () => {
         lead: 'Rounding.Cents now passes MidpointRounding.AwayFromZero, so 2.345 becomes 2.35 where it used to become 2.34.',
         riskLevel: 3,
         flags: ['public-contract', 'no-tests'],
+        verdict: 'ready',
+        verdictWhy: 'The change is one line and its test pins the new rounding.',
         codeFiles: 1,
         comments: 0,
         tests: { state: 'gap', text: 'no tests', untested: null },

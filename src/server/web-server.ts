@@ -29,6 +29,7 @@ import { mountSessionShowRoutes } from './routes/session-show-routes.js';
 import { localSignature, prepareLocalReview } from '../core/review/local-review.js';
 import { dropLocalReview, readLocalReview, saveLocalReview } from '../core/review/local-review-store.js';
 import { LOCAL_TREE_TIMEOUT_MS, localTreeRun } from '../core/review/local-review-tree.js';
+import { reviewFocus } from '../core/review/review-focus.js';
 import { internalReadOnly, runInternal, runInternalReadOnly } from '../core/diff/checkpoint-summary.js';
 import { rulesWith } from '../core/review/change-kinds.js';
 import { listProcessUsage } from '../core/platform/process-usage.js';
@@ -1120,6 +1121,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
             exists: (dir) => fs.existsSync(dir),
           }),
         rules: () => rulesWith(loadConfig()?.reviews?.rules),
+        // Its project's and each of its repos' own points, with the ones for every review.
+        attention: (s) => reviewFocus(loadConfig(), [s.target, ...(s.repos ?? [])]),
       }),
     signature: (s, repo) => localSignature(computeSessionDiff(s, 'branch'), repo ?? undefined),
     store: { read: readLocalReview, save: saveLocalReview, drop: dropLocalReview },

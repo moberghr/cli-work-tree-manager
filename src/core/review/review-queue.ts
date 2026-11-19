@@ -80,6 +80,8 @@ export interface ReviewQueueDeps {
   /** Remove the temporary checkouts a stopped run left: once, before the first sweep's reviews (review-tree.ts). */
   sweepTrees?: () => Promise<{ swept: string[]; failed: string[] }>;
   rules?: () => KindRule[];
+  /** What reviews of this project are told to pay attention to (review-focus.ts); absent: nothing. */
+  attention?: (alias: string) => string[];
   store: ReviewStore;
   /** `maxPerDay` null: no daily cap. */
   limits: () => { maxPerDay: number | null; maxLines: number };
@@ -280,7 +282,8 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
   ): Promise<{ answer: string | null | undefined; how?: string }> {
     if (!deps.agent) return { answer: undefined };
     const kinds = kindsOf(prepared.files, prepared.extras, rules);
-    const said = discussion ? { discussion } : {};
+    const attention = deps.attention?.(project.alias) ?? [];
+    const said = { ...(discussion ? { discussion } : {}), ...(attention.length ? { attention } : {}) };
     const prompt = reviewPrompt(at, prepared.files, kinds, said);
     if (!prompt) return { answer: undefined };
     let fellBack = 'the agent has no read-only mode';

@@ -32,6 +32,12 @@ export function sleepChecks(): SleepChecks {
       const s = sessionOf(id);
       return agentOf(s).conversation?.backgroundCommands?.(s, sinceMs) ?? 0;
     },
+    // The assistant is started afresh each time by design: it sleeps by the other rules alone.
+    resumable: (id) => {
+      if (id === ASSISTANT_ID) return true;
+      const s = sessionOf(id);
+      return agentOf(s).launch.resumeLaunch(s).hasConversation;
+    },
     runningFrom: (id) => {
       procs ??= listProcesses();
       const list = procs;

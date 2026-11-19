@@ -1,7 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import type { PrDiscussionThreadWire, PrReviewWire, ReviewDraftWire } from '../../../../../../core/api-types.js';
 import { AlreadyDiscussed } from './Discussion.js';
-import { FLAG_LABEL, FLOW_CHANGE_LABEL, NOTE_LEVEL_LABEL, VERDICT_LABEL } from '../../../../../../core/review/review-plan.js';
+import {
+  FLAG_LABEL,
+  FLOW_CHANGE_LABEL,
+  NOTE_LEVEL_LABEL,
+  STORY_VERDICT_LABEL,
+  VERDICT_LABEL,
+} from '../../../../../../core/review/review-plan.js';
 import {
   commentsByFile,
   gist,
@@ -104,6 +110,9 @@ export function ReviewOverview({
           <p className="wd-start-note">No summary: no AI step ran for this review.</p>
         )}
       </section>
+      {r.attention && r.attention.length > 0 && (
+        <p className="wd-start-note wd-review-attention-asked">Asked to pay attention to: {r.attention.join(' · ')}</p>
+      )}
       {r.recommendation && (
         <section className={`wd-review-recommendation wd-review-verdict-${r.recommendation.verdict}`} aria-label="Recommendation">
           <h3>
@@ -203,6 +212,11 @@ export function ReviewOverview({
                     )}
                     <span className="wd-review-card-meta">
                       <span className={`wd-review-risk wd-review-risk-${c.riskLevel}`}>risk {c.riskLevel}/5</span>
+                      {c.verdict && (
+                        <span className={`wd-review-story-verdict wd-review-story-verdict-${c.verdict}`} title={c.verdictWhy}>
+                          {STORY_VERDICT_LABEL[c.verdict]}
+                        </span>
+                      )}
                       {c.flags.map((f) => (
                         <span key={f} className="wd-review-flag">
                           {FLAG_LABEL[f]}

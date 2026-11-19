@@ -1,6 +1,6 @@
 import type { PrReviewWire, ReviewDraftWire, ReviewFileWire, ReviewSummaryWire } from '../../../core/api-types.js';
 import type { ParsedFile } from '../../../core/diff/diff-parse.js';
-import { noteLevel, type NoteLevel, type Story, type StoryFlag } from '../../../core/review/review-plan.js';
+import { noteLevel, type NoteLevel, type Story, type StoryFlag, type Verdict } from '../../../core/review/review-plan.js';
 import { FOLDED_KINDS, KIND_LABEL, KIND_ORDER, type ChangeKind } from '../../../core/review/change-kinds.js';
 import { fixStateRefusal } from '../../../core/review/review-fix-rules.js';
 
@@ -147,6 +147,9 @@ export interface StoryCard {
   lead?: string;
   riskLevel: number;
   flags: StoryFlag[];
+  /** The AI step's advice on this story alone, and why (absent: none given). */
+  verdict?: Verdict;
+  verdictWhy?: string;
   codeFiles: number;
   comments: number;
   /**
@@ -183,6 +186,8 @@ export function storyCards(r: PrReviewWire, pages: ReviewPage[]): StoryCard[] {
         ...(s.what ? { what: s.what, lead: gist(s.what, 280) } : {}),
         riskLevel: s.riskLevel,
         flags: s.flags,
+        ...(s.verdict ? { verdict: s.verdict } : {}),
+        ...(s.verdict && s.verdictWhy ? { verdictWhy: s.verdictWhy } : {}),
         codeFiles: p.code.length,
         comments: drafts.filter((d) => files.has(d.path)).length,
         tests: {

@@ -99,10 +99,18 @@ describe('the settings schema (pure)', () => {
     const raw = {
       prWatch: { requiredChecks: { api: ['Test'] } },
       devCommands: { api: 'npm run dev' },
-      reviews: { projects: { api: 'off' } },
+      reviews: { projects: { api: 'off' }, focusFor: { api: ['A migration has a way back', 7], web: [] } },
     };
-    expect(repoSettingsOf(raw, 'api')).toEqual({ requiredChecks: ['Test'], devCommand: 'npm run dev', reviews: 'off' });
-    expect(repoSettingsOf(raw, 'web')).toEqual({ requiredChecks: null, devCommand: null, reviews: null });
+    expect(repoSettingsOf(raw, 'api')).toEqual({
+      requiredChecks: ['Test'],
+      devCommand: 'npm run dev',
+      reviews: 'off',
+      reviewFocus: ['A migration has a way back'],
+    });
+    expect(repoSettingsOf(raw, 'web')).toEqual({ requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null });
+    // What a repo's reviews pay attention to: a list, an empty one is none.
+    expect(checkRepoSetting('reviewFocus', ['Card data is never logged'])).toEqual({ ok: true, value: ['Card data is never logged'] });
+    expect(checkRepoSetting('reviewFocus', [' '])).toEqual({ ok: true, value: null });
     expect(checkRepoSetting('requiredChecks', [' '])).toEqual({ ok: true, value: null });
     expect(checkRepoSetting('reviews', 'sometimes')).toEqual({ ok: false, error: 'all, asked or off' });
   });

@@ -12,6 +12,8 @@ import type { PtyInfo } from './pty-host-protocol.js';
  *  - it has printed nothing for `afterMs` — an idle Claude at its prompt
  *    prints nothing, a working one keeps redrawing its spinner;
  *  - its status isn't working or waiting for an answer;
+ *  - it has a conversation to resume (`resumable`): sleep's promise is that opening the session brings it back,
+ *    and one that never had a turn has nothing to come back to;
  *  - and nothing of it is still at work (`stillAtWork`). The Ctrl+K assistant
  *    sleeps by the same rules (its panel open is a terminal attached).
  */
@@ -70,7 +72,17 @@ export interface SleepChecks {
   backgroundCommands: (id: string, sinceMs: number) => number;
   /** What runs from its folders (a dev server, a watcher), named; [] for nothing. Throws when it can't tell. */
   runningFrom: (id: string) => Promise<string[]>;
+  /**
+   * Its session has a conversation that a start would resume. False: it never had a turn — it sits at a first-run
+   * question (does it trust this folder?) or still holds the prompt it was started with, neither of which a new
+   * start gets back.
+   */
+  resumable: (id: string) => boolean;
 }
+
+/** Why a Claude that has no conversation yet stays awake. */
+export const NOT_RESUMABLE =
+  'it has no conversation to resume yet: stopping it would lose what it was started with (it may be at a first-run question, such as whether you trust its folder)';
 
 /**
  * Why a quiet Claude must stay awake, or null when it may sleep. Idle means
@@ -89,6 +101,9 @@ export async function stillAtWork(p: Pick<PtyInfo, 'id' | 'pid' | 'startedAt'>, 
     if (live === 'busy') return 'Claude Code says it is busy (a background agent it started, perhaps)';
     if (live === 'waiting') return 'Claude Code says it is waiting at a dialog';
     if (live === 'shell') return 'Claude Code says a background command it started is still running';
+    // Reported: a session started with a prompt on a second account stopped at "do you trust this folder?", was put
+    // to sleep five minutes later, and came back empty: the prompt was gone and nothing said so.
+    if (!c.resumable(p.id)) return NOT_RESUMABLE;
     const open = c.backgroundCommands(p.id, Date.parse(p.startedAt) || 0);
     if (open > 0) return `${open} background command${open === 1 ? '' : 's'} it started ${open === 1 ? 'is' : 'are'} still running`;
     const running = await c.runningFrom(p.id);

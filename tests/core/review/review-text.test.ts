@@ -108,3 +108,14 @@ describe('the recommendation and the flows in the text', () => {
     expect(none).not.toContain('Flow 1');
   });
 });
+
+describe('story verdicts and what it was asked, in the text', () => {
+  it('each story says its verdict with its reason; the review says what it was asked to pay attention to', () => {
+    const r = { ...review(), attention: ['A refund never exceeds what was paid'] };
+    const text = reviewText(r);
+    expect(text).toContain('Its verdict (the AI step): Fix first — Cap a refund at what the customer paid before this goes in.');
+    expect(text).toContain('Its verdict (the AI step): Fine as it is — The change is one line');
+    expect(text).toContain("It was asked to pay attention to (the user's own settings): A refund never exceeds what was paid");
+    expect(reviewText(review())).not.toContain('It was asked to pay attention to');
+  });
+});

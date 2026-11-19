@@ -59,7 +59,15 @@ export interface WorkConfig {
    * (the default), only those `asked` of you, or `off`; the day's cap and the size above which a review waits for a
    * click; and kind-of-change rules before the defaults (change-kinds.ts).
    */
-  reviews?: { projects?: Record<string, 'all' | 'asked' | 'off'>; maxPerDay?: number; maxLines?: number; rules?: unknown[] };
+  reviews?: {
+    projects?: Record<string, 'all' | 'asked' | 'off'>;
+    maxPerDay?: number;
+    maxLines?: number;
+    rules?: unknown[];
+    /** What every review's AI step is told to pay attention to (your words: instructions to it), and per repo alias besides. */
+    focus?: string[];
+    focusFor?: Record<string, string[]>;
+  };
   /**
    * The git host of an origin whose URL no adapter claims (core/hosts/index.ts): its hostname (lower case) → a host
    * id. Only a host that can work with such a server needs it (one registered at run time); GitHub Enterprise needs
@@ -380,6 +388,18 @@ export function loadConfig(): WorkConfig | null {
                 : {}),
               ...(typeof parsed.reviews.maxLines === 'number' && parsed.reviews.maxLines > 0 ? { maxLines: parsed.reviews.maxLines } : {}),
               ...(Array.isArray(parsed.reviews.rules) ? { rules: parsed.reviews.rules as unknown[] } : {}),
+              ...(Array.isArray(parsed.reviews.focus)
+                ? { focus: (parsed.reviews.focus as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim()) }
+                : {}),
+              ...(parsed.reviews.focusFor && typeof parsed.reviews.focusFor === 'object' && !Array.isArray(parsed.reviews.focusFor)
+                ? {
+                    focusFor: Object.fromEntries(
+                      Object.entries(parsed.reviews.focusFor as Record<string, unknown>)
+                        .filter((e): e is [string, unknown[]] => Array.isArray(e[1]))
+                        .map(([alias, list]) => [alias, list.filter((x): x is string => typeof x === 'string' && !!x.trim())]),
+                    ),
+                  }
+                : {}),
             }
           : undefined,
       gitHosts:

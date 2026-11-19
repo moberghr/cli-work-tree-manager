@@ -253,6 +253,15 @@ export const SETTINGS: readonly SettingField[] = [
   ),
   // ---- Reviews
   {
+    path: 'reviews.focus',
+    section: 'Reviews',
+    label: 'Reviews pay attention to',
+    help: 'Things every review should look for, one a line: "card data is never logged", "a migration has a way back". The AI step applies them in its notes, in each story’s verdict and in its recommendation, and the review says it was asked. A repo can have its own besides (Repos → its Settings).',
+    kind: { type: 'list', placeholder: 'e.g. every new endpoint checks permissions' },
+    default: [],
+    when: 'the next review prepared',
+  },
+  {
     path: 'reviews.maxPerDay',
     section: 'Reviews',
     label: 'Most reviews prepared a day',
@@ -554,6 +563,8 @@ export interface RepoSettingsValues {
   devCommand: string | null;
   /** Its PRs reviewed in the background (`reviews.projects[alias]`); null: as its group says, else asked. */
   reviews: ReviewMode | null;
+  /** What reviews of it pay attention to, besides every review's list (`reviews.focusFor[alias]`); null: nothing more. */
+  reviewFocus: string[] | null;
 }
 
 export type RepoSettingKey = keyof RepoSettingsValues;
@@ -563,12 +574,13 @@ export const REPO_SETTING_PATH: Record<RepoSettingKey, string> = {
   requiredChecks: 'prWatch.requiredChecks',
   devCommand: 'devCommands',
   reviews: 'reviews.projects',
+  reviewFocus: 'reviews.focusFor',
 };
 
 /** A repo setting's value to write, checked; `null`: take it out. Pure. */
 export function checkRepoSetting(key: RepoSettingKey, raw: unknown): { ok: true; value: unknown } | { ok: false; error: string } {
   if (raw === null) return { ok: true, value: null };
-  if (key === 'requiredChecks') {
+  if (key === 'requiredChecks' || key === 'reviewFocus') {
     const r = checkSetting({ ...SETTINGS[0], kind: { type: 'list' } }, raw);
     if (!r.ok) return r;
     return (r.value as string[]).length ? r : { ok: true, value: null };
@@ -586,9 +598,12 @@ export function repoSettingsOf(raw: unknown, alias: string): RepoSettingsValues 
   const checks = map(REPO_SETTING_PATH.requiredChecks)[alias];
   const dev = map(REPO_SETTING_PATH.devCommand)[alias];
   const review = map(REPO_SETTING_PATH.reviews)[alias];
+  const focus = map(REPO_SETTING_PATH.reviewFocus)[alias];
   return {
     requiredChecks: Array.isArray(checks) ? checks.filter((c): c is string => typeof c === 'string') : null,
     devCommand: typeof dev === 'string' && dev ? dev : null,
     reviews: review === 'all' || review === 'asked' || review === 'off' ? review : null,
+    reviewFocus:
+      Array.isArray(focus) && focus.some((c) => typeof c === 'string') ? focus.filter((c): c is string => typeof c === 'string') : null,
   };
 }

@@ -7,7 +7,10 @@ import {
   folderStories,
   FLOW_CHANGE_LABEL,
   MAX_FILE_SUMMARY,
+  ATTENTION_LINES,
+  attentionItems,
   MAX_RECOMMENDATION,
+  STORY_VERDICT_LABEL,
   NOTE_LEVEL_LABEL,
   noteLevel,
   VERDICT_LABEL,
@@ -632,5 +635,86 @@ describe('a flow names the files it runs through (its links to the stories)', ()
       { change: 'added', title: 'With files.', steps: ['One.'], files: ['src/a.cs'] },
       { change: 'changed', title: 'Without.', steps: ['One.'] },
     ]);
+  });
+});
+
+describe('each story’s own verdict (asked for: the whole change had a recommendation, each story none)', () => {
+  const files = ['src/a.cs', 'src/b.cs'];
+  const story = (file: string, extra: Record<string, unknown>) => ({
+    title: `Story of ${file}`,
+    why: 'W',
+    risk: 'R',
+    riskLevel: 3,
+    flags: [],
+    files: [file],
+    ...extra,
+  });
+
+  it('the prompt asks for it in every story, and it is in the JSON asked for', () => {
+    const p = agentPrompt({ title: 'T', number: 1 }, [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' }], []);
+    expect(p).toContain('- "verdict": your advice on this story alone, one of ready, fix-first, discuss');
+    expect(p).toContain('"files":["path"],"verdict":"ready","verdictWhy":""}]');
+  });
+
+  it('a known verdict is kept with its reason; an unknown one, or a reason alone, is left out', () => {
+    const pass = parseAgentPass(
+      JSON.stringify({
+        stories: [
+          story('src/a.cs', { verdict: 'fix-first', verdictWhy: 'Cap the refund first.' }),
+          story('src/b.cs', { verdict: 'approve', verdictWhy: 'A reason with no verdict we know.' }),
+        ],
+        notes: [],
+      }),
+      files,
+    )!;
+    expect(pass.stories[0]).toMatchObject({ verdict: 'fix-first', verdictWhy: 'Cap the refund first.' });
+    expect(pass.stories[1]).not.toHaveProperty('verdict');
+    expect(pass.stories[1]).not.toHaveProperty('verdictWhy');
+    expect(STORY_VERDICT_LABEL).toEqual({ ready: 'Fine as it is', 'fix-first': 'Fix first', discuss: 'Needs a decision' });
+  });
+
+  it('it reaches the review’s stories', () => {
+    const kinds: FileKind[] = [{ path: 'src/a.cs', kind: 'logic', why: '', by: 'rule' } as FileKind];
+    const tests = {
+      tests: [],
+      counts: { added: 0, changed: 0, removed: 0, skipped: 0 },
+      gaps: [],
+      coverage: { covers: {}, coveredBy: {} },
+      unitOnlyForSchema: false,
+    };
+    const pass = parseAgentPass(
+      JSON.stringify({ stories: [story('src/a.cs', { verdict: 'discuss', verdictWhy: 'Which id is it?' })], notes: [] }),
+      ['src/a.cs'],
+    );
+    expect(planReview(kinds, tests as unknown as TestBreakdown, pass).stories[0]).toMatchObject({
+      verdict: 'discuss',
+      verdictWhy: 'Which id is it?',
+    });
+  });
+});
+
+describe('what a review is told to pay attention to (asked for: a way to tell reviews what matters here)', () => {
+  it('each point one line, trimmed, cut and once; at most twenty; nothing that isn’t text', () => {
+    expect(
+      attentionItems(['  Card data is\nnever logged  ', 'Card data is never logged', '', 7 as never], undefined, [
+        'A migration has a way back',
+      ]),
+    ).toEqual(['Card data is never logged', 'A migration has a way back']);
+    expect(attentionItems(Array.from({ length: 30 }, (_, i) => `point ${i}`))).toHaveLength(20);
+    expect(attentionItems(['word '.repeat(200)])[0].length).toBeLessThanOrEqual(300);
+    expect(attentionItems()).toEqual([]);
+  });
+
+  it('the prompt carries them as the person’s instructions, before the data and never inside the fence; none: nothing said', () => {
+    const file = [{ path: 'src/a.cs', diff: '@@ -1 +1 @@\n+x', kind: 'logic' as const }];
+    const p = agentPrompt({ title: 'T', number: 1 }, file, [], 60_000, {
+      attention: ['Card data is never logged', 'A migration has a way back'],
+    });
+    expect(p).toContain(ATTENTION_LINES[0]);
+    expect(p).toContain('Pay attention to:\n- Card data is never logged\n- A migration has a way back');
+    expect(p.indexOf('Pay attention to:')).toBeLessThan(p.indexOf('<<<\nTitle:'));
+    const plain = agentPrompt({ title: 'T', number: 1 }, file, []);
+    expect(plain).not.toContain('Pay attention to:');
+    expect(agentPrompt({ title: 'T', number: 1 }, file, [], 60_000, { attention: [' '] })).toBe(plain);
   });
 });

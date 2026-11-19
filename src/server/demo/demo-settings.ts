@@ -22,7 +22,15 @@ export function createDemoSettings(repoPathOf: (alias: string) => string | null)
     'time.gapTicket': 'OPS-1',
   };
   const repos = new Map<string, RepoSettingsValues>([
-    ['api', { requiredChecks: ['build', 'test'], devCommand: 'npm run dev', reviews: 'all' }],
+    [
+      'api',
+      {
+        requiredChecks: ['build', 'test'],
+        devCommand: 'npm run dev',
+        reviews: 'all',
+        reviewFocus: ['A refund never exceeds what was paid'],
+      },
+    ],
   ]);
   const read = (): SettingsWire => ({ values: { ...values }, configPath: '~/.work/config.json (demo: kept in memory)' });
   const readRepo = (alias: string): RepoSettingsWire => {
@@ -33,7 +41,7 @@ export function createDemoSettings(repoPathOf: (alias: string) => string | null)
       path: p,
       origin: `https://github.com/acme/${alias}`,
       host: alias === 'payments' ? 'Azure DevOps' : 'GitHub',
-      ...(repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null }),
+      ...(repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null }),
     };
   };
   return {
@@ -50,10 +58,10 @@ export function createDemoSettings(repoPathOf: (alias: string) => string | null)
     readRepo,
     async writeRepo(alias, key, value) {
       readRepo(alias); // 404 for one that isn't a repo
-      if (!['requiredChecks', 'devCommand', 'reviews'].includes(key)) throw new SettingsError(`no repo setting ${key}`, 404);
+      if (!['requiredChecks', 'devCommand', 'reviews', 'reviewFocus'].includes(key)) throw new SettingsError(`no repo setting ${key}`, 404);
       const r = checkRepoSetting(key as RepoSettingKey, value);
       if (!r.ok) throw new SettingsError(r.error);
-      const now = repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null };
+      const now = repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null };
       repos.set(alias, { ...now, [key]: r.value });
       return readRepo(alias);
     },

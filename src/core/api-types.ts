@@ -1827,6 +1827,8 @@ export interface PrReviewWire {
   summary?: string;
   /** What the AI step advises doing with the change as it is, and why (absent: none ran, or a review from before). Advice: you decide. */
   recommendation?: import('./review/review-plan.js').Recommendation;
+  /** What the AI step was asked to pay attention to (your settings: `reviews.focus`, and the repo's); absent: nothing, or no AI step. */
+  attention?: string[];
   /** The flows the change adds, changes or removes, each as its steps (the AI step's; absent: none named, or a review from before). */
   flows?: import('./review/review-plan.js').Flow[];
   stories: import('./review/review-plan.js').Story[];
@@ -1950,6 +1952,8 @@ export interface RepoSettingsWire {
   requiredChecks: string[] | null;
   devCommand: string | null;
   reviews: 'all' | 'asked' | 'off' | null;
+  /** What reviews of this repo pay attention to, besides what every review does (`reviews.focusFor[alias]`); null: nothing more. */
+  reviewFocus: string[] | null;
 }
 
 /** One process of a session: its agent, something the agent started, or something running from its folder. */

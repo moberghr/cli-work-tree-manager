@@ -7447,3 +7447,26 @@ button.wd-review-filerow-current:hover:not(:disabled) {
     display: none;
   }
 }
+
+/* A story's own verdict (the AI step's), and what a review was asked to pay attention to. */
+.wd-review-story-verdict {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+}
+.wd-review-story-verdict-ready {
+  background: var(--ok-bg, #2f855a22);
+}
+.wd-review-story-verdict-fix-first {
+  background: var(--warn-bg, #b7791f22);
+}
+.wd-review-story-verdict-discuss {
+  background: var(--accent-bg, #2b6cb022);
+}
+.wd-review-attention-asked {
+  margin: -8px 0 14px;
+  max-width: 110ch;
+}
