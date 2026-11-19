@@ -7311,3 +7311,139 @@ button.wd-review-filerow-current:hover:not(:disabled) {
 .wd-accounts-setup button {
   margin-right: 8px;
 }
+
+/* The Inbox's follow-up panel under a finished row: what its agent said, and your reply. */
+.wd-inbox-item {
+  flex-wrap: wrap;
+}
+.wd-inbox-followup {
+  flex: 0 0 100%;
+  box-sizing: border-box;
+  margin: 2px 32px 10px 60px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel, transparent);
+}
+.wd-inbox-followup-reply {
+  max-height: 260px;
+  overflow: auto;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.wd-inbox-followup-box {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+}
+.wd-inbox-followup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* A file a session shows beside its terminal (ShownFilePane): the terminal left, the file right. */
+.wd-term-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.wd-term-split > .wd-term-slot {
+  min-width: 0;
+}
+.wd-term-split-shown > .wd-term-slot {
+  flex: 1 1 50%;
+}
+.wd-shown {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+.wd-shown-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.wd-shown-name {
+  font-family: var(--mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-shown-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 12px;
+}
+.wd-shown-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.wd-shown-outline {
+  flex: 0 0 180px;
+  overflow: auto;
+  padding: 10px 8px 10px 12px;
+  border-right: 1px solid var(--border);
+  font-size: 12px;
+}
+.wd-shown-outline h4 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wd-shown-outline ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wd-shown-outline li {
+  padding: 2px 0;
+}
+.wd-shown-outline-2 {
+  padding-left: 10px !important;
+}
+.wd-shown-outline-3 {
+  padding-left: 20px !important;
+}
+.wd-shown-outline .wd-link-button {
+  text-align: left;
+  color: var(--muted);
+}
+.wd-shown-body {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px 20px 24px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.wd-shown-body img {
+  max-width: 100%;
+}
+.wd-shown-text {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+@media (max-width: 1100px) {
+  .wd-shown-outline {
+    display: none;
+  }
+}

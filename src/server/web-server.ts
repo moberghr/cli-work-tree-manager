@@ -25,6 +25,7 @@ import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
 import { mountSessionProcessRoutes } from './routes/session-process-routes.js';
 import { mountSessionReviewRoutes } from './routes/session-review-routes.js';
+import { mountSessionShowRoutes } from './routes/session-show-routes.js';
 import { localSignature, prepareLocalReview } from '../core/review/local-review.js';
 import { dropLocalReview, readLocalReview, saveLocalReview } from '../core/review/local-review-store.js';
 import { LOCAL_TREE_TIMEOUT_MS, localTreeRun } from '../core/review/local-review-tree.js';
@@ -1102,6 +1103,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountRailRoutes(app, { broadcast });
   // Your notes on a session.
   mountNoteRoutes(app, { broadcast });
+  // A file a session shows beside its terminal (`work show`): which one, in memory.
+  mountSessionShowRoutes(app, { broadcast });
   // A session's own changes as a review (prepared on a click, kept in memory). Its AI step reads the diff alone,
   // in a lane of its own: its passes (one over everything, one per repo) run together, behind no PR's review.
   mountSessionReviewRoutes(app, {

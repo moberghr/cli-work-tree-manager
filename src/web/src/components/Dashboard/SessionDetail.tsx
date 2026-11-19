@@ -1,4 +1,7 @@
 import { SessionReviewTab } from './tabs/SessionReviewTab.js';
+import { ShownFilePane } from './ShownFilePane.js';
+import { useShownFile } from '../../hooks/use-shown-file.js';
+import { showSessionFile } from '../../api/client.js';
 import { SessionProcesses } from './SessionProcesses.js';
 import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
@@ -135,6 +138,8 @@ export function SessionDetail({
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [session, searching]);
+  // A file it shows beside its terminal (`work show`), followed while this session is on screen.
+  const shownFile = useShownFile(session.id);
   const openPlace = (p: CodePlace) => {
     // Never the same number twice for the page (CodeView applies each pick once, remembered per session).
     setGoto({ ...p, seq: ++pickSeq, sessionId: session.id });
@@ -211,14 +216,26 @@ export function SessionDetail({
             showBranch={branchAsk?.sessionId === session.id ? branchAsk : null}
           />
         )}
-        {subTab === 'term' &&
-          (onTermSlot ? (
-            // The dashboard's terminal deck draws the terminal over this slot,
-            // so it stays connected when you switch away and back.
-            <div className="wd-term-slot" ref={onTermSlot} />
-          ) : (
-            <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
-          ))}
+        {subTab === 'term' && (
+          // With a file shown, the terminal takes the left and the file the right: the deck follows the slot's size.
+          <div className={'wd-term-split' + (shownFile ? ' wd-term-split-shown' : '')}>
+            {onTermSlot ? (
+              // The dashboard's terminal deck draws the terminal over this slot,
+              // so it stays connected when you switch away and back.
+              <div className="wd-term-slot" ref={onTermSlot} />
+            ) : (
+              <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
+            )}
+            {shownFile && (
+              <ShownFilePane
+                key={`${shownFile.repo}/${shownFile.path}`}
+                session={session}
+                shown={shownFile}
+                onOpenCode={() => openPlace({ repo: shownFile.repo, path: shownFile.path })}
+              />
+            )}
+          </div>
+        )}
         {prFor === session.id && (
           <div className="wd-pr-tab-slot" style={subTab === 'pr' ? undefined : { display: 'none' }}>
             <PrTab key={session.id} session={session} prs={prs} onShip={openShip} />
@@ -231,6 +248,12 @@ export function SessionDetail({
             onShowDiff={() => onSelectSubTab('diff')}
             goto={goto?.sessionId === session.id ? goto : null}
             onSearch={isArchived(session) ? undefined : () => setSearching(true)}
+            {...(isArchived(session)
+              ? {}
+              : {
+                  // Shown, then over to the terminal it is beside; a refusal is the Code tab's to say.
+                  onShowBeside: (repo: string, file: string) => showSessionFile(session.id, repo, file).then(() => onSelectSubTab('term')),
+                })}
           />
         )}
         {subTab === 'review' && <SessionReviewTab key={session.id} session={session} onShowTerminal={() => onSelectSubTab('term')} />}

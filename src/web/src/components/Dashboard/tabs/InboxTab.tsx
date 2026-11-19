@@ -14,6 +14,7 @@ import { snoozeLabel } from '../../../../../core/rail/snooze.js';
 import { isArchived, lastActiveAt, agentCan, agentName, displayStatus, waitingOnOthers } from '../../../state/session-display.js';
 import { prNeedsLine } from '../../../state/pr-tab.js';
 import { StatusIcon } from '../StatusIcon.js';
+import { InboxFollowUp } from '../InboxFollowUp.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank } from '../../../../../core/status/attention.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -30,6 +31,8 @@ interface Props {
   onMarkSeen?: (id: string, prStage?: { kind: string; key: string } | null) => Promise<unknown>;
   /** Allow / Deny a permission prompt. Defaults to the API call. */
   onAnswer?: (id: string, req: AnswerRequest) => Promise<unknown>;
+  /** The follow-up panel's calls (its reply, and the send); tests swap them. */
+  followUp?: { load?: (id: string) => Promise<string | null>; send?: (id: string, body: string) => Promise<void> };
 }
 
 interface Section {
@@ -105,7 +108,16 @@ function NotificationOffer() {
  * one line at the end, pointing to the rail. Driven by Claude's own hooks
  * (see core/status/session-status.ts).
  */
-export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen, onAnswer = answerPermission, onReviewAll }: Props) {
+export function InboxTab({
+  sessions,
+  onOpenSession,
+  onMarkSeen = markSessionSeen,
+  onAnswer = answerPermission,
+  onReviewAll,
+  followUp,
+}: Props) {
+  /** The finished session whose follow-up panel is open (one at a time). */
+  const [following, setFollowing] = useState<string | null>(null);
   // Per session: the answer being sent, or why the server refused it.
   const [answering, setAnswering] = useState<Record<string, 'allow' | 'deny'>>({});
   const [answerError, setAnswerError] = useState<Record<string, string>>({});
@@ -247,6 +259,17 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                     <span className="wd-inbox-actions">
                       {/* On hover: what you do now and then. */}
                       <span className="wd-inbox-more">
+                        {sec.rank === 1 && (
+                          <button
+                            type="button"
+                            className="wd-link-button"
+                            aria-expanded={following === s.id}
+                            onClick={() => setFollowing((f) => (f === s.id ? null : s.id))}
+                            title="Read what it said and tell it what to do next, without leaving the Inbox"
+                          >
+                            Follow up
+                          </button>
+                        )}
                         {(sec.rank === 1 || prRow) && (
                           <button
                             type="button"
@@ -302,6 +325,18 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                         </button>
                       )}
                     </span>
+                    {sec.rank === 1 && following === s.id && (
+                      <InboxFollowUp
+                        session={s}
+                        onClose={() => setFollowing(null)}
+                        onSent={() => {
+                          setFollowing(null);
+                          markSeen(s.id);
+                        }}
+                        {...(followUp?.load ? { load: followUp.load } : {})}
+                        {...(followUp?.send ? { send: followUp.send } : {})}
+                      />
+                    )}
                   </li>
                 );
               })}

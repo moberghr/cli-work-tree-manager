@@ -238,6 +238,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ events } satisfies TimelineWire);
   });
 
+  // A file a session shows beside its terminal: the demo shows none, and takes a show without drawing one (its files are made up).
+  app.get('/api/sessions/:id/show', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ shown: null }) : notFound(c),
+  );
+  app.post('/api/sessions/:id/show', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ error: 'The demo has no files to show.' }, 404) : notFound(c),
+  );
+  app.delete('/api/sessions/:id/show', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ shown: null }) : notFound(c),
+  );
+  app.get('/api/sessions/:id/show/image', (c) => c.json({ error: 'it shows no image' }, 404));
   // A session's own changes as a review (made up: the demo's PR review, as local changes), prepared on a click.
   const localReviews = new Set<string>();
   const demoLocalReview = (w: { id: string; branch: string }): SessionReviewWire => {

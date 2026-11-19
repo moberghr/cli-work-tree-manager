@@ -342,3 +342,77 @@ describe('TopNav inbox badge', () => {
     expect(container.querySelector('.wd-dash-tab-badge')).toBeNull();
   });
 });
+
+describe('Follow up from the Inbox (asked for: a finished session could only be answered by opening it)', () => {
+  const flush = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+  const followLink = () =>
+    [...container.querySelectorAll('.wd-inbox-item button')].find((b) => b.textContent === 'Follow up') as HTMLButtonElement;
+
+  it('only a finished row has it; it shows what the agent said in full, and Send hands your words over and marks the row seen', async () => {
+    const sent: Array<{ id: string; body: string }> = [];
+    const seen: string[] = [];
+    act(() =>
+      root.render(
+        createElement(InboxTab, {
+          sessions: SESSIONS,
+          onOpenSession: () => {},
+          onMarkSeen: async (id: string) => void seen.push(id),
+          followUp: {
+            load: async (id: string) => `The endpoint is in for ${id}.\n\nTests pass.`,
+            send: async (id: string, body: string) => void sent.push({ id, body }),
+          },
+        }),
+      ),
+    );
+    // One finished session, two blocked ones: one Follow up.
+    expect([...container.querySelectorAll('.wd-inbox-item button')].filter((b) => b.textContent === 'Follow up')).toHaveLength(1);
+    expect(container.querySelector('.wd-inbox-followup')).toBeNull();
+    act(() => followLink().click());
+    await flush();
+    const panel = container.querySelector('.wd-inbox-followup')!;
+    expect(text(panel.querySelector('.wd-inbox-followup-reply'))).toBe('The endpoint is in for done. Tests pass.');
+    const send = [...panel.querySelectorAll('button')].find((b) => b.textContent === 'Send') as HTMLButtonElement;
+    // Nothing typed: nothing to send.
+    expect(send.disabled).toBe(true);
+    const box = panel.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, '  Now add the docs.  ');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => (send.disabled ? undefined : send.click()));
+    await flush();
+    expect(sent).toEqual([{ id: 'done', body: 'Now add the docs.' }]);
+    expect(seen).toEqual(['done']);
+    expect(container.querySelector('.wd-inbox-followup')).toBeNull();
+  });
+
+  it('a send that fails says why and keeps your words; Cancel closes it without sending', async () => {
+    const seen: string[] = [];
+    act(() =>
+      root.render(
+        createElement(InboxTab, {
+          sessions: SESSIONS,
+          onOpenSession: () => {},
+          onMarkSeen: async (id: string) => void seen.push(id),
+          followUp: { load: async () => null, send: async () => Promise.reject(new Error('send failed (502)')) },
+        }),
+      ),
+    );
+    act(() => followLink().click());
+    await flush();
+    const panel = container.querySelector('.wd-inbox-followup')!;
+    expect(text(panel.querySelector('.wd-inbox-followup-reply'))).toContain('hasn’t replied in this session yet');
+    const box = panel.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, 'Try again');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Send') as HTMLButtonElement).click());
+    await flush();
+    expect(text(panel.querySelector('[role="alert"]'))).toBe('send failed (502)');
+    expect(box.value).toBe('Try again');
+    expect(seen).toEqual([]);
+    act(() => ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Cancel') as HTMLButtonElement).click());
+    expect(container.querySelector('.wd-inbox-followup')).toBeNull();
+  });
+});

@@ -1980,6 +1980,11 @@ export interface SessionProcessesWire {
  * GET /api/sessions/:id/review — a session's own changes read as a review, before there is a pull request
  * (local-review.ts). `review` is a `PrReviewWire` with no number, link or host: nothing of it goes anywhere.
  */
+/** GET /api/sessions/:id/show: the file a session shows beside its terminal (core/sessions/shown-file.ts), or none. */
+export interface SessionShownWire {
+  shown: (import('./sessions/shown-file.js').ShownFile & { kind: import('./sessions/shown-file.js').ShownKind }) | null;
+}
+
 /** GET /api/sessions/:id/review/current: whether the kept review is of the changes as they are now. */
 export interface SessionReviewCurrentWire {
   /** False: the changes have moved since it was prepared. */

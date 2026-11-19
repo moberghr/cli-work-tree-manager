@@ -373,6 +373,33 @@ export async function copyAccountSetup(to: string, from: string): Promise<Accoun
 }
 
 /** Move every session on another account to `name` (POST /api/accounts/:name/sessions). Throws the server's reason when refused. */
+type SessionShown = import('../../../core/api-types.js').SessionShownWire;
+
+/** The file a session shows beside its terminal (GET …/show), or none. */
+export async function fetchSessionShown(sessionId: string): Promise<SessionShown> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`);
+  if (!res.ok) return { shown: null };
+  return (await res.json()) as SessionShown;
+}
+
+/** Show a file of the session beside its terminal (POST …/show). Throws the server's reason when refused. */
+export async function showSessionFile(sessionId: string, repo: string, path: string): Promise<SessionShown> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, path }),
+  });
+  const body = (await res.json().catch(() => ({}))) as SessionShown & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `show: ${res.status}`);
+  return body;
+}
+
+/** Stop showing it (DELETE …/show). */
+export async function closeSessionShown(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`close: ${res.status}`);
+}
+
 /** Dismiss a note of a session's review (`undo`: bring it back); resolves with the review as it is kept now. */
 export async function dismissSessionReviewNote(sessionId: string, noteId: string, undo = false): Promise<SessionReview> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/dismiss`, {

@@ -43,6 +43,7 @@ export function CodeView({
   onShowDiff,
   goto,
   onSearch,
+  onShowBeside,
 }: {
   session: SessionSummary;
   onShowDiff: () => void;
@@ -50,8 +51,12 @@ export function CodeView({
   goto?: (CodePlace & { seq: number }) | null;
   /** Ctrl+T's box: types, members, files and text. */
   onSearch?: () => void;
+  /** Show the open file beside the session's terminal (absent: not offered, as for an archived session). */
+  onShowBeside?: (repo: string, path: string) => Promise<void>;
 }) {
   const memory = memoryOf(session.id);
+  /** Why "Beside the terminal" didn't go (cleared by the next try). */
+  const [besideError, setBesideError] = useState<string | null>(null);
   const [listing, setListing] = useState<CodeFilesWire | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -304,6 +309,24 @@ export function CodeView({
               {lines && (
                 <span className="wd-code-meta">
                   {lines.length.toLocaleString()} line{lines.length === 1 ? '' : 's'}
+                </span>
+              )}
+              {onShowBeside && (
+                <button
+                  type="button"
+                  className="wd-code-btn"
+                  onClick={() => {
+                    setBesideError(null);
+                    onShowBeside(openEntry.repo, openEntry.path).catch((err: Error) => setBesideError(err.message));
+                  }}
+                  title="Show this file next to the session's terminal, and go there"
+                >
+                  Beside the terminal
+                </button>
+              )}
+              {besideError && (
+                <span className="wd-tab-error" role="alert">
+                  {besideError}
                 </span>
               )}
               {openEntry.changed && (
