@@ -1252,6 +1252,7 @@ button.wd-comment-fold:hover,
   flex-shrink: 0;
   justify-content: flex-start;
 }
+/* Never squeezed (its pieces would spill over the rest of the line): the repo switch sizes itself to the room left. */
 .wd-dash-difftoolbar-pick {
   display: flex;
   align-items: center;
@@ -1261,11 +1262,144 @@ button.wd-comment-fold:hover,
 .wd-dash-difftoolbar-pick .wd-web-diff-scope {
   margin-top: 0;
 }
-/* A group's repos: always there, in the session's order; one with nothing in this pick is dimmed. */
+/* A group's repos: a pill each while they fit, in the session's order; else the changed ones and "+N ▾" for the rest. */
+.wd-diff-repo-switch-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wd-diff-repo-switch .wd-web-diff-scope-btn {
+  white-space: nowrap;
+}
+/* One with nothing in this pick is dimmed. */
 .wd-diff-repo-switch .wd-diff-repo-empty:not(.wd-web-diff-scope-btn-active) {
   opacity: 0.55;
 }
-.wd-diff-repo-switch .wd-web-tab-count {
+.wd-diff-repo-switch .wd-web-tab-count,
+.wd-diff-repo-measure .wd-web-tab-count {
+  font-variant-numeric: tabular-nums;
+}
+/* Every repo as a pill, out of sight and taking no room: what each would need. */
+.wd-diff-repo-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+.wd-diff-repo-measure-row {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+}
+.wd-diff-repo-measure .wd-web-diff-scope-btn {
+  white-space: nowrap;
+}
+.wd-diff-repo-more {
+  position: relative;
+  display: flex;
+}
+.wd-diff-repo-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 160px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wd-diff-repo-more-btn:hover,
+.wd-diff-repo-more-btn[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--fg);
+}
+/* No pill for the repo on screen (no room): the button names it, as the active pill would. */
+.wd-diff-repo-more-btn.wd-diff-repo-more-current {
+  background: var(--current);
+  color: var(--accent);
+  font-weight: 600;
+}
+.wd-diff-repo-more-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+/* Some repos in the list have changes. */
+.wd-diff-repo-more-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #58a6ff);
+}
+.wd-diff-repo-more-btn .wd-checkpoint-caret {
+  flex-shrink: 0;
+}
+.wd-web-difftoolbar .wd-diff-repo-pop {
+  left: 0;
+  right: auto;
+  top: calc(100% + 4px);
+  width: 320px;
+}
+.wd-diff-repo-pop .wd-checkpoint-pop-header {
+  padding: 4px 0;
+}
+.wd-diff-repo-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.wd-diff-repo-search:focus {
+  outline: none;
+  border-color: var(--accent, #58a6ff);
+}
+.wd-diff-repo-row {
+  align-items: center;
+}
+/* The row Enter picks is the highlighted one (the mouse moves it too), never a second one under a resting pointer. */
+.wd-diff-repo-pop .wd-diff-repo-row:hover {
+  background: none;
+}
+.wd-diff-repo-pop .wd-diff-repo-row-cursor,
+.wd-diff-repo-pop .wd-diff-repo-row-cursor:hover {
+  background: var(--hover);
+}
+.wd-diff-repo-row-on {
+  font-weight: 600;
+}
+.wd-diff-repo-row-quiet:not(.wd-diff-repo-row-on) .wd-checkpoint-pop-label {
+  color: var(--muted);
+}
+.wd-diff-repo-row-mark {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--accent, #58a6ff);
+  font-size: 11px;
+}
+.wd-diff-repo-row-stats {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: normal;
   font-variant-numeric: tabular-nums;
 }
 .wd-dash-difftoolbar .wd-web-difftoolbar-info {
