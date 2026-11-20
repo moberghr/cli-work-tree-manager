@@ -936,9 +936,12 @@ async function reviewCall<T>(sessionId: string, tail: string, body?: unknown): P
 }
 /** The review kept for a session's own changes (its Review tab), or that none is. */
 export const fetchSessionReview = (sessionId: string): Promise<SessionReview> => reviewCall(sessionId, '');
-/** Prepare it now (a repo of a session folder, else the first with changes): answers "running" at once. */
-export const prepareSessionReview = (sessionId: string, repo?: string): Promise<SessionReview> =>
-  reviewCall(sessionId, '', repo ? { repo } : {});
+/**
+ * Prepare it now (a repo of a session folder, else all with changes): answers "running" at once. `also`: what this
+ * one review should pay attention to, beside the points set for every review.
+ */
+export const prepareSessionReview = (sessionId: string, repo?: string, also?: string): Promise<SessionReview> =>
+  reviewCall(sessionId, '', { ...(repo ? { repo } : {}), ...(also?.trim() ? { also: also.trim() } : {}) });
 /** The diff the kept review was made of. */
 export const fetchSessionReviewDiff = (sessionId: string): Promise<{ files: import('../../../core/diff/diff-parse.js').ParsedFile[] }> =>
   reviewCall(sessionId, '/diff');

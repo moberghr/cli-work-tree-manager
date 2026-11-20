@@ -30,7 +30,10 @@ export interface SetupAccount {
   dir: string;
 }
 
-export type SetupKind = 'file' | 'folder' | 'settings' | 'mcp' | 'marketplace' | 'plugin';
+export type SetupKind = 'file' | 'folder' | 'settings' | 'mcp' | 'marketplace' | 'plugin' | 'trust';
+
+/** The one item a copy lists for the folders the source account trusts. */
+export const TRUSTED_FOLDERS = 'trusted folders';
 
 export interface SetupItem {
   kind: SetupKind;
@@ -230,6 +233,37 @@ export function userMcpServers(dir: string, io: SetupIo = realSetupIo): Record<s
 }
 
 /**
+ * The folders an account answered "yes, I trust this folder" for (its global config's `projects[<folder>]
+ * .hasTrustDialogAccepted`), as Claude Code wrote them. A folder under a trusted one is trusted too, so one entry
+ * for the folder your worktrees are in covers every session.
+ */
+export function trustedFolders(dir: string, io: SetupIo = realSetupIo): string[] {
+  return Object.entries(objectAt(io.readJson(globalConfigFile(dir)), 'projects'))
+    .filter(([, p]) => isObject(p) && p.hasTrustDialogAccepted === true)
+    .map(([folder]) => folder);
+}
+
+/**
+ * The folders `from` trusts that `to` doesn't yet (reported: on a second account every session stopped at "do you
+ * trust this folder?", though the first had been told long ago). Only ones that still exist: a removed worktree's
+ * isn't carried. The same person on the same computer said yes to each, so it is theirs to carry — and only when
+ * they ask for the copy.
+ */
+export function trustToCopy(from: SetupAccount, to: SetupAccount, io: SetupIo = realSetupIo): string[] {
+  const have = new Set(trustedFolders(to.dir, io));
+  return trustedFolders(from.dir, io).filter((folder) => !have.has(folder) && io.isDir(folder));
+}
+
+/** The target's global config with these folders trusted: each one's other state stays, and everything else of the file. Pure. */
+export function withTrusted(config: unknown, folders: readonly string[]): Record<string, unknown> {
+  const base = isObject(config) ? config : {};
+  const projects = { ...objectAt(base, 'projects') };
+  for (const folder of folders)
+    projects[folder] = { ...(isObject(projects[folder]) ? projects[folder] : {}), hasTrustDialogAccepted: true };
+  return { ...base, projects };
+}
+
+/**
  * What a copy from `from` to `to` would do, in the order it is done: a read (nothing is changed or started). Only
  * what differs is listed, so an account already set up the same gives an empty plan.
  */
@@ -292,6 +326,17 @@ export function planSetupCopy(from: SetupAccount, to: SetupAccount, io: SetupIo 
   const installed = objectAt(io.readJson(path.join(to.dir, 'plugins', 'installed_plugins.json')), 'plugins');
   for (const [id, on] of Object.entries(enabled))
     if (on === true && !(id in installed)) items.push({ kind: 'plugin', name: id, does: 'adds', note: 'installed from its marketplace' });
+  const trust = trustToCopy(from, to, io);
+  if (trust.length) {
+    // The few nearest the top say the most: a folder trusts everything under it.
+    const first = [...trust].sort((a, b) => a.length - b.length || a.localeCompare(b)).slice(0, 3);
+    items.push({
+      kind: 'trust',
+      name: TRUSTED_FOLDERS,
+      does: 'adds',
+      note: `${trust.length} folder${trust.length === 1 ? '' : 's'} ${from.name} trusts, so ${to.name} doesn’t ask again: ${first.join(', ')}${trust.length > first.length ? ` and ${trust.length - first.length} more` : ''}`,
+    });
+  }
   return items;
 }
 
@@ -340,6 +385,22 @@ function mergeSettingsFile(fromFile: string, toFile: string): void {
   });
 }
 
+/** The folders marked trusted in the target's global config, under its lock, the rest of the file as it is (§5.2). */
+function trustFolders(file: string, folders: readonly string[]): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  ensureFile(file, '{}\n');
+  withFileLockSync(file, () => {
+    let config: unknown;
+    try {
+      config = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch {
+      // Unreadable: Claude Code's own state must not be replaced by a guess.
+      throw new Error('its config file can’t be read');
+    }
+    atomicWriteFile(file, `${JSON.stringify(withTrusted(config, folders), null, 2)}\n`);
+  });
+}
+
 /**
  * Do the copy: every item of the plan as it is now, one after another, each reported. One that fails is said and the
  * rest still go. `run`: a test's.
@@ -373,6 +434,8 @@ export async function applySetupCopy(from: SetupAccount, to: SetupAccount, run: 
         if (!args) throw new Error('work doesn’t know how to add this kind of marketplace');
         const r = run(args, env);
         if (!r.ok) throw new Error(lastLine(r.out));
+      } else if (item.kind === 'trust') {
+        trustFolders(globalConfigFile(to.dir), trustToCopy(from, to));
       } else {
         const r = run(['plugin', 'install', item.name, '--scope', 'user', '-y'], env);
         if (!r.ok) throw new Error(lastLine(r.out));

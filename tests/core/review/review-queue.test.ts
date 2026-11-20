@@ -82,6 +82,7 @@ function harness(
     agentInCheckout?: ReviewQueueDeps['agentInCheckout'];
     checkoutLines?: ReviewQueueDeps['checkoutLines'];
     sweepTrees?: ReviewQueueDeps['sweepTrees'];
+    attention?: ReviewQueueDeps['attention'];
     maxPerDay?: number | null;
     maxLines?: number;
     mode?: ReviewProject['mode'];
@@ -138,6 +139,7 @@ function harness(
     prepare,
     dropRef,
     ...(opts.agent ? { agent: opts.agent } : {}),
+    ...(opts.attention ? { attention: opts.attention } : {}),
     ...(opts.agentInCheckout ? { agentInCheckout: opts.agentInCheckout, checkoutLines: opts.checkoutLines ?? (() => AGENT_LINES) } : {}),
     ...(opts.sweepTrees ? { sweepTrees: opts.sweepTrees } : {}),
     store,
@@ -710,5 +712,31 @@ describe("the PR's existing discussion (#64)", () => {
     expect(h.prepare).toHaveBeenCalledTimes(2);
     expect(h.rows.get(reviewKey('api', 7))!.discussion?.threads).toHaveLength(1);
     expect(h.notes().some((n) => n.includes("couldn't read its discussion (gh: 502); the last read stays"))).toBe(true);
+  });
+});
+
+describe('one PR review asked to also pay attention to something', () => {
+  const answer = JSON.stringify({
+    stories: [{ title: 'Adds refunds', why: 'w', risk: 'money', riskLevel: 4, flags: [], files: ['src/Refunds.cs'] }],
+  });
+
+  it('a click with your own point: the prompt carries it before the project’s set ones, and the review says both', async () => {
+    const prompts: string[] = [];
+    const h = harness({ agent: async (p) => (prompts.push(p), answer), attention: () => ['money is rounded once'] });
+    const r = await h.queue.runNow('api', 7, 'does the retry lose a refund?\nthe migration');
+    expect(r).toMatchObject({ ok: true });
+    const at = (text: string) => prompts[0].indexOf(`- ${text}`);
+    expect(at('does the retry lose a refund?')).toBeGreaterThan(prompts[0].indexOf('Pay attention to:'));
+    expect(at('money is rounded once')).toBeGreaterThan(at('the migration'));
+    expect(h.rows.get('api#7')!.attention).toEqual(['does the retry lose a refund?', 'the migration', 'money is rounded once']);
+  });
+
+  it('nothing asked: the set points alone; the sweep never has a point of its own', async () => {
+    const h = harness({ agent: async () => answer, attention: () => ['money is rounded once'] });
+    await h.queue.sweep();
+    expect(h.rows.get('api#7')!.attention).toEqual(['money is rounded once']);
+    const none = harness({ agent: async () => answer });
+    await none.queue.runNow('api', 7);
+    expect(none.rows.get('api#7')!.attention).toBeUndefined();
   });
 });

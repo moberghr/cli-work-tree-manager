@@ -14,6 +14,9 @@ import {
   setupEnv,
   settingsChanges,
   setupSummary,
+  trustedFolders,
+  trustToCopy,
+  withTrusted,
   type SetupRun,
 } from '../../../../src/core/agents/claude/setup-copy.js';
 
@@ -265,5 +268,68 @@ describe('a settings merge says what it would change (found on the first real us
     expect(line.note).toContain('turns on plugin ts@official (new here)');
     expect(line.note).toContain('adds 1 allow rule');
     expect(line.note).toContain('sets effortLevel');
+  });
+});
+
+describe('the folders an account trusts go with its setup (reported: every session asked again on a second account)', () => {
+  let repos: string;
+  let own: string;
+  beforeEach(() => {
+    repos = path.join(home, 'repos');
+    own = path.join(home, 'repos', 'own');
+    fs.mkdirSync(own, { recursive: true });
+    const config = read(path.join(home, '.claude.json'));
+    write(path.join(home, '.claude.json'), {
+      ...config,
+      projects: {
+        [repos]: { hasTrustDialogAccepted: true, lastCost: 3 },
+        [own]: { hasTrustDialogAccepted: true },
+        [path.join(home, 'gone')]: { hasTrustDialogAccepted: true },
+        [path.join(home, 'asked')]: { hasTrustDialogAccepted: false },
+      },
+    });
+    write(path.join(to.dir, '.claude.json'), {
+      userID: 'B',
+      mcpServers: { local: { command: 'old' } },
+      projects: { [own]: { hasTrustDialogAccepted: true, lastCost: 9 }, [repos]: { lastCost: 1, allowedTools: ['x'] } },
+    });
+  });
+
+  it('only the ones said yes to, that the target hasn’t, and that are still there', () => {
+    expect(trustedFolders(from.dir).sort()).toEqual([path.join(home, 'gone'), repos, own].sort());
+    expect(trustToCopy(from, to)).toEqual([repos]);
+    const item = planSetupCopy(from, to).find((i) => i.kind === 'trust');
+    expect(item).toMatchObject({ name: 'trusted folders', does: 'adds' });
+    expect(item?.note).toBe(`1 folder default trusts, so admin doesn’t ask again: ${repos}`);
+  });
+
+  it('the copy marks them trusted and keeps everything else of the target’s file: its login, its servers, each folder’s own state', async () => {
+    const done = await applySetupCopy(from, to, () => ({ ok: true, out: '' }));
+    expect(done.find((r) => r.kind === 'trust')).toMatchObject({ ok: true });
+    const after = read(path.join(to.dir, '.claude.json'));
+    expect(after.userID).toBe('B');
+    expect(after.mcpServers).toEqual({ local: { command: 'old' } });
+    expect(after.projects).toEqual({
+      [own]: { hasTrustDialogAccepted: true, lastCost: 9 },
+      [repos]: { lastCost: 1, allowedTools: ['x'], hasTrustDialogAccepted: true },
+    });
+    // Nothing of the source's own state of a folder came along, and a second copy has none to carry.
+    expect(JSON.stringify(after.projects)).not.toContain('"lastCost":3');
+    expect(planSetupCopy(from, to).some((i) => i.kind === 'trust')).toBe(false);
+  });
+
+  it('a target config that can’t be read is left as it is, and said', async () => {
+    fs.writeFileSync(path.join(to.dir, '.claude.json'), '{ not json');
+    const done = await applySetupCopy(from, to, () => ({ ok: true, out: '' }));
+    expect(done.find((r) => r.kind === 'trust')).toMatchObject({ ok: false, error: 'its config file can’t be read' });
+    expect(fs.readFileSync(path.join(to.dir, '.claude.json'), 'utf-8')).toBe('{ not json');
+  });
+
+  it('withTrusted adds the mark and nothing else', () => {
+    expect(withTrusted({ a: 1, projects: { x: { n: 1 } } }, ['x', 'y'])).toEqual({
+      a: 1,
+      projects: { x: { n: 1, hasTrustDialogAccepted: true }, y: { hasTrustDialogAccepted: true } },
+    });
+    expect(withTrusted(null, [])).toEqual({ projects: {} });
   });
 });

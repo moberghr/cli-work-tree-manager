@@ -566,3 +566,12 @@ export function reviewTabMeta(r: { status: string; seen?: boolean } | null | und
   if (r.seen) return undefined;
   return r.status === 'ready' ? 'ready' : r.status === 'failed' ? 'failed' : undefined;
 }
+
+/**
+ * How many reviews wait for you: prepared (ready) and not submitted by you yet — the number on the Reviews tab
+ * (asked for: nothing said a review was there without opening the tab). One being prepared, held or failed isn't
+ * yours to read yet; one you submitted is done until a new push prepares it again. Pure.
+ */
+export function reviewsWaiting(list: ReadonlyArray<{ status: string; submitted?: true }>): number {
+  return list.filter((r) => r.status === 'ready' && !r.submitted).length;
+}

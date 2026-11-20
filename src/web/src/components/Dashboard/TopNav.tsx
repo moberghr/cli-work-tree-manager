@@ -9,6 +9,8 @@ interface Props {
   onHome: () => void;
   /** Sessions that want you now (needs input + finished, unseen). */
   inboxCount?: number;
+  /** Reviews ready that you haven't submitted (the Reviews tab's number). */
+  reviewsCount?: number;
   /** Narrow layouts: toggles the session drawer (the button only shows
    *  below the breakpoint, via CSS). */
   onToggleRail?: () => void;
@@ -64,6 +66,7 @@ export function TopNav({
   onSelect,
   onHome,
   inboxCount = 0,
+  reviewsCount = 0,
   onToggleRail,
   railOpen = false,
   onAssistant,
@@ -108,6 +111,11 @@ export function TopNav({
               onClick={() => onSelect(t.key)}
             >
               {t.label}
+              {t.key === 'reviews' && reviewsCount > 0 && (
+                <span className="wd-dash-tab-badge" aria-label={`${reviewsCount} ready for you`}>
+                  {reviewsCount}
+                </span>
+              )}
               {t.key === 'inbox' && inboxCount > 0 && (
                 <span className="wd-dash-tab-badge" aria-label={`${inboxCount} need you`}>
                   {inboxCount}

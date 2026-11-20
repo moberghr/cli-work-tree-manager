@@ -6,6 +6,8 @@ import type { KindRule } from './change-kinds.js';
 import type { PreparedPr } from './review-source.js';
 import type { ReviewTreeAt } from './review-tree.js';
 import { buildReview, kindsOf, linesWorthReading, reviewPrompt, splitIgnored, type ReviewMeta } from './review-build.js';
+import { alsoPoints } from './local-review.js';
+import { attentionItems } from './review-plan.js';
 import { carryForward, isStaleRunning, preparedOn } from './review-submit.js';
 import { DISCUSSION_OPEN_MIN_MS, discussionDue } from './review-discussion.js';
 
@@ -95,7 +97,8 @@ export interface ReviewQueue {
   /** Look at every project's open PRs, queue what's new, and prepare the queue. */
   sweep(): Promise<void>;
   /** Prepare this PR now (the user's click): whatever its size, whatever the day's count. */
-  runNow(repo: string, number: number): Promise<HostResult<{ review: PrReviewWire }>>;
+  /** `also`: what this one review should pay attention to, beside the set points (your words, a point a line). */
+  runNow(repo: string, number: number, also?: string): Promise<HostResult<{ review: PrReviewWire }>>;
   /**
    * Read the PR's discussion again (the review was opened): not when it was read in the last minute, nor while its
    * host rests after its API limit — then the review as it stands. An error only when there's no such review.
@@ -279,10 +282,12 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     prepared: PreparedPr,
     rules: KindRule[] | undefined,
     discussion: PrDiscussionWire | undefined,
-  ): Promise<{ answer: string | null | undefined; how?: string }> {
+    also?: string,
+  ): Promise<{ answer: string | null | undefined; how?: string; attention?: string[] }> {
     if (!deps.agent) return { answer: undefined };
     const kinds = kindsOf(prepared.files, prepared.extras, rules);
-    const attention = deps.attention?.(project.alias) ?? [];
+    // This review's own points first (what you asked just now), then the ones set for every review of the project.
+    const attention = attentionItems(alsoPoints(also), deps.attention?.(project.alias));
     const said = { ...(discussion ? { discussion } : {}), ...(attention.length ? { attention } : {}) };
     const prompt = reviewPrompt(at, prepared.files, kinds, said);
     if (!prompt) return { answer: undefined };
@@ -297,12 +302,12 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
         .catch((err: Error): { answer: null; why: string; skipped?: boolean } => ({ answer: null, why: err.message }));
       // Its note (a checkout that wouldn't go) is kept for Activity, answer or not.
       if (inTree?.answer)
-        return { answer: inTree.answer, how: `read in a temporary checkout of the PR${inTree.why ? ` (${inTree.why})` : ''}` };
+        return { answer: inTree.answer, attention, how: `read in a temporary checkout of the PR${inTree.why ? ` (${inTree.why})` : ''}` };
       if (inTree?.skipped) fellBack = inTree.why ?? 'the checkout run was skipped';
       else if (inTree) fellBack = `the checkout run gave no answer${inTree.why ? `: ${inTree.why}` : ''}`;
     }
     const answer = await deps.agent(prompt).catch(() => null);
-    return { answer, how: `read from the diff alone (${fellBack})` };
+    return { answer, attention, how: `read from the diff alone (${fellBack})` };
   }
 
   /** Prepare one PR. `auto`: the sweep's (the size limit applies to the fetched diff too); your click ignores it. */
@@ -312,6 +317,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
     size: OpenPr | undefined,
     auto: boolean,
     note?: (text: string, level?: 'info' | 'action' | 'warn') => void,
+    also?: string,
   ): Promise<Prepared> {
     const k = key(meta.repo, meta.number);
     active.add(k);
@@ -354,13 +360,15 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
           `${meta.repo} #${meta.number}: couldn't read its discussion (${read.why}); ${discussion ? 'the last read stays' : 'none shown'}`,
           'warn',
         );
-      const { answer, how } = await aiStep(project, at, prep, rules, discussion);
+      const { answer, how, attention } = await aiStep(project, at, prep, rules, discussion, also);
       const fresh: PrReviewWire = {
         ...buildReview(at, prep.files, prep.extras, answer, {
           rules,
           ignored: split.ignored,
           now: now(),
           notAskedWhy: deps.agent ? undefined : 'no agent for the AI step: stories are by folder',
+          // What it was asked to pay attention to: said on the review (only when the AI step ran with it).
+          ...(attention?.length ? { attention } : {}),
         }),
         listedHead: meta.headSha,
         mergeBase: prepared.mergeBase,
@@ -494,7 +502,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       });
       return sweeping;
     },
-    async runNow(repo, number) {
+    async runNow(repo, number, also) {
       const project = deps.projects().find((p) => p.alias === repo);
       if (!project) return { ok: false, error: `${repo} isn't one of your repos` };
       const host = deps.hostOf(project.path);
@@ -504,7 +512,7 @@ export function createReviewQueue(deps: ReviewQueueDeps): ReviewQueue {
       if (!pr) return { ok: false, error: `#${number} isn't an open pull request of ${repo}` };
       const run = deps.activity?.start('reviews', `Preparing the review of ${repo} #${number}`);
       const note = (text: string, level: 'info' | 'action' | 'warn' = 'info') => run?.note(text, { level });
-      const r = await oneAtATime(() => prepareOne(project, metaOf(repo, host, pr), pr, false, note));
+      const r = await oneAtATime(() => prepareOne(project, metaOf(repo, host, pr), pr, false, note, also));
       if (r.ok) run?.done(`prepared${r.how ? `; ${r.how}` : ''}`);
       else run?.fail(r.error);
       return r.ok ? { ok: true, review: r.review } : { ok: false, error: r.error };

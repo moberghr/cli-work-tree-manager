@@ -117,6 +117,21 @@ describe('sessionWire', () => {
     expect(sessionWire({ ...s, archivedAt: '2026-09-02T00:00:00Z' }, { outputStatusFor: () => working }).attention).toBeNull();
     expect(sessionWire(s, { shadowed: () => true, outputStatusFor: () => working }).attention).toBeNull();
   });
+
+  it('stopped at its agent’s question before any turn (no hook says so): it needs you, with what it asks — never an archived or shadowed one', () => {
+    const asked = { what: 'Claude asks whether you trust this folder: answer in its terminal', since: '2026-11-19T10:00:00.000Z' };
+    expect(sessionWire(s, { startupQuestionFor: () => asked }).attention).toEqual({
+      state: 'needs_input',
+      seen: false,
+      since: asked.since,
+      updatedAt: asked.since,
+      stale: false,
+      summary: asked.what,
+    });
+    expect(sessionWire(s, { startupQuestionFor: () => null }).attention).toBeNull();
+    expect(sessionWire({ ...s, archivedAt: '2026-09-02T00:00:00Z' }, { startupQuestionFor: () => asked }).attention).toBeNull();
+    expect(sessionWire(s, { shadowed: () => true, startupQuestionFor: () => asked }).attention).toBeNull();
+  });
 });
 
 describe('its repos on the wire', () => {

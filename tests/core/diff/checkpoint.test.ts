@@ -24,6 +24,10 @@ let repoB: string;
 // test, which made this file 109 s of a 111 s parallel suite and starved
 // vitest's worker into an RPC timeout. A copied .git is a complete,
 // independent repo. (Commit identity comes from tests/setup/isolate-git.ts.)
+// Every test here runs real git (snapshots of two repos). Alone each test takes a second or two; in a full parallel run on a
+// busy Windows machine some passed the suite's 20 s (they failed only there). Room for that, not for a hang.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
 let template: string;
 beforeAll(() => {
   template = fs.mkdtempSync(path.join(os.tmpdir(), 'work-cp-template-'));

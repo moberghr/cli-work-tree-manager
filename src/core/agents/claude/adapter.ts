@@ -1,3 +1,4 @@
+import { claudeStartupQuestion } from './startup-question.js';
 import path from 'node:path';
 import { backgroundWorkSince, listTranscripts, listUsageFiles } from './files.js';
 import { backgroundCommandNames, backgroundCommandsRunning } from './background-commands.js';
@@ -103,6 +104,8 @@ export const claudeAgent: AgentAdapter = {
   live: { running: (table) => readLiveClaudes(undefined, undefined, table) },
   input: {
     submit: typeThenEnter,
+    // Before its first turn in a folder it wasn't told to trust: its own question, which no hook reports.
+    startupQuestion: claudeStartupQuestion,
     // Its dialog: "Do you want to …?" over a menu with "❯ 1. Yes"; Enter takes Yes, Esc is "No, and tell Claude what to do differently".
     permissionDialog: { check: checkDialog, keys: { allow: ANSWER_KEYS.allow, deny: ANSWER_KEYS.deny } },
   },

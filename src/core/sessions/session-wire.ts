@@ -65,6 +65,8 @@ export interface SessionWireOptions {
   liveKnown?: boolean;
   /** A Claude of ours runs for it (PTY host), whether or not Claude Code's file shows it yet. */
   hostedLive?: (id: string) => boolean;
+  /** A question its agent is stopped at before its first turn (startup-question.ts): it needs you, whatever was recorded. */
+  startupQuestionFor?: (id: string) => { what: string; since: string } | null;
   /** A status read from its terminal output, for a tool with no hooks (output-status.ts). */
   outputStatusFor?: (id: string) => SessionAttention | null;
   /** Its snooze, if any (snooze-store.ts); shown only while it holds. */
@@ -96,6 +98,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const replyDrafts = s.archivedAt ? 0 : (opts.replyDraftsFor?.(id) ?? 0);
   const prStage = s.archivedAt ? null : (opts.prStageFor?.(id) ?? null);
   const localReview = s.archivedAt ? null : (opts.localReviewFor?.(id) ?? null);
+  const startup = s.archivedAt || shadowed ? null : (opts.startupQuestionFor?.(id) ?? null);
   const wire: SessionWire = {
     id,
     target: s.target,
@@ -136,9 +139,11 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     ),
     ...(s.title ? { titleIsYours: true } : {}),
     pendingForClaudeCount: meta.pendingForClaudeCount,
-    // Claude Code's own state file over what the hooks recorded, when newer.
-    attention:
-      meta.attention && !shadowed && opts.claudesFor
+    // Stopped at its own question before any turn (no hook says so): it waits for you, whatever was recorded before.
+    // Else Claude Code's own state file over what the hooks recorded, when newer.
+    attention: startup
+      ? { state: 'needs_input', seen: false, since: startup.since, updatedAt: startup.since, stale: false, summary: startup.what }
+      : meta.attention && !shadowed && opts.claudesFor
         ? withLiveClaude(meta.attention, claudes, {
             known: opts.liveKnown === true,
             hosted: opts.hostedLive?.(id) ?? true,

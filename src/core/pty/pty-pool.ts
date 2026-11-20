@@ -276,6 +276,11 @@ export function ptyPids(): ReadonlySet<number> {
   return livePids;
 }
 
+/** The live terminals with when each started and last printed (from the refresh cache), for startup-question.ts. */
+export function ptyTerminals(): Array<{ id: string; startedAt: string; lastOutputAt?: string }> {
+  return [...outputs].map(([id, o]) => ({ id, startedAt: o.startedAt, ...(o.lastOutputAt ? { lastOutputAt: o.lastOutputAt } : {}) }));
+}
+
 /** A status from its terminal output, for a session whose tool has no hooks (output-status.ts); null for Claude or no PTY. */
 export function outputStatus(sessionId: string, now = Date.now()): SessionAttention | null {
   const o = outputs.get(sessionId);

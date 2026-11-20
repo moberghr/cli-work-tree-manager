@@ -48,6 +48,18 @@ function setup(over: Partial<ReviewRouteDeps> = {}, shared?: Map<string, PrRevie
 }
 
 describe('review routes', () => {
+  it('Prepare with a point of its own hands it to the queue, trimmed; not text, or too long, is refused before anything runs', async () => {
+    const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
+    const runNow = vi.fn(async (repo: string, n: number, _also?: string) => ({ ok: true as const, review: rows.get(`${repo}#${n}`)! }));
+    const { req } = setup({ runNow }, rows);
+    expect((await req('POST', '/api/reviews/api/231', { also: 7 })).status).toBe(400);
+    expect((await req('POST', '/api/reviews/api/231', { also: 'x'.repeat(2001) })).status).toBe(400);
+    expect(runNow).not.toHaveBeenCalled();
+    expect((await req('POST', '/api/reviews/api/231', { also: '  the migration ' })).status).toBe(200);
+    expect((await req('POST', '/api/reviews/api/231')).status).toBe(200);
+    expect(runNow.mock.calls.map((c) => c[2])).toEqual(['the migration', undefined]);
+  });
+
   it('POST …/discussion reads the discussion again (the queue says when): told only when it changed; an unknown PR is 404', async () => {
     const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
     const refreshDiscussion = vi.fn(async (repo: string, n: number) => {

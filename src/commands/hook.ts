@@ -1,5 +1,4 @@
 import type { CommandModule } from 'yargs';
-import { readSessionActivity } from '../core/sessions/session-activity.js';
 import {
   findSessionForCwd,
   formatPendingForPrompt,
@@ -106,9 +105,9 @@ export function computeHookOutput(
   const session = findSessionForCwd(input.cwd);
   if (!session) return null;
 
-  const activity = readSessionActivity(session);
-  if (activity.state === 'stale') return null;
-
+  // No look at how lately its conversation was written: the hook firing IS an agent in this folder, now. A session
+  // quiet for five minutes, or a new one whose conversation file isn't there yet at its first message, was called
+  // stale here and got nothing — the notes its first message said were attached came at the end of that turn.
   const sessionId = sessionIdFor(session);
   const unclaimed = readPendingForWorktree(session);
   if (unclaimed.length === 0) return null;

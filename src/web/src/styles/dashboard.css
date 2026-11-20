@@ -6150,6 +6150,12 @@ a.wd-pr-chip:hover {
   gap: 8px;
   margin: 4px 0;
 }
+/* What one review is also asked to look at: takes the room the buttons leave. */
+.wd-session-review-also {
+  flex: 1 1 220px;
+  min-width: 140px;
+  max-width: 420px;
+}
 .wd-review-tests-strip {
   font-size: 13px;
 }

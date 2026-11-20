@@ -139,6 +139,11 @@ export type DialogCheck = { ok: true } | { ok: false; reason: 'no-dialog' | 'oth
 export interface AgentInput {
   /** Type `text` into its prompt and submit it (`write`: the PTY; `wait`: a pause, for tests). */
   submit(write: (data: string) => Promise<boolean>, text: string, wait?: (ms: number) => Promise<void>): Promise<boolean>;
+  /**
+   * A question it is stopped at before its first turn, read from its terminal's screen ("do you trust this
+   * folder?"): what it asks in a line, or null. Absent: it has none work knows. Never answered by work.
+   */
+  startupQuestion?(screen: string): string | null;
   /** Its permission dialog on a terminal screen; absent: work can't answer its prompts by keystroke. */
   permissionDialog?: {
     check(screen: string, req: PermissionRequest): DialogCheck;

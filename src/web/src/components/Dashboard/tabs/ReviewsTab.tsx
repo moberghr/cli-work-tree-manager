@@ -277,6 +277,8 @@ function ReviewView({
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<ParsedFile[] | null>(null);
   const [busy, setBusy] = useState(false);
+  /** What this one review is also asked to pay attention to (kept while the PR is open on screen). */
+  const [also, setAlso] = useState('');
   const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [looked, setLooked] = useState<Set<string>>(new Set());
   const load = useCallback(() => {
@@ -349,7 +351,7 @@ function ReviewView({
   if (!r) return <p className="wd-start-note">Loading…</p>;
   const prepare = () => {
     setBusy(true);
-    prepareReview(repo, number)
+    prepareReview(repo, number, also)
       .then(setR, (e: Error) => setError(e.message))
       .finally(() => setBusy(false));
   };
@@ -441,6 +443,20 @@ function ReviewView({
             )}
           </p>
           <div className="wd-review-actions">
+            <input
+              type="text"
+              className="wd-session-review-also"
+              aria-label="For this review, also pay attention to"
+              placeholder="For this review, also pay attention to…"
+              title="Only this review is told it, beside the points set for every review (Settings → Reviews). Enter prepares."
+              value={also}
+              maxLength={2000}
+              disabled={preparing}
+              onChange={(e) => setAlso(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') prepare();
+              }}
+            />
             <button type="button" className="wd-btn-secondary" onClick={prepare} disabled={preparing}>
               {preparing ? 'Preparing…' : r.status === 'ready' ? 'Prepare again' : 'Prepare it now'}
             </button>

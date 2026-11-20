@@ -1913,6 +1913,8 @@ export interface ReviewSummaryWire {
   flags: number;
   /** Production changes no test touches. */
   gaps: number;
+  /** You submitted a review of it as it is prepared now (absent: not yet). */
+  submitted?: true;
 }
 
 /** GET /api/reviews */
@@ -2019,6 +2021,8 @@ export interface SessionReviewWire {
   review?: PrReviewWire;
   /** How the AI step read the changes of `review`: "read in its folder", or from the diff alone and why. */
   how?: string;
+  /** What you asked `review` alone to also pay attention to (the box beside Prepare starts with it). */
+  also?: string;
   /** Of `review`: the notes handed to the session's agent, and the ones you dismissed (kept across restarts). */
   sent?: string[];
   dismissed?: string[];

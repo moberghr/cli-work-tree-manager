@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reviewListLines, reviewText } from '../../../src/core/review/review-text.js';
+import { reviewListLines, reviewText, sessionReviewText } from '../../../src/core/review/review-text.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
 
 /** `work review`: the Reviews tab's reviews as text. */
@@ -117,5 +117,40 @@ describe('story verdicts and what it was asked, in the text', () => {
     expect(text).toContain('Its verdict (the AI step): Fine as it is — The change is one line');
     expect(text).toContain("It was asked to pay attention to (the user's own settings): A refund never exceeds what was paid");
     expect(reviewText(review())).not.toContain('It was asked to pay attention to');
+  });
+});
+
+describe('sessionReviewText: a session’s own review, for its agent (reported: asked to check the review, it found only its comments)', () => {
+  const local = () => ({ ...review(), number: 0, author: 'you', url: '' });
+  const kept = (over: { sent?: string[]; dismissed?: string[]; repo?: string | null } = {}) => {
+    const r = local();
+    return {
+      repo: over.repo === undefined ? r.repo : over.repo,
+      repos: ['api', 'web'],
+      prepared: { review: r, repo: r.repo, files: [], repos: ['api', 'web'], how: 'read in its folder' },
+      at: '2026-11-19T10:00:00.000Z',
+      sent: over.sent ?? [],
+      dismissed: over.dismissed ?? [],
+    };
+  };
+  const notes = local().drafts.filter((d) => d.state === 'draft');
+
+  it('says when and how it was prepared, then the review in full with each note', () => {
+    const text = sessionReviewText(kept());
+    expect(text.split('\n')[0]).toBe(`Prepared 2026-11-19T10:00:00.000Z (read in its folder); of ${local().repo}.`);
+    expect(text).toContain('your local changes');
+    for (const d of notes) expect(text).toContain(`[${d.id}]`);
+    expect(text).not.toContain('Already handed');
+    expect(text).not.toContain('dismissed');
+    expect(sessionReviewText(kept({ repo: null })).split('\n')[0]).toContain('of all its repos with changes (api, web).');
+  });
+
+  it('a note the user dismissed is left out and counted; one already handed over is said', () => {
+    expect(notes.length).toBeGreaterThan(1);
+    const text = sessionReviewText(kept({ dismissed: [notes[0].id], sent: [notes[0].id, notes[1].id] }));
+    expect(text).not.toContain(`- [${notes[0].id}]`);
+    expect(text).toContain(`- [${notes[1].id}]`);
+    expect(text).toContain(`Already handed to this session's agent: [${notes[1].id}].`);
+    expect(text).toContain('1 note the user dismissed is not listed.');
   });
 });

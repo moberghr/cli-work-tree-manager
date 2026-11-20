@@ -1,3 +1,4 @@
+import { MAX_ALSO_CHARS } from '../../core/review/local-review.js';
 import type { Hono } from 'hono';
 import type { ParsedFile } from '../../core/diff/diff-parse.js';
 import type { PrReviewWire, ReviewSettingsWire, ReviewsWire } from '../../core/api-types.js';
@@ -22,7 +23,7 @@ import { isReviewMode } from '../../core/review/review-config.js';
  */
 
 export interface ReviewRouteDeps extends SubmitFlowDeps {
-  runNow: (repo: string, number: number) => Promise<{ ok: true; review: PrReviewWire } | { ok: false; error: string }>;
+  runNow: (repo: string, number: number, also?: string) => Promise<{ ok: true; review: PrReviewWire } | { ok: false; error: string }>;
   /** Read the PR's discussion on its host again (the review was opened; at most once a minute, never while the host rests). */
   refreshDiscussion: (repo: string, number: number) => Promise<{ ok: true; review: PrReviewWire } | { ok: false; error: string }>;
   all: () => PrReviewWire[];
@@ -89,7 +90,11 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     const repo = c.req.param('repo');
     const n = num(c.req.param('number'));
     if (n === null) return c.json({ error: 'not a PR number' }, 400);
-    const r = await deps.runNow(repo, n);
+    // {also?}: what this one review should pay attention to, beside the points set for every review.
+    const body = (await c.req.json().catch(() => ({}))) as { also?: unknown };
+    if (body.also !== undefined && typeof body.also !== 'string') return c.json({ error: 'also: string' }, 400);
+    if (body.also && body.also.length > MAX_ALSO_CHARS) return c.json({ error: `also: at most ${MAX_ALSO_CHARS} characters` }, 400);
+    const r = await deps.runNow(repo, n, body.also?.trim() || undefined);
     changed(repo, n);
     return r.ok ? c.json(r.review) : c.json({ error: r.error }, 409);
   });

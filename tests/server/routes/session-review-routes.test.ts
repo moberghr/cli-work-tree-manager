@@ -68,11 +68,16 @@ function app(
 ) {
   const a = new Hono();
   mountSessionReviewRoutes(a, {
-    prepare: (session, repo) =>
-      prepareLocalReview(session, repo, {
-        diff: () => ({ repos: [{ name: 'api', files: changed ? files : [] }], resolvedBase: 'origin/main' }),
-        agent: async () => answer,
-      }),
+    prepare: (session, repo, also) =>
+      prepareLocalReview(
+        session,
+        repo,
+        {
+          diff: () => ({ repos: [{ name: 'api', files: changed ? files : [] }], resolvedBase: 'origin/main' }),
+          agent: async () => answer,
+        },
+        also,
+      ),
     signature: (_s, r) =>
       localSignature({ repos: [{ name: 'api', files: changed ? files : [] }], resolvedBase: 'origin/main' }, r ?? undefined),
     tell,
@@ -105,6 +110,18 @@ describe('session review routes', () => {
     expect(events).toEqual(['sessions-changed', 'session-review-changed', 'sessions-changed', 'notify']);
     const diff = (await (await a.request(`/api/sessions/${id}/review/diff`)).json()) as { files: Array<{ path: string }> };
     expect(diff.files.map((f) => f.path)).toEqual([HANDLER]);
+  });
+
+  it('also: what this one review is asked to look at reaches it and is said back; not text, or too long, is refused', async () => {
+    const a = app();
+    expect((await post(a, '', { also: 7 })).status).toBe(400);
+    expect((await post(a, '', { also: 'x'.repeat(2001) })).status).toBe(400);
+    expect((await state(a)).status).toBe('none');
+    expect((await post(a, '', { also: 'does the retry lose a refund?' })).status).toBe(200);
+    await settled();
+    const ready = await state(a);
+    expect(ready.also).toBe('does the retry lose a refund?');
+    expect(ready.review?.attention).toEqual(['does the retry lose a refund?']);
   });
 
   it('nothing changed: it fails saying so, never an empty review', async () => {

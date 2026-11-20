@@ -534,7 +534,8 @@ describe('submitting, in every mode', () => {
     expect(container.querySelector('.wd-review-modes')).toBeNull();
     await act(async () => button('Prepare it now').click());
     await flush();
-    expect(api.prepareReview).toHaveBeenCalledWith('api', 231);
+    // With what the box beside it says: nothing typed.
+    expect(api.prepareReview).toHaveBeenCalledWith('api', 231, '');
     expect(container.querySelector('.wd-review-overview')).not.toBeNull();
   });
 

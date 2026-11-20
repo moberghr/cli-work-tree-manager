@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionAttention, SessionSummary } from '../../src/web/src/api/client.js';
@@ -19,6 +19,10 @@ import {
   statusBucket,
 } from '../../src/web/src/state/session-display.js';
 import { KEEP_TITLE, SessionRail, backgroundLine } from '../../src/web/src/components/Dashboard/SessionRail.js';
+
+// The rail is rendered for real (jsdom, React): its first render loads the whole component tree. Alone each test takes a second or two; in a full parallel run on a
+// busy Windows machine some passed the suite's 20 s (they failed only there). Room for that, not for a hang.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -249,7 +253,11 @@ describe('SessionRail rows', () => {
   it('a session kept after its PR merges says so on its row: a "keep" mark with what it means; another row has none', () => {
     const sessions = [s({ id: 'feat/kept', keepAfterMerge: true }), s({ id: 'feat/usual' })];
     act(() => root.render(createElement(SessionRail, { sessions, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
-    const [kept, usual] = [...container.querySelectorAll('.wd-dash-rail-item')];
+    // By what each row says, not by where it is: the two are made a moment apart, and the rail orders rows by time
+    // (under a loaded run the order flipped, and this test failed).
+    const rows = [...container.querySelectorAll('.wd-dash-rail-item')];
+    const kept = rows.find((r) => r.textContent?.includes('feat/kept'))!;
+    const usual = rows.find((r) => r.textContent?.includes('feat/usual'))!;
     expect(kept.querySelector('.wd-rail-keep')?.textContent).toBe('keep');
     expect(kept.querySelector('.wd-rail-keep')?.getAttribute('title')).toBe(KEEP_TITLE);
     expect(usual.querySelector('.wd-rail-keep')).toBeNull();

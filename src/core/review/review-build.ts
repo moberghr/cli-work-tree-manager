@@ -293,6 +293,7 @@ export function summaryOf(r: PrReviewWire): ReviewSummaryWire {
     stories: r.stories.length,
     flags: r.stories.reduce((n, s) => n + s.flags.filter((f) => FLAG_SET.has(f)).length, 0),
     gaps: r.tests.gaps.length,
+    ...(r.submitted ? { submitted: true } : {}),
   };
 }
 

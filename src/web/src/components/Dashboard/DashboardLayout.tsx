@@ -21,6 +21,7 @@ interface Props {
   onNewWorktree: () => void;
   /** Badge on the Inbox tab. */
   inboxCount?: number;
+  reviewsCount?: number;
   /** Open PRs per session, for the rail badges. */
   prsFor?: PrLookup;
   /** Opens / closes the Ctrl+K assistant (the top-nav button). */
@@ -70,6 +71,7 @@ export function DashboardLayout({
   onHome,
   onNewWorktree,
   inboxCount,
+  reviewsCount,
   prsFor,
   onAssistant,
   assistantOpen,
@@ -113,6 +115,7 @@ export function DashboardLayout({
         onSelect={onSelectTab}
         onHome={onHome}
         inboxCount={inboxCount}
+        reviewsCount={reviewsCount}
         onToggleRail={() => setRailOpen((o) => !o)}
         railOpen={railOpen}
         onAssistant={onAssistant}

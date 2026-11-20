@@ -87,6 +87,8 @@ export function SessionReviewTab({
   const [file, setFile] = useState<string | undefined>(undefined);
   const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [looked, setLooked] = useState<Set<string>>(new Set());
+  /** What you typed for this one review; null: not typed yet (the kept review's shows). */
+  const [also, setAlso] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
   /** The changes have moved since the review was prepared (asked again every minute while the tab is open). */
@@ -183,9 +185,11 @@ export function SessionReviewTab({
   }, [dismiss]);
   const hostThreads = useMemo(() => ({ inline: new Map() }), []);
 
+  // What this one review should also pay attention to: what the kept one was asked, until you type.
+  const alsoText = also ?? data?.also ?? '';
   const prepare = (repo?: string) => {
     setError(null);
-    prepareSessionReview(id, repo).then(setData, (e: Error) => setError(e.message));
+    prepareSessionReview(id, repo, alsoText).then(setData, (e: Error) => setError(e.message));
   };
   const unsent = unsentNotes(walk, sentIds);
   /** Hand these notes to the session's agent: the ones left, or the one whose Send was clicked. */
@@ -292,6 +296,22 @@ export function SessionReviewTab({
               >
                 Open in browser ↗
               </a>
+            )}
+            {!archived && (
+              <input
+                type="text"
+                className="wd-session-review-also"
+                aria-label="For this review, also pay attention to"
+                placeholder="For this review, also pay attention to…"
+                title="Only this review is told it, beside the points set for every review (Settings → Reviews). Enter prepares."
+                value={alsoText}
+                maxLength={2000}
+                disabled={running}
+                onChange={(e) => setAlso(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') prepare(data.repo ?? undefined);
+                }}
+              />
             )}
             {!archived && (
               <button type="button" className="wd-btn-primary" onClick={() => prepare(data.repo ?? undefined)} disabled={running}>

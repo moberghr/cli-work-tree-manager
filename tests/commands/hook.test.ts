@@ -58,12 +58,20 @@ describe('computeHookOutput', () => {
     expect(computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] })).toBeNull();
   });
 
-  it('returns null when session activity is stale (no transcript)', () => {
+  it('a first message is handed its notes: no conversation file yet, or one not written for a while (reported: they came a turn late)', () => {
     const s = fakeSession();
     saveHistory([s]);
-    // Post a comment but DON'T mark the session active.
-    getCommentFileStore(sessionIdFor(s)).post({ body: 'pending' });
-    expect(computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] })).toBeNull();
+    // A new session: its agent has written nothing yet when its first prompt's hook runs.
+    const c = getCommentFileStore(sessionIdFor(s)).post({ body: 'pending' });
+    const fresh = computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] });
+    expect(fresh?.deliveredIds).toEqual([c.id]);
+    expect(fresh?.stdout).toContain('pending');
+    // One woken after an hour: its conversation file is old.
+    markActive(s);
+    const slug = path.resolve(s.paths[0]).replace(/[^A-Za-z0-9]/g, '-');
+    const old = new Date(Date.now() - 60 * 60_000);
+    fs.utimesSync(path.join(tmpDir, '.claude', 'projects', slug, 'session.jsonl'), old, old);
+    expect(computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] })?.deliveredIds).toEqual([c.id]);
   });
 
   it('prompt-submit returns plain text + ids', () => {

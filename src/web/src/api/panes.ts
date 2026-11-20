@@ -456,9 +456,9 @@ export function fetchReviewDiff(repo: string, n: number): Promise<{ files: Parse
 export function refreshReviewDiscussion(repo: string, n: number): Promise<PrReviewWire> {
   return postJson(`${reviewPath(repo, n)}/discussion`, {});
 }
-/** Prepare it now (your click: whatever its size or the day's count). */
-export function prepareReview(repo: string, n: number): Promise<PrReviewWire> {
-  return postJson(reviewPath(repo, n), {});
+/** Prepare it now (your click: whatever its size or the day's count). `also`: what this one review should pay attention to. */
+export function prepareReview(repo: string, n: number, also?: string): Promise<PrReviewWire> {
+  return postJson(reviewPath(repo, n), also?.trim() ? { also: also.trim() } : {});
 }
 /** A draft of your own on a line of the PR's new side. */
 export function addReviewDraft(repo: string, n: number, d: { path: string; line: number; body: string }): Promise<PrReviewWire> {

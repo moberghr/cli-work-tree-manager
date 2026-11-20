@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   backfillSessionBranches,
   branchHidden,
@@ -37,6 +37,10 @@ import { computeSessionRange, historyBranchRefs, sessionHistory } from '../../..
 import { shipPreflight, workElsewhere } from '../../../src/core/pr/ship.js';
 import { recordBranchesFor, runTurnHook } from '../../../src/commands/hook.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
+
+// Most tests here run real git (branches, merges, history of two repos). Alone each test takes a second or two; in a full parallel run on a
+// busy Windows machine some passed the suite's 20 s (they failed only there). Room for that, not for a hang.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {

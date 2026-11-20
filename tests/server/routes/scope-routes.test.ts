@@ -5,7 +5,7 @@
  * `app.request()` so no real port is bound.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,18 +40,34 @@ let app: Hono;
 
 let routes: ReturnType<typeof mountScopeRoutes>;
 
+// Every test here runs real git (a repo, checkpoints, diffs). Alone each test takes a second or two; in a full parallel run on a
+// busy Windows machine some passed the suite's 20 s (they failed only there). Room for that, not for a hang.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
+// The repo is built ONCE and copied per test (§4.7): five git runs before each of some thirty tests was most of
+// this file's time. A copied .git is a complete, independent repo.
+let template: string;
+beforeAll(() => {
+  template = fs.mkdtempSync(path.join(os.tmpdir(), 'work-sr-template-'));
+  const r = path.join(template, 'repo');
+  fs.mkdirSync(r);
+  git(['init', '-b', 'main'], r);
+  git(['config', 'user.email', 't@t.t'], r);
+  git(['config', 'user.name', 'Test'], r);
+  fs.writeFileSync(path.join(r, 'README.md'), '# v1\n');
+  git(['add', '.'], r);
+  git(['commit', '-m', 'init', '--no-gpg-sign'], r);
+});
+afterAll(() => {
+  fs.rmSync(template, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
+
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'work-sr-test-'));
   vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
 
   repoDir = path.join(tmpHome, 'repo');
-  fs.mkdirSync(repoDir);
-  git(['init', '-b', 'main'], repoDir);
-  git(['config', 'user.email', 't@t.t'], repoDir);
-  git(['config', 'user.name', 'Test'], repoDir);
-  fs.writeFileSync(path.join(repoDir, 'README.md'), '# v1\n');
-  git(['add', '.'], repoDir);
-  git(['commit', '-m', 'init', '--no-gpg-sign'], repoDir);
+  fs.cpSync(path.join(template, 'repo'), repoDir, { recursive: true });
 
   app = new Hono();
   routes = mountScopeRoutes(app, {

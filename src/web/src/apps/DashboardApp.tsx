@@ -47,7 +47,8 @@ import { ReviewsTab } from '../components/Dashboard/tabs/ReviewsTab.js';
 import { WelcomeTab } from '../components/Dashboard/tabs/WelcomeTab.js';
 import { fetchSetup } from '../api/panes.js';
 import { needsSetup } from '../state/setup.js';
-import { fetchProjects, fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
+import { fetchProjects, fetchPrs, fetchReviews, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
+import { reviewsWaiting } from '../state/review-view.js';
 import { isArchived, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
@@ -391,13 +392,26 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // its `notify` events into click-to-jump browser notifications.
   usePresence(route.sessionId);
   const notifyTarget = useRef({ sessionId: route.sessionId, open: (_id: string, _sub: SessionSubTab) => {} });
+  // The Reviews tab's number: reviews ready that you haven't submitted. Read at load, on a reconnect and when one changes.
+  const [reviewsCount, setReviewsCount] = useState(0);
+  const loadReviewsCount = useCallback(() => {
+    void fetchReviews().then(
+      (w) => setReviewsCount(reviewsWaiting(w.reviews)),
+      () => {},
+    );
+  }, []);
+  useEffect(loadReviewsCount, [loadReviewsCount]);
   useSse('/events', {
     // (Re)connected: whatever changed while the stream was down (work web
     // restarting, the laptop asleep) was never sent — fetch it now.
     // Changes may have been missed while not connected — on a reconnect, and
     // between the first load and this first connect: fetch again (coalesced).
-    onOpen: () => setRefreshKey((n) => n + 1),
+    onOpen: () => {
+      setRefreshKey((n) => n + 1);
+      loadReviewsCount();
+    },
     events: {
+      'reviews-changed': loadReviewsCount,
       'session-order-changed': () => void fetchSessionOrder().then(setSessionOrder, () => {}),
       'rail-changed': () => void fetchRailLayout().then(setRailLayout, () => {}),
       'host-health': (data) => setHostHealth(data as HostHealth),
@@ -1013,6 +1027,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}
+        reviewsCount={reviewsCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
         usage={<UsageMeter onOpenSession={(id) => openSession(id)} onAccounts={() => goTab('accounts')} />}

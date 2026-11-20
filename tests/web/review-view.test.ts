@@ -31,6 +31,7 @@ import {
   filesViewed,
   foldedInFiles,
   mdGist,
+  reviewsWaiting,
 } from '../../src/web/src/state/review-view.js';
 import { demoReview, demoReviewFiles } from '../../src/server/demo/demo-reviews.js';
 import { summaryOf } from '../../src/core/review/review-build.js';
@@ -454,5 +455,22 @@ describe('where a review would be, while none is prepared', () => {
     );
     expect(notPreparedLine({ status: 'queued', why: null })).toMatch(/In line/);
     expect(notPreparedLine({ status: 'running', why: null })).toMatch(/Being prepared/);
+  });
+});
+
+describe('the number on the Reviews tab', () => {
+  it('counts the reviews ready that you haven’t submitted: not one being prepared, held or failed, nor one you gave a verdict on', () => {
+    const ready = demoReview(new Date('2026-11-02T10:00:00Z'));
+    const list = [
+      summaryOf(ready),
+      summaryOf({ ...ready, number: 2, submitted: { at: '2026-11-02T11:00:00Z', event: 'approve' } }),
+      summaryOf({ ...ready, number: 3, status: 'running' }),
+      summaryOf({ ...ready, number: 4, status: 'waiting', why: 'over the size limit' }),
+      summaryOf({ ...ready, number: 5, status: 'failed', why: 'x' }),
+    ];
+    expect(list[1].submitted).toBe(true);
+    expect('submitted' in list[0]).toBe(false);
+    expect(reviewsWaiting(list)).toBe(1);
+    expect(reviewsWaiting([])).toBe(0);
   });
 });
