@@ -54,6 +54,27 @@ export interface WorkConfig {
   internalAgent?: string;
   /** The agent the Ctrl+K assistant runs (an adapter's id; Claude Code by default). */
   assistantAgent?: string;
+  /**
+   * PR reviews prepared in the background (#64, core/review/): per project (a repo alias or a group) `all` open PRs
+   * (the default), only those `asked` of you, or `off`; the day's cap and the size above which a review waits for a
+   * click; and kind-of-change rules before the defaults (change-kinds.ts).
+   */
+  reviews?: {
+    projects?: Record<string, 'all' | 'asked' | 'off'>;
+    maxPerDay?: number;
+    maxLines?: number;
+    rules?: unknown[];
+    /** What every review's AI step is told to pay attention to (your words: instructions to it), and per repo alias besides. */
+    focus?: string[];
+    focusFor?: Record<string, string[]>;
+  };
+  /**
+   * The git host of an origin whose URL no adapter claims (core/hosts/index.ts): its hostname (lower case) → a host
+   * id. Only a host that can work with such a server needs it (one registered at run time); GitHub Enterprise needs
+   * no entry — an unclaimed origin is asked as GitHub already, and gh finds its server from the repo's folder. The
+   * registry reads it from the raw config.
+   */
+  gitHosts?: Record<string, string>;
   /** Environment variable names to keep for a session restored after a reboot (the launching shell's values; secret-looking names are never kept). */
   hostEnv?: string[];
   /** Writing session time to Jira as worklogs (jira-worklog.ts): the site, your email, and the API token (from the env var `tokenEnv`, default JIRA_API_TOKEN, or `token`). */
@@ -83,8 +104,6 @@ export interface WorkConfig {
    * Set any value to an empty string to disable that flag for the configured tool.
    */
   aiCommandFlags?: {
-    /** Flag for skipping permission checks. */
-    unsafe?: string;
     /** Flag for resuming the most recent session. */
     resume?: string;
     /** Flag for passing an initial prompt as a file path. */
@@ -119,6 +138,12 @@ export interface WorkConfig {
    */
   useBundledConpty?: boolean;
   /**
+   * Start each session's agent below normal priority, so the builds and tests it runs take the idle cores and give way
+   * to what you look at (the dashboard, your editor). Read at each agent start; a running one keeps what it has.
+   * Default off.
+   */
+  agentsLowPriority?: boolean;
+  /**
    * Archived conversations (archive-retention.ts): gzip them once this many
    * days old (default 30; 0 = never; lossless), and delete them after this
    * many (default 0 = never; the summary and prompts stay).
@@ -143,6 +168,13 @@ export interface WorkConfig {
     /** Start a session's Claude (resuming its conversation) when feedback
      *  arrives and it isn't running, so it works on it at once. Default on. */
     wakeClaude?: boolean;
+    /**
+     * The checks that count, per repo (its alias, or the host's `owner/name`), for a repo whose host requires none
+     * (GitHub's branch protection or rulesets list no required checks): a failed check not named here doesn't make
+     * the PR's checks fail — shown grey as "not required", never asked of Claude. The host's own list, when it has
+     * one, wins; a repo with neither counts every check.
+     */
+    requiredChecks?: Record<string, string[]>;
   };
   /**
    * Opt-in desktop notifications. When true, the dashboard fires an OS
@@ -319,6 +351,7 @@ export function loadConfig(): WorkConfig | null {
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,
+      agentsLowPriority: typeof parsed.agentsLowPriority === 'boolean' ? parsed.agentsLowPriority : undefined,
       prompts: validatePrompts(parsed.prompts),
       time: validateTime(parsed.time),
       archive:
@@ -338,9 +371,53 @@ export function loadConfig(): WorkConfig | null {
       claudeAccount: typeof parsed.claudeAccount === 'string' ? parsed.claudeAccount : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
+      reviews:
+        parsed.reviews && typeof parsed.reviews === 'object' && !Array.isArray(parsed.reviews)
+          ? {
+              ...(parsed.reviews.projects && typeof parsed.reviews.projects === 'object' && !Array.isArray(parsed.reviews.projects)
+                ? {
+                    projects: Object.fromEntries(
+                      Object.entries(parsed.reviews.projects as Record<string, unknown>).filter(
+                        (e): e is [string, 'all' | 'asked' | 'off'] => e[1] === 'all' || e[1] === 'asked' || e[1] === 'off',
+                      ),
+                    ),
+                  }
+                : {}),
+              ...(typeof parsed.reviews.maxPerDay === 'number' && parsed.reviews.maxPerDay >= 0
+                ? { maxPerDay: parsed.reviews.maxPerDay }
+                : {}),
+              ...(typeof parsed.reviews.maxLines === 'number' && parsed.reviews.maxLines > 0 ? { maxLines: parsed.reviews.maxLines } : {}),
+              ...(Array.isArray(parsed.reviews.rules) ? { rules: parsed.reviews.rules as unknown[] } : {}),
+              ...(Array.isArray(parsed.reviews.focus)
+                ? { focus: (parsed.reviews.focus as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim()) }
+                : {}),
+              ...(parsed.reviews.focusFor && typeof parsed.reviews.focusFor === 'object' && !Array.isArray(parsed.reviews.focusFor)
+                ? {
+                    focusFor: Object.fromEntries(
+                      Object.entries(parsed.reviews.focusFor as Record<string, unknown>)
+                        .filter((e): e is [string, unknown[]] => Array.isArray(e[1]))
+                        .map(([alias, list]) => [alias, list.filter((x): x is string => typeof x === 'string' && !!x.trim())]),
+                    ),
+                  }
+                : {}),
+            }
+          : undefined,
+      gitHosts:
+        parsed.gitHosts && typeof parsed.gitHosts === 'object' && !Array.isArray(parsed.gitHosts)
+          ? Object.fromEntries(
+              Object.entries(parsed.gitHosts as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'),
+            )
+          : undefined,
       hostEnv: Array.isArray(parsed.hostEnv)
         ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
         : undefined,
+      // The Settings page writes it (reported: it saved and nothing read it).
+      jiraWatch:
+        parsed.jiraWatch && typeof parsed.jiraWatch === 'object' && typeof parsed.jiraWatch.maxPerDay === 'number'
+          ? Number.isInteger(parsed.jiraWatch.maxPerDay) && parsed.jiraWatch.maxPerDay >= 0 && parsed.jiraWatch.maxPerDay <= 100
+            ? { maxPerDay: parsed.jiraWatch.maxPerDay }
+            : undefined
+          : undefined,
       jiraWorklog:
         parsed.jiraWorklog &&
         typeof parsed.jiraWorklog === 'object' &&
@@ -368,12 +445,27 @@ export function loadConfig(): WorkConfig | null {
                   }
                 : {}),
               wakeClaude: parsed.prWatch.wakeClaude !== false,
+              ...(cleanRequiredChecks(parsed.prWatch.requiredChecks)
+                ? { requiredChecks: cleanRequiredChecks(parsed.prWatch.requiredChecks)! }
+                : {}),
             }
           : undefined,
     };
   } catch {
     return null;
   }
+}
+
+/** `prWatch.requiredChecks` as written: repo → check names (strings only, none empty); null when there's none. */
+export function cleanRequiredChecks(raw: unknown): Record<string, string[]> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out: Record<string, string[]> = {};
+  for (const [repo, names] of Object.entries(raw as Record<string, unknown>)) {
+    if (!repo.trim() || !Array.isArray(names)) continue;
+    const list = names.filter((n): n is string => typeof n === 'string' && n.trim().length > 0).map((n) => n.trim());
+    if (list.length) out[repo] = list;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 export function saveConfig(config: WorkConfig): void {

@@ -119,8 +119,11 @@ export function sessionMatches(s: SessionSummary, query: string): boolean {
  */
 export function prsForSession(s: SessionSummary, prs: PrInfo[], membersOf?: (group: string) => string[] | undefined): PrInfo[] {
   // A repo's own checked-out branch counts for that repo only (a group's repo folder is named as its alias).
+  // Or one of the other branches it worked on (session-branches.ts): a new PR after an earlier one merged.
   const onBranch = (p: PrInfo) =>
-    p.branch === s.branch || (s.onOtherBranch ?? []).some((o) => o.repo === p.repoAlias && o.branch === p.branch);
+    p.branch === s.branch ||
+    (s.onOtherBranch ?? []).some((o) => o.repo === p.repoAlias && o.branch === p.branch) ||
+    (s.branches ?? []).some((b) => b.name === p.branch && (b.repo === p.repoAlias || !s.isGroup));
   if (s.repos?.length) {
     const own = s.repos;
     return prs.filter((p) => onBranch(p) && own.includes(p.repoAlias));

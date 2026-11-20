@@ -89,7 +89,7 @@ export function elsewhereStatus(
   return shown ? { state: shown.state, updatedAt: shown.updatedAt, endedAt: raw?.turnEndedAt ?? shown.since, since: shown.since } : null;
 }
 
-async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | null> {
+export async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | null> {
   // Which Claudes the host runs must be current: right after a work web
   // restart the pool's list is still empty, and the host's own Claude would
   // count as running "elsewhere".

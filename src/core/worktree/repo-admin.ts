@@ -111,9 +111,10 @@ export function repoInventory(
 }
 
 /** config.json as JSON, edited under its lock and written atomically; unknown keys kept. */
-type RawConfig = Record<string, unknown> & { repos?: Record<string, string>; groups?: Record<string, string[]> };
+export type RawConfig = Record<string, unknown> & { repos?: Record<string, string>; groups?: Record<string, string[]> };
 
-async function editConfig<T>(fn: (raw: RawConfig) => T): Promise<T> {
+/** Exported for the settings (core/settings/settings-admin.ts): the same lock and write, one writer of config.json. */
+export async function editConfig<T>(fn: (raw: RawConfig) => T): Promise<T> {
   const file = getConfigPath();
   if (!fs.existsSync(file)) throw new RepoAdminError('No configuration yet: run `work init` first.');
   return withFileLock(file, () => {
@@ -201,4 +202,16 @@ export async function deleteGroup(name: string, history: WorktreeSession[], opts
     delete raw.groups![name];
   });
   fs.rmSync(path.join(getConfigDir(), `${name}.claude.md`), { force: true });
+}
+
+/** A project's automatic reviews (#64): `all`, `asked` or `off`, for a repo alias or a group name in config. */
+export async function setReviewMode(project: string, mode: 'all' | 'asked' | 'off'): Promise<void> {
+  await editConfig((raw) => {
+    if (!raw.repos?.[project] && !raw.groups?.[project]) throw new RepoAdminError(`${project} isn't one of your repos or groups`);
+    const reviews = (raw.reviews && typeof raw.reviews === 'object' && !Array.isArray(raw.reviews) ? raw.reviews : {}) as {
+      projects?: Record<string, string>;
+    };
+    reviews.projects = { ...(reviews.projects ?? {}), [project]: mode };
+    raw.reviews = reviews;
+  });
 }

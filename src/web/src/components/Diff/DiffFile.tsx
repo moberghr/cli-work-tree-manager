@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { resolveHighlightLang } from '../../utils/highlight.js';
 import { STATUS_LETTER } from '../../utils/status.js';
@@ -6,6 +6,7 @@ import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
 import { GapRegion } from './GapRegion.js';
 import { NewFileView } from './NewFileView.js';
+import { revealInScroller } from '../../utils/scroll.js';
 import { hunkContentKey } from '../../utils/hunk-key.js';
 import { computeGaps } from '../../utils/expand.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
@@ -28,6 +29,12 @@ interface Props {
   viewed?: boolean;
   /** Toggle the viewed flag. Wired by the parent so it can persist. */
   onToggleViewed?: (next: boolean) => void;
+  /** A new file's leading import lines folded into one row (the Reviews tab). */
+  foldImports?: boolean;
+  /** Shown under the header, above the code, while the file is open (the Reviews tab: what changed here). */
+  note?: ReactNode;
+  /** Not drawn until "Load diff", with this said instead (the Reviews tab's Files view: a generated file, as GitHub does). */
+  deferred?: string;
 }
 
 /** Lines (added + deleted) past which we don't auto-render the diff
@@ -38,7 +45,7 @@ interface Props {
  *  the genuine pathology. */
 const AUTO_COLLAPSE_LINES = 500;
 
-export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }: Props) {
+export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, foldImports, note, deferred }: Props) {
   // Split (side-by-side) vs unified (inline) layout — a global, persisted
   // preference. Drives the table's column layout here; DiffHunk and GapRegion
   // read the same mode to emit matching rows.
@@ -73,7 +80,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
   // on scope switch which is the right reset point).
   const totalChanged = file.added + file.deleted;
   const isLarge = totalChanged >= AUTO_COLLAPSE_LINES;
-  const [expanded, setExpanded] = useState(!isLarge);
+  const [expanded, setExpanded] = useState(!isLarge && !deferred);
 
   // GitHub-style per-file fold. The chevron in the header collapses the
   // whole file body. A file starts folded when it carries no diff worth
@@ -96,7 +103,9 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
   // instead (the `.wd-file` scroll-margin-top lands it just below the sticky
   // toolbar) so the next file sits right beneath it. Only fires on an explicit
   // user toggle-on, not on initial mount or persisted-viewed load. Double rAF
-  // waits for the collapse layout to settle before measuring.
+  // waits for the collapse layout to settle before measuring. Only the diff's
+  // own scroller moves: `scrollIntoView` slid the whole dashboard up when the
+  // file was near the end (utils/scroll.ts).
   const articleRef = useRef<HTMLElement>(null);
   const handleToggleViewed = useCallback(
     (next: boolean) => {
@@ -104,7 +113,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
       if (next) {
         requestAnimationFrame(() =>
           requestAnimationFrame(() => {
-            articleRef.current?.scrollIntoView({ block: 'start' });
+            if (articleRef.current) revealInScroller(articleRef.current);
           }),
         );
       }
@@ -269,6 +278,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
           </label>
         )}
       </header>
+      {note && !collapsed && <div className="wd-file-note">{note}</div>}
       {fileCommentsOn && <FileCommentSection repo={repo!} file={file.path} />}
       {!collapsed &&
         (hasPreview && viewMode !== 'diff' ? (
@@ -280,15 +290,19 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
         ) : !expanded ? (
           <div className="wd-binary wd-large-file">
             <p>
-              Large file — {totalChanged.toLocaleString()} line
-              {totalChanged === 1 ? '' : 's'} changed. Not rendered by default.
+              {deferred ?? (
+                <>
+                  Large file — {totalChanged.toLocaleString()} line
+                  {totalChanged === 1 ? '' : 's'} changed. Not rendered by default.
+                </>
+              )}
             </p>
             <button type="button" className="wd-btn-secondary" onClick={() => setExpanded(true)}>
               Load diff
             </button>
           </div>
         ) : file.status === 'added' ? (
-          <NewFileView file={file} lang={lang} review={review} repo={repo} />
+          <NewFileView file={file} lang={lang} review={review} repo={repo} foldImports={foldImports} />
         ) : (
           <table className={'wd-diff-table ' + (diffMode === 'unified' ? 'wd-unified' : 'wd-side')}>
             <colgroup>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { hostName } from '../../../../core/hosts/commands.js';
 import { askClaudeToFixCi, fetchSessionCi, sendPromptToSession, type SessionCi, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
@@ -8,7 +9,7 @@ import { orderedSections, prName, prSections, type PrSection } from '../../state
 import { isArchived } from '../../state/session-display.js';
 import { askableThreads, askToReplyAllPrompt, ReplyList, useAskedThreads, useReplies, type AskedThreads } from './ReplyDrafts.js';
 import { fetchPrompts } from './PromptsMenu.js';
-import { relativeTime } from '../../utils/time.js';
+import { timeAgo } from '../../utils/time.js';
 import type { OpenReviewThread, PrReply } from '../../../../core/api-types.js';
 
 const POLL_MS = 60_000;
@@ -192,7 +193,8 @@ function PrSectionView({
   // Folded by what's in it (open or wanting you: unfolded) until you click — so
   // one whose draft loads after the first look still opens; then it's yours.
   const [chosen, setChosen] = useState<boolean | null>(null);
-  const unfolded = chosen ?? (open || wants > 0);
+  // An earlier PR a newer one of its repo followed (the session moved on to a new branch) starts folded too.
+  const unfolded = chosen ?? ((open && !s.earlier) || wants > 0);
   return (
     <section className={'wd-pr-section' + (wants ? ' wd-pr-section-wants' : '')} aria-label={`Pull request ${prName(s, isGroup)}`}>
       <div className="wd-pr-section-head">
@@ -200,18 +202,33 @@ function PrSectionView({
           {unfolded ? '▾' : '▸'}
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
+        {s.branch && s.branchShown && (
+          <span className="wd-pr-earlier" title="The branch this pull request is from.">
+            {s.branch}
+          </span>
+        )}
+        {s.elsewhere && (
+          <span className="wd-pr-earlier" title="In a repo this session doesn't have: its Claude opened it there.">
+            another repo
+          </span>
+        )}
+        {s.earlier && (
+          <span className="wd-pr-earlier" title="An earlier pull request of this session: it moved on to a newer branch and PR since.">
+            earlier{s.branch ? ` · ${s.branch}` : ''}
+          </span>
+        )}
         {s.title && <span className="wd-pr-title">{s.title}</span>}
         {s.author && !s.mine && (
-          <span className="wd-pr-author" title={`Opened on GitHub by @${s.author}`}>
+          <span className="wd-pr-author" title={`Opened on ${hostName(s.host)} by @${s.author}`}>
             by @{s.author}
           </span>
         )}
         <span className={`wd-prtab-stage wd-prtab-stage-${stageTone(s.kind)}`}>
           {stagePhrase(s.kind)}
-          {s.state === 'MERGED' && s.mergedAt ? ` ${relativeTime(s.mergedAt)} ago` : ''}
+          {s.state === 'MERGED' && s.mergedAt ? ` ${timeAgo(s.mergedAt)}` : ''}
         </span>
         {wants > 0 && <span className="wd-session-subtab-badge">{wants}</span>}
-        <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title="Open it on GitHub">
+        <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title={`Open it on ${hostName(s.host)}`}>
           ↗
         </a>
       </div>
@@ -231,13 +248,43 @@ function PrSectionView({
   );
 }
 
+/** Checks that failed but don't stop the merge (not required): named, quietly. */
+function OptionalFailing({ checks }: { checks: NonNullable<PrSection['optionalFailing']> }) {
+  return (
+    <span title="These checks failed, but they aren't required: the pull request can merge all the same.">
+      {' · '}
+      {checks.length === 1 ? '1 optional check failed: ' : `${checks.length} optional checks failed: `}
+      {checks.map((f, i) => (
+        <span key={f.name + i}>
+          {i > 0 && ', '}
+          {f.url ? (
+            <a href={f.url} target="_blank" rel="noopener noreferrer">
+              {f.name}
+            </a>
+          ) : (
+            f.name
+          )}
+        </span>
+      ))}{' '}
+      <a href="#/repos" title="Choose which checks count: Settings… on the repo's row">
+        (which checks count)
+      </a>
+    </span>
+  );
+}
+
 /** Its checks in a line: passing, running, or failing by name (linked), with Ask Claude to fix. */
 function Checks({ sessionId, s }: { sessionId: string; s: PrSection }) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState<string | null>(null);
   if (s.checks === 'none') return null;
   if (s.checks !== 'fail')
-    return <p className="wd-pr-checks wd-web-muted">{s.checks === 'pass' ? '✓ Checks passing' : '● Checks running'}</p>;
+    return (
+      <p className="wd-pr-checks wd-web-muted">
+        {s.checks === 'pass' ? '✓ Checks passing' : '● Checks running'}
+        {s.optionalFailing?.length ? <OptionalFailing checks={s.optionalFailing} /> : null}
+      </p>
+    );
   return (
     <p className="wd-pr-checks wd-pr-checks-fail" role="status">
       <span aria-hidden="true">✗</span> Checks failing
@@ -265,7 +312,7 @@ function Checks({ sessionId, s }: { sessionId: string; s: PrSection }) {
             onClick={() => {
               setState('sending');
               setError(null);
-              askClaudeToFixCi(sessionId).then(
+              askClaudeToFixCi(sessionId, s.url).then(
                 () => setState('sent'),
                 (e: Error) => {
                   setError(e.message);

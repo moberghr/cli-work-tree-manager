@@ -4,6 +4,7 @@ import { RowMenu } from '../RowMenu.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
 import {
   answerPermission,
+  markSessionReviewSeen,
   markSessionSeen,
   type AnswerRequest,
   type SessionSummary,
@@ -14,8 +15,9 @@ import { snoozeLabel } from '../../../../../core/rail/snooze.js';
 import { isArchived, lastActiveAt, agentCan, agentName, displayStatus, waitingOnOthers } from '../../../state/session-display.js';
 import { prNeedsLine } from '../../../state/pr-tab.js';
 import { StatusIcon } from '../StatusIcon.js';
+import { InboxFollowUp } from '../InboxFollowUp.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import { compareInbox, inboxRank } from '../../../../../core/status/attention.js';
+import { compareInbox, inboxRank, prWantsYou, reviewWantsYou } from '../../../../../core/status/attention.js';
 import { relativeTime } from '../../../utils/time.js';
 
 interface Props {
@@ -30,6 +32,8 @@ interface Props {
   onMarkSeen?: (id: string, prStage?: { kind: string; key: string } | null) => Promise<unknown>;
   /** Allow / Deny a permission prompt. Defaults to the API call. */
   onAnswer?: (id: string, req: AnswerRequest) => Promise<unknown>;
+  /** The follow-up panel's calls (its reply, and the send); tests swap them. */
+  followUp?: { load?: (id: string) => Promise<string | null>; send?: (id: string, body: string) => Promise<void> };
 }
 
 interface Section {
@@ -105,7 +109,16 @@ function NotificationOffer() {
  * one line at the end, pointing to the rail. Driven by Claude's own hooks
  * (see core/status/session-status.ts).
  */
-export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen, onAnswer = answerPermission, onReviewAll }: Props) {
+export function InboxTab({
+  sessions,
+  onOpenSession,
+  onMarkSeen = markSessionSeen,
+  onAnswer = answerPermission,
+  onReviewAll,
+  followUp,
+}: Props) {
+  /** The finished session whose follow-up panel is open (one at a time). */
+  const [following, setFollowing] = useState<string | null>(null);
   // Per session: the answer being sent, or why the server refused it.
   const [answering, setAnswering] = useState<Record<string, 'allow' | 'deny'>>({});
   const [answerError, setAnswerError] = useState<Record<string, string>>({});
@@ -144,7 +157,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
       if (s.attention || rank === 2) tracked++;
       if (rank === 6) snoozed.push(s);
       else if (rank === 7) waiting.push(s);
-      else if (rank === 3 && displayStatus(s) === 'background') rest.background++;
+      else if (rank >= 3 && displayStatus(s) === 'background') rest.background++;
       else if (rank === 3) rest.working++;
       else if (rank > 3 && waitingOnOthers(s)) rest.inReview++;
       else if (rank > 3) rest.quiet++;
@@ -212,7 +225,9 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                 const prRow = sec.rank === 2 && !s.openReviewThreads && !s.replyDrafts && !!s.prStage;
                 // Its icon is what its Claude is doing; the section says what waits on you.
                 const kind = sec.kind ?? displayStatus(s);
-                const opensOn = sec.open;
+                // Only its own review waits (nothing on its PRs): the row is the review's — it opens there, and Mark seen clears it.
+                const reviewRow = sec.rank === 2 && reviewWantsYou(s) && !s.openReviewThreads && !s.replyDrafts && !prWantsYou(s);
+                const opensOn = reviewRow ? ('review' as const) : sec.open;
                 const open = () => onOpenSession(s.id, opensOn, sec.rank === 1 ? { lastTurn: true } : undefined);
                 return (
                   <li key={s.id} className="wd-inbox-item">
@@ -220,7 +235,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                       type="button"
                       className="wd-inbox-row"
                       onClick={open}
-                      title={`Open ${s.target} · ${s.branch} (${opensOn === 'term' ? 'terminal' : opensOn === 'pr' ? 'PR tab' : 'diff'})`}
+                      title={`Open ${s.target} · ${s.branch} (${opensOn === 'term' ? 'terminal' : opensOn === 'pr' ? 'PR tab' : opensOn === 'review' ? 'Review tab' : 'diff'})`}
                     >
                       <StatusIcon kind={kind} />
                       <span className="wd-inbox-name">
@@ -247,7 +262,28 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                     <span className="wd-inbox-actions">
                       {/* On hover: what you do now and then. */}
                       <span className="wd-inbox-more">
-                        {(sec.rank === 1 || prRow) && (
+                        {sec.rank === 1 && (
+                          <button
+                            type="button"
+                            className="wd-link-button"
+                            aria-expanded={following === s.id}
+                            onClick={() => setFollowing((f) => (f === s.id ? null : s.id))}
+                            title="Read what it said and tell it what to do next, without leaving the Inbox"
+                          >
+                            Follow up
+                          </button>
+                        )}
+                        {reviewRow && (
+                          <button
+                            type="button"
+                            className="wd-link-button"
+                            onClick={() => void markSessionReviewSeen(s.id)}
+                            title="Clear it from the inbox without opening the review"
+                          >
+                            Mark seen
+                          </button>
+                        )}
+                        {!reviewRow && (sec.rank === 1 || prRow) && (
                           <button
                             type="button"
                             className="wd-link-button"
@@ -302,6 +338,18 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                         </button>
                       )}
                     </span>
+                    {sec.rank === 1 && following === s.id && (
+                      <InboxFollowUp
+                        session={s}
+                        onClose={() => setFollowing(null)}
+                        onSent={() => {
+                          setFollowing(null);
+                          markSeen(s.id);
+                        }}
+                        {...(followUp?.load ? { load: followUp.load } : {})}
+                        {...(followUp?.send ? { send: followUp.send } : {})}
+                      />
+                    )}
                   </li>
                 );
               })}

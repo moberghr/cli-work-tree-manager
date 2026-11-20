@@ -3,12 +3,14 @@ import { fetchContext, type AppContext } from './api/client.js';
 import { DashboardApp } from './apps/DashboardApp.js';
 import { ReviewApp } from './apps/ReviewApp.js';
 import { FileApp } from './apps/FileApp.js';
+import { SessionReviewApp } from './apps/SessionReviewApp.js';
+import { parseSessionReviewPage } from './state/session-review-page.js';
 import { DiffModeProvider } from './state/DiffModeProvider.js';
 import { ThemeProvider } from './state/ThemeProvider.js';
 import { AskHost } from './components/AskHost.js';
 
 /**
- * Top-level router. Three modes:
+ * Top-level router. Its modes:
  *
  *   /diff/<hash>     — read-only diff view of a scope registered by `wd`.
  *                       Same SPA, same ReviewApp, just routed through
@@ -16,6 +18,8 @@ import { AskHost } from './components/AskHost.js';
  *   /review/<hash>   — same but with the comment composer enabled
  *                       (mounts ReviewProvider against the scope's
  *                       comment endpoints).
+ *   /session-review/<id> — a session's own review (its Review tab) on a
+ *                       page of its own, for a browser window beside the app.
  *   /                — falls back to `/api/context`. Dashboard or
  *                       standalone review depending on which server
  *                       is responding.
@@ -48,12 +52,13 @@ function AppRoutes() {
   // /file[/<hash>] is the standalone whole-file view (its own self-loading
   // component, no context needed).
   const urlFile = parseFileFromPath(window.location.pathname);
+  const urlSessionReview = parseSessionReviewPage(window.location.pathname);
   const urlScope = urlFile ? null : parseScopeFromPath(window.location.pathname);
 
   useEffect(() => {
     // The file view loads its own content from the query string — skip the
     // context round-trip entirely.
-    if (urlFile) return;
+    if (urlFile || urlSessionReview) return;
     // Scope URLs short-circuit the context fetch — we synthesize a
     // ReviewContext below. Avoids an extra round-trip and means
     // /diff/<hash> still works if /api/context is misbehaving.
@@ -84,6 +89,9 @@ function AppRoutes() {
 
   if (urlFile) {
     return <FileApp hash={urlFile.hash} />;
+  }
+  if (urlSessionReview) {
+    return <SessionReviewApp sessionId={urlSessionReview} />;
   }
   if (error) {
     return <div className="wd-web-error">{error}</div>;

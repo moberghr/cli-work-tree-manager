@@ -9,14 +9,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
+import { NO_CWD_LOOKUP } from '../../../src/core/platform/shell-env.js';
 
 // The PTY pool pulls in node-pty; the route only needs its dispose hook.
-const { disposePty, ensurePty, peekPty } = vi.hoisted(() => ({
+const { disposePty, ensurePty, peekPty, spawnSpecFor, getWorkBin } = vi.hoisted(() => ({
   disposePty: vi.fn(),
   ensurePty: vi.fn(async () => 'ws://host/attach'),
   peekPty: vi.fn(() => false),
+  spawnSpecFor: vi.fn((s: { paths: string[] }) => ({ cwd: s.paths[0] })),
+  getWorkBin: vi.fn(() => 'work.js'),
 }));
-vi.mock('../../../src/core/pty/pty-pool.js', () => ({ disposePty, ensurePty, peekPty }));
+vi.mock('../../../src/core/pty/pty-pool.js', () => ({ disposePty, ensurePty, peekPty, spawnSpecFor, getWorkBin }));
 
 import { mountWorktreeRoutes } from '../../../src/server/routes/worktree-routes.js';
 import { git } from '../../../src/core/git/git.js';
@@ -299,6 +302,32 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe(wtPath);
   });
 
+  it.runIf(process.platform === 'win32')(
+    "the editor keeps cmd.exe's usual lookup: no NoDefaultCurrentDirectoryInExePath for its own terminals and tasks (N4)",
+    async () => {
+      const bin = path.join(tmpHome, 'bin-env-editor');
+      fs.mkdirSync(bin);
+      const record = path.join(bin, 'env.txt');
+      const script = path.join(bin, 'record.cjs');
+      fs.writeFileSync(
+        script,
+        `require('fs').writeFileSync(${JSON.stringify(record)}, String(process.env[${JSON.stringify(NO_CWD_LOOKUP)}] ?? 'unset'))`,
+      );
+      const editor = path.join(bin, 'code.cmd');
+      fs.writeFileSync(editor, `@"${process.execPath}" "${script}" %*\r\n`);
+      saveConfig({ ...loadConfig()!, editor });
+      const saved = Object.keys(process.env).filter((k) => k.toLowerCase() === NO_CWD_LOOKUP.toLowerCase());
+      const values = saved.map((k) => process.env[k]);
+      for (const k of saved) delete process.env[k];
+      try {
+        expect((await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' })).status).toBe(200);
+        await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe('unset');
+      } finally {
+        saved.forEach((k, i) => (process.env[k] = values[i]));
+      }
+    },
+  );
+
   /** A fake editor named `name` that records its arguments ('|'-joined); a .cmd shim on Windows, like code.cmd. */
   function fakeEditor(name: string): string {
     const bin = path.join(tmpHome, 'bin-' + name);
@@ -398,6 +427,21 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     const res = await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' });
     expect(res.status).toBe(500);
     expect(((await res.json()) as { error: string }).error).toMatch(/could not start/);
+  });
+
+  it("Open in terminal answers that Windows Terminal didn't start, never ok, when it isn't there", async () => {
+    const empty = fs.mkdtempSync(path.join(tmpHome, 'no-wt-'));
+    const oldPath = process.env.PATH;
+    process.env.PATH = empty; // no wt.exe anywhere: nothing starts
+    try {
+      const res = await app.request(`/api/sessions/${sessionId()}/open-terminal`, { method: 'POST' });
+      if (process.platform === 'win32') {
+        expect(res.status).toBe(500);
+        expect(((await res.json()) as { error: string }).error).toBe("Windows Terminal didn't start: wt.exe not found on PATH");
+      } else expect(res.status).toBe(501);
+    } finally {
+      process.env.PATH = oldPath;
+    }
   });
 
   it('404s for an unknown session', async () => {

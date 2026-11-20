@@ -128,31 +128,51 @@ export function resolveScope(cwd: string): DiffScope | null {
  * nothing committed yet".
  */
 export function findAnyParentBranch(cwd: string): string | null {
-  return findParent(cwd, false);
+  return runSync(findParent(false), cwd);
 }
 
 /** Walk candidate base branches and pick the one with the most recent merge-base. */
 export function detectParentBranch(cwd: string): string | null {
-  return findParent(cwd, true);
+  return runSync(findParent(true), cwd);
 }
 
 const PARENT_CANDIDATES = ['main', 'master', 'dev', 'develop'].flatMap((name) => [name, `origin/${name}`]);
 
-function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
-  const currentResult = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-  const currentBranch = currentResult.exitCode === 0 ? currentResult.stdout : '';
+/**
+ * The git a lookup asks, one command at a time: it yields a command's arguments and is handed back its answer
+ * (stdout trimmed). One implementation, run synchronously for the CLI and the diff routes (`runSync`) or off the
+ * event loop for the session's history (`runAsync`).
+ */
+type GitSteps<T> = Generator<string[], T, { exitCode: number; stdout: string }>;
 
-  const candidates = PARENT_CANDIDATES;
+function runSync<T>(steps: GitSteps<T>, cwd: string): T {
+  let next = steps.next();
+  while (!next.done) {
+    const r = git(next.value, cwd);
+    next = steps.next({ exitCode: r.exitCode, stdout: r.stdout });
+  }
+  return next.value;
+}
+
+async function runAsync<T>(steps: GitSteps<T>, run: (args: string[]) => Promise<{ exitCode: number; stdout: string }>): Promise<T> {
+  let next = steps.next();
+  while (!next.done) next = steps.next(await run(next.value));
+  return next.value;
+}
+
+function* findParent(requireAheadOfParent: boolean): GitSteps<string | null> {
+  const currentResult = yield ['rev-parse', '--abbrev-ref', 'HEAD'];
+  const currentBranch = currentResult.exitCode === 0 ? currentResult.stdout : '';
 
   let best: { ref: string; sha: string; time: number } | null = null;
   let fresh: boolean | undefined;
 
-  for (const ref of candidates) {
+  for (const ref of PARENT_CANDIDATES) {
     if (ref === currentBranch) continue;
-    const exists = git(['rev-parse', '--verify', '--quiet', ref], cwd);
+    const exists = yield ['rev-parse', '--verify', '--quiet', ref];
     if (exists.exitCode !== 0 || !exists.stdout) continue;
 
-    const mb = git(['merge-base', ref, 'HEAD'], cwd);
+    const mb = yield ['merge-base', ref, 'HEAD'];
     if (mb.exitCode !== 0 || !mb.stdout) continue;
 
     // Skip parents where the merge-base IS HEAD only when the caller
@@ -164,21 +184,21 @@ function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
     // skipping them picked an older mainline — a branch just made from dev
     // showed all of dev's commits since main.
     if (requireAheadOfParent) {
-      const headSha = git(['rev-parse', 'HEAD'], cwd).stdout;
-      if (mb.stdout === headSha && !(fresh ??= stillAtCreation(cwd, currentBranch, headSha))) continue;
+      const headSha = (yield ['rev-parse', 'HEAD']).stdout;
+      if (mb.stdout === headSha) {
+        fresh ??= yield* stillAtCreation(currentBranch, headSha);
+        if (!fresh) continue;
+      }
     }
 
-    const timeResult = git(['show', '-s', '--format=%ct', mb.stdout], cwd);
+    const timeResult = yield ['show', '-s', '--format=%ct', mb.stdout];
     if (timeResult.exitCode !== 0) continue;
     const time = Number(timeResult.stdout);
     if (!Number.isFinite(time)) continue;
 
     // A tie in time (commits made in the same second): the later of the two, the one the other is an ancestor of.
     const later =
-      !!best &&
-      time === best.time &&
-      mb.stdout !== best.sha &&
-      git(['merge-base', '--is-ancestor', best.sha, mb.stdout], cwd).exitCode === 0;
+      !!best && time === best.time && mb.stdout !== best.sha && (yield ['merge-base', '--is-ancestor', best.sha, mb.stdout]).exitCode === 0;
     if (!best || time > best.time || later) {
       best = { ref, sha: mb.stdout, time };
     }
@@ -194,9 +214,9 @@ function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
  * branch) or at a commit (Restore) carries commits that are its own, though
  * they weren't made here. No reflog (expired, a detached HEAD) says no.
  */
-function stillAtCreation(cwd: string, branch: string, headSha: string): boolean {
+function* stillAtCreation(branch: string, headSha: string): GitSteps<boolean> {
   if (!branch || branch === 'HEAD') return false;
-  const log = git(['reflog', 'show', '--format=%H %gs', `refs/heads/${branch}`, '--'], cwd);
+  const log = yield ['reflog', 'show', '--format=%H %gs', `refs/heads/${branch}`, '--'];
   if (log.exitCode !== 0 || !log.stdout) return false;
   const lines = log.stdout.split('\n').filter(Boolean);
   const m = /^(\S+) branch: Created from (\S+)$/.exec(lines[lines.length - 1] ?? '');
@@ -211,14 +231,14 @@ function stillAtCreation(cwd: string, branch: string, headSha: string): boolean 
  * is pulled only when a worktree is made from it, so it falls behind a branch
  * that merged origin's since). Null when neither exists (deleted since).
  */
-function recordedBase(cwd: string, name: string): { ref: string; mb: string } | null {
+function* recordedBase(name: string): GitSteps<{ ref: string; mb: string } | null> {
   const refs = name.startsWith('origin/') ? [name] : [name, `origin/${name}`];
   let best: { ref: string; mb: string } | null = null;
   for (const ref of refs) {
-    if (git(['rev-parse', '--verify', '--quiet', ref], cwd).exitCode !== 0) continue;
-    const mb = git(['merge-base', ref, 'HEAD'], cwd);
+    if ((yield ['rev-parse', '--verify', '--quiet', ref]).exitCode !== 0) continue;
+    const mb = yield ['merge-base', ref, 'HEAD'];
     if (mb.exitCode !== 0 || !mb.stdout) continue;
-    if (!best || (mb.stdout !== best.mb && git(['merge-base', '--is-ancestor', best.mb, mb.stdout], cwd).exitCode === 0)) {
+    if (!best || (mb.stdout !== best.mb && (yield ['merge-base', '--is-ancestor', best.mb, mb.stdout]).exitCode === 0)) {
       best = { ref, mb: mb.stdout };
     }
   }
@@ -285,6 +305,19 @@ export interface ResolvedRepoDiff {
  * branch has no commits past parent yet — diff just renders empty).
  */
 export function resolveRepoDiff(root: string, base: 'uncommitted' | 'branch', sessionBaseBranch?: string | null): ResolvedRepoDiff {
+  return runSync(repoDiffSteps(base, sessionBaseBranch), root);
+}
+
+/** resolveRepoDiff off the event loop (`run`: git in the repo, stdout trimmed): the session history's route. */
+export function resolveRepoDiffAsync(
+  base: 'uncommitted' | 'branch',
+  sessionBaseBranch: string | null | undefined,
+  run: (args: string[]) => Promise<{ exitCode: number; stdout: string }>,
+): Promise<ResolvedRepoDiff> {
+  return runAsync(repoDiffSteps(base, sessionBaseBranch), run);
+}
+
+function* repoDiffSteps(base: 'uncommitted' | 'branch', sessionBaseBranch?: string | null): GitSteps<ResolvedRepoDiff> {
   if (base === 'uncommitted') {
     return { resolvedBase: 'HEAD', diffArg: 'HEAD' };
   }
@@ -295,12 +328,12 @@ export function resolveRepoDiff(root: string, base: 'uncommitted' | 'branch', se
   // even when it's HEAD — yielding a useless 0-commit "since branch" diff.
   // Fall back to it only so the toggle still resolves to *something*.
   // A recorded base wins, at its freshest; one that's gone (merged and deleted) leaves it to detection.
-  const recorded = sessionBaseBranch ? recordedBase(root, sessionBaseBranch) : null;
+  const recorded = sessionBaseBranch ? yield* recordedBase(sessionBaseBranch) : null;
   if (recorded) return { resolvedBase: recorded.ref, diffArg: recorded.mb };
-  const parent = detectParentBranch(root) ?? findAnyParentBranch(root);
+  const parent = (yield* findParent(true)) ?? (yield* findParent(false));
   if (!parent) return { resolvedBase: 'HEAD', diffArg: 'HEAD' };
   let diffArg = 'HEAD';
-  const mb = git(['merge-base', parent, 'HEAD'], root);
+  const mb = yield ['merge-base', parent, 'HEAD'];
   if (mb.exitCode === 0 && mb.stdout) diffArg = mb.stdout;
   return { resolvedBase: parent, diffArg };
 }

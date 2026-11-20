@@ -6,8 +6,8 @@ import { agentsBySession } from '../../core/sessions/live-agents.js';
 import { liveAgents } from '../../core/agents/index.js';
 import { markAgentStopped, readStatus } from '../../core/status/session-status.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
-import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
 import { sendToSession, type SendDeps } from '../../core/sessions/session-control.js';
+import { legacyUnsafeCheck } from '../../core/sessions/legacy-unsafe-io.js';
 import type { AgentControlWire, LastReplyWire, ScreenWire, SendWire } from '../../core/api-types.js';
 import { agentOf } from '../../core/agents/index.js';
 import { lastReplyOf } from '../../core/conversations/last-reply.js';
@@ -16,7 +16,7 @@ import { lastReplyOf } from '../../core/conversations/last-reply.js';
  * Driving a session from outside its terminal (session-control.ts), for
  * `work send / start / stop / screen` and anything else that asks:
  *
- *   POST /api/sessions/:id/send         {text, force?} → SendWire
+ *   POST /api/sessions/:id/send         {text}         → SendWire
  *   POST /api/sessions/:id/agent/start  {force?}       → AgentControlWire (resumes its conversation)
  *   POST /api/sessions/:id/agent/stop                  → AgentControlWire
  *   GET  /api/sessions/:id/screen                      → ScreenWire (the terminal as text; nothing started)
@@ -54,8 +54,9 @@ function realDeps(app: Hono): ControlDeps {
     start: async (id) => !!(await ensurePty(id, { initialPrompt: NOTE_NUDGE }).catch(() => null)),
     resume: async (id) => !!(await ensurePty(id).catch(() => null)),
     state: (id) => readStatus(id)?.state ?? null,
-    unsafe: (id) => !!findSession(id)?.launchedUnsafe || dbPtySessions.read()[id]?.unsafe === true,
     archived: (id) => !!findSession(id)?.archivedAt,
+    // From before --unsafe was retired (legacy-unsafe.ts; remove next release).
+    stillUnsafe: legacyUnsafeCheck(ptyPids),
     // `work stop`: recorded like a sleep, so the Terminal tab starts it again when opened.
     stop: async (id) => {
       await disposePty(id);
@@ -84,7 +85,7 @@ export function mountSessionControlRoutes(
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
     const b = await body(c);
     if (typeof b.text !== 'string') return c.json({ error: 'text is required' }, 400);
-    const r = await sendToSession(id, b.text, deps, { force: b.force === true }).catch((err: Error) => ({
+    const r = await sendToSession(id, b.text, deps).catch((err: Error) => ({
       ok: false as const,
       status: 502 as const,
       error: err.message,

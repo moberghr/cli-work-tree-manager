@@ -1,54 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { atomicWriteFile } from '../../platform/fs-safe.js';
 import { editSettings, readSettingsFile, type SettingsFile } from '../../platform/settings-editor.js';
 import { report } from '../../platform/report.js';
 import { setUpAccounts } from './accounts.js';
-import { WORK_STATUSLINE, isOurs, isRecord, readSaved, savedPath, type StatusLine } from './statusline-run.js';
+import { isOurs, readSaved, savedPath } from './statusline-run.js';
 
-// Claude hands its rate limits only to the status line command. work puts itself in front of the user's own: it records
-// the reading, then runs theirs and passes its output on (statusline-run.ts, the hook's half). This half installs and
-// removes it; work web loads it lazily through the adapter (usage.ts), never the hook.
+// Claude hands its rate limits only to the status line command. work gives the Claudes it starts its own line
+// (session-settings.ts, `--settings`), which records the reading and runs the user's (statusline-hook.ts). Before, work web
+// wrapped the user's own line in `~/.claude/settings.json` (and each account's), so every Claude ran work's hook; this
+// half gives it back (work web's start, `work usage --restore`). Loaded lazily (usage.ts), never by the hook.
 
 // Each account has its own settings and its own saved original: every function takes the account's config folder
 // (`configDir`; none = the default account, ~/.claude) and works on its `settings.json` and `statusline[-<account>].json`.
 
 const settingsOf = (configDir?: string) => (configDir ? path.join(configDir, 'settings.json') : undefined);
-
-function save(original: StatusLine | null, configDir?: string): void {
-  fs.mkdirSync(path.dirname(savedPath(configDir)), { recursive: true });
-  atomicWriteFile(savedPath(configDir), JSON.stringify({ original }));
-}
-
-/**
- * The command work puts in Claude's settings: its hook, then — when the user had a line — theirs as the fallback
- * (`work hook statusline || (<theirs>)`). The hook always exits 0 and runs theirs itself (from statusline.json), so the
- * right side runs only when `work` is gone (uninstalled, not on PATH): the user's status line then still shows.
- */
-export function wrapperCommand(original: StatusLine | null): string {
-  const cmd = original && typeof original.command === 'string' ? original.command.trim() : '';
-  if (!cmd) return WORK_STATUSLINE;
-  // A `# comment` in it would swallow the closing parenthesis: the parenthesis goes on a line of its own then.
-  return /[#\n]/.test(cmd) ? `${WORK_STATUSLINE} || (${cmd}\n)` : `${WORK_STATUSLINE} || (${cmd})`;
-}
-
-/** Put work's status line in front of the user's. The original is saved inside the edit, so a change made meanwhile isn't lost. */
-export async function wrapStatusLine(configDir?: string): Promise<void> {
-  await editSettings((s: SettingsFile) => {
-    if (isOurs(s.statusLine)) {
-      // Ours already (perhaps under another path, or from before): the fallback follows the saved original. Nothing
-      // readable saved: left as it is — its fallback may be the only copy of the user's line.
-      const saved = readSaved(configDir);
-      if (saved.kind === 'ok') s.statusLine = { ...(s.statusLine as StatusLine), command: wrapperCommand(saved.original) };
-      return;
-    }
-    // Not ours: the user's line, perhaps set again with /statusline since — saved fresh, with a new fallback.
-    const original = isRecord(s.statusLine) ? s.statusLine : null;
-    save(original, configDir);
-    const { command: _c, type: _t, ...keep } = original ?? {};
-    s.statusLine = { ...keep, type: 'command', command: wrapperCommand(original) };
-  }, settingsOf(configDir));
-}
 
 /** The statusLine entry of Claude's settings as it is now; `unreadable` when the file doesn't parse. */
 export function readStatusLineSetting(configDir?: string): { kind: 'ok'; statusLine: unknown } | { kind: 'unreadable' } {
@@ -90,26 +55,9 @@ export async function unwrapStatusLine(configDir?: string): Promise<UnwrapOutcom
   return outcome;
 }
 
-/** Every account's config folder, the default's first; a configured one only once its folder exists (setUpAccounts). */
-const accountDirs = (): string[] => setUpAccounts().map((a) => a.dir);
-
-/** Give every account's status line back; the outcome of each, by account name. */
+/** Give every account's status line back (a configured account only once its folder exists); the outcome of each, by account name. */
 export async function unwrapAllStatusLines(): Promise<Array<{ account: string; outcome: UnwrapOutcome }>> {
   const out: Array<{ account: string; outcome: UnwrapOutcome }> = [];
   for (const a of setUpAccounts()) out.push({ account: a.name, outcome: await unwrapStatusLine(a.dir) });
   return out;
-}
-
-/**
- * The choice work web makes at start (a lean `wd` server never touches it): `enabled: false` (config
- * `usage.statusLine: false`) gives the user's status line back, anything else wraps it.
- */
-export async function applyStatusLineSetting(o: { enabled: boolean; lean: boolean }): Promise<'wrapped' | 'restored' | 'skipped'> {
-  if (o.lean) return 'skipped';
-  if (!o.enabled) {
-    for (const dir of accountDirs()) await unwrapStatusLine(dir);
-    return 'restored';
-  }
-  for (const dir of accountDirs()) await wrapStatusLine(dir);
-  return 'wrapped';
 }

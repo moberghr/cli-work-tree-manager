@@ -54,6 +54,12 @@ describe('parseLiveClaude', () => {
       waitingFor: 'dialog open',
       busy: false,
     });
+    // At its prompt with a background command it started still running: not mid-turn.
+    expect(parseLiveClaude({ pid: 1, sessionId: 'a', cwd: '/x', status: 'shell', statusUpdatedAt: 4 })).toMatchObject({
+      state: 'shell',
+      stateAt: 4,
+      busy: false,
+    });
     expect(parseLiveClaude({ pid: 1, sessionId: 'a', cwd: '/x', status: 'sleeping' })?.state).toBeNull(); // not a state we know
   });
   it('skips anything without the fields it needs (the format is not ours)', () => {
@@ -98,6 +104,12 @@ describe('summarizeClaudes', () => {
       state: 'busy',
       stateAt: 3,
     });
+    // One with a background command running says more than an idle one, less than one waiting on you.
+    expect(summarizeClaudes([claude(1, at('idle', 5)), claude(2, at('shell', 6))], new Set())).toMatchObject({
+      state: 'shell',
+      stateAt: 6,
+    });
+    expect(summarizeClaudes([claude(1, at('shell', 6)), claude(2, at('waiting', 7))], new Set())).toMatchObject({ state: 'waiting' });
     expect(summarizeClaudes([claude(1)], new Set())).not.toHaveProperty('state'); // an old Claude Code: none
   });
 });

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { LatencyMeter } from '../../state/keystroke-latency.js';
+import { cornerBadge, LatencyMeter, type LatencyReading } from '../../state/keystroke-latency.js';
+import { observeLongFrames, TerminalPerfLog } from '../../state/terminal-perf.js';
+import { openTerminalSocket } from '../../api/terminal-socket.js';
+import { sendTerminalPerf } from '../../api/client.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { startFailure, startRetryDelay } from '../../state/terminal-start.js';
 import { ask } from '../../state/ask.js';
@@ -43,6 +46,9 @@ interface Elsewhere {
 /** While its Claude runs elsewhere, the tab looks again this often. */
 export const ELSEWHERE_RECHECK_MS = 6000;
 
+/** How often the Terminal tab sends what it measured to the debug log (and once more when it closes). */
+const PERF_SEND_MS = 10_000;
+
 const ago = (ms: number | null) => {
   if (ms === null) return null;
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -81,10 +87,17 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   // with ?force=1 once.
   const force = useRef(false);
   // How long a keystroke takes to come back (median), once measured.
-  const [latency, setLatency] = useState<number | null>(null);
+  const [latency, setLatency] = useState<LatencyReading | null>(null);
+  // Straight to the PTY host, or through work web's relay (terminal-socket.ts): said in the corner's tooltip.
+  const [route, setRoute] = useState<'direct' | 'relay' | null>(null);
   // Which renderer draws it: shown in the corner when it's the slow one.
   // 'retrying': on DOM after a lost context, WebGL to be tried again; 'dom': for good.
   const [renderer, setRenderer] = useState<'webgl' | 'retrying' | 'dom'>('webgl');
+  // The same two for the debug log's reports, read from inside the connect effect.
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const rendererRef = useRef(renderer);
+  rendererRef.current = renderer;
   const [checking, setChecking] = useState(false);
   useEffect(() => {
     setElsewhere(null);
@@ -233,7 +246,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       return `${proto}//${window.location.host}/ws/sessions/${encodeURIComponent(sessionId)}/terminal${force.current ? '?force=1' : ''}`;
     })();
-    const ws = new WebSocket(wsUrl);
+    // Straight to the PTY host with a ticket when it can, else the relay at wsUrl (terminal-socket.ts).
+    const ws = openTerminalSocket(sessionId, { force: force.current, relayUrl: wsUrl });
     ws.binaryType = 'arraybuffer';
     setPhase('connecting');
     setFailed(null);
@@ -251,6 +265,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const finishReplay = () => {
       clearTimeout(slowStart);
       setPhase('ready');
+      setRoute(ws.route);
       setFailed(null);
       retries.current = 0;
       setElsewhere(null);
@@ -273,17 +288,46 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     let exited = false;
     const meter = new LatencyMeter();
     let shownAt = 0;
+    // What the corner shows: at most every half second, whatever moved it.
+    // Within the half second: shown once it's up, so the last reading (a redraw settling just after its echo) isn't lost.
+    let showLater: ReturnType<typeof setTimeout> | undefined;
+    const showLatency = () => {
+      const now = performance.now();
+      if (now - shownAt > 500) {
+        shownAt = now;
+        setLatency(meter.reading());
+      } else if (!showLater)
+        showLater = setTimeout(
+          () => {
+            showLater = undefined;
+            shownAt = performance.now();
+            setLatency(meter.reading());
+          },
+          500 - (now - shownAt),
+        );
+    };
+    // When a key's echo was on screen: the first frame xterm drew after it.
+    // Each key and each freeze of this window (while this terminal is the one shown) go to the debug log.
+    const perf = new TerminalPerfLog();
+    const renderSub = term.onRender(() => {
+      const sample = meter.rendered(performance.now());
+      if (!sample) return;
+      perf.key(sample);
+      showLatency();
+    });
+    const stopFrames = observeLongFrames((e) => {
+      if (activeRef.current) perf.stall(e, Math.round(performance.timeOrigin + e.startTime));
+    });
+    const sendPerf = () => {
+      const report = perf.take({ sessionId, route: routeRef.current, renderer: rendererRef.current });
+      if (report) sendTerminalPerf(report);
+    };
+    const perfTimer = setInterval(sendPerf, PERF_SEND_MS);
     ws.addEventListener('message', (e) => {
       if (e.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(e.data));
         // The echo of a key sent (keystroke-latency.ts); shown at most every half second.
-        if (meter.output(performance.now()) !== null) {
-          const now = performance.now();
-          if (now - shownAt > 500) {
-            shownAt = now;
-            setLatency(meter.median());
-          }
-        }
+        if (meter.output(performance.now()) !== null) showLatency();
         return;
       }
       if (typeof e.data !== 'string') return;
@@ -358,7 +402,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       if (exited) return;
       if (ready) {
         ws.send(JSON.stringify({ type: 'input', data }));
-        meter.keySent(performance.now());
+        perf.key(meter.keySent(performance.now()));
       } else pendingInput.push(data);
     }
 
@@ -413,6 +457,11 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       observer?.disconnect();
       window.removeEventListener('resize', onWindowResize);
       inputSub.dispose();
+      renderSub.dispose();
+      clearInterval(perfTimer);
+      stopFrames();
+      sendPerf();
+      clearTimeout(showLater);
       try {
         ws.close();
       } catch {
@@ -446,7 +495,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     setGeneration((g) => g + 1);
   };
   const hostHint = target ? `work tree ${target}${branch ? ` ${branch}` : ''}` : 'work tree <target> <branch>';
-  const badge = cornerBadge(latency, renderer);
+  const badge = cornerBadge(latency, renderer, route);
   return (
     <>
       {elsewhere && (
@@ -509,25 +558,6 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       </div>
     </>
   );
-}
-
-/** The terminal's corner: how long a keystroke takes, and whether it draws without the GPU. Null: nothing to say. */
-function cornerBadge(
-  latency: number | null,
-  renderer: 'webgl' | 'retrying' | 'dom',
-): { text: string; title: string; slow: boolean } | null {
-  const dom = renderer !== 'webgl';
-  if (latency === null && !dom) return null;
-  const text = [latency !== null && `⌁ ${Math.round(latency)} ms`, dom && 'DOM'].filter(Boolean).join(' · ');
-  const title = [
-    latency !== null && "A keystroke's way to the screen and back (browser → work web → PTY host → Claude): the median of the last 20.",
-    dom && 'Drawn without the GPU, which is slower while Claude works.',
-    renderer === 'retrying' && 'The GPU renderer was lost; it is tried again by itself.',
-    renderer === 'dom' && 'WebGL is unavailable here, or kept getting lost; reloading the page tries it again.',
-  ]
-    .filter(Boolean)
-    .join(' ');
-  return { text, title, slow: dom || (latency ?? 0) > 100 };
 }
 
 /** "Trying again in 8 s…", counting down. */

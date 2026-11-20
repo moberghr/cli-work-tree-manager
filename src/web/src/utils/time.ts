@@ -1,3 +1,9 @@
+/** "4m ago", or "just now" (never "just now ago"); empty for a bad date. */
+export function timeAgo(iso: string, nowMs: number = Date.now()): string {
+  const t = relativeTime(iso, nowMs);
+  return t === 'just now' || t === '' ? t : `${t} ago`;
+}
+
 /**
  * Compact relative-time formatter. Returns short strings like "12m", "3h",
  * "2d", "5w", "4mo", "2y". Tuned for narrow UI like sidebar rows where

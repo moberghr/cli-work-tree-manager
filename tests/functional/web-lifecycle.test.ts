@@ -80,8 +80,27 @@ const workHooks = () => {
   }
 };
 
+/** What an older work web left in the user's settings (its hooks, beside one of the user's own). */
+const seedOldHooks = () => {
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'settings.json'),
+    JSON.stringify({
+      hooks: {
+        Stop: [
+          { hooks: [{ type: 'command', command: 'my-own-hook' }] },
+          { _workHookOwner: 'web-turn', _workHookPid: 1, hooks: [{ type: 'command', command: 'work hook turn-end' }] },
+        ],
+        UserPromptSubmit: [{ _workHookOwner: 'web-turn', hooks: [{ type: 'command', command: 'work hook turn-start' }] }],
+        Notification: [{ _workHookOwner: 'web-status', hooks: [{ type: 'command', command: 'work hook status-notify' }] }],
+      },
+    }),
+  );
+};
+
 describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
   it('replaces a lean instance with the full server, and --stop runs its shutdown', async () => {
+    seedOldHooks();
     startWeb(['--lean']); // what `wd` autostarts
     const lean = (await until(context, (c) => !!c?.lean, 'the lean server'))!;
 
@@ -91,13 +110,16 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
     expect(ctx.pid).toBe(full.pid);
     // Its version, as `work --version` says it: the desktop app replaces a work web that isn't its own.
     expect(ctx.version).toBe(spawnSync(process.execPath, [BIN, '--version'], { env, encoding: 'utf-8' }).stdout.trim());
-    // The full set (one hook per turn edge + Notification), lean's checkpoint hooks replaced.
-    await until(workHooks, (n) => n === 3, "the full server's Claude hooks in settings.json");
-    expect(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf-8')).toContain('work hook turn-end');
+    // Nothing of work's in the user's settings: an older build's hooks taken out, the user's own kept. Its Claudes
+    // carry work's hooks themselves (`--settings`, agents/session-hooks.ts).
+    await until(workHooks, (n) => n === 0, "the old hooks out of the user's settings");
+    const settings = fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf-8');
+    expect(settings).not.toContain('work hook');
+    expect(settings).toContain('my-own-hook');
 
     const stop = spawnSync(process.execPath, [BIN, 'web', '--stop'], { env, encoding: 'utf-8', timeout: 30_000 });
     expect(stop.status).toBe(0);
-    // Its own shutdown ran (not just a kill): the hooks are gone again.
+    // Its own shutdown ran (not just a kill), and put nothing back.
     expect(workHooks()).toBe(0);
     expect(read('web.url')).toBeNull();
   }, 90_000);
@@ -132,14 +154,13 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
   it('--dev runs beside the real one: its own discovery files, no Claude hooks; --dev --stop stops only it', async () => {
     startWeb([]);
     const real = (await until(context, (c) => !!c && c.lean === false, 'the real server'))!;
-    await until(workHooks, (n) => n === 3, "the real server's Claude hooks");
     startWeb(['--dev']);
     const devUrl = (await until(() => read('web-dev.url'), Boolean, 'the dev server'))!;
     const devCtx = (await (await fetch(`${devUrl}api/context`)).json()) as { dev?: boolean; pid: number };
     expect(devCtx.dev).toBe(true);
     expect(devCtx.pid).not.toBe(real.pid);
     expect((await context())?.pid).toBe(real.pid); // web.url still names the real one
-    expect(workHooks()).toBe(3); // the dev server added none
+    expect(workHooks()).toBe(0); // the dev server added none
     const stop = spawnSync(process.execPath, [BIN, 'web', '--dev', '--stop'], { env, encoding: 'utf-8', timeout: 30_000 });
     expect(stop.status).toBe(0);
     await until(
@@ -148,7 +169,7 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
       "the dev server's files to go",
     );
     expect((await context())?.pid).toBe(real.pid);
-    expect(workHooks()).toBe(3);
+    expect(workHooks()).toBe(0);
   }, 90_000);
 
   it('--dev --stop never stops the real work web, even when stale dev files name it (a reused pid, a reused port)', async () => {

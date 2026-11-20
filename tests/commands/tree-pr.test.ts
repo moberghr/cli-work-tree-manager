@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 const tree = (over: Record<string, unknown>) =>
-  (treeCommand.handler as (argv: unknown) => unknown)({ _: [], host: false, pull: false, unsafe: false, fresh: false, ...over });
+  (treeCommand.handler as (argv: unknown) => unknown)({ _: [], host: false, pull: false, fresh: false, ...over });
 
 describe('work tree --pr', () => {
   it("opens a session on the PR's branch in its repo, its Claude told whose branch it is", async () => {

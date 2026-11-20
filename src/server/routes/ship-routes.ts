@@ -1,12 +1,14 @@
 import { whileRestoring } from '../../core/archive/archiving.js';
 import type { Hono } from 'hono';
 import { findSession } from '../../core/sessions/web-state.js';
-import { setSessionArchived, setSessionTitle } from '../../core/sessions/history.js';
+import { shipPreflightWithListed } from '../../core/pr/pr-watch-hosts.js';
+import { setSessionArchived, setSessionKeep, setSessionTitle } from '../../core/sessions/history.js';
 import { loadConfig } from '../../core/platform/config.js';
-import { archiveSession, restoreArchivedTranscripts } from '../../core/archive/session-archive.js';
+import { archivedForMerge, archiveSession, restoreArchivedTranscripts } from '../../core/archive/session-archive.js';
 import { defaultArchiveDeps } from '../../core/archive/session-archive-deps.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { isWorktreeFolder } from '../../core/worktree/leftover.js';
+import type { RemoveWorktree } from '../../core/worktree/remove-child.js';
 import type { Holders } from '../../core/platform/running-from.js';
 import { freeLeftovers, leftoversOf, lookAtLeftovers, openInLeftovers } from '../../core/archive/restore-leftovers.js';
 import {
@@ -26,6 +28,8 @@ export interface ShipRoutesOptions {
   run?: CommandRunner;
   /** Let go of a session's folders before its worktree is removed (watchers). */
   release?: (sessionId: string) => Promise<void>;
+  /** How an archived session's worktree is removed (work web: in a child process, remove-child.ts). */
+  removeWorktree?: RemoveWorktree;
   /** How a removed worktree is made again on Restore (work web: in a child process, setup-child.ts). */
   create?: CreateWorktree;
   /** What runs from or names a folder, and stopping it (running-from.ts; tests swap them). */
@@ -75,9 +79,11 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     if (!session) return { ok: false };
     let ok: boolean;
     let warnings: string[] = [];
+    // Archived for its merge and restored: you still want it, so it stays (the row says "keep"; its menu undoes it).
+    const keepOnRestore = !archived && archivedForMerge(id);
     if (archived) {
       // `merged`: Ship's merge archives it; otherwise it's your Archive (the button, its key, the bulk bar).
-      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), {
+      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release, removeWorktree: opts.removeWorktree }), {
         force,
         merged,
         by: merged ? 'shipped' : 'you',
@@ -122,6 +128,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       restoreArchivedTranscripts(session);
       ok = await setSessionArchived(session.target, session.branch, false);
     }
+    if (ok && keepOnRestore) await setSessionKeep(session.target, session.branch, true);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return warnings.length ? { ok, warnings } : { ok };
   };
@@ -135,6 +142,17 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     await setSessionTitle(session.target, session.branch, body.title);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ ok: true });
+  });
+
+  // Keep a session once its PR merges ({keep}; false = archive it then, as usual).
+  app.post('/api/sessions/:id/keep', async (c) => {
+    const session = findSession(c.req.param('id'));
+    if (!session) return c.json({ error: 'unknown session' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { keep?: unknown } | null;
+    if (typeof body?.keep !== 'boolean') return c.json({ error: 'keep: boolean' }, 400);
+    await setSessionKeep(session.target, session.branch, body.keep);
+    opts.broadcast('sessions-changed', { ts: Date.now() });
+    return c.json({ ok: true, keep: body.keep });
   });
 
   app.get('/api/sessions/:id/ship', async (c) => {
@@ -174,10 +192,13 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     if (!selection) {
       return c.json({ error: 'merge needs repos: [{ name, headSha }] — the PR heads you reviewed' }, 400);
     }
-    const outcome = await mergeSelected(session, selection, (body.method as MergeMethod) ?? 'squash', opts.run);
+    const outcome = await mergeSelected(session, selection, (body.method as MergeMethod) ?? 'squash', opts.run, (s, run) =>
+      shipPreflightWithListed(s, run),
+    );
     opts.onRepoChanged?.(id);
     let archived = false;
-    if (outcome.mergedAny && outcome.allDone) {
+    // One you asked to keep after its merge stays (asked again now: the merge took a while).
+    if (outcome.mergedAny && outcome.allDone && !findSession(id)?.keepAfterMerge) {
       // Merged: drafts and notes are kept with the archive, not waited for (a turn in progress is).
       archived = (await archive(id, true, false, true)).ok;
     } else {

@@ -1,3 +1,8 @@
+import { demoReview, demoReviewFiles } from './demo-reviews.js';
+import type { SessionReviewWire } from '../../core/api-types.js';
+import { stopRefusal } from '../../core/sessions/process-stop.js';
+import { switchAllSummary } from '../../core/sessions/account-switch-all.js';
+import type { SessionProcessesWire } from '../../core/api-types.js';
 import { Hono, type Context } from 'hono';
 import { snoozeActive, snoozeFor, snoozeUntil, type Snooze } from '../../core/rail/snooze.js';
 import { streamSSE } from 'hono/streaming';
@@ -8,6 +13,7 @@ import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../../core/comments/comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
 import { markedTurn, nextSeen } from '../../core/diff/diff-looks.js';
+import { clickedPrUrl } from '../../core/pr/pr-watch.js';
 import type {
   AgentsWire,
   RestartWire,
@@ -36,9 +42,9 @@ import type {
   UsageWire,
   AccountsWire,
   PtyHostRestartWire,
+  TerminalTicketWire,
 } from '../../core/api-types.js';
 import { demoUsage } from './demo-usage.js';
-import { DEMO_ACCOUNTS, isDemoAccount } from './demo-accounts.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
 import { demoCodeFile, demoCodeFiles, demoCodeSearch } from './demo-code.js';
@@ -53,9 +59,11 @@ import { createDemoTime } from './demo-time.js';
 import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
 import { monthRange } from '../../core/time/time-month.js';
 import { mountDemoReplies } from './demo-replies.js';
+import { mountDemoReviews, type DemoReviewSessions } from './demo-reviews.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
 import { DemoRepoError } from './demo-repos.js';
+import { createDemoSettings, mountDemoSettings } from './demo-settings.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -77,6 +85,31 @@ export interface DemoServerOptions {
   scenario?: DemoScenario;
 }
 
+/**
+ * Fix it myself's sessions in the demo: the live one on the PR's branch, or a new one — made with no first prompt (the
+ * instruction comes as its start's note; the demo has no session names, so the name is left out) — told by a note it
+ * answers.
+ */
+export function demoReviewSessions(scenario: DemoScenario, broadcast: (e: DemoEvent) => void): DemoReviewSessions {
+  return {
+    liveOn: (alias, branch) => {
+      const s = scenario.list().find((x) => x.target === alias && x.branch === branch && !x.archive);
+      return s ? { id: s.id, label: `${s.target} · ${s.branch}` } : null;
+    },
+    create: (alias, branch) => {
+      const s = scenario.create(alias, branch);
+      return { id: s.id, label: `${s.target} · ${s.branch}` };
+    },
+    note: (id, body) => {
+      const store = scenario.comments(id);
+      if (!store) throw new Error('unknown session');
+      const comment = store.post({ side: 'general', status: 'published', author: 'user', body });
+      scenario.replyLater(id, comment.id);
+      broadcast({ event: 'comments-changed', data: { sessionId: id, id: comment.id } } as DemoEvent);
+    },
+  };
+}
+
 export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServerHandle & { scenario: DemoScenario }> {
   const scenario = opts.scenario ?? new DemoScenario();
   const app = new Hono();
@@ -87,6 +120,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, demo: true, lean: false, build: buildStamp() }));
   // The demo is not the singleton and has nothing to clean up; refuse.
   app.post('/api/shutdown', (c) => c.json({ error: 'the demo is stopped with Ctrl+C' }, 501));
+  // PR reviews prepared in the background (demo-reviews.ts).
+  mountDemoReviews(
+    app,
+    (event, data) => broadcast({ event, data } as DemoEvent),
+    demoReviewSessions(scenario, (e) => broadcast(e)),
+  );
   // Reply drafts on review threads (demo-replies.ts).
   const draftsFor = mountDemoReplies(app, scenario, (sessionId) => {
     broadcast({ event: 'replies-changed', data: { sessionId } });
@@ -199,6 +238,122 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ events } satisfies TimelineWire);
   });
 
+  // A file a session shows beside its terminal: the demo shows none, and takes a show without drawing one (its files are made up).
+  app.get('/api/sessions/:id/show', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ shown: null }) : notFound(c),
+  );
+  app.post('/api/sessions/:id/show', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ error: 'The demo has no files to show.' }, 404) : notFound(c),
+  );
+  app.delete('/api/sessions/:id/show', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ shown: null }) : notFound(c),
+  );
+  app.get('/api/sessions/:id/show/image', (c) => c.json({ error: 'it shows no image' }, 404));
+  // A session's own changes as a review (made up: the demo's PR review, as local changes), prepared on a click.
+  const localReviews = new Set<string>();
+  const demoLocalReview = (w: { id: string; branch: string }): SessionReviewWire => {
+    if (!localReviews.has(w.id)) return { status: 'none', repo: null, repos: [] };
+    const r = demoReview(new Date(scenario.clockMs()));
+    return {
+      status: 'ready',
+      repo: r.repo,
+      repos: [r.repo],
+      at: new Date(scenario.clockMs()).toISOString(),
+      review: { ...r, number: 0, url: '', author: 'you', title: `Local changes on ${w.branch}`, branch: w.branch, discussion: undefined },
+    };
+  };
+  app.get('/api/sessions/:id/review', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    return w ? c.json(demoLocalReview(w)) : notFound(c);
+  });
+  app.post('/api/sessions/:id/review', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    if (w.archivedAt) return c.json({ error: 'It is archived: restore it first.' }, 409);
+    localReviews.add(w.id);
+    broadcast({ event: 'session-review-changed', data: { sessionId: w.id } } as DemoEvent);
+    return c.json(demoLocalReview(w));
+  });
+  // The demo's review is ready at once: nothing waits to be seen.
+  app.post('/api/sessions/:id/review/seen', (c) =>
+    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ ok: true }) : notFound(c),
+  );
+  // A note dismissed (or brought back): kept for the demo's run.
+  const demoDismissed = new Map<string, Set<string>>();
+  app.post('/api/sessions/:id/review/dismiss', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const body = await json(c);
+    const review = demoLocalReview(w).review;
+    if (typeof body.id !== 'string' || !review?.drafts.some((d) => d.id === body.id))
+      return c.json({ error: 'no such note in the review prepared for it' }, 404);
+    const set = demoDismissed.get(w.id) ?? new Set<string>();
+    if (body.undo === true) set.delete(body.id);
+    else set.add(body.id);
+    demoDismissed.set(w.id, set);
+    return c.json({ ...demoLocalReview(w), sent: [], dismissed: [...set] });
+  });
+  // The demo's changes never move.
+  app.get('/api/sessions/:id/review/current', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    return localReviews.has(w.id) ? c.json({ current: true }) : c.json({ error: 'no review of it is prepared' }, 404);
+  });
+  app.get('/api/sessions/:id/review/diff', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    return localReviews.has(w.id) ? c.json({ files: demoReviewFiles() }) : c.json({ error: 'no review of it is prepared' }, 404);
+  });
+  app.post('/api/sessions/:id/review/send', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const review = demoLocalReview(w).review;
+    if (!review) return c.json({ error: 'no review of it is prepared' }, 409);
+    const body = await json(c);
+    const ids = Array.isArray(body.ids) ? new Set(body.ids) : null;
+    const sent = review.drafts.filter((d) => d.state === 'draft' && (!ids || ids.has(d.id))).length;
+    return sent ? c.json({ ok: true, sent }) : c.json({ error: 'It has no notes to hand over.' }, 409);
+  });
+
+  // What a session holds in memory (made up): its agent, a test run, and a dev server left running two days.
+  const stoppedProcs = new Set<string>();
+  const demoProcesses = (id: string): SessionProcessesWire => {
+    const at = scenario.clockMs();
+    const base = 4000 + (parseInt(id.slice(0, 4), 16) % 3000);
+    const all: SessionProcessesWire['processes'] = [
+      { pid: base, what: 'claude --continue', memBytes: 760 * 1048576, startedAt: at - 3 * 3_600_000, agent: true },
+      {
+        pid: base + 1,
+        what: 'node …/node_modules/vite/bin/vite.js --mode mock',
+        memBytes: 1340 * 1048576,
+        startedAt: at - 50 * 3_600_000,
+        leftover: true,
+      },
+      { pid: base + 2, what: 'dotnet test', memBytes: 510 * 1048576, startedAt: at - 12 * 60_000 },
+    ];
+    const processes = all.filter((p) => !stoppedProcs.has(`${id}:${p.pid}`));
+    return {
+      at,
+      totalBytes: processes.reduce((n, p) => n + (p.memBytes ?? 0), 0),
+      leftovers: processes.filter((p) => p.leftover).length,
+      processes,
+    };
+  };
+  app.get('/api/sessions/:id/processes', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    return w ? c.json(demoProcesses(w.id)) : notFound(c);
+  });
+  app.post('/api/sessions/:id/processes/stop', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const body = await json(c);
+    if (typeof body.pid !== 'number') return c.json({ error: 'expected {pid, startedAt}' }, 400);
+    const why = stopRefusal(demoProcesses(w.id), body.pid, typeof body.startedAt === 'number' ? body.startedAt : null);
+    if (why) return c.json({ error: `Not stopped: ${why}.` }, 409);
+    stoppedProcs.add(`${w.id}:${body.pid}`);
+    return c.json(demoProcesses(w.id));
+  });
+
   // Your notes on a session, in memory.
   const notes = new Map<string, { text: string; updatedAt: string }>();
   app.get('/api/sessions/:id/note', (c) => {
@@ -247,6 +402,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // Snoozes, in memory, by the real rules (snooze.ts).
   const snoozes = new Map<string, Snooze>();
+  /** Sessions you asked to keep once their PR merges. */
+  const kept = new Set<string>();
   // Live sessions; ?archived=1 adds the archived ones (as work web).
   app.get('/api/sessions', (c) =>
     c.json({
@@ -260,7 +417,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
             (b) => b.kind === 'pr' || scenario.list().some((x) => x.id === b.sessionId && !x.archivedAt),
           );
           const withBlocks = waiting.length ? { ...out, blockedBy: waiting } : out;
-          const noted = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
+          const withNote = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
+          const noted = kept.has(w.id) && !w.archivedAt ? { ...withNote, keepAfterMerge: true as const } : withNote;
           return z && snoozeActive(z, noted) ? { ...noted, snoozed: { until: z.until } } : noted;
         }),
     }),
@@ -354,10 +512,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const d = scenario.ci(c.req.param('id'));
     return d ? c.json(d) : notFound(c);
   });
-  app.post('/api/sessions/:id/ci/fix', (c) => {
+  app.post('/api/sessions/:id/ci/fix', async (c) => {
     const id = c.req.param('id');
     if (!scenario.ci(id)) return notFound(c);
-    return scenario.fixCi(id) ? c.json({ ok: true }) : c.json({ error: 'no failing checks right now' }, 409);
+    const url = clickedPrUrl(await c.req.json().catch(() => null));
+    return scenario.fixCi(id, url) ? c.json({ ok: true }) : c.json({ error: 'no failing checks right now' }, 409);
   });
 
   app.get('/api/sessions/:id/dev', (c) => {
@@ -501,6 +660,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     }));
     demoFolders = demoFolders.filter((f) => !ids.includes(f.sessionId));
     return c.json({ results, state: folderState() });
+  });
+
+  // Keeping a session once its PR merges.
+  app.post('/api/sessions/:id/keep', async (c) => {
+    const id = c.req.param('id');
+    if (!scenario.list().some((w) => w.id === id)) return c.json({ error: 'unknown session' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { keep?: unknown } | null;
+    if (typeof body?.keep !== 'boolean') return c.json({ error: 'keep: boolean' }, 400);
+    if (body.keep) kept.add(id);
+    else kept.delete(id);
+    broadcast({ event: 'sessions-changed', data: { ts: Date.now() } } as DemoEvent);
+    return c.json({ ok: true, keep: body.keep });
   });
 
   // Naming a session: accepted, not kept (the demo names them after their prompt).
@@ -671,7 +842,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : undefined;
     // New worktree's More options may pick another Claude account: recorded, as the real one does (an unknown one refused).
     const account = typeof body.account === 'string' && body.account ? body.account : undefined;
-    if (account !== undefined && !isDemoAccount(account)) return c.json({ error: `Unknown Claude Code account: ${account}` }, 400);
+    if (account !== undefined && !scenario.accounts.has(account)) return c.json({ error: `Unknown Claude Code account: ${account}` }, 400);
     const s = scenario.create(body.target, branch, prompt, undefined, account);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
@@ -752,11 +923,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/pr-start', (c) => {
     const ref = parsePrRef(c.req.query('ref') ?? '');
     const target = c.req.query('target') || undefined;
-    if (!ref)
-      return c.json<PrStartWire>(
-        { error: 'Give a pull request link (https://github.com/owner/repo/pull/123), or its number with a repo.' },
-        400,
-      );
+    if (!ref) return c.json<PrStartWire>({ error: 'Give a pull request link (as your browser shows it), or its number with a repo.' }, 400);
     const pr = scenario
       .prs()
       .find((p) => p.number === ref.number && (ref.repo ? ref.repo.endsWith(`/${p.repoAlias}`) : !target || p.repoAlias === target));
@@ -788,6 +955,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/open-editor', (c) => noLocalApps(c));
   app.post('/api/sessions/:id/open-terminal', (c) => noLocalApps(c));
   app.get('/api/sessions/:id/terminal/health', (c) => c.json({ ok: true }));
+  // Its terminals are pretend ones over its own socket: the tab goes through that, as through work web's relay.
+  app.post('/api/terminals/:id/ticket', (c) => c.json({ fallback: true } satisfies TerminalTicketWire));
+  // Its pretend terminals measure nothing worth keeping: taken and dropped (nothing is written).
+  app.post('/api/terminal-perf', (c) => c.body(null, 204));
 
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));
@@ -825,6 +996,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return repoAnswer(c, () => repoModel.saveGroup(b.name as string, members, b.creating === true));
   });
   app.delete('/api/groups/:name', (c) => repoAnswer(c, () => repoModel.deleteGroup(c.req.param('name'), c.req.query('force') === '1')));
+  // Settings: work's and each repo's, a pretend config.json in memory, by the real rules (demo-settings.ts).
+  mountDemoSettings(
+    app,
+    (event, data) => broadcast({ event, data }),
+    createDemoSettings((alias) => repoModel.inventory().repos.find((r) => r.alias === alias && r.status !== 'new')?.path ?? null),
+  );
   // Updates: the demo is current, with two releases' notes to read.
   const demoNotes: ReleaseNote[] = [
     {
@@ -855,7 +1032,87 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
   app.get('/api/usage', (c) => c.json(demoUsage() satisfies UsageWire));
   // Claude accounts: two made-up logins; a switch just records it (demo-accounts.ts).
-  app.get('/api/accounts', (c) => c.json(DEMO_ACCOUNTS satisfies AccountsWire));
+  app.get('/api/accounts', (c) => c.json(scenario.accounts.wire(scenario.accountUsers()) satisfies AccountsWire));
+  // The Accounts page: add, choose the default, remove (sessions on it refuse it, as the real ones do), and a pretend login terminal.
+  app.post('/api/accounts', async (c) => {
+    const body = await json(c);
+    if (typeof body.name !== 'string' || !body.name) return c.json({ error: 'name is required' }, 400);
+    const r = scenario.accounts.add(body.name, typeof body.folder === 'string' ? body.folder : undefined);
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json(r.body);
+  });
+  app.post('/api/accounts/:name/default', (c) => {
+    const r = scenario.accounts.setDefault(c.req.param('name'));
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json({ ok: true });
+  });
+  app.delete('/api/accounts/:name', (c) => {
+    const r = scenario.accounts.remove(c.req.param('name'), c.req.query('force') === '1', scenario.accountUsers());
+    if (!r.ok) return c.json(r.body, r.status);
+    scenario.accountsChanged();
+    return c.json({ ok: true });
+  });
+  app.post('/api/accounts/:name/login', (c) => {
+    const r = scenario.accounts.startLogin(c.req.param('name'));
+    return r.ok ? c.json({ ok: true, id: r.id }) : c.json(r.body, r.status);
+  });
+  app.delete('/api/accounts/:name/login', (c) => {
+    scenario.accountsChanged();
+    return c.json({ ok: true, installingSkills: false });
+  });
+  // An account's setup copied to another: made up (the demo's accounts have no folders).
+  const demoSetup = (from: string, to: string, done: boolean) => ({
+    from,
+    to,
+    summary: done
+      ? `Copied 3 of 3 things from ${from} to ${to}. Restart a session's Claude for it to see them.`
+      : `3 things to copy from ${from} to ${to}.`,
+    items: [
+      { kind: 'file', name: 'CLAUDE.md', does: 'adds' as const, ...(done ? { ok: true } : {}) },
+      {
+        kind: 'mcp',
+        name: 'atlassian',
+        does: 'adds' as const,
+        note: `needs its own sign-in on ${to}: /mcp → atlassian → Authenticate`,
+        ...(done ? { ok: true } : {}),
+      },
+      {
+        kind: 'plugin',
+        name: 'typescript-lsp@claude-plugins-official',
+        does: 'adds' as const,
+        note: 'installed from its marketplace',
+        ...(done ? { ok: true } : {}),
+      },
+    ],
+  });
+  app.get('/api/accounts/:name/setup', (c) => {
+    const from = c.req.query('from') ?? '';
+    return from ? c.json(demoSetup(from, c.req.param('name'), false)) : c.json({ error: 'from is required' }, 400);
+  });
+  app.post('/api/accounts/:name/setup', async (c) => {
+    const from = (await json(c)).from;
+    return typeof from === 'string' && from
+      ? c.json(demoSetup(from, c.req.param('name'), true))
+      : c.json({ error: 'from is required' }, 400);
+  });
+  // Every session to one account: each recorded, as one switch is.
+  app.post('/api/accounts/:name/sessions', async (c) => {
+    const to = c.req.param('name');
+    const from = (await json(c)).from;
+    const rows = scenario
+      .list()
+      .filter((w) => !w.archivedAt && (w.account ?? 'default') !== to && (typeof from !== 'string' || (w.account ?? 'default') === from))
+      .map((w) => {
+        const r = scenario.switchAccount(w.id, to);
+        const label = `${w.target} · ${w.branch}`;
+        return r?.ok ? { id: w.id, label, outcome: r.body.outcome } : { id: w.id, label, error: r?.error ?? 'unknown session' };
+      });
+    if (rows.length > 0 && rows.every((r) => 'error' in r)) return c.json({ error: (rows[0] as { error: string }).error }, 409);
+    scenario.accountsChanged();
+    return c.json({ ok: true, summary: switchAllSummary(rows, to), sessions: rows });
+  });
   app.post('/api/sessions/:id/account', async (c) => {
     const to = (await json(c)).to;
     if (typeof to !== 'string' || !to) return c.json({ error: 'to is required' }, 400);

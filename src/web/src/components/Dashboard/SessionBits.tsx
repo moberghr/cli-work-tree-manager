@@ -13,7 +13,8 @@ import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../
  * the same thing the same way.
  */
 
-const toneClass = (kind: PrStageKind) => {
+/** A PR pill's class for its stage. */
+export const toneClass = (kind: PrStageKind) => {
   const t = stageTone(kind);
   return t === 'good'
     ? ' wd-pr-stage-good'
@@ -47,7 +48,7 @@ export function PrStageChip({ session, prs = [] }: { session: SessionSummary; pr
           href={p.url}
           target="_blank"
           rel="noreferrer"
-          title={`Open ${p.repo} #${p.number} on GitHub`}
+          title={`Open ${p.repo} #${p.number}`}
         >
           {many ? `${p.repo} #${p.number}` : `#${p.number}`} · {stagePhrase(p.kind)}
         </a>
@@ -90,7 +91,7 @@ export function RailPrPills({ session, prs }: { session: SessionSummary; prs: Pr
           className={'wd-pr-chip wd-pr-chip-open' + p.cls}
           role="link"
           tabIndex={-1}
-          title={`${p.title}\nClick to open it on GitHub`}
+          title={`${p.title}\nClick to open it`}
           onClick={(e) => {
             e.stopPropagation();
             window.open(p.url, '_blank', 'noopener');
@@ -131,7 +132,7 @@ export function PrChips({ prs, link = false }: { prs: PrInfo[]; link?: boolean }
           <span
             key={`${p.repoAlias}#${p.number}`}
             className={cls + ' wd-pr-chip-open'}
-            title={`${title}\nClick to open on GitHub`}
+            title={`${title}\nClick to open it`}
             role="link"
             onClick={(e) => {
               e.stopPropagation();
@@ -164,6 +165,7 @@ import { formatTokens } from '../../utils/tokens.js';
 /** Where a conversation's fill level starts to matter (shared with the PR watch's notes). */
 export { CONTEXT_WARN, CONTEXT_FULL } from '../../state/session-display.js';
 import { CONTEXT_FULL, CONTEXT_WARN } from '../../state/session-display.js';
+import { branchLabel, branchNote, branchTitle, branchUnpushed, headerBranches } from '../../state/branches.js';
 
 /**
  * "Context 62%" with a small bar: how full the session's Claude
@@ -308,7 +310,9 @@ export function OverlapChip({ session, onOpen }: { session: SessionSummary; onOp
 }
 
 /** "Needs your input · 4m — Claude needs your permission to use Bash". */
-export function StatusLine({ session }: { session: SessionSummary }) {
+/** Its status, how long, and (`summary`) its last summary line — the session header leaves that out: it's the
+ *  rail's tooltip and the Sessions table's, and on the page it was read by nobody (reported). */
+export function StatusLine({ session, summary = true }: { session: SessionSummary; summary?: boolean }) {
   const kind = displayStatus(session);
   const a = session.attention;
   const since = a ? relativeTime(a.since) : relativeTime(lastActiveAt(session));
@@ -323,7 +327,7 @@ export function StatusLine({ session }: { session: SessionSummary }) {
           (quiet)
         </span>
       )}
-      {a?.summary && <span className="wd-status-summary"> — {a.summary}</span>}
+      {summary && a?.summary && <span className="wd-status-summary"> — {a.summary}</span>}
     </span>
   );
 }
@@ -382,5 +386,52 @@ export function AccountChip({ session, onOpen }: { session: SessionSummary; onOp
       )}
       {pending && <span className="wd-account-pending"> {pendingText(pending)}</span>}
     </span>
+  );
+}
+
+/**
+ * "Branches: fix/a (checked out) 1 commit · not pushed · fix/b 1 commit · not pushed · feat/x PR #3592 merged":
+ * every branch the session worked on, when more than one (session-branches.ts) — Claude often moves on to a new
+ * branch in the same worktree once a PR merges, and the earlier work must not look gone. A click shows that
+ * branch's changes in the Diff tab.
+ */
+export function BranchesLine({ session, onShow }: { session: SessionSummary; onShow?: (repo: string, name: string) => void }) {
+  const list = headerBranches(session);
+  if (list.length < 2) return null;
+  return (
+    <div className="wd-branches-line" aria-label="Branches it worked on">
+      <span className="wd-branches-label">Branches:</span>
+      {list.map((b) => {
+        const note = branchNote(b, false);
+        return (
+          <span
+            key={`${b.repo}\u0000${b.name}`}
+            className={'wd-branch' + (b.current ? ' wd-branch-current' : '') + (branchUnpushed(b) ? ' wd-branch-unpushed' : '')}
+            title={branchTitle(b)}
+          >
+            {onShow && !b.current ? (
+              <button type="button" className="wd-overlap-link" onClick={() => onShow(b.repo, b.name)}>
+                {branchLabel(b, session.isGroup)}
+              </button>
+            ) : (
+              <span className="wd-branch-name">{branchLabel(b, session.isGroup)}</span>
+            )}
+            {b.current && <span className="wd-branch-tag"> (checked out)</span>}
+            {note && <span className="wd-branch-note"> {note}</span>}
+            {b.pr && (
+              <a
+                className={`wd-pr-chip wd-pr-stage${toneClass(b.pr.kind)}`}
+                href={b.pr.url}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open #${b.pr.number}: ${stagePhrase(b.pr.kind)}`}
+              >
+                #{b.pr.number} · {stagePhrase(b.pr.kind)}
+              </a>
+            )}
+          </span>
+        );
+      })}
+    </div>
   );
 }

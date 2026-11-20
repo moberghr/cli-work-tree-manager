@@ -93,7 +93,7 @@ describe('resolvePrToStart', () => {
     });
     expect(await resolvePrToStart('#1', config, 'gl', { run, gitConfig })).toMatchObject({
       ok: false,
-      error: expect.stringContaining('github.com'),
+      error: expect.stringContaining("isn't a GitHub repo work can read"),
     });
     expect(await resolvePrToStart('hello', config, 'api', { run, gitConfig })).toMatchObject({ ok: false });
     expect(run).not.toHaveBeenCalled();

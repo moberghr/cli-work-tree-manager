@@ -5,6 +5,7 @@ import { loadConfig } from '../../core/platform/config.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
 import type { BranchCheck, PromptsResponse } from '../../core/api-types.js';
 import { checkBranch } from '../../core/worktree/branch-check.js';
+import { projectList } from '../../core/worktree/own-checkout.js';
 import { fetchAllPullRequests, type PullRequestInfo } from '../../core/pr/pr.js';
 import { createSharedFetch } from '../shared-fetch.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
@@ -45,17 +46,8 @@ export function mountPanesRoutes(app: Hono, opts: PanesMountOptions): void {
     if (!config) {
       return c.json({ singles: [], groups: [] });
     }
-    const singles = Object.keys(config.repos).map((alias) => ({
-      name: alias,
-      kind: 'single' as const,
-      path: config.repos[alias],
-    }));
-    const groups = Object.entries(config.groups).map(([name, aliases]) => ({
-      name,
-      kind: 'group' as const,
-      members: aliases,
-    }));
-    return c.json({ singles, groups });
+    // Each repo with the branch its own folder is on now: what a session started with no branch name opens.
+    return c.json(projectList(config));
   });
 
   // Is a branch new for a project (the New worktree dialog, before it creates)? A read: git show-ref.

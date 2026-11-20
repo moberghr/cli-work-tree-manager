@@ -137,3 +137,54 @@ describe('last-route resume', () => {
     expect(parseHash(initialHash('', s))).toEqual({ tab: 'sessions', sessionId: 'x y', sessionSubTab: 'diff' });
   });
 });
+
+describe('a review on the Reviews tab', () => {
+  it('the overview, a story, a comment — the k in the URL is 1-based, kept 0-based', () => {
+    expect(parseHash('#/reviews/api/231')).toEqual({
+      tab: 'reviews',
+      review: { repo: 'api', number: 231, mode: 'overview', at: 0 },
+      sessionId: null,
+      sessionSubTab: 'term',
+    });
+    expect(parseHash('#/reviews/api/231/story/2').review).toEqual({ repo: 'api', number: 231, mode: 'story', at: 1 });
+    expect(parseHash('#/reviews/api/231/comments/10/').review).toEqual({ repo: 'api', number: 231, mode: 'comments', at: 9 });
+  });
+
+  it('the Files view, with a file to scroll to (its path encoded whole: slashes too)', () => {
+    expect(parseHash('#/reviews/api/231/files').review).toEqual({ repo: 'api', number: 231, mode: 'files', at: 0 });
+    const route = {
+      tab: 'reviews' as const,
+      review: { repo: 'api', number: 231, mode: 'files' as const, at: 0, file: 'src/Shop Api/Program.cs' },
+      sessionId: null,
+      sessionSubTab: 'term' as const,
+    };
+    expect(toHash(route)).toBe('#/reviews/api/231/files/src%2FShop%20Api%2FProgram.cs');
+    expect(parseHash(toHash(route))).toEqual(route);
+    expect(parseHash('#/reviews/api/231/files/%E0%A4%A')).toEqual(DEFAULT_ROUTE);
+  });
+
+  it('a repo with odd characters round-trips; a bad position is the first; garbage is no review', () => {
+    const route = {
+      tab: 'reviews' as const,
+      review: { repo: 'my repo/x', number: 7, mode: 'story' as const, at: 3 },
+      sessionId: null,
+      sessionSubTab: 'term' as const,
+    };
+    expect(toHash(route)).toBe('#/reviews/my%20repo%2Fx/7/story/4');
+    expect(parseHash(toHash(route))).toEqual(route);
+    expect(parseHash('#/reviews/api/231/story/0').review!.at).toBe(0);
+    expect(parseHash('#/reviews/api/0')).toEqual(DEFAULT_ROUTE);
+    expect(parseHash('#/reviews/%E0%A4%A/1')).toEqual(DEFAULT_ROUTE);
+    expect(parseHash('#/reviews')).toEqual({ tab: 'reviews', sessionId: null, sessionSubTab: 'term' });
+    expect(
+      toHash({ tab: 'reviews', review: { repo: 'api', number: 1, mode: 'overview', at: 5 }, sessionId: null, sessionSubTab: 'term' }),
+    ).toBe('#/reviews/api/1');
+  });
+
+  it('a reload resumes it (the saved route keeps the review)', () => {
+    const mem = new Map<string, string>();
+    const s = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
+    saveLastRoute(parseHash('#/reviews/api/231/comments/3'), s);
+    expect(parseHash(initialHash('', s)).review).toEqual({ repo: 'api', number: 231, mode: 'comments', at: 2 });
+  });
+});

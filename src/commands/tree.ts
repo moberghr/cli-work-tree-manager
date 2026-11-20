@@ -1,11 +1,14 @@
 import fs from 'node:fs';
-import { agentFor } from '../core/agents/index.js';
+import { agentFor, sessionToolFor } from '../core/agents/index.js';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/platform/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
 import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
-import { findSession, loadHistory, recordLaunch } from '../core/sessions/history.js';
+import { ownsBranch } from '../core/worktree/own-checkout.js';
+import { findSession, loadHistory } from '../core/sessions/history.js';
+import { clearLaunchedUnsafeWhenIdle } from '../core/sessions/legacy-unsafe-io.js';
+import { retiredUnsafeOption, warnRetiredUnsafe } from './shared/retired-unsafe.js';
 import { keepingWarnings } from '../core/platform/report.js';
 import { SETUP_WARNINGS } from '../core/worktree/setup-child.js';
 import { leftoversOf, openInLeftovers } from '../core/archive/restore-leftovers.js';
@@ -40,11 +43,7 @@ export const treeCommand: CommandModule = {
         type: 'boolean',
         default: false,
       })
-      .option('unsafe', {
-        describe: 'Launch the AI tool with its skip-permissions flag (default: --dangerously-skip-permissions)',
-        type: 'boolean',
-        default: false,
-      })
+      .option('unsafe', retiredUnsafeOption)
       .option('pull', {
         describe: 'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
         type: 'boolean',
@@ -108,7 +107,7 @@ export const treeCommand: CommandModule = {
     let branchName = argv.branch as string | undefined;
     const here = argv.here as boolean;
     const open = argv.open as boolean;
-    const unsafe = argv.unsafe as boolean;
+    warnRetiredUnsafe(argv);
     const pull = argv.pull as boolean;
     const fresh = argv.fresh as boolean;
     const setupOnly = argv['setup-only'] as boolean;
@@ -150,14 +149,12 @@ export const treeCommand: CommandModule = {
      * is gated on an existing transcript.
      */
     const launchTool = async (dir: string, port: number | undefined, sessionKey: { target: string; branch: string }): Promise<void> => {
-      recordLaunch(sessionKey.target, sessionKey.branch, { unsafe: !!unsafe });
       if (viaHost) {
         const session = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
         if (session) {
           // The host decides --continue itself (the agent's own canResume
           // gate); `fresh` and the prompt ride along on the first spawn.
           process.exitCode = await attachSession(session, {
-            unsafe,
             fresh,
             initialPrompt,
             forwardEnv: true,
@@ -175,8 +172,12 @@ export const treeCommand: CommandModule = {
       if (resume) {
         console.log(chalk.gray(`Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`));
       }
+      // Started normally now: a launchedUnsafe from before the retirement no longer describes it — unless that agent
+      // still runs in another terminal, which keeps the flag and its guards (legacy-unsafe.ts; remove next release).
+      clearLaunchedUnsafeWhenIdle(sessionKey.target, sessionKey.branch);
       console.log(`Starting ${tool.cmd}...`);
-      launchAi(dir, tool, { unsafe, initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
+      // With work's hooks for this process (--settings), never the user's settings' (agents/session-hooks.ts).
+      launchAi(dir, sessionToolFor(tool), { initialPrompt, resume }, port, ...envArgs(agent.launch.env?.(own ?? null)));
     };
 
     // --pr: the PR's repo and branch, and a first prompt saying whose branch it is.
@@ -242,6 +243,12 @@ export const treeCommand: CommandModule = {
       console.log(chalk.yellow('Add a new project with: work config add <alias> <path>'));
       process.exitCode = 1;
       return;
+    }
+
+    // The branch the repo's own folder is on can't be checked out a second time: asking for it means that folder.
+    if (branchName && isEmptyBaseSpec(baseSpec) && !target.isGroup && ownsBranch(targetName, branchName, config)) {
+      console.log(chalk.gray(`${branchName} is the branch ${targetName}'s own folder is on: opening it there.`));
+      branchName = undefined;
     }
 
     // No branch specified — work directly on the base repo

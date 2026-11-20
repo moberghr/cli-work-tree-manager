@@ -7,9 +7,10 @@ import {
   markPostedAnswered,
   MAX_REPLY_CHARS,
   postReply,
+  replyFolder,
   draftReply,
   sessionRepoRefs,
-  THREAD_ID,
+  isThreadId,
 } from '../../core/pr/pr-replies.js';
 import { defaultRunner, type CommandRunner } from '../../core/pr/ship.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
@@ -76,7 +77,6 @@ export function mountPrReplyRoutes(
     if (typeof b.body !== 'string') return c.json({ error: 'body: string' }, 400);
     // What work knows, else the thread as GitHub has it now (draftReply): never stuck on a stale check.
     const r = await draftReply(id, c.req.param('thread'), b.body, {
-      unsafe: session.launchedUnsafe === true,
       repos: () => sessionRepoRefs(session),
       run,
     });
@@ -88,7 +88,7 @@ export function mountPrReplyRoutes(
   app.delete('/api/sessions/:id/replies/:thread', (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    if (!THREAD_ID.test(c.req.param('thread'))) return c.json({ error: 'not a review thread id' }, 400);
+    if (!isThreadId(c.req.param('thread'))) return c.json({ error: 'not a review thread id' }, 400);
     const gone = discardReply(id, c.req.param('thread'));
     changed(id);
     return c.json({ ok: gone });
@@ -102,7 +102,7 @@ export function mountPrReplyRoutes(
     if (typeof b.body !== 'string' || !b.body.trim() || b.body.length > MAX_REPLY_CHARS)
       return c.json({ error: 'body: the reply text' }, 400);
     const thread = c.req.param('thread');
-    const cwd = session.paths.find((p) => p) ?? process.cwd();
+    const cwd = replyFolder(session, listReplies(id).find((r) => r.threadId === thread)?.repo);
     const r = await postReply(id, thread, b.body, { resolve: b.resolve === true, cwd, run });
     if (!r.ok) return c.json({ error: r.error }, 502);
     const act = opts.activity?.start('pr-watch', 'Posting a review reply');

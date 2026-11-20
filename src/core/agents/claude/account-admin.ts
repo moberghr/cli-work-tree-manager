@@ -1,15 +1,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getAiTool } from '../../platform/ai-launcher.js';
+import { getAiTool, type AiToolSpec } from '../../platform/ai-launcher.js';
 import { DEFAULT_ACCOUNT, getConfigPath, loadConfig } from '../../platform/config.js';
-import { applyEnvDelta } from '../../platform/env-delta.js';
+import { applyEnvDelta, type EnvDelta } from '../../platform/env-delta.js';
 import { atomicWriteFile, withFileLock } from '../../platform/fs-safe.js';
 import spawn from '../../platform/spawn.js';
 import { AccountAdminError, type AccountUsers, type AgentAccountAdmin } from '../types.js';
 import { accountDir, accountEnv, accountForbiddenRoots, accountProblem, expandAccountDir, validateClaudeAccounts } from './accounts.js';
 import { withoutParentSession } from './env.js';
 import { installClaudeSkillsFor } from './skills.js';
+import { applySetupCopy, planSetupCopy, type SetupAccount } from './setup-copy.js';
 
 /**
  * Changes to the Claude accounts in config.json, as raw JSON under the config's lock (repo-admin.ts does the same), so a
@@ -88,15 +89,25 @@ export async function removeAccount(name: string, usedBy: () => AccountUsers): P
 }
 
 /**
- * Claude Code in this terminal on the account, so you `/login` once: the configured command when it is Claude (`claude
- * --model …`, config `aiCommand`), with the account's folder in its environment. The login is the user's, in this
- * terminal (stdio inherited): nothing to hide. Blocks until it exits.
+ * Claude Code on the account, so you `/login` once: the configured command when it is Claude (`claude --model …`, config
+ * `aiCommand`), else plain `claude`, with the account's folder in its environment (`accountEnv`: set for a configured
+ * account, taken out for the default one while accounts exist). What `loginOn` runs here and the dashboard's login
+ * terminal runs in the PTY host.
  */
-export function loginOn(name: string, run: typeof spawn.sync = spawn.sync): void {
+export function loginLaunch(name: string): { tool: AiToolSpec; agentEnv: EnvDelta } {
   if (!accountDir(name)) throw new AccountAdminError(`no account “${name}”`);
   const config = loadConfig();
   const tool = getAiTool(config && getAiTool(config).cmd === 'claude' ? config : {});
-  const env = applyEnvDelta(withoutParentSession(process.env), accountEnv(name)) as NodeJS.ProcessEnv;
+  return { tool, agentEnv: accountEnv(name) };
+}
+
+/**
+ * Claude Code in this terminal on the account (`loginLaunch`). The login is the user's, in this terminal (stdio
+ * inherited): nothing to hide. Blocks until it exits.
+ */
+export function loginOn(name: string, run: typeof spawn.sync = spawn.sync): void {
+  const { tool, agentEnv } = loginLaunch(name);
+  const env = applyEnvDelta(withoutParentSession(process.env), agentEnv) as NodeJS.ProcessEnv;
   run(tool.cmd, tool.baseArgs, { stdio: 'inherit', windowsHide: false, env });
 }
 
@@ -106,9 +117,23 @@ export const claudeAccountAdmin: AgentAccountAdmin = {
   setDefault: setDefaultAccount,
   remove: removeAccount,
   login: (name) => loginOn(name),
+  loginLaunch,
   installSkills: (name) => {
     const dir = accountDir(name);
     if (!dir) return { ok: false, message: `no account “${name}”` };
     return installClaudeSkillsFor(dir);
   },
+  setupPlan: (from, to) => planSetupCopy(...setupPair(from, to)),
+  copySetup: (from, to) => applySetupCopy(...setupPair(from, to)),
 };
+
+/** The two accounts of a setup copy, with their folders; refused when either is unknown or they are one account. */
+export function setupPair(from: string, to: string): [SetupAccount, SetupAccount] {
+  const [a, b] = [from, to].map((name) => {
+    const dir = accountDir(name);
+    if (!dir) throw new AccountAdminError(`no account “${name}”`);
+    return { name, dir };
+  });
+  if (a.name === b.name) throw new AccountAdminError('an account’s setup can’t be copied to itself');
+  return [a, b];
+}

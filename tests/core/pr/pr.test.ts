@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  fetchAllPullRequests,
-  githubRepoOf,
-  parsePrJson,
-  parsePrSearch,
-  type PrListDeps,
-  type PullRequestInfo,
-} from '../../../src/core/pr/pr.js';
+import type { PullRequestInfo } from '../../../src/core/pr/pr.js';
+import { githubPrList, githubRepoOf, parsePrJson, parsePrSearch, type PrListDeps } from '../../../src/core/hosts/github/pr-list.js';
 
 const gh = (over: Record<string, unknown>) =>
   JSON.stringify([
@@ -178,30 +172,25 @@ describe('fetchAllPullRequests', () => {
 
   it('one search for the GitHub repos; only a repo elsewhere is listed the old way', async () => {
     const { d, listed, searches } = deps();
-    const { map, incomplete } = await fetchAllPullRequests(repos, d);
+    const { prs, incomplete } = await githubPrList(repos, d);
     expect(searches()).toBe(1);
     expect(listed).toEqual(['ghe']);
-    expect(
-      [...map.values()]
-        .flat()
-        .map((p) => `${p.repoAlias}#${p.number}`)
-        .sort(),
-    ).toEqual(['ghe#9', 'web#1']);
+    expect(prs.map((p) => `${p.repoAlias}#${p.number}`).sort()).toEqual(['ghe#9', 'web#1']);
     expect(incomplete).toEqual([]);
   });
 
   it('a search that fails (old gh, offline): every repo the old way', async () => {
     const { d, listed } = deps({ search: async () => null });
-    await fetchAllPullRequests(repos, d);
+    await githubPrList(repos, d);
     expect(listed.sort()).toEqual(['api', 'ghe', 'web']);
     const garbled = deps({ search: async () => 'not json' });
-    await fetchAllPullRequests(repos, garbled.d);
+    await githubPrList(repos, garbled.d);
     expect(garbled.listed.sort()).toEqual(['api', 'ghe', 'web']);
   });
 
   it('no GitHub repo: no search at all', async () => {
     const { d, searches } = deps();
-    await fetchAllPullRequests({ ghe: '/r/ghe' }, d);
+    await githubPrList({ ghe: '/r/ghe' }, d);
     expect(searches()).toBe(0);
   });
 });

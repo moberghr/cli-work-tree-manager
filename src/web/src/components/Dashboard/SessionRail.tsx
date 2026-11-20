@@ -64,9 +64,12 @@ interface Props {
   onShownChange?: (ids: string[]) => void;
 }
 
+/** What the "keep" mark on a row means (the rail and the Sessions table). */
+export const KEEP_TITLE = 'Kept after its PR merges: it isn’t archived then. Right-click → Archive after its PR merges to undo.';
+
 /** "in background: /mtk:code-review-and-quality Re-review…" — what's running while its prompt is free. Pure. */
-export function backgroundLine(b: { what: string | null }): string {
-  return b.what ? `in background: ${b.what}` : 'a background agent is at work';
+export function backgroundLine(b: { what: string | null; command?: boolean }): string {
+  return b.what ? `in background: ${b.what}` : b.command ? 'a background command is running' : 'a background agent is at work';
 }
 
 /**
@@ -84,6 +87,7 @@ export function railDetails(s: SessionSummary, now = new Date()): string {
     s.prStage?.text ?? '',
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
     s.hasNote ? 'has notes' : '',
+    s.keepAfterMerge ? 'kept after its PR merges' : '',
     accountLabel(s.account),
     pendingLabel(s.accountPending),
     c?.duplicate ? 'two Claudes on one conversation' : c?.inTerminal ? 'running in a terminal' : '',
@@ -383,6 +387,12 @@ export function SessionRail({
                 {s.target}
                 {named ? ` · ${s.branch}` : ''}
               </span>
+              {/* Kept once its PR merges (its menu's Keep after its PR merges): said on the row, beside the PRs it is about. */}
+              {s.keepAfterMerge && (
+                <span className="wd-rail-keep" title={KEEP_TITLE}>
+                  keep
+                </span>
+              )}
               <RailPrPills session={s} prs={prs} />
             </span>
           </span>

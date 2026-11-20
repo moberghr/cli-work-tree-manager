@@ -20,7 +20,21 @@ import { readTranscriptTail } from './transcript.js';
  * mustn't keep it awake forever. Pure; returns the calls' ids.
  */
 export function openBackgroundCommands(lines: readonly unknown[], sinceMs = 0): string[] {
+  return openBackgroundCommandInfo(lines, sinceMs).map((c) => c.id);
+}
+
+/** What a background call is, in a line: the agent's own description of it, else the command's first line. */
+function whatOf(input: Record<string, unknown>): string | null {
+  const pick = [input.description, input.command].find((v): v is string => typeof v === 'string' && !!v.trim());
+  if (!pick) return null;
+  const line = pick.trim().split(/\r?\n/)[0].replace(/\s+/g, ' ');
+  return line.length > 100 ? `${line.slice(0, 99)}…` : line;
+}
+
+/** The same, with what each one is (`what`: its description, else its command; null when it gives neither), in the order started. */
+export function openBackgroundCommandInfo(lines: readonly unknown[], sinceMs = 0): { id: string; what: string | null }[] {
   const started = new Map<string, string | null>(); // tool-use id → task id
+  const whats = new Map<string, string | null>();
   const ended = new Set<string>(); // tool-use ids
   const endedTasks = new Set<string>();
   for (const line of lines) {
@@ -55,7 +69,10 @@ export function openBackgroundCommands(lines: readonly unknown[], sinceMs = 0): 
       if (block.type === 'tool_use' && typeof block.id === 'string') {
         const bg = input.run_in_background;
         // Seen again (a resumed conversation repeats it): what's known of it stays.
-        if ((bg === true || bg === 'true') && !(at < sinceMs) && !started.has(block.id)) started.set(block.id, null);
+        if ((bg === true || bg === 'true') && !(at < sinceMs) && !started.has(block.id)) {
+          started.set(block.id, null);
+          whats.set(block.id, whatOf(input));
+        }
         if (block.name === 'TaskStop' || block.name === 'KillShell' || block.name === 'KillBash') {
           for (const k of ['task_id', 'shell_id', 'bash_id']) if (typeof input[k] === 'string') endedTasks.add(input[k] as string);
         }
@@ -68,7 +85,9 @@ export function openBackgroundCommands(lines: readonly unknown[], sinceMs = 0): 
       }
     }
   }
-  return [...started].filter(([use, task]) => !ended.has(use) && !(task && endedTasks.has(task))).map(([use]) => use);
+  return [...started]
+    .filter(([use, task]) => !ended.has(use) && !(task && endedTasks.has(task)))
+    .map(([use]) => ({ id: use, what: whats.get(use) ?? null }));
 }
 
 /** How much of the newest transcript is read: a long session's start may be beyond it (the process check covers that). */
@@ -76,7 +95,27 @@ const TAIL_BYTES = 4 * 1024 * 1024;
 
 /** Background commands the session's newest conversation started since `sinceMs` and that are still running. */
 export function backgroundCommandsRunning(session: WorktreeSession, sinceMs: number): number {
+  return openIn(session, sinceMs).length;
+}
+
+/** What those are, newest first (one that says nothing of itself left out): "Run the backend tests". */
+export function backgroundCommandNames(session: WorktreeSession, sinceMs: number): string[] {
+  return openIn(session, sinceMs)
+    .map((c) => c.what)
+    .filter((w): w is string => !!w)
+    .reverse();
+}
+
+/** The last answer per conversation file: the session list asks while a command runs, and the tail is megabytes. */
+const kept = new Map<string, { size: number; mtimeMs: number; sinceMs: number; open: { id: string; what: string | null }[] }>();
+
+function openIn(session: WorktreeSession, sinceMs: number): { id: string; what: string | null }[] {
   const newest = listTranscripts(session).sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
-  if (!newest || newest.mtimeMs < sinceMs) return 0;
-  return openBackgroundCommands(readTranscriptTail(newest.file, TAIL_BYTES), sinceMs).length;
+  if (!newest || newest.mtimeMs < sinceMs) return [];
+  const had = kept.get(newest.file);
+  if (had && had.size === newest.size && had.mtimeMs === newest.mtimeMs && had.sinceMs === sinceMs) return had.open;
+  const open = openBackgroundCommandInfo(readTranscriptTail(newest.file, TAIL_BYTES), sinceMs);
+  if (kept.size > 200) kept.clear();
+  kept.set(newest.file, { size: newest.size, mtimeMs: newest.mtimeMs, sinceMs, open });
+  return open;
 }

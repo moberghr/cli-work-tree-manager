@@ -1,8 +1,8 @@
 import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
-import type { LastReplyWire, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
+import type { LastReplyWire, SessionBranchSpan, SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
 import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
 export type { DiffPoint } from '../../../core/diff/diff-points.js';
-export type { SessionCommit } from '../../../core/api-types.js';
+export type { SessionBranchSpan, SessionBranchWire, SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import { archiveQuestion } from '../state/archive-view.js';
@@ -160,10 +160,14 @@ export interface SessionSummary {
   stackedChildren?: number;
   /** You have notes on it. */
   hasNote?: boolean;
+  /** You asked to keep it once its PR merges (it isn't archived then). */
+  keepAfterMerge?: true;
   /** What it waits on that isn't done yet: out of the Inbox meanwhile. */
   blockedBy?: import('../../../core/api-types.js').BlockerWire[];
   /** It was stacked on a session that merged and is archived: it should move onto main. */
   stackParentMerged?: { id: string; branch: string };
+  /** Every branch it worked on, when more than one (session-branches.ts): the header's Branches line. */
+  branches?: import('../../../core/api-types.js').SessionBranchWire[];
   /** Repos checked out on another branch than `branch` (null = detached). */
   onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
   titleIsYours?: boolean;
@@ -175,6 +179,8 @@ export interface SessionSummary {
   replyDrafts?: number;
   /** Where its pull request stands (pr-stage.ts); `seen` once you looked at it there. */
   prStage?: import('../../../core/api-types.js').PrStageWire;
+  /** Its own review (its Review tab): being prepared, ready or failed, and whether you have looked since. */
+  localReview?: import('../../../core/api-types.js').SessionLocalReviewWire;
 }
 
 // ---- Ship / archive ---------------------------------------------------
@@ -260,6 +266,17 @@ function announceRestoreWarnings(sessionId: string, warnings: string[]): void {
   window.dispatchEvent(new CustomEvent(RESTORE_WARNINGS, { detail: { sessionId, warnings } }));
 }
 
+/**
+ * The event an action's warnings go out as when the view that asked goes away with the answer (Fix it myself opens
+ * its session): detail `{what, warnings}`; DashboardApp toasts them, as a Restore's.
+ */
+export const ACTION_WARNINGS = 'work:action-warnings';
+
+export function announceWarnings(what: string, warnings: string[]): void {
+  if (typeof window === 'undefined' || !warnings.length) return;
+  window.dispatchEvent(new CustomEvent(ACTION_WARNINGS, { detail: { what, warnings } }));
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } });
   if (!res.ok) {
@@ -335,6 +352,92 @@ export function fetchAccounts(): Promise<import('../../../core/api-types.js').Ac
  * Move a session's Claude to another account (POST /api/sessions/:id/account): switched, queued
  * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
  */
+type AccountSetup = import('../../../core/api-types.js').AccountSetupWire;
+
+/** What copying `from`'s setup to `to` would do (a read). Throws the server's reason when refused. */
+export async function fetchAccountSetupPlan(to: string, from: string): Promise<AccountSetup> {
+  const res = await fetch(`/api/accounts/${encodeURIComponent(to)}/setup?from=${encodeURIComponent(from)}`);
+  const body = (await res.json().catch(() => ({}))) as AccountSetup & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `setup: ${res.status}`);
+  return body;
+}
+
+/** Copy `from`'s setup to `to`; resolves with each thing and how it went. */
+export async function copyAccountSetup(to: string, from: string): Promise<AccountSetup> {
+  const res = await fetch(`/api/accounts/${encodeURIComponent(to)}/setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from }),
+  });
+  const body = (await res.json().catch(() => ({}))) as AccountSetup & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `copy setup: ${res.status}`);
+  return body;
+}
+
+/** Move every session on another account to `name` (POST /api/accounts/:name/sessions). Throws the server's reason when refused. */
+type SessionShown = import('../../../core/api-types.js').SessionShownWire;
+
+/** The file a session shows beside its terminal (GET …/show), or none. */
+export async function fetchSessionShown(sessionId: string): Promise<SessionShown> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`);
+  if (!res.ok) return { shown: null };
+  return (await res.json()) as SessionShown;
+}
+
+/** Show a file of the session beside its terminal (POST …/show). Throws the server's reason when refused. */
+export async function showSessionFile(sessionId: string, repo: string, path: string): Promise<SessionShown> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, path }),
+  });
+  const body = (await res.json().catch(() => ({}))) as SessionShown & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `show: ${res.status}`);
+  return body;
+}
+
+/** Stop showing it (DELETE …/show). */
+export async function closeSessionShown(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`close: ${res.status}`);
+}
+
+/** You looked at a session's review: it leaves the Inbox (POST …/review/seen). Never throws: a mark that fails shows again. */
+export async function markSessionReviewSeen(sessionId: string): Promise<void> {
+  await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/seen`, { method: 'POST' }).catch(() => undefined);
+}
+
+/** Dismiss a note of a session's review (`undo`: bring it back); resolves with the review as it is kept now. */
+export async function dismissSessionReviewNote(sessionId: string, noteId: string, undo = false): Promise<SessionReview> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/dismiss`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: noteId, ...(undo ? { undo: true } : {}) }),
+  });
+  const body = (await res.json().catch(() => ({}))) as SessionReview & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `dismiss: ${res.status}`);
+  return body;
+}
+
+/** Whether a session's kept review is of its changes as they are now (GET …/review/current); true when it can't be told. */
+export async function fetchSessionReviewCurrent(sessionId: string): Promise<boolean> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review/current`);
+  if (!res.ok) return true;
+  const body = (await res.json().catch(() => ({}))) as { current?: boolean };
+  return body.current !== false;
+}
+
+export async function moveAllSessionsToAccount(name: string): Promise<import('../../../core/api-types.js').AccountSwitchAllWire> {
+  const res = await fetch(`/api/accounts/${encodeURIComponent(name)}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `move all: ${res.status}`);
+  return body as import('../../../core/api-types.js').AccountSwitchAllWire;
+}
+
 export async function switchSessionAccount(sessionId: string, to: string): Promise<import('../../../core/api-types.js').AccountSwitchWire> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, {
     method: 'POST',
@@ -362,6 +465,46 @@ export async function cancelAccountSwitch(sessionId: string): Promise<void> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   throw new Error(typeof body?.error === 'string' ? body.error : `${res.status} ${res.statusText}`);
 }
+
+// ---- the Accounts page (account-routes.ts) ----
+
+/** A refused account change: the reason, and for a removal the sessions on it (`archived` ones can be forced past). */
+export class AccountChangeError extends Error {
+  constructor(
+    message: string,
+    readonly sessions: string[] = [],
+    readonly kind?: 'live' | 'archived',
+  ) {
+    super(message);
+  }
+}
+
+async function accountCall<T>(method: 'POST' | 'DELETE', url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const b = (await res.json().catch(() => ({}))) as import('../../../core/api-types.js').AccountRefusalWire & T;
+  if (!res.ok) throw new AccountChangeError(b.error || `${res.status} ${res.statusText}`, b.sessions ?? [], b.kind);
+  return b;
+}
+
+const accountPath = (name: string) => `/api/accounts/${encodeURIComponent(name)}`;
+
+/** Record a new account (POST /api/accounts); its folder defaults to ~/.claude-<name>. */
+export const addAccount = (name: string, folder?: string) =>
+  accountCall<import('../../../core/api-types.js').AccountAddWire>('POST', '/api/accounts', { name, ...(folder ? { folder } : {}) });
+/** New sessions use this account. */
+export const makeDefaultAccount = (name: string) => accountCall<{ ok: true }>('POST', `${accountPath(name)}/default`);
+/** Forget an account (its folder stays); `force` past archived sessions on it. */
+export const removeAccount = (name: string, force = false) =>
+  accountCall<{ ok: true }>('DELETE', `${accountPath(name)}${force ? '?force=1' : ''}`);
+/** Start the account's login terminal in the PTY host; its id, for the terminal. */
+export const startAccountLogin = (name: string) =>
+  accountCall<import('../../../core/api-types.js').AccountLoginWire>('POST', `${accountPath(name)}/login`).then((r) => r.id);
+/** Stop it (work's skills then go into a new account's folder). */
+export const stopAccountLogin = (name: string) => accountCall<{ ok: true }>('DELETE', `${accountPath(name)}/login`).then(() => undefined);
 
 export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
   return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
@@ -534,6 +677,9 @@ export interface CheckpointEntry {
   /** Per-repo commit sha (null when the repo had no HEAD at capture
    *  time — diffs treat that side as the empty tree). */
   repos: Record<string, string | null>;
+  /** Per repo, the branch checked out when it was taken (absent on turns from before): a change from the turn
+   *  before is a branch switch. */
+  branches?: Record<string, string | null>;
 }
 
 export function fetchCheckpoints(hash: string): Promise<CheckpointEntry[]> {
@@ -566,6 +712,16 @@ async function postJson<T>(path: string, body: unknown, method = 'POST'): Promis
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${path}`);
   return res.json() as Promise<T>;
+}
+
+/** The Terminal tab's measurements, for work's debug log (terminal-perf.ts). Best effort: a failure loses only them. */
+export function sendTerminalPerf(report: import('../../../core/api-types.js').TerminalPerfWire): void {
+  void fetch('/api/terminal-perf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report),
+    keepalive: true,
+  }).catch(() => undefined);
 }
 
 export function fetchComments(): Promise<Comment[]> {
@@ -669,11 +825,12 @@ export function fetchSessionDiff(
  *  its turn ends; the first is the baseline) and its commits since the branch's base. */
 export function fetchSessionHistory(
   sessionId: string,
-): Promise<{ scopeHash: string; entries: CheckpointEntry[]; commits: SessionCommit[] }> {
+): Promise<{ scopeHash: string; entries: CheckpointEntry[]; commits: SessionCommit[]; spans: SessionBranchSpan[] }> {
   return getJson<SessionHistoryWire>(`/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`).then((r) => ({
     scopeHash: r.scopeHash,
     entries: r.entries,
     commits: r.commits ?? [],
+    spans: r.branchSpans ?? [],
   }));
 }
 
@@ -766,6 +923,64 @@ export async function renameSession(sessionId: string, title: string): Promise<v
     body: JSON.stringify({ title }),
   });
   if (!res.ok) throw new Error(`renaming failed (${res.status})`);
+}
+
+type SessionReview = import('../../../core/api-types.js').SessionReviewWire;
+async function reviewCall<T>(sessionId: string, tail: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/review${tail}`, {
+    ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  const out = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(out.error ?? `failed (${res.status})`);
+  return out;
+}
+/** The review kept for a session's own changes (its Review tab), or that none is. */
+export const fetchSessionReview = (sessionId: string): Promise<SessionReview> => reviewCall(sessionId, '');
+/** Prepare it now (a repo of a session folder, else the first with changes): answers "running" at once. */
+export const prepareSessionReview = (sessionId: string, repo?: string): Promise<SessionReview> =>
+  reviewCall(sessionId, '', repo ? { repo } : {});
+/** The diff the kept review was made of. */
+export const fetchSessionReviewDiff = (sessionId: string): Promise<{ files: import('../../../core/diff/diff-parse.js').ParsedFile[] }> =>
+  reviewCall(sessionId, '/diff');
+/** Hand these notes of it to the session's agent; answers how many went. */
+export const sendSessionReviewNotes = (sessionId: string, ids: string[]): Promise<number> =>
+  reviewCall<{ sent: number }>(sessionId, '/send', { ids }).then((r) => r.sent);
+
+/** What a session's agent and the things it started hold in memory now (a listing takes a second). */
+export async function fetchSessionProcesses(sessionId: string): Promise<import('../../../core/api-types.js').SessionProcessesWire> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/processes`);
+  const body = (await res.json().catch(() => ({}))) as import('../../../core/api-types.js').SessionProcessesWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `failed (${res.status})`);
+  return body;
+}
+
+/** Stop one of them (and what it started); the server checks it is still the process that was listed. */
+export async function stopSessionProcess(
+  sessionId: string,
+  pid: number,
+  startedAt: number | null,
+): Promise<import('../../../core/api-types.js').SessionProcessesWire> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/processes/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid, startedAt }),
+  });
+  const body = (await res.json().catch(() => ({}))) as import('../../../core/api-types.js').SessionProcessesWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `failed (${res.status})`);
+  return body;
+}
+
+/** Keep a session once its PR merges, or (false) archive it then as usual. */
+export async function setKeepAfterMerge(sessionId: string, keep: boolean): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/keep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keep }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `failed (${res.status})`);
+  }
 }
 
 // ---- search in kept conversations (live and archived) -----------------------
@@ -963,9 +1178,13 @@ export async function devAction(sessionId: string, action: 'start' | 'stop'): Pr
 export function fetchSessionCi(sessionId: string): Promise<SessionCi> {
   return getJson<SessionCi>(`/api/sessions/${encodeURIComponent(sessionId)}/ci`);
 }
-/** Ask the session's Claude to fix its failing checks. */
-export async function askClaudeToFixCi(sessionId: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ci/fix`, { method: 'POST' });
+/** Ask the session's Claude to fix the failing checks of one PR (its link): the one whose button was clicked. */
+export async function askClaudeToFixCi(sessionId: string, prUrl: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ci/fix`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: prUrl }),
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);

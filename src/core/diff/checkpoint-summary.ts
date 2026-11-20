@@ -15,8 +15,9 @@ import { computeRangeDiff } from './diff-pipeline.js';
 import { loadManifest } from './checkpoint.js';
 import { internalAgent, agentSettings } from '../agents/index.js';
 import { killTree } from '../platform/process.js';
-import { createSerialQueue } from '../platform/throttle.js';
+import { createLimitedQueue, createSerialQueue } from '../platform/throttle.js';
 import type { ParsedFile } from './diff-parse.js';
+import type { AgentReadOnly } from '../agents/types.js';
 
 export interface SummaryRepo {
   /** Manifest key — the full repo path (see scope-routes `scopeRepos`). */
@@ -93,19 +94,83 @@ function heuristicLabel(files: ParsedFile[], added: number, deleted: number): st
   return `${files.length} files · +${added} −${deleted}`;
 }
 
-/** One internal run at a time, however many turns finish together. */
-const internalQueue = createSerialQueue();
+/**
+ * Where an internal run waits its turn. Each lane runs one at a time, however many ask together, and lanes don't
+ * wait on each other: `shared` is everything quick (checkpoint names, Catch me up, fork and archive summaries, the
+ * Time AI step, the Jira watch, a group's instructions); `reviews` is the Reviews AI step alone, which may hold its
+ * lane for minutes (a checkout run, then the fallback) and so must never keep the others waiting. `localReviews` is
+ * a session's own review (local-review.ts), asked for on a click: its passes over several repos run together, up to
+ * `LOCAL_REVIEW_RUNS` at a time, and wait behind no pull request's review.
+ */
+export type InternalLane = 'shared' | 'reviews' | 'localReviews';
+
+/** How many runs of a session's own review go at once (one over everything, and one per repo). */
+export const LOCAL_REVIEW_RUNS = 3;
+
+const lanes: Record<InternalLane, ReturnType<typeof createSerialQueue>> = {
+  shared: createSerialQueue(),
+  reviews: createSerialQueue(),
+  localReviews: createLimitedQueue(LOCAL_REVIEW_RUNS),
+};
+
+export interface InternalRunOptions {
+  /** A few words wanted: the agent's small model. */
+  small?: boolean;
+  /** The lane it waits in (default `shared`). */
+  lane?: InternalLane;
+  /** A read-only run: files it may not read (the agent's rules, `AgentReadOnly.denyRules`). */
+  deny?: string[];
+}
 
 /**
  * Run work's summarising agent (config `internalAgent`, Claude Code by
  * default: agents/ `oneShot`) with the prompt on stdin; resolve its trimmed
  * stdout, or null on error, timeout, or an agent that has no one-shot runs.
- * Async (never blocks the server event loop). `small`: a few words wanted.
+ * Async (never blocks the server event loop). One at a time in its lane.
  */
-export function runInternal(prompt: string, timeoutMs = 25_000, opts: { small?: boolean } = {}): Promise<string | null> {
+export function runInternal(prompt: string, timeoutMs = 25_000, opts: InternalRunOptions = {}): Promise<string | null> {
   const oneShot = internalAgent(agentSettings()).oneShot;
   if (!oneShot) return Promise.resolve(null);
-  return internalQueue(() => runNow(prompt, timeoutMs, oneShot.command(opts)));
+  const { lane = 'shared', deny: _noFiles, ...agentOpts } = opts;
+  const command = oneShot.command(agentOpts);
+  return lanes[lane](() => runNow(prompt, timeoutMs, command));
+}
+
+/** The summarising agent has a read-only run in a folder (`oneShot.readOnly`): the Reviews AI step can read a checkout. */
+export function internalCanRead(): boolean {
+  return !!internalReadOnly();
+}
+
+/**
+ * What only the summarising agent knows of its read-only run: which files of a folder it reads as settings (deleted
+ * from a checkout before it starts), and how its prompt names its tools and instructions. Null: it has no such run.
+ */
+export function internalReadOnly(): Pick<
+  AgentReadOnly,
+  'isSettingsFile' | 'promptLines' | 'available' | 'localLines' | 'denyRules'
+> | null {
+  const mode = internalAgent(agentSettings()).oneShot?.readOnly;
+  if (!mode) return null;
+  return {
+    isSettingsFile: (p) => mode.isSettingsFile(p),
+    promptLines: mode.promptLines,
+    ...(mode.localLines ? { localLines: mode.localLines } : {}),
+    ...(mode.denyRules ? { denyRules: (repos) => mode.denyRules!(repos) } : {}),
+    ...(mode.available ? { available: () => mode.available!() } : {}),
+  };
+}
+
+/**
+ * `runInternal`, read-only in `cwd` (a PR's temporary checkout): the agent's `oneShot.readOnly` run — file reads
+ * confined to that folder, nothing that runs or writes, none of the folder's settings. Null when the agent has no
+ * such mode, or on error or timeout (its process tree killed first, so the caller can remove the folder).
+ */
+export function runInternalReadOnly(prompt: string, cwd: string, timeoutMs: number, opts: InternalRunOptions = {}): Promise<string | null> {
+  const oneShot = internalAgent(agentSettings()).oneShot;
+  if (!oneShot?.readOnly) return Promise.resolve(null);
+  const { lane = 'shared', ...agentOpts } = opts;
+  const command = oneShot.readOnly.command({ ...agentOpts, cwd });
+  return lanes[lane](() => runNow(prompt, timeoutMs, command));
 }
 
 function runNow(

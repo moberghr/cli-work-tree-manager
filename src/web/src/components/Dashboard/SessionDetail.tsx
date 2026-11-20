@@ -1,3 +1,9 @@
+import { SessionReviewTab } from './tabs/SessionReviewTab.js';
+import { ShownFilePane } from './ShownFilePane.js';
+import { useShownFile } from '../../hooks/use-shown-file.js';
+import { reviewTabMeta } from '../../state/review-view.js';
+import { showSessionFile } from '../../api/client.js';
+import { SessionProcesses } from './SessionProcesses.js';
 import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
 import { requestTerminalReconnect } from '../../state/terminal-reconnect.js';
@@ -31,6 +37,9 @@ import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip, useDevState } from './DevChip.js';
 import { NeedsYouBar } from './NeedsYouBar.js';
+import { BranchesChip } from './BranchesChip.js';
+import { BranchesTab } from './BranchesTab.js';
+import { branchesChip } from '../../state/branches.js';
 import { PrTab } from './PrTab.js';
 import { prNeedsLine, prTabButton } from '../../state/pr-tab.js';
 import { RowMenu } from './RowMenu.js';
@@ -38,7 +47,8 @@ import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/LazyPtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
-import { openInTerminal } from '../../api/panes.js';
+import { openInTerminal, restartAgents } from '../../api/panes.js';
+import { restartNote } from '../../state/agent-restart-view.js';
 import { markdownHtml, writeRich } from '../../state/rich-copy.js';
 import { ARCHIVED_BY_SHORT, archivedLine } from '../../state/archive-view.js';
 import { headerRepos } from '../../state/add-repo.js';
@@ -53,6 +63,8 @@ interface Props {
   onAddRepo?: () => void;
   /** Opens Claude account… (given while more than one account exists). */
   onAccount?: () => void;
+  /** Keep it once its PR merges, or go back to archiving it then. */
+  onKeep?: (keep: boolean) => void;
   /** Open PRs for this session (PRs pane data). */
   prs?: PrInfo[];
   /** A merge from the Ship panel went through (session now archived). */
@@ -92,6 +104,7 @@ export function SessionDetail({
   onDelete,
   onAddRepo,
   onAccount,
+  onKeep,
   prs = [],
   onShipped,
   startOnLastTurn = false,
@@ -105,6 +118,8 @@ export function SessionDetail({
   const [prFor, setPrFor] = useState<string | null>(null);
   // The diff filling the window; another session opens as usual.
   const [diffFull, setDiffFull] = useState(false);
+  // A branch the header's Branches line asked the Diff tab to show (once per ask: seq).
+  const [branchAsk, setBranchAsk] = useState<{ name: string; repo: string; seq: number; sessionId: string } | null>(null);
   // Left (another session, or another of its tabs): full screen is over, and doesn't come back by itself.
   useEffect(() => setDiffFull(false), [session.id, subTab]);
   // Ctrl+T, as Visual Studio's: search the session's code from any of its tabs (a terminal too: the capture
@@ -124,12 +139,21 @@ export function SessionDetail({
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [session, searching]);
+  // A file it shows beside its terminal (`work show`), followed while this session is on screen.
+  const shownFile = useShownFile(session.id);
   const openPlace = (p: CodePlace) => {
     // Never the same number twice for the page (CodeView applies each pick once, remembered per session).
     setGoto({ ...p, seq: ++pickSeq, sessionId: session.id });
     onSelectSubTab('code');
   };
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
+  // Another branch it worked on, in the Diff tab (the header's chip, the Branches tab).
+  const showBranch = (repo: string, name: string) => {
+    setBranchAsk((a) => ({ name, repo, seq: (a?.seq ?? 0) + 1, sessionId: session.id }));
+    onSelectSubTab('diff');
+  };
+  // The Branches tab: only when it worked on more than one (as the PR tab only with a PR), or while it's open.
+  const branchCount = branchesChip(session)?.count ?? 0;
   // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
   const openShip = () =>
     window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: session.id, action: 'ship' } }));
@@ -144,11 +168,14 @@ export function SessionDetail({
         onDelete={onDelete}
         onAddRepo={onAddRepo}
         onAccount={onAccount}
+        onKeep={onKeep}
         onShipped={onShipped}
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
         onShowTerminal={() => onSelectSubTab('term')}
         onShowTimeline={() => onSelectSubTab('timeline')}
+        onShowBranch={showBranch}
+        onShowBranches={() => onSelectSubTab('branches')}
       />
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
@@ -170,19 +197,51 @@ export function SessionDetail({
           />
         )}
         <SubTabButton label="Code" active={subTab === 'code'} onClick={() => onSelectSubTab('code')} />
+        <SubTabButton
+          label="Review"
+          meta={reviewTabMeta(session.localReview)}
+          active={subTab === 'review'}
+          onClick={() => onSelectSubTab('review')}
+        />
+        {(branchCount > 0 || subTab === 'branches') && (
+          <SubTabButton
+            label="Branches"
+            meta={branchCount ? String(branchCount) : undefined}
+            active={subTab === 'branches'}
+            onClick={() => onSelectSubTab('branches')}
+          />
+        )}
       </nav>
       <div className={'wd-session-subtab-body' + (subTab === 'diff' && diffFull ? ' wd-diff-full' : '')}>
         {subTab === 'diff' && (
-          <DiffView session={session} startOnLastTurn={startOnLastTurn} fullScreen={diffFull} onFullScreen={setDiffFull} />
+          <DiffView
+            session={session}
+            startOnLastTurn={startOnLastTurn}
+            fullScreen={diffFull}
+            onFullScreen={setDiffFull}
+            showBranch={branchAsk?.sessionId === session.id ? branchAsk : null}
+          />
         )}
-        {subTab === 'term' &&
-          (onTermSlot ? (
-            // The dashboard's terminal deck draws the terminal over this slot,
-            // so it stays connected when you switch away and back.
-            <div className="wd-term-slot" ref={onTermSlot} />
-          ) : (
-            <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
-          ))}
+        {subTab === 'term' && (
+          // With a file shown, the terminal takes the left and the file the right: the deck follows the slot's size.
+          <div className={'wd-term-split' + (shownFile ? ' wd-term-split-shown' : '')}>
+            {onTermSlot ? (
+              // The dashboard's terminal deck draws the terminal over this slot,
+              // so it stays connected when you switch away and back.
+              <div className="wd-term-slot" ref={onTermSlot} />
+            ) : (
+              <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
+            )}
+            {shownFile && (
+              <ShownFilePane
+                key={`${shownFile.repo}/${shownFile.path}`}
+                session={session}
+                shown={shownFile}
+                onOpenCode={() => openPlace({ repo: shownFile.repo, path: shownFile.path })}
+              />
+            )}
+          </div>
+        )}
         {prFor === session.id && (
           <div className="wd-pr-tab-slot" style={subTab === 'pr' ? undefined : { display: 'none' }}>
             <PrTab key={session.id} session={session} prs={prs} onShip={openShip} />
@@ -195,7 +254,17 @@ export function SessionDetail({
             onShowDiff={() => onSelectSubTab('diff')}
             goto={goto?.sessionId === session.id ? goto : null}
             onSearch={isArchived(session) ? undefined : () => setSearching(true)}
+            {...(isArchived(session)
+              ? {}
+              : {
+                  // Shown, then over to the terminal it is beside; a refusal is the Code tab's to say.
+                  onShowBeside: (repo: string, file: string) => showSessionFile(session.id, repo, file).then(() => onSelectSubTab('term')),
+                })}
           />
+        )}
+        {subTab === 'review' && <SessionReviewTab key={session.id} session={session} onShowTerminal={() => onSelectSubTab('term')} />}
+        {subTab === 'branches' && (
+          <BranchesTab key={session.id} session={session} onShowBranch={showBranch} onShowDiff={() => onSelectSubTab('diff')} />
         )}
         {searching && <CodeSearch sessionId={session.id} onPick={openPlace} onClose={() => setSearching(false)} />}
         {/* From the ⋯ menu (and old links): no tab of its own, so it says what it is. */}
@@ -219,6 +288,8 @@ interface HeaderProps {
   onDelete: () => void;
   onAddRepo?: () => void;
   onAccount?: () => void;
+  /** Keep it once its PR merges, or go back to archiving it then. */
+  onKeep?: (keep: boolean) => void;
   onShipped?: () => void;
   onOpenSession?: (id: string) => void;
   /** Open the PR tab (absent while it's the one shown). */
@@ -227,6 +298,10 @@ interface HeaderProps {
   onShowTerminal?: () => void;
   /** Show its timeline (⋯ → Timeline). */
   onShowTimeline?: () => void;
+  /** Show another branch it worked on in the Diff tab (the branches chip). */
+  onShowBranch?: (repo: string, name: string) => void;
+  /** Open the Branches tab (the chip's way to the rest). */
+  onShowBranches?: () => void;
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
@@ -236,16 +311,20 @@ function SessionHeader({
   onDelete,
   onAddRepo,
   onAccount,
+  onKeep,
   onShipped,
   onOpenSession,
   onOpenPr,
   onShowTerminal,
   onShowTimeline,
+  onShowBranch,
+  onShowBranches,
 }: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [shipOpen, setShipOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [processesOpen, setProcessesOpen] = useState(false);
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [renameKey, setRenameKey] = useState(0);
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
@@ -264,6 +343,14 @@ function SessionHeader({
   const reconnectTerminal = () => {
     onShowTerminal?.();
     requestTerminalReconnect(session.id);
+  };
+  // Restart its agent on the same conversation: what it reads once at its start (settings, MCP servers, plugins) is read again.
+  const restartAgent = () => {
+    setNote({ text: 'Restarting its Claude…' });
+    restartAgents({ ids: [session.id] }).then(
+      (r) => setNote(restartNote(r, session.id)),
+      (err: Error) => setNote({ text: err.message, error: true }),
+    );
   };
   const openTerminal = () => {
     setNote({ text: 'Opening in a terminal…' });
@@ -315,18 +402,21 @@ function SessionHeader({
   const items = sessionHeaderItems(session, dev.state, {
     openTerminal,
     reconnectTerminal,
+    restartAgent,
     ship: () => setShipOpen(true),
     catchUp: catchUp.run,
     copyReply,
     timeline: () => onShowTimeline?.(),
     sendPrompt: () => setPromptsOpen(true),
     notes: () => setNotesOpen((o) => !o),
+    processes: () => setProcessesOpen(true),
     devStart: () => dev.act('start'),
     devStop: () => dev.act('stop'),
     rename: () => setRenameKey((k) => k + 1),
     remove: onDelete,
     ...(onAddRepo ? { addRepo: onAddRepo } : {}),
     ...(onAccount ? { account: onAccount } : {}),
+    ...(onKeep ? { keep: onKeep } : {}),
   });
   // A session folder's repos, beside its name (a single repo's session: its target says it).
   const repos = headerRepos(session);
@@ -334,6 +424,8 @@ function SessionHeader({
   return (
     <>
       <header className="wd-session-detail-header">
+        {/* Its status first, on the name's row (reported: a line of its own, with a recap nobody read). */}
+        <StatusLine session={session} summary={false} />
         <h1>
           <span className="wd-session-detail-target">{session.target}</span>
           <span className="wd-session-detail-sep">/</span>
@@ -341,6 +433,7 @@ function SessionHeader({
           <OtherBranchChip session={session} />
           <SessionTitle key={renameKey} session={session} autoEdit={renameKey > 0} />
         </h1>
+        <BranchesChip session={session} onShow={onShowBranch} onOpenTab={onShowBranches} />
         {repos.length > 0 && (
           <span className="wd-session-repos" title={`Its repos: ${repos.join(', ')}`}>
             {repos.join(' · ')}
@@ -398,8 +491,8 @@ function SessionHeader({
         </div>
       </header>
       {menu && <RowMenu x={menu.x} y={menu.y} anchor="right" items={items} footer={contextFooter(session)} onClose={() => setMenu(null)} />}
+      {/* Only what wants a look: empty (CSS :empty) for most sessions, so the header is one row and the tabs. */}
       <div className="wd-session-strip">
-        <StatusLine session={session} />
         <AwayLink session={session} catchUp={catchUp} />
         <BehindChip session={session} />
         <MergedParentChip session={session} />
@@ -415,6 +508,7 @@ function SessionHeader({
       </div>
       <CatchUpPanel catchUp={catchUp} />
       {notesOpen && <SessionNotes session={session} onClose={() => setNotesOpen(false)} />}
+      {processesOpen && <SessionProcesses session={session} onClose={() => setProcessesOpen(false)} />}
       {needs && <NeedsYouBar text={needs} onOpen={onOpenPr} />}
       {shipOpen && (
         <ShipPanel

@@ -28,11 +28,7 @@ const session = (branch: string, over: Partial<WorktreeSession> = {}): WorktreeS
 beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'control-real-'));
   vi.spyOn(os, 'homedir').mockReturnValue(home);
-  saveHistory([
-    session('feat/live'),
-    session('feat/old', { archivedAt: '2026-10-01T00:00:00Z' }),
-    session('feat/unsafe', { launchedUnsafe: true }),
-  ]);
+  saveHistory([session('feat/live'), session('feat/old', { archivedAt: '2026-10-01T00:00:00Z' })]);
   server = await startWebServer({ lean: true });
 }, 60_000);
 afterEach(async () => {
@@ -45,14 +41,11 @@ afterEach(async () => {
 const id = (branch: string) => sessionIdFor({ target: 'api', branch });
 
 describe('session control on the real server', () => {
-  it('send: an archived session and an --unsafe one are refused with the reason; nothing is queued for them', async () => {
+  it('send: an archived session is refused with the reason; nothing is queued for it', async () => {
     const old = await post(`/api/sessions/${id('feat/old')}/send`, { text: 'x' });
     expect(old.status).toBe(409);
     expect(await old.json()).toMatchObject({ error: expect.stringContaining('archived') });
-    const unsafe = await post(`/api/sessions/${id('feat/unsafe')}/send`, { text: 'x' });
-    expect(unsafe.status).toBe(409);
-    expect(await unsafe.json()).toMatchObject({ error: expect.stringContaining('--unsafe') });
-    const comments = (await (await fetch(at(`/api/sessions/${id('feat/unsafe')}/comments`))).json()) as { comments: unknown[] };
+    const comments = (await (await fetch(at(`/api/sessions/${id('feat/old')}/comments`))).json()) as { comments: unknown[] };
     expect(comments.comments).toEqual([]);
     expect((await post('/api/sessions/nope/send', { text: 'x' })).status).toBe(404);
   });

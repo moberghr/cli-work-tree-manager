@@ -192,6 +192,26 @@ describe('spawnSpecFor', () => {
   });
 });
 
+describe("work's hooks in the spawn spec", () => {
+  it('a Claude session carries `--settings <work’s file>` in the spec itself, so a PTY host from before this build starts it with them', async () => {
+    const pool = await freshPool();
+    const file = path.join(os.homedir(), '.work', 'claude-settings.json');
+    expect(pool.spawnSpecFor(sessions.single as never)?.tool.baseArgs.slice(0, 2)).toEqual(['--settings', file]);
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8'))).toHaveProperty('hooks.Stop');
+    expect(pool.assistantSpec().tool.baseArgs.slice(0, 2)).toEqual(['--settings', file]);
+  });
+
+  it('the dev server names the file the installed work wrote and never rewrites it with its own build', async () => {
+    const pool = await freshPool();
+    const file = path.join(os.homedir(), '.work', 'claude-settings.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{"written":"by the installed work"}');
+    pool.configurePtyPool({ workBin: '/checkout/dist/bin.js', startHost: false });
+    expect(pool.spawnSpecFor(sessions.single as never)?.tool.baseArgs.slice(0, 2)).toEqual(['--settings', file]);
+    expect(fs.readFileSync(file, 'utf-8')).toBe('{"written":"by the installed work"}');
+  });
+});
+
 describe("a session's Claude account in the spawn spec", () => {
   const work = path.resolve('/acc/work');
   afterEach(() => {
@@ -239,6 +259,24 @@ describe('ensurePty', () => {
     const pool = await freshPool();
     expect(await pool.ensurePty('nope')).toBeNull();
     expect(ensureHost).not.toHaveBeenCalled();
+  });
+
+  it("an account's login terminal: the agent's CLI fresh on that account, in work's own folder; stopped on ask; an unknown account refused", async () => {
+    const pool = await freshPool();
+    const work = path.resolve('/acc/work');
+    cfg.value = { claudeAccounts: { work } };
+    expect(await pool.startAccountLogin('work')).toBe('account-login:work');
+    const spawned = host.spawned.at(-1)!;
+    expect(spawned.id).toBe('account-login:work');
+    expect(spawned.spec).toMatchObject({
+      cwd: path.join(os.tmpdir(), 'account-login'),
+      fresh: true,
+      agentEnv: { CLAUDE_CONFIG_DIR: work },
+    });
+    expect(JSON.stringify(spawned.spec)).not.toMatch(/dangerously|skip-permissions/i);
+    await pool.stopAccountLogin('work');
+    expect(host.killed).toContain('account-login:work');
+    await expect(pool.startAccountLogin('nope')).rejects.toThrow('no account');
   });
 
   it('starts the host on demand, spawns, and reports the session live', async () => {

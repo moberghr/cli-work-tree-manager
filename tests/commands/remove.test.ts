@@ -8,6 +8,7 @@ import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
 import { loadHistory, upsertSession } from '../../src/core/sessions/history.js';
 import { recordStatusEvent } from '../../src/core/status/session-status.js';
 import { sessionIdFor } from '../../src/core/sessions/session-id.js';
+import { removedOf, WORKTREE_REMOVED } from '../../src/core/worktree/remove-child.js';
 
 vi.mock('../../src/core/pty/pty-pool.js', () => ({ stopSessionPty: async () => {} }));
 
@@ -64,5 +65,31 @@ describe('work remove', () => {
   it('a session with nothing waiting is removed as before', async () => {
     await run();
     expect(fs.existsSync(wt)).toBe(false);
+  });
+
+  it("--worktree-only (work web's Archive, in a child): the folder goes, the session stays, and it says how it went — whatever waits", async () => {
+    const logged: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((m: unknown) => void logged.push(String(m)));
+    // Uncommitted work and a Claude mid-turn don't hold it: the archive checked and saved before asking.
+    fs.writeFileSync(path.join(wt, 'new.txt'), 'x');
+    await recordStatusEvent(sessionIdFor({ target: 'repo', branch: 'feat/x' }), { kind: 'prompt', prompt: 'go' });
+    const { removeCommand } = await import('../../src/commands/remove.js');
+    const only = () =>
+      (removeCommand.handler as (argv: unknown) => unknown)({
+        _: ['remove'],
+        target: 'repo',
+        branch: 'feat/x',
+        force: false,
+        'worktree-only': true,
+      });
+    await only();
+    expect(fs.existsSync(wt)).toBe(false);
+    expect(loadHistory()).toHaveLength(1);
+    expect(logged.at(-1)).toBe(`${WORKTREE_REMOVED}true`);
+    expect(removedOf(logged.join('\n'))).toBe(true);
+    // Already gone: still a yes.
+    await only();
+    expect(logged.at(-1)).toBe(`${WORKTREE_REMOVED}true`);
+    expect(process.exitCode ?? 0).toBe(0);
   });
 });

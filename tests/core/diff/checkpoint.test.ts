@@ -112,6 +112,16 @@ describe('takeCheckpoint', () => {
     expect(entry!.repos.repoA).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  it('records the branch each repo had checked out, so a turn across a branch switch can be told', async () => {
+    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], repoA).stdout.trim();
+    const first = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
+    expect(first!.branches).toEqual({ repoA: branch });
+    git(['checkout', '-q', '-b', 'fix/next'], repoA);
+    writeFile(repoA, 'next.txt', 'n\n');
+    const second = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
+    expect(second!.branches).toEqual({ repoA: 'fix/next' });
+  });
+
   it('persists to ~/.work/diffs/<hash>.checkpoints.json', async () => {
     await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     const manifest = loadManifest('hashA');
@@ -263,7 +273,8 @@ describe('takeCheckpoint', () => {
     const manifest = loadManifest('hashP');
     const sorted = [...manifest.entries].sort((a, b) => a.id - b.id);
     sorted.forEach((entry, i) => expect(entry.id).toBe(i));
-  });
+    // Six real git snapshots: 20 s was not enough in a full run on a loaded machine (it passes alone in 2 s).
+  }, 90_000);
 
   it('keeps SHAs distinct when repos share a basename (no manifest key collision)', async () => {
     // Two repos with the same basename ("app"). If the manifest key

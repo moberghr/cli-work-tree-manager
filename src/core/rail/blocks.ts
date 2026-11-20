@@ -1,7 +1,9 @@
 /**
  * PURE — the "blocked by" rules (session-blocks.ts stores them), shared with
- * the demo; keep it import-free.
+ * the demo; keep it free of anything but the hosts' pure link readers.
  */
+
+import { parsePrLink } from '../hosts/links.js';
 
 export type BlockRef =
   { kind: 'session'; id: string; label: string } | { kind: 'pr'; url: string; label: string; state?: 'OPEN' | 'MERGED' | 'CLOSED' };
@@ -17,10 +19,12 @@ export const MAX_BLOCKERS = 10;
 export const blockKey = (b: Pick<BlockRef, 'kind'> & { id?: string; url?: string }): string =>
   b.kind === 'session' ? `session:${b.id}` : `pr:${b.url}`;
 
-/** A GitHub pull request URL, normalized (…/pull/12, no trailing path, query or hash); null when it isn't one. Pure. */
+/** A pull request link of a host work knows, normalized (no trailing path, query or hash); null when it isn't one. Pure. */
 export function prUrl(text: string): { url: string; label: string } | null {
-  const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/.exec(text.trim());
-  return m ? { url: `https://github.com/${m[1]}/${m[2]}/pull/${m[3]}`, label: `${m[2]}#${m[3]}` } : null;
+  const t = text.trim();
+  if (!/^https:\/\//i.test(t)) return null; // a link, as pasted from the browser
+  const link = parsePrLink(t);
+  return link ? { url: link.url, label: link.label } : null;
 }
 
 /** Is it done (so it no longer blocks)? `sessionGone(id)`: archived or deleted. Pure. */

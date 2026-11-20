@@ -58,6 +58,17 @@ export interface InboxSubject {
   replyDrafts?: number;
   /** Where its pull request stands (pr-stage.ts); `seen` once you looked at it there. */
   prStage?: { kind: string; seen?: boolean; prs?: ReadonlyArray<{ kind: string; checks?: string }> } | null;
+  /** Its own review (the session's Review tab): being prepared, ready or failed, and whether you have looked since. */
+  localReview?: { status: string; seen?: boolean } | null;
+}
+
+/**
+ * Its own review finished — ready, or it couldn't be prepared — and you haven't looked (asked for: a review takes
+ * minutes, you start it and go elsewhere, and nothing said it was done).
+ */
+export function reviewWantsYou(s: Pick<InboxSubject, 'localReview'>): boolean {
+  const r = s.localReview;
+  return !!r && !r.seen && (r.status === 'ready' || r.status === 'failed');
 }
 
 /**
@@ -70,10 +81,11 @@ export interface InboxSubject {
  *   conflict — a PR of it conflicts with its base
  *   checks   — a PR of it fails its checks
  *   merge    — its PRs are approved with checks passing: ready to merge
+ *   review   — its own review (the Review tab) finished and you haven't looked
  * Every view reads this one list (the rail's badge, the header's Needs you
  * line, the Sessions table, the Inbox), so they can't disagree.
  */
-export type OwedKind = 'turn' | 'reply' | 'thread' | 'conflict' | 'checks' | 'merge';
+export type OwedKind = 'turn' | 'reply' | 'thread' | 'conflict' | 'checks' | 'merge' | 'review';
 export interface Owed {
   kind: OwedKind;
   count: number;
@@ -81,12 +93,13 @@ export interface Owed {
 
 const OPEN_PR = (k: string) => k !== 'merged' && k !== 'closed';
 
-export function owedToYou(s: Pick<InboxSubject, 'attention' | 'openReviewThreads' | 'replyDrafts' | 'prStage'>): Owed[] {
+export function owedToYou(s: Pick<InboxSubject, 'attention' | 'openReviewThreads' | 'replyDrafts' | 'prStage' | 'localReview'>): Owed[] {
   const out: Owed[] = [];
   // Finished, and you haven't looked: yours to review — not something its Claude is doing (reported: it took the icon).
   if (s.attention?.state === 'idle' && !s.attention.seen) out.push({ kind: 'turn', count: 1 });
   if ((s.replyDrafts ?? 0) > 0) out.push({ kind: 'reply', count: s.replyDrafts! });
   if ((s.openReviewThreads ?? 0) > 0) out.push({ kind: 'thread', count: s.openReviewThreads! });
+  if (reviewWantsYou(s)) out.push({ kind: 'review', count: 1 });
   const stage = s.prStage;
   if (!stage) return out;
   // Each PR's own stage when the row has them (a group: one conflicts, another fails); else the stage's.
@@ -107,7 +120,7 @@ export function owedToYou(s: Pick<InboxSubject, 'attention' | 'openReviewThreads
  * failing) until you've looked at that stage (`prWantsYou`).
  */
 export function owedInInbox(s: InboxSubject): boolean {
-  return (s.replyDrafts ?? 0) > 0 || (s.openReviewThreads ?? 0) > 0 || prWantsYou(s);
+  return (s.replyDrafts ?? 0) > 0 || (s.openReviewThreads ?? 0) > 0 || prWantsYou(s) || reviewWantsYou(s);
 }
 
 /**
@@ -128,7 +141,8 @@ export function prWantsYou(s: Pick<InboxSubject, 'prStage'>): boolean {
  *   1 done, unseen     — finished a turn you haven't looked at
  *   2 needs you        — something on its PRs waits on you (`owedInInbox`:
  *                        replies to post, unanswered review threads, a PR
- *                        ready to merge, conflicting or failing — unseen),
+ *                        ready to merge, conflicting or failing — unseen; its own
+ *                        review finished and not looked at),
  *                        whatever its Claude is doing
  *   3 working
  *   4 quiet

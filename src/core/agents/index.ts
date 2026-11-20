@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { isAgentId } from '../platform/config.js';
 import { configView } from '../platform/config-cache.js';
-import { getAiTool } from '../platform/ai-launcher.js';
+import { getAiTool, type AiToolSpec } from '../platform/ai-launcher.js';
+import { logSwallowed } from '../platform/best-effort.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import type { SessionAgentWire } from '../api-types.js';
@@ -90,11 +91,6 @@ export function knownAgents(): AgentAdapter[] {
   return [...ADAPTERS.values()];
 }
 
-/** Every known agent's account folders (Claude's: `~/.claude` and each configured account's): what work's per-account setup covers. */
-export function agentAccountFolders(): string[] {
-  return knownAgents().flatMap((a) => a.accounts?.list().map((acc) => acc.dir) ?? []);
-}
-
 /** The newest write any known agent made to its conversations for work in `cwd` (ms; 0: none). */
 export function agentWriteMs(cwd: string): number {
   return Math.max(0, ...knownAgents().map((a) => a.conversation?.lastWriteMs?.(cwd) ?? 0));
@@ -146,6 +142,22 @@ export function agentWire(a: AgentAdapter): SessionAgentWire {
 /** The adapter for an agent by its binary name (`claude`; anything else: a plain one). */
 export function agentById(id: string): AgentAdapter {
   return ADAPTERS.get(id) ?? plainAgent(id);
+}
+
+/**
+ * The tool as work starts it for a session (`AgentLaunch.sessionTool`: Claude's carries work's hooks with `--settings`),
+ * by the agent its binary names. One that can't be prepared (its settings file can't be written) starts as it is,
+ * without hooks — said in the debug log: a session that doesn't start is worse than one the dashboard sees less of.
+ */
+export function sessionToolFor(tool: AiToolSpec, o: { write?: boolean } = {}): AiToolSpec {
+  const prepare = agentById(tool.cmd).launch.sessionTool;
+  if (!prepare) return tool;
+  try {
+    return prepare(tool, o);
+  } catch (e) {
+    logSwallowed(`prepare ${tool.cmd}'s hooks`, e);
+    return tool;
+  }
 }
 
 /** The agent a new session records: the configured one, when work has an adapter for it (undefined: it follows `aiCommand`). */

@@ -143,7 +143,8 @@ describe('per-instruction checkpoints (/api/checkpoint + /seal)', () => {
    *  for it before driving the Stop-hook route (otherwise the first POST
    *  would itself create the Initial entry and skew the ids). */
   async function waitForEntries(hash: string, n: number): Promise<void> {
-    for (let i = 0; i < 40; i++) {
+    // Up to 15 s: the snapshot is real git, and a second was not enough in a full run on a loaded machine.
+    for (const until = Date.now() + 15_000; Date.now() < until;) {
       const res = await app.request(`/api/scopes/${hash}/checkpoints`);
       const body = (await res.json()) as { entries: unknown[] };
       if (body.entries.length >= n) return;
@@ -328,7 +329,8 @@ describe('re-baseline on branch advance', () => {
   /** Poll until the manifest's Initial (id 0) entry baselines `expectedTree`
    *  (its commit's tree sha). The re-baseline is fire-and-forget. */
   async function waitForInitialTree(hash: string, expectedTree: string): Promise<void> {
-    for (let i = 0; i < 40; i++) {
+    // Up to 15 s: the snapshot is real git, and a second was not enough in a full run on a loaded machine.
+    for (const until = Date.now() + 15_000; Date.now() < until;) {
       const m = loadManifest(hash);
       const initial = m.entries.find((e) => e.id === 0);
       if (initial) {

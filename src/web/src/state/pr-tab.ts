@@ -1,6 +1,8 @@
 import type { FailingCheck, OpenReviewThread, PrReply, SessionCi, ThreadCode } from '../../../core/api-types.js';
-import { prsBeyondStage, stageOfPr, stagePhrase, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
+import { prsBeyondStage, stageOfPr, stagePhrase, stageRepos, type PrStage, type PrStageKind } from '../../../core/pr/pr-stage.js';
+import type { ShipPr } from '../../../core/api-types.js';
 import { owedToYou } from '../../../core/status/attention.js';
+import { stageInputOf } from '../../../core/pr/branch-work.js';
 import type { PrInfo } from '../api/panes.js';
 
 /**
@@ -17,17 +19,29 @@ export interface PrSection {
   number: number;
   url: string;
   title: string | null;
-  /** Who opened it on GitHub, when known (the PR watch's `gh pr view`, else the dashboard's list). */
+  /** Who opened it, when known (the PR watch's look, else the dashboard's list). */
   author: string | null;
-  /** You did (the watch's viewer, else the list's isMine): its author isn't shown. */
+  /** The host it's on (absent: GitHub). */
+  host?: string;
+  /** You did (the watch's viewer for its repo — older: the session's one —, else the list's isMine): its author isn't shown. */
   mine: boolean;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   kind: PrStageKind;
   checks: 'pass' | 'fail' | 'pending' | 'none';
   failing: FailingCheck[];
+  /** Checks that failed but aren't required: they don't stop the merge (shown quietly, never red). */
+  optionalFailing?: FailingCheck[];
   mergedAt?: string;
+  /** In a repo the session doesn't have (one of its listed PRs: Claude opened it there). */
+  elsewhere?: true;
   /** Only the dashboard's PR list knows it (a second PR from the branch): less is known about it. */
   fromListOnly: boolean;
+  /** The branch it's from, when the PR watch said (the session may have worked on several: session-branches.ts). */
+  branch?: string;
+  /** Its repo has more than one open PR here: the branch tells them apart (shown beside its number). */
+  branchShown?: true;
+  /** An earlier PR of its repo: the session moved on to a newer one (stageRepos), and this one folds under it. */
+  earlier?: true;
 }
 
 const LISTED_CHECKS: Record<PrInfo['checksStatus'], PrSection['checks']> = {
@@ -58,38 +72,52 @@ function kindOfListed(p: PrInfo): PrStageKind {
   });
 }
 
-/** Most wanting first: what wants you, then open ones, then merged and closed. */
-const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPEN' ? 1 : 2);
+/** Most wanting first: what wants you, then open ones, then merged and closed, then earlier PRs a newer one followed. */
+const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPEN' ? 1 : s.earlier ? 3 : 2);
 
 export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] {
-  const watched: PrSection[] = (ci?.repos ?? []).flatMap((r) =>
-    r.pr
+  // Per repo, the PR its stage reads (the newest open one across the branches it worked on), then its earlier
+  // ones — a PR that merged before the session moved on to a new branch and a new PR.
+  const input = stageInputOf(ci);
+  const watched: PrSection[] = stageRepos(input).flatMap((r, i) => {
+    const repo = input[i];
+    const viewer = 'viewer' in repo ? repo.viewer : undefined;
+    const section = (pr: ShipPr, branch: string | undefined, earlier: boolean): PrSection => ({
+      key: pr.url,
+      repo: r.name,
+      number: pr.number,
+      url: pr.url,
+      ...(repo.host ? { host: repo.host } : {}),
+      ...fromList(
+        pr,
+        listed.find((p) => p.url === pr.url),
+        viewer ?? ci?.viewer,
+      ),
+      state: pr.state,
+      kind: stageOfPr(pr),
+      checks: pr.checks,
+      failing: pr.failing ?? [],
+      ...(pr.optionalFailing?.length ? { optionalFailing: pr.optionalFailing } : {}),
+      ...(pr.mergedAt ? { mergedAt: pr.mergedAt } : {}),
+      ...('elsewhere' in repo && repo.elsewhere ? { elsewhere: true as const } : {}),
+      fromListOnly: false,
+      ...(branch ? { branch } : {}),
+      ...(earlier ? { earlier: true as const } : {}),
+    });
+    return r.pr
       ? [
-          {
-            key: r.pr.url,
-            repo: r.name,
-            number: r.pr.number,
-            url: r.pr.url,
-            ...fromList(
-              r.pr,
-              listed.find((p) => p.url === r.pr!.url),
-              ci?.viewer,
-            ),
-            state: r.pr.state,
-            kind: stageOfPr(r.pr),
-            checks: r.pr.checks,
-            failing: r.pr.failing ?? [],
-            ...(r.pr.mergedAt ? { mergedAt: r.pr.mergedAt } : {}),
-            fromListOnly: false,
-          },
+          section(r.pr, r.branch, false),
+          ...r.also.map((a) => section(a.pr, a.branch, false)),
+          ...r.earlier.map((e) => section(e.pr, e.branch, true)),
         ]
-      : [],
-  );
+      : [];
+  });
   const others: PrSection[] = prsBeyondStage({ prs: watched }, listed).map((p) => ({
     key: p.url,
     repo: p.repoAlias,
     number: p.number,
     url: p.url,
+    ...(p.host ? { host: p.host } : {}),
     title: p.title,
     author: p.author || null,
     mine: p.isMine,
@@ -99,7 +127,10 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
     failing: [],
     fromListOnly: true,
   }));
-  return [...watched, ...others];
+  // Two open PRs of one repo (from two branches): each says its branch.
+  const openIn = (repo: string) => watched.filter((w) => w.repo === repo && w.state === 'OPEN').length;
+  const named = watched.map((w) => (w.state === 'OPEN' && w.branch && openIn(w.repo) > 1 ? { ...w, branchShown: true as const } : w));
+  return [...named, ...others];
 }
 
 /** A thread or draft belongs to the section of its PR (number and repo; the number alone when no section has its repo). */
@@ -146,6 +177,8 @@ interface SessionPrFacts {
   openReviewThreads?: number;
   replyDrafts?: number;
   isGroup?: boolean;
+  /** Its own review, when it has one: its line is what its row says while it waits for you. */
+  localReview?: { status: string; seen?: boolean; line?: string } | null;
 }
 
 /**
@@ -194,6 +227,8 @@ export function prNeedsLine(s: SessionPrFacts): string | null {
         return named((p) => p.kind !== 'conflict' && pressingPr(p), 'checks_failing');
       case 'merge':
         return named((p) => p.kind === 'ready', 'ready');
+      case 'review':
+        return [s.localReview?.line ?? 'its review is ready'];
     }
   });
   return parts.length ? parts.join(' · ') : null;

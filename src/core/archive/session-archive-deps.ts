@@ -66,6 +66,8 @@ export interface ArchiveDepsOptions {
   /** Release other handles on its folders first (the web server's watchers,
    *  a Claude): Windows won't delete a folder something holds open. */
   release?: (sessionId: string) => Promise<void>;
+  /** How its worktree is removed (work web: in a child process, remove-child.ts — git's delete is synchronous). */
+  removeWorktree?: (s: WorktreeSession) => Promise<boolean>;
   /** Its PRs, for the summary (the PR watch's cache). */
   prs?: (sessionId: string) => ArchivedPr[];
   run?: CommandRunner;
@@ -142,6 +144,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     },
     removeWorktree: async (s) => {
       if (s.paths.every((p) => !fs.existsSync(p))) return true;
+      if (opts.removeWorktree) return opts.removeWorktree(s);
       return teardownWorktree(s.target, s.isGroup, s.branch, config(), true, s.paths);
     },
     setArchived: (s) => setSessionArchived(s.target, s.branch, true),

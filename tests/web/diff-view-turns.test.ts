@@ -383,3 +383,22 @@ describe('DiffView: a group', () => {
     expect(container.querySelector('.wd-diff-repo-switch')).toBeNull();
   });
 });
+
+describe("DiffView: the header's Branches line opens a branch", () => {
+  it('a single repo whose alias is not its folder name: the click opens that branch (review finding: it opened nothing)', async () => {
+    // The record names the repo by its alias (`backend`), its commits by the checkout's folder (`repo`).
+    const sha = 'abcdef1234567890abcdef1234567890abcdef12';
+    h.checkpoints = [entry(0, 'Initial')];
+    h.commits = [{ repo: 'repo', sha, subject: 'old work', at: '2026-09-01T00:00:30Z', branch: 'fix/old' } as (typeof h.commits)[number]];
+    await act(async () => {
+      root.render(
+        createElement(DiffView, {
+          session: { ...session('s1'), target: 'backend' },
+          showBranch: { name: 'fix/old', repo: 'backend', seq: 1 },
+        }),
+      );
+    });
+    await flush();
+    expect(h.calls.at(-1)?.range).toEqual({ from: `p:repo:${sha}`, to: `c:repo:${sha}` });
+  });
+});

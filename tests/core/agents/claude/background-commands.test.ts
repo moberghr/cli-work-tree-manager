@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openBackgroundCommands } from '../../../../src/core/agents/claude/background-commands.js';
+import { openBackgroundCommandInfo, openBackgroundCommands } from '../../../../src/core/agents/claude/background-commands.js';
 
 /** Transcript lines as Claude Code writes them (shapes taken from a real transcript). */
 const at = (min: number) => new Date(Date.parse('2026-10-28T10:00:00Z') + min * 60_000).toISOString();
@@ -26,6 +26,28 @@ const notified = (useId: string, task: string, min: number) => ({
   message: {
     content: `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${useId}</tool-use-id>\n<status>completed</status>\n</task-notification>`,
   },
+});
+
+describe('openBackgroundCommandInfo — and what each one is', () => {
+  it('names a running command by its description, else its command’s first line, cut to a line', () => {
+    const lines = [
+      call('u1', 1, { command: 'npm test', description: 'Run the\n  backend tests', run_in_background: true }),
+      started('u1', 'b1', 1),
+      call('u2', 2, { command: `cd /wt && dotnet test ${'x'.repeat(200)}\necho done`, run_in_background: true }),
+      started('u2', 'b2', 2),
+      call('u3', 3, { run_in_background: true }, 'Agent'),
+      call('u4', 4, { command: 'npm run build', run_in_background: true }),
+      started('u4', 'b4', 4),
+      notified('u4', 'b4', 5),
+    ];
+    const info = openBackgroundCommandInfo(lines);
+    expect(info.map((c) => c.id)).toEqual(['u1', 'u2', 'u3']); // the ended one left out, in the order started
+    expect(info[0].what).toBe('Run the');
+    expect(info[1].what).toMatch(/^cd \/wt && dotnet test x+…$/);
+    expect(info[1].what).toHaveLength(100);
+    expect(info[2].what).toBeNull(); // says nothing of itself
+    expect(openBackgroundCommands(lines)).toEqual(['u1', 'u2', 'u3']);
+  });
 });
 
 describe('openBackgroundCommands — what a Claude still has running in the background', () => {

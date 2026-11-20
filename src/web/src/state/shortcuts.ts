@@ -15,8 +15,11 @@ export type SessionAction =
   | 'tab-diff'
   | 'tab-pr'
   | 'tab-code'
+  | 'tab-branches'
+  | 'tab-review'
   | 'timeline'
   | 'archive'
+  | 'keep'
   | 'snooze'
   | 'block'
   | 'menu'
@@ -47,8 +50,11 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   'tab-diff': { key: '2', label: 'Diff tab' },
   'tab-pr': { key: '3', label: 'PR tab' },
   'tab-code': { key: '4', label: 'Code tab' },
+  'tab-branches': { key: '5', label: 'Branches tab (when it worked on more than one)' },
+  'tab-review': { key: '6', label: 'Review tab (its changes as a review)' },
   timeline: { key: 'l', label: 'Timeline (how it got here)' },
   archive: { key: 'e', label: 'Archive (Restore when archived)' },
+  keep: { key: 'k', shift: true, label: 'Keep after its PR merges (again: archive after it merges)' },
   snooze: { key: 'z', label: 'Snooze…' },
   block: { key: 'b', label: 'Blocked by…' },
   menu: { key: '.', label: 'Its ⋯ menu' },
@@ -68,6 +74,22 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   delete: { key: 'Delete', shift: true, label: 'Delete…' },
 };
 
+/** What a key does on an open review (the Reviews tab). */
+export type ReviewAction = 'prev' | 'next' | 'overview' | 'stories' | 'comments' | 'files';
+
+/**
+ * An open review's keys (the Reviews tab, no session open). Not `c` for the comments: `c` is New worktree everywhere,
+ * so it is `m` (comMents).
+ */
+export const REVIEW_KEYS: Record<ReviewAction, KeyDef> = {
+  prev: { key: '[', label: 'Previous story / comment' },
+  next: { key: ']', label: 'Next story / comment' },
+  overview: { key: 'o', label: 'The overview' },
+  stories: { key: 's', label: 'The stories, one at a time' },
+  comments: { key: 'm', label: 'Walk through the comments' },
+  files: { key: 'f', label: 'Every file in one scroll (Files changed)' },
+};
+
 /** The parts of a key event the handlers read. */
 export interface KeyLike {
   key: string;
@@ -84,6 +106,14 @@ export function sessionActionFor(e: KeyLike): SessionAction | null {
   for (const [action, def] of Object.entries(SESSION_KEYS) as Array<[SessionAction, KeyDef]>) {
     if (def.key === key && !!def.shift === !!e.shiftKey) return action;
   }
+  return null;
+}
+
+/** An open review's action for a key, or null. */
+export function reviewActionFor(e: KeyLike): ReviewAction | null {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  for (const [action, def] of Object.entries(REVIEW_KEYS) as Array<[ReviewAction, KeyDef]>) if (def.key === key) return action;
   return null;
 }
 
@@ -126,7 +156,10 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
         { keys: 'g w', label: 'Start' },
         { keys: 'g j', label: 'Jira' },
         { keys: 'g h', label: 'Time (hours per ticket)' },
+        { keys: 'g v', label: 'Reviews (PRs prepared for you)' },
         { keys: 'g r', label: 'Repos & groups' },
+        { keys: 'g a', label: 'Claude accounts' },
+        { keys: 'g ,', label: 'Settings' },
         { keys: 'g c', label: 'Clean up' },
         { keys: 'g t', label: 'Tasks (open / close)' },
       ],
@@ -144,6 +177,10 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
       title: 'The diff',
       rows: [{ keys: '] / [', label: 'Next / previous comment' }],
     },
+    {
+      title: 'An open review',
+      rows: Object.values(REVIEW_KEYS).map((d) => ({ keys: keyText(d), label: d.label })),
+    },
   ];
 }
 
@@ -156,8 +193,10 @@ export interface SessionActionDetail {
 
 /** What the dashboard does for each of the open session's keys (DashboardApp passes its functions). */
 export interface SessionKeyHandlers {
-  tab: (sub: 'term' | 'diff' | 'pr' | 'code') => void;
+  tab: (sub: 'term' | 'diff' | 'pr' | 'code' | 'branches' | 'review') => void;
   setArchived: (archived: boolean) => void;
+  /** Turn Keep after its PR merges on, or off when it is on. */
+  toggleKeep: () => void;
   snoozeMenu: () => void;
   blockBy: () => void;
   openEditor: () => void;
@@ -184,8 +223,14 @@ export function runSessionKey(action: SessionAction, s: { archived: boolean }, h
       return h.tab('pr');
     case 'tab-code':
       return h.tab('code');
+    case 'tab-branches':
+      return h.tab('branches');
+    case 'tab-review':
+      return h.tab('review');
     case 'archive':
       return h.setArchived(live);
+    case 'keep':
+      return live ? h.toggleKeep() : undefined;
     case 'snooze':
       return live ? h.snoozeMenu() : undefined;
     case 'block':

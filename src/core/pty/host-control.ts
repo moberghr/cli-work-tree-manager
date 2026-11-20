@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
+import { programPath } from '../platform/program-path.js';
 import { ensureHost, probeHostDetailed } from './pty-host-client.js';
 import { hostInfoPath, readHostInfo } from './pty-host-protocol.js';
 import { isPidAlive, killTree } from '../platform/process.js';
@@ -18,13 +19,13 @@ export function commandLineOf(pid: number): Promise<string | null> {
     const done = (err: Error | null, out: string) => resolve(err ? null : out.trim() || null);
     if (process.platform === 'win32')
       execFile(
-        'powershell',
+        programPath('powershell'),
         ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${Math.trunc(pid)}').CommandLine`],
         { windowsHide: true, timeout: 15_000 },
         (err, out) => done(err, String(out)),
       );
     else
-      execFile('ps', ['-o', 'args=', '-p', String(Math.trunc(pid))], { windowsHide: true, timeout: 5000 }, (err, out) =>
+      execFile(programPath('ps'), ['-o', 'args=', '-p', String(Math.trunc(pid))], { windowsHide: true, timeout: 5000 }, (err, out) =>
         done(err, String(out)),
       );
   });

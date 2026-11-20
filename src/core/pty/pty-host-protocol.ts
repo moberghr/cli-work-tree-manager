@@ -23,7 +23,7 @@ export const PROTOCOL_VERSION = 2;
  * `agentEnv`: it applies a spawn's / restart's / resume's `agentEnv` (a session's Claude account); `halt`: halt / resume.
  * A client asks before sending something an older host would silently drop (pty-pool.ts).
  */
-export const HOST_FEATURES = ['agentEnv', 'halt'] as const;
+export const HOST_FEATURES = ['agentEnv', 'halt', 'tickets'] as const;
 export type HostFeature = (typeof HOST_FEATURES)[number];
 
 /** Discovery file: where the running host listens and its auth token. */
@@ -43,9 +43,11 @@ export interface SpawnSpec {
   port?: number;
   cols?: number;
   rows?: number;
-  /** `--unsafe`: the tool's skip-permissions flag. Persisted, so a restore
-   *  comes back with the same permission mode. */
-  unsafe?: boolean;
+  // No `unsafe` any more: every agent starts in its own permission mode. An older client may still send
+  // `unsafe: true`, and a restore list written by an older host may hold it (and its tool an `unsafeFlag`): extra
+  // fields, so no PROTOCOL_VERSION bump. A current host starts nothing from them and drops both when it restores or
+  // restarts a session (pty-registry.ts); for one release legacy-unsafe.ts reads an entry's `unsafe: true` as "an
+  // older host still runs this agent without permission prompts" and keeps its guards (REMOVE IN THE NEXT RELEASE).
   /** `--fresh`: start a new conversation even if one exists. First spawn
    *  only — a restore always continues. */
   fresh?: boolean;

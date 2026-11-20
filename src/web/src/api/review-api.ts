@@ -24,6 +24,8 @@ export interface ReviewApi {
    *  to this api. Dashboard mode filters by sessionId so other sessions'
    *  changes don't trigger a refetch. */
   matchesEvent?: (payload: unknown) => boolean;
+  /** Comments are drafts of a review that goes out as a whole (the Reviews tab): no replies, nothing to resolve. */
+  draftsOnly?: boolean;
 }
 
 async function getJson<T>(path: string): Promise<T> {

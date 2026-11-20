@@ -35,7 +35,12 @@ export function agedWindow(w: UsageWindow, now: number): UsageWindow {
   return { ...w, usedPercent: 0, reset: true };
 }
 
-/** The window closest to its limit across every agent and account, for the top bar. Ties go to the one resetting later. */
+/**
+ * The window closest to its limit, for the top bar: of each agent's account in use — the one new sessions start on
+ * (`isDefault`) — and of every account while none is marked (reported: after moving every session to a second
+ * account and making it the default, the bar still showed the old account's 98%). The panel lists them all. Ties go
+ * to the one resetting later.
+ */
 export function meterWindow(
   agents: AgentUsage[],
   now: number,
@@ -43,7 +48,8 @@ export function meterWindow(
   let best: { agent: string; name: string; account: string; window: UsageWindow } | null = null;
   const resetMs = (w: UsageWindow) => (w.resetsAt === null ? -Infinity : Date.parse(w.resetsAt) || -Infinity);
   for (const a of agents) {
-    for (const acc of a.accounts) {
+    const inUse = a.accounts.filter((x) => x.isDefault);
+    for (const acc of inUse.length ? inUse : a.accounts) {
       for (const raw of acc.windows) {
         const window = agedWindow(raw, now);
         if (
@@ -80,4 +86,22 @@ export function resetPhrase(resetsAt: string | null, now: number): string {
   if (!Number.isFinite(at)) return '';
   const d = new Date(at);
   return at - now < 24 * 3_600_000 ? `resets ${clock(d)}` : `resets ${WEEKDAYS[d.getDay()]} ${clock(d)}`;
+}
+
+/** How long ago, in a few words ("3 min ago"). */
+export function ageText(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+/** An account's last reading in a line ("5-hour limit 42% · Weekly limit 18% · read 3 min ago"); a window past its reset reads 0. */
+export function usageText(reading: Pick<UsageAccount, 'at' | 'windows'> | null | undefined, now: number): string {
+  if (!reading || reading.windows.length === 0) return 'no usage reading yet';
+  const windows = reading.windows.map((w) => `${w.label} ${Math.round(agedWindow(w, now).usedPercent)}%`);
+  const at = Date.parse(reading.at);
+  return [...windows, Number.isFinite(at) ? `read ${ageText(now - at)}` : ''].filter(Boolean).join(' · ');
 }

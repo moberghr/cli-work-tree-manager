@@ -37,7 +37,7 @@ export const blockCommand: CommandModule = {
     } else if (typeof argv.pr === 'string') {
       ref = blockRefFrom({ kind: 'pr', url: argv.pr });
       if (!ref) {
-        console.error(chalk.red(`Not a GitHub pull request URL: ${argv.pr}`));
+        console.error(chalk.red(`Not a pull request link: ${argv.pr}`));
         process.exitCode = 1;
         return;
       }

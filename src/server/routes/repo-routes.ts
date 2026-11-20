@@ -1,5 +1,5 @@
 import type { Context, Hono } from 'hono';
-import crossSpawn from 'cross-spawn';
+import crossSpawn from '../../core/platform/spawn.js';
 import { loadConfig } from '../../core/platform/config.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
 import { loadHistory } from '../../core/sessions/history.js';

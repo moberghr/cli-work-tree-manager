@@ -37,7 +37,8 @@ export function parseLiveClaude(raw: unknown): LiveClaude | null {
     conversationId: sessionId,
     cwd,
     busy: status === 'busy',
-    state: status === 'busy' || status === 'idle' || status === 'waiting' ? status : null,
+    // `shell`: its prompt is free while a background command it started (a build, tests, a dev server) still runs.
+    state: status === 'busy' || status === 'idle' || status === 'waiting' || status === 'shell' ? status : null,
     stateAt: typeof statusUpdatedAt === 'number' ? statusUpdatedAt : null,
     waitingFor: typeof waitingFor === 'string' && waitingFor ? waitingFor : null,
     startedAt: typeof startedAt === 'number' ? startedAt : null,

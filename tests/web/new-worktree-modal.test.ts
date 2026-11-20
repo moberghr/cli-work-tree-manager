@@ -46,9 +46,27 @@ const flush = () =>
   });
 const picker = () => container.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const options = () => [...container.querySelectorAll('[role="option"]')].map((o) => o.firstElementChild!.textContent);
-const type = (el: HTMLInputElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+const type = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
+};
+/** Text typed where the caret is: over the selection, if there is one. */
+const typeAtCaret = (el: HTMLInputElement, text: string) => {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  type(el, el.value.slice(0, start) + text + el.value.slice(end));
+};
+/** A mouse press on `el`; returns the event, to see whether the browser's own handling was prevented. */
+const press = async (el: Element, init: MouseEventInit = {}) => {
+  const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, ...init });
+  await act(async () => void el.dispatchEvent(ev));
+  return ev;
+};
+const pointerDown = (pointerType: string) => {
+  const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'pointerType', { value: pointerType });
+  return ev;
 };
 const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 const submit = () =>
@@ -85,6 +103,56 @@ describe('the project field', () => {
     expect(container.querySelector('[role="listbox"]')).toBeNull();
     await act(async () => void picker().dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
     expect(options().length).toBeGreaterThan(0);
+  });
+
+  it('a click that opens the list selects the name, so typing replaces it; a click in the open list keeps the caret', async () => {
+    await open();
+    await act(async () => picker().focus());
+    picker().setSelectionRange(5, 5); // a caret left at the end
+    const opening = await press(picker());
+    expect(opening.defaultPrevented).toBe(true); // the browser doesn't put its caret over the selection
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([0, 'jobly'.length]);
+    // Typed where the caret is, as a key would: over the selection, or after the name had the click not selected it.
+    await act(async () => typeAtCaret(picker(), 'work'));
+    expect(picker().value).toBe('work');
+    expect(options()).toEqual(['work-tree']);
+    const inside = await press(picker());
+    expect(inside.defaultPrevented).toBe(false);
+  });
+
+  it('a double-click on the name keeps it all selected; once you typed, a double-click is the browser’s', async () => {
+    await open();
+    await act(async () => picker().focus());
+    await press(picker(), { detail: 1 });
+    picker().setSelectionRange(2, 2); // as if the browser had moved the caret meanwhile
+    const second = await press(picker(), { detail: 2 });
+    expect(second.defaultPrevented).toBe(true); // no word selected out of "jobly (group)"
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([0, 'jobly'.length]);
+    await act(async () => typeAtCaret(picker(), 'wo'));
+    expect((await press(picker(), { detail: 2 })).defaultPrevented).toBe(false);
+  });
+
+  it('a right- or middle-click is left to the browser and opens nothing', async () => {
+    await open();
+    await act(async () => picker().focus());
+    picker().setSelectionRange(5, 5);
+    for (const button of [1, 2]) {
+      expect((await press(picker(), { button })).defaultPrevented).toBe(false);
+      expect(container.querySelector('[role="listbox"]')).toBeNull();
+    }
+    expect([picker().selectionStart, picker().selectionEnd]).toEqual([5, 5]);
+  });
+
+  it('a tap is left to the browser (its focus brings the keyboard), and opens the list', async () => {
+    await open();
+    await act(async () => void picker().dispatchEvent(pointerDown('touch')));
+    const tap = await press(picker());
+    expect(tap.defaultPrevented).toBe(false);
+    expect(options().length).toBeGreaterThan(0);
+    // The next mouse press is a mouse's again.
+    await act(async () => key(picker(), 'Escape'));
+    await act(async () => void picker().dispatchEvent(pointerDown('mouse')));
+    expect((await press(picker())).defaultPrevented).toBe(true);
   });
 
   it('type to narrow, ↓ and Enter to pick (not submitting), Escape closes the list but not the dialog', async () => {
@@ -338,6 +406,10 @@ describe('branchNote and moreLabel', () => {
     expect(branchNote(c({ free: null, exists: true }), true)).toMatchObject({ blocks: true });
     expect(branchNote(c({ session: { id: 's', archived: true } }), false)!.text).toContain('restores it');
     expect(branchNote(c({ exists: true }), false)!.text).toContain('checks it out');
+    // The branch the project's own folder is on (reported: "main" was refused as already checked out): it opens that folder.
+    expect(branchNote(c({ branch: 'main', exists: true, ownCheckout: true }), false)).toEqual({
+      text: "main is the branch the project's own folder is on: Create opens it there (no new worktree).",
+    });
     expect(branchNote(c({ valid: false, free: null }), false)).toMatchObject({ blocks: true });
   });
   it('names what a folded More options holds', () => {
@@ -357,7 +429,7 @@ describe('start from a pull request', () => {
     author: 'ana',
   };
   const link = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Start from a pull request…')!;
-  const prInput = () => container.querySelector<HTMLInputElement>('input[placeholder^="https://github.com/"]')!;
+  const prInput = () => container.querySelector<HTMLInputElement>('input[placeholder^="A pull request link"]')!;
 
   it('a link fills in its repo, their branch and a first prompt saying whose branch it is; Create sends them', async () => {
     const findPr = vi.fn(async () => pr);
@@ -419,5 +491,46 @@ describe('start from a pull request', () => {
     await act(async () => type(picker(), 'work'));
     await act(async () => void key(picker(), 'Enter'));
     expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+});
+
+describe('closing on the backdrop', () => {
+  const backdrop = () => container.querySelector<HTMLElement>('[role="dialog"]')!;
+  const prompt = () => container.querySelector('textarea')!;
+  const click = (el: Element) => act(async () => void el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+  it('a press in the dialog let go outside it (a drag over the prompt) keeps it open', async () => {
+    const { onClose } = await open();
+    await act(async () => type(prompt(), 'Add CSV export'));
+    await press(prompt());
+    await click(backdrop()); // the browser sends the click to where press and release meet: the backdrop
+    expect(onClose).not.toHaveBeenCalled();
+    expect(prompt().value).toBe('Add CSV export');
+  });
+
+  it('a click on the backdrop itself closes it', async () => {
+    const { onClose } = await open();
+    await press(backdrop());
+    await click(backdrop());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('no branch name (reported: a session meant for main started on a feature branch the folder was left on)', () => {
+  it('says which branch the project’s own folder is on, only while the field is empty and the project is a repo', async () => {
+    const { ownFolderNote } = await import('../../src/web/src/components/Sidebar/NewWorktreeModal.js');
+    const repo = { name: 'inventhor', kind: 'single' as const, ownBranch: 'feat/access-overview' };
+    expect(ownFolderNote(repo, '')).toBe(
+      'No branch: opens inventhor’s own folder, which is on feat/access-overview now (no new worktree). For another branch, type its name.',
+    );
+    expect(ownFolderNote(repo, '  ')).not.toBeNull();
+    expect(ownFolderNote(repo, 'main')).toBeNull();
+    expect(ownFolderNote({ ...repo, ownBranch: null }, '')).toBe(
+      'No branch: opens inventhor’s own folder as it is (it is on no branch now).',
+    );
+    // An older server says nothing of it; a group needs a name; no project picked yet.
+    expect(ownFolderNote({ name: 'inventhor', kind: 'single' }, '')).toBeNull();
+    expect(ownFolderNote({ name: 'shop', kind: 'group' }, '')).toBeNull();
+    expect(ownFolderNote(undefined, '')).toBeNull();
   });
 });

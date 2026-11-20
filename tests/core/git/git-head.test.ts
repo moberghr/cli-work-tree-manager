@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { branchFromHead, checkedOutBranch } from '../../../src/core/git/git-head.js';
+import { branchFromHead, checkedOutBranch, refShaFromFiles, workingBranch } from '../../../src/core/git/git-head.js';
 import { otherBranches } from '../../../src/core/sessions/session-wire.js';
 
 let tmp: string;
@@ -36,6 +36,38 @@ describe('checkedOutBranch', () => {
     expect(checkedOutBranch(worktree('b', '0123456789abcdef0123456789abcdef01234567\n'))).toBeNull();
     expect(checkedOutBranch(path.join(tmp, 'nope'))).toBeNull();
     expect(branchFromHead('garbage')).toBeNull();
+  });
+});
+
+describe('workingBranch', () => {
+  it('the branch checked out, or mid-rebase (HEAD detached) the one being rebased; else null', () => {
+    expect(workingBranch(worktree('w1', 'ref: refs/heads/feat/x\n'))).toBe('feat/x');
+    const wt = worktree('w2', '0123456789abcdef0123456789abcdef01234567\n');
+    expect(workingBranch(wt)).toBeNull();
+    const gitDir = path.join(tmp, 'repo', '.git', 'worktrees', 'w2');
+    fs.mkdirSync(path.join(gitDir, 'rebase-merge'));
+    fs.writeFileSync(path.join(gitDir, 'rebase-merge', 'head-name'), 'refs/heads/feat/x\n');
+    expect(workingBranch(wt)).toBe('feat/x');
+    expect(checkedOutBranch(wt)).toBeNull(); // the plain reading stays as it was
+  });
+});
+
+describe('refShaFromFiles', () => {
+  it('HEAD through the branch it names, a loose ref, a packed one; null when the files say nothing', () => {
+    const a = 'a'.repeat(40);
+    const b = 'b'.repeat(40);
+    const wt = worktree('r1', 'ref: refs/heads/feat/x\n');
+    const common = path.join(tmp, 'repo', '.git');
+    fs.mkdirSync(path.join(common, 'refs', 'heads', 'feat'), { recursive: true });
+    fs.writeFileSync(path.join(common, 'refs', 'heads', 'feat', 'x'), `${a}\n`);
+    fs.writeFileSync(path.join(common, 'packed-refs'), `# pack-refs with: peeled\n${b} refs/heads/old/one\n`);
+    // A worktree's commondir file, as git writes it.
+    fs.writeFileSync(path.join(common, 'worktrees', 'r1', 'commondir'), '../..\n');
+    expect(refShaFromFiles(wt, 'HEAD')).toBe(a);
+    expect(refShaFromFiles(wt, 'refs/heads/feat/x')).toBe(a);
+    expect(refShaFromFiles(wt, 'refs/heads/old/one')).toBe(b);
+    expect(refShaFromFiles(wt, 'refs/heads/no/such')).toBeNull();
+    expect(refShaFromFiles(worktree('r2', `${b}\n`), 'HEAD')).toBe(b); // detached
   });
 });
 

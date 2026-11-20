@@ -7,8 +7,6 @@ export interface AiToolSpec {
   cmd: string;
   /** Arguments always prepended (from any extra tokens in `aiCommand`). */
   baseArgs: string[];
-  /** Flag injected when `--unsafe` is used. Empty string disables. */
-  unsafeFlag: string;
   /** Flag injected when resuming a prior session. Empty string disables. */
   resumeFlag: string;
   /**
@@ -26,7 +24,6 @@ export interface AiToolSpec {
 }
 
 export interface AiLaunchOpts {
-  unsafe?: boolean;
   resume?: boolean;
   promptFile?: string;
   /** Inline prompt (used by CLI `--prompt`). */
@@ -40,20 +37,17 @@ export interface AiLaunchOpts {
 export const AI_TOOL_PRESETS: Record<
   string,
   {
-    unsafe: string;
     resume: string;
     promptFile: string;
     prompt: string;
   }
 > = {
   claude: {
-    unsafe: '--dangerously-skip-permissions',
     resume: '--continue',
     promptFile: '--prompt-file',
     prompt: '', // positional
   },
   opencode: {
-    unsafe: '', // no equivalent — permissions are configured elsewhere
     resume: '--continue',
     promptFile: '', // no file flag — content gets inlined via promptFlag
     prompt: '--prompt',
@@ -80,7 +74,6 @@ export function getAiTool(config: Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags
   return {
     cmd,
     baseArgs,
-    unsafeFlag: overrides.unsafe ?? preset.unsafe,
     resumeFlag: overrides.resume ?? preset.resume,
     promptFileFlag: overrides.promptFile ?? preset.promptFile,
     promptFlag: overrides.prompt ?? preset.prompt,
@@ -90,7 +83,6 @@ export function getAiTool(config: Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags
 /** Build the final `{ cmd, args }` to spawn for the given launch options. */
 export function buildAiLaunchArgs(tool: AiToolSpec, opts: AiLaunchOpts = {}): { cmd: string; args: string[] } {
   const args = [...tool.baseArgs];
-  if (opts.unsafe && tool.unsafeFlag) args.push(tool.unsafeFlag);
   if (opts.resume && tool.resumeFlag) args.push(tool.resumeFlag);
 
   let inlinePrompt = opts.initialPrompt;

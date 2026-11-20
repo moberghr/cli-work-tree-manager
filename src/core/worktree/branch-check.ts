@@ -7,12 +7,15 @@ import { sessionIdFor } from '../sessions/session-id.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { resolveProjectTarget } from './resolve.js';
 import { firstFreeBranch } from './branch-name.js';
+import { ownsBranch } from './own-checkout.js';
 
 export interface BranchCheckDeps {
   /** A branch of that name in that repo, local or on origin (a tag or a SHA is no clash). */
   branchExists: (repoPath: string, branch: string) => boolean;
   validBranch: (name: string) => boolean;
   sessions: () => WorktreeSession[];
+  /** `branch` is the one the repo's own folder is on (own-checkout.ts). */
+  ownsBranch: (target: string, branch: string, config: WorkConfig) => boolean;
 }
 
 export const realBranchCheckDeps: BranchCheckDeps = {
@@ -22,6 +25,7 @@ export const realBranchCheckDeps: BranchCheckDeps = {
     ),
   validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], os.tmpdir()).exitCode === 0,
   sessions: loadHistory,
+  ownsBranch: (target, branch, config) => ownsBranch(target, branch, config),
 };
 
 /**
@@ -47,5 +51,6 @@ export function checkBranch(target: string, branch: string, config: WorkConfig, 
     exists: repoPaths.some((p) => deps.branchExists(p, branch)),
     session: s ? { id: sessionIdFor(s), archived: !!s.archivedAt } : null,
     free: valid ? firstFreeBranch(branch, taken) : null,
+    ...(deps.ownsBranch(target, branch, config) ? { ownCheckout: true as const } : {}),
   };
 }

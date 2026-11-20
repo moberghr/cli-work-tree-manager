@@ -1,9 +1,14 @@
 import { selectCommentsForLine, useReview } from '../../state/ReviewProvider.js';
 import { Composer } from './Composer.js';
 import { CommentItem } from './CommentItem.js';
+import { HostThreads } from './HostThread.js';
+import { hostThreadsAt, useHostThreads } from '../../state/HostThreads.js';
+import type { PrDiscussionThreadWire } from '../../../../core/api-types.js';
 
 export interface SideContent {
   comments: ReturnType<typeof selectCommentsForLine>;
+  /** The PR's existing threads on its host on this line (the Reviews tab), read only; drawn above the drafts. */
+  hostThreads?: PrDiscussionThreadWire[];
   composerOpen: boolean;
   lineContent: string;
   line: number;
@@ -27,11 +32,13 @@ interface Props {
  */
 export function CommentLineRow({ repo, file, oldLine, oldContent, newLine, newContent }: Props) {
   const review = useReview();
+  const host = useHostThreads();
 
   const left =
     oldLine !== null
       ? {
           comments: selectCommentsForLine(review.comments, repo, file, oldLine, 'left'),
+          hostThreads: hostThreadsAt(host, file, 'left', oldLine),
           composerOpen:
             review.openComposer !== null &&
             review.openComposer.repo === repo &&
@@ -47,6 +54,7 @@ export function CommentLineRow({ repo, file, oldLine, oldContent, newLine, newCo
     newLine !== null
       ? {
           comments: selectCommentsForLine(review.comments, repo, file, newLine, 'right'),
+          hostThreads: hostThreadsAt(host, file, 'right', newLine),
           composerOpen:
             review.openComposer !== null &&
             review.openComposer.repo === repo &&
@@ -59,8 +67,8 @@ export function CommentLineRow({ repo, file, oldLine, oldContent, newLine, newCo
         }
       : null;
 
-  const leftActive = !!left && (left.comments.length > 0 || left.composerOpen);
-  const rightActive = !!right && (right.comments.length > 0 || right.composerOpen);
+  const leftActive = !!left && (left.comments.length > 0 || left.hostThreads.length > 0 || left.composerOpen);
+  const rightActive = !!right && (right.comments.length > 0 || right.hostThreads.length > 0 || right.composerOpen);
   if (!leftActive && !rightActive) return null;
 
   return (
@@ -98,6 +106,7 @@ export function InlineCommentRow({
 }) {
   const review = useReview();
   const comments = selectCommentsForLine(review.comments, repo, file, line, side);
+  const hostThreads = hostThreadsAt(useHostThreads(), file, side, line);
   const composerOpen =
     review.openComposer !== null &&
     review.openComposer.repo === repo &&
@@ -105,10 +114,11 @@ export function InlineCommentRow({
     review.openComposer.line === line &&
     review.openComposer.side === side;
 
-  if (comments.length === 0 && !composerOpen) return null;
+  if (comments.length === 0 && hostThreads.length === 0 && !composerOpen) return null;
 
   const sideContent: SideContent = {
     comments,
+    hostThreads,
     composerOpen,
     lineContent: content,
     line,
@@ -125,8 +135,10 @@ export function InlineCommentRow({
 
 export function SidePanel({ repo, file, side }: { repo: string; file: string; side: SideContent }) {
   const review = useReview();
+  const host = useHostThreads();
   return (
     <div className="wd-comment-list">
+      <HostThreads threads={side.hostThreads ?? []} {...(host?.host ? { host: host.host } : {})} />
       {side.comments.map((c) => (
         <CommentItem key={c.id} comment={c} currentLineContent={side.lineContent} />
       ))}

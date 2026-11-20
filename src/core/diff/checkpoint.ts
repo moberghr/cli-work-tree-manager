@@ -39,6 +39,7 @@ import path from 'node:path';
 import spawn from '../platform/spawn.js';
 import { atomicWriteFile, ensureFile, withFileLock } from '../platform/fs-safe.js';
 import { runGitAsync, writeTempTreeAsync } from './git-tree-snapshot.js';
+import { workingBranch } from '../git/git-head.js';
 
 export interface CheckpointEntry {
   /** Monotonic per-scope sequence id, starting at 0 for the initial
@@ -54,6 +55,16 @@ export interface CheckpointEntry {
    *  commits), the value is null — diff ranges that touch it on the
    *  "from" side fall back to the empty tree. */
   repos: Record<string, string | null>;
+  /** Per repo (keyed as `repos`), the branch checked out when it was taken (null: detached). A turn whose
+   *  branch differs from the one before it crossed a branch switch: its diff is the switch, not a revert.
+   *  Absent on entries from before. */
+  branches?: Record<string, string | null>;
+}
+
+/** Each repo's checked-out branch now (HEAD files, no git). */
+export function branchesOf(repos: ScopeRepo[]): Record<string, string | null> {
+  // In the middle of a rebase, the branch being rebased: a turn that ends on a conflict is still on it.
+  return Object.fromEntries(repos.map((r) => [r.name, workingBranch(r.root)]));
 }
 
 export interface CheckpointManifest {
@@ -257,6 +268,7 @@ export async function takeCheckpoint(
       id: nextId,
       ts: new Date().toISOString(),
       repos: captured,
+      branches: branchesOf(repos),
     };
     const label = opts.label ?? (isFirst ? 'Initial' : undefined);
     if (label) entry.label = label;
@@ -345,6 +357,7 @@ export async function updateCheckpoint(scopeHash: string, repos: ScopeRepo[], id
     }
 
     entry.repos = captured;
+    entry.branches = branchesOf(repos);
     entry.ts = new Date().toISOString();
     delete entry.label; // content changed → re-summarise
     atomicWriteFile(file, JSON.stringify(manifest, null, 2));
@@ -401,6 +414,7 @@ export async function resetBaseline(scopeHash: string, repos: ScopeRepo[]): Prom
       ts: new Date().toISOString(),
       label: 'Initial',
       repos: captured,
+      branches: branchesOf(repos),
     };
     const manifest: CheckpointManifest = {
       version: 1,
@@ -463,6 +477,19 @@ export async function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRe
 }
 
 /**
+ * Whether the repo is on another branch than when the turn was taken (the turn recorded its branches; one from
+ * before didn't: not known, false). A detached HEAD on either side isn't a switch (a rebase is read as its branch,
+ * `workingBranch`; anything else detached can't be told): only branch to branch is, so a rebase onto main still
+ * re-baselines. HEAD files only.
+ */
+export function switchedBranch(turn: Pick<CheckpointEntry, 'branches'>, repo: ScopeRepo): boolean {
+  if (!turn.branches || !(repo.name in turn.branches)) return false;
+  const was = turn.branches[repo.name];
+  const now = workingBranch(repo.root);
+  return !!was && !!now && was !== now;
+}
+
+/**
  * A session's scope keeps its turns across its own commits, but not across
  * a HEAD move that brought in work the session didn't do: the next turn,
  * diffed against the one before, would show all of it as Claude's. Since the
@@ -488,6 +515,10 @@ export async function headBroughtInOtherWork(scopeHash: string, repos: ScopeRepo
   const broughtIn = async (repo: ScopeRepo): Promise<boolean> => {
     const snap = newest.repos[repo.name];
     if (!snap) return false;
+    // Another branch checked out since (Claude moved on to a new branch, or back to an old one): the session's
+    // own history goes on — the next turn is marked as the switch (`branchSwitch`), never taken for Claude's work.
+    // Starting over here wiped every turn of a session that worked on more than one branch.
+    if (switchedBranch(newest, repo)) return false;
     const was = await run(repo.root, ['rev-parse', '--verify', '--quiet', `${snap}^`]);
     const now = await run(repo.root, ['rev-parse', '--verify', '--quiet', 'HEAD']);
     if (!was.ok || !now.ok || !was.out || was.out === now.out) return false;

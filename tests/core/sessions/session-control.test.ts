@@ -9,6 +9,7 @@ import {
   type SendDeps,
   type TurnStatus,
 } from '../../../src/core/sessions/session-control.js';
+import { stillUnsafeMessage } from '../../../src/core/sessions/legacy-unsafe.js';
 
 /** Driving a session from outside its terminal: the policy (session-control.ts), with its I/O faked. */
 
@@ -21,7 +22,6 @@ const deps = (over: Partial<SendDeps> = {}, delivered: 'typed' | 'next-turn' | n
     runningOutside: () => false,
     start: vi.fn(async () => true),
     state: () => 'idle',
-    unsafe: () => false,
     archived: () => false,
     ...over,
   };
@@ -42,6 +42,15 @@ describe('sendToSession', () => {
     expect(await sendToSession('s', 'x', deps({ hostRuns: () => true }, null))).toMatchObject({ how: 'next-turn' });
   });
 
+  it('an agent still running as started --unsafe before the retirement is refused, nothing posted (remove next release)', async () => {
+    const d = deps({ stillUnsafe: (id) => (id === 's' ? 'old-host' : null), hostRuns: () => true });
+    expect(await sendToSession('s', 'Run the tests', d)).toEqual({ ok: false, status: 409, error: stillUnsafeMessage('old-host') });
+    expect(stillUnsafeMessage('old-host')).toContain('run `work pty-host --restart`');
+    expect(d.posted).toEqual([]);
+    expect(d.start).not.toHaveBeenCalled();
+    expect(await sendToSession('t', 'x', d)).toMatchObject({ ok: true });
+  });
+
   it('running in a terminal outside work: queued for its next turn there, nothing started', async () => {
     const d = deps({ runningOutside: () => true });
     expect(await sendToSession('s', 'x', d)).toMatchObject({ ok: true, how: 'outside' });
@@ -59,7 +68,7 @@ describe('sendToSession', () => {
     });
   });
 
-  it('refused: empty, too long, archived — and a session with permission checks off, unless forced', async () => {
+  it('refused: empty, too long, archived', async () => {
     expect(await sendToSession('s', '   ', deps())).toMatchObject({ ok: false, status: 400 });
     expect(await sendToSession('s', 'x'.repeat(MAX_SEND_CHARS + 1), deps())).toMatchObject({ ok: false, status: 400 });
     expect(await sendToSession('s', 'x', deps({ archived: () => true }))).toMatchObject({
@@ -67,10 +76,6 @@ describe('sendToSession', () => {
       status: 409,
       error: expect.stringContaining('archived'),
     });
-    const unsafe = deps({ unsafe: () => true });
-    expect(await sendToSession('s', 'x', unsafe)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('--unsafe') });
-    expect(unsafe.posted).toEqual([]); // nothing queued
-    expect(await sendToSession('s', 'x', unsafe, { force: true })).toMatchObject({ ok: true });
   });
 
   it('says how in a line', () => {

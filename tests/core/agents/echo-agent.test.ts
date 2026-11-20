@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentAdapter, ConversationEntry, WorkHook } from '../../../src/core/agents/types.js';
+import type { AgentAdapter, ConversationEntry } from '../../../src/core/agents/types.js';
 import { typeThenEnter } from '../../../src/core/agents/typing.js';
 
 /**
@@ -21,7 +21,6 @@ let removeAgent: () => void;
 /** The echo agent keeps a conversation per folder in ~/.echo/<folder name>/<n>.jsonl: {t, who, text, used?}. */
 const echoDir = (cwd: string) => path.join(home, '.echo', path.basename(cwd));
 const running: Array<{ pid: number; cwd: string }> = [];
-const installed: WorkHook[] = [];
 
 function echoAgent(): AgentAdapter {
   return {
@@ -31,7 +30,6 @@ function echoAgent(): AgentAdapter {
       tool: () => ({
         cmd: 'echo-agent',
         baseArgs: [],
-        unsafeFlag: '--yolo',
         resumeFlag: '--again',
         promptFileFlag: '',
         promptFlag: '--say',
@@ -42,6 +40,8 @@ function echoAgent(): AgentAdapter {
         const { ECHO_PARENT: _p, ...rest } = env;
         return rest;
       },
+      // work's hooks for this process alone, its way.
+      sessionTool: (tool) => ({ ...tool, baseArgs: ['--hooks', 'turn-start,turn-end,notify', ...tool.baseArgs] }),
     },
     conversation: {
       files: (s) =>
@@ -63,8 +63,8 @@ function echoAgent(): AgentAdapter {
       read: () => [],
     },
     events: {
-      install: async (hooks) => void installed.push(...hooks),
-      removeSync: () => void installed.splice(0),
+      removeInstalled: async () => {},
+      bridge: async () => {},
       read: (edge, payload) => {
         const p = payload as { dir?: string; said?: string };
         return {
@@ -112,7 +112,6 @@ beforeEach(async () => {
   const { registerAgent } = await import('../../../src/core/agents/index.js');
   removeAgent = registerAgent(echoAgent());
   running.splice(0);
-  installed.splice(0);
   // Its conversation: a prompt, its answer (with usage), 3 minutes apart.
   fs.mkdirSync(echoDir(wt), { recursive: true });
   const now = Date.now();
@@ -165,10 +164,13 @@ describe('a session on the echo agent, through the real modules — no Claude an
     await upsertSession('api', false, 'feat/x', [wt]);
     const s = loadHistory()[0];
 
-    // work web installs work's hooks into it too.
-    const { installAgentHooks } = await import('../../../src/commands/web.js');
-    await installAgentHooks(false);
-    expect(installed.map((h) => h.edge)).toEqual(['turn-start', 'turn-end', 'notify']);
+    // A session's process carries work's hooks its way (`launch.sessionTool`; the PTY host finds the agent by the
+    // command its spec names, as for resuming).
+    const { sessionToolFor } = await import('../../../src/core/agents/index.js');
+    expect(sessionToolFor({ cmd: 'echo', baseArgs: [], resumeFlag: '', promptFileFlag: '', promptFlag: '' }).baseArgs).toEqual([
+      '--hooks',
+      'turn-start,turn-end,notify',
+    ]);
 
     // A hook it ran, read its way; a pending note handed over its way.
     const { statusEventFor, computeHookOutput } = await import('../../../src/commands/hook.js');

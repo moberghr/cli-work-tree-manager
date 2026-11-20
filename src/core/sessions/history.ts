@@ -191,6 +191,19 @@ export function touchSession(target: string, branch: string): void {
   });
 }
 
+/**
+ * Drops the row's `launchedUnsafe` from before `--unsafe` was retired. Called through `clearLaunchedUnsafeWhenIdle`
+ * (legacy-unsafe-io.ts), which leaves it while an agent of the session still runs anywhere. REMOVE IN THE NEXT RELEASE.
+ */
+export function clearLaunchedUnsafe(target: string, branch: string): void {
+  tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s || s.launchedUnsafe === undefined) return;
+    delete s.launchedUnsafe;
+    putRow(d, s);
+  });
+}
+
 export async function upsertSession(
   target: string,
   isGroup: boolean,
@@ -322,24 +335,18 @@ export async function upsertSessionWithPort(
   return tx((d) => ({ port: write(d, undefined) }));
 }
 
-/** Record how the AI tool was just launched for this session. */
-export function recordLaunch(target: string, branch: string, opts: { unsafe: boolean }): void {
-  tx((d) => {
-    const s = getRow(d, target, branch);
-    if (!s) return;
-    if (opts.unsafe) s.launchedUnsafe = true;
-    else delete s.launchedUnsafe;
-    putRow(d, s);
-  });
-}
-
 /** Archive / un-archive a session. Returns false when it doesn't exist. */
 export async function setSessionArchived(target: string, branch: string, archived: boolean): Promise<boolean> {
   return tx((d) => {
     const s = getRow(d, target, branch);
     if (!s) return false;
     if (archived) s.archivedAt = new Date().toISOString();
-    else delete s.archivedAt;
+    else {
+      // A Restore is entering it: the PR watch's "merged after you last entered" must not read it as left since
+      // before the merge (reported: a restored session was archived again by the next sweep).
+      delete s.archivedAt;
+      s.lastAccessedAt = new Date().toISOString();
+    }
     putRow(d, s);
     return true;
   });
@@ -353,6 +360,18 @@ export async function setSessionTitle(target: string, branch: string, title: str
     const t = title.trim().slice(0, 120);
     if (t) s.title = t;
     else delete s.title;
+    putRow(d, s);
+    return true;
+  });
+}
+
+/** Keep a session once its PR merges, or go back to archiving it then: in one transaction. False for an unknown session. */
+export async function setSessionKeep(target: string, branch: string, keep: boolean): Promise<boolean> {
+  return tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s) return false;
+    if (keep) s.keepAfterMerge = true;
+    else delete s.keepAfterMerge;
     putRow(d, s);
     return true;
   });

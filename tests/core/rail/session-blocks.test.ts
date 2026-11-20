@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { blockerDone, blockKey, prUrl, unblockedPrompt } from '../../../src/core/rail/blocks.js';
-import { addBlocker, allBlocks, readBlock, removeBlocker, sweepBlocks } from '../../../src/core/rail/session-blocks.js';
+import { addBlocker, allBlocks, blockedPrState, readBlock, removeBlocker, sweepBlocks } from '../../../src/core/rail/session-blocks.js';
 import { mountBlockRoutes } from '../../../src/server/routes/block-routes.js';
 import { inboxRank } from '../../../src/core/status/attention.js';
 import { removeSession, saveHistory } from '../../../src/core/sessions/history.js';
@@ -114,5 +114,37 @@ describe('the store and the sweep', () => {
     expect(readBlock(ida)?.by.map((x) => x.kind)).toEqual(['session']);
     await removeSession(a.target, a.branch);
     expect(readBlock(ida)).toBeNull();
+  });
+});
+
+describe('blockedPrState: a blocker PR asked of its own host (#63 review F006)', () => {
+  const URL = 'https://github.com/acme/api/pull/12';
+  const runner = (r: { code: number; stdout?: string; stderr?: string }) =>
+    vi.fn(async (_cmd: string, _args: string[], _cwd: string) => ({ code: r.code, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }));
+
+  it("GitHub's link: gh pr view with argv only, and its state", async () => {
+    const run = runner({ code: 0, stdout: 'MERGED\n' });
+    expect(await blockedPrState(URL, run)).toEqual({ state: 'MERGED' });
+    expect(run.mock.calls[0].slice(0, 2)).toEqual(['gh', ['pr', 'view', URL, '--json', 'state', '-q', '.state']]);
+    expect(await blockedPrState(URL, runner({ code: 0, stdout: 'OPEN' }))).toEqual({ state: 'OPEN' });
+  });
+
+  it("GitHub's API limit is seen wherever gh says it, not only on stderr's first line: the sweep rests", async () => {
+    const said = 'warning: something first\nGraphQL: API rate limit exceeded for user ID 1.\n';
+    expect(await blockedPrState(URL, runner({ code: 1, stderr: said }))).toEqual({ rateLimited: true, host: 'GitHub' });
+  });
+
+  it("any other failure, an answer it can't read, or a link no host reads: null (asked again next sweep)", async () => {
+    expect(await blockedPrState(URL, runner({ code: 1, stderr: 'HTTP 404: Not Found' }))).toBeNull();
+    expect(await blockedPrState(URL, runner({ code: 0, stdout: 'DRAFTY' }))).toBeNull();
+    const run = runner({ code: 0, stdout: 'MERGED' });
+    expect(await blockedPrState('https://example.com/not/a/pr', run)).toBeNull();
+    expect(run).not.toHaveBeenCalled();
+    expect(
+      await blockedPrState(
+        URL,
+        vi.fn(async () => Promise.reject(new Error('spawn failed'))),
+      ),
+    ).toBeNull();
   });
 });

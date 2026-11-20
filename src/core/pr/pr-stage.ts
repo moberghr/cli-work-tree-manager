@@ -20,7 +20,12 @@ export interface StagePr {
   headSha: string;
   /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or '' when the repo requires no review. */
   reviewDecision?: string;
+  /** When it merged (ISO), when it did. */
+  mergedAt?: string;
 }
+
+/** How long another branch's merged PR goes on showing under a session (the PR tab's "earlier"). */
+export const EARLIER_SHOWN_MS = 30 * 24 * 3600_000;
 
 export type PrStageKind =
   'draft' | 'in_review' | 'checks_running' | 'checks_failing' | 'changes' | 'conflict' | 'approved' | 'ready' | 'merged' | 'closed';
@@ -89,8 +94,13 @@ const RANK: Record<PrStageKind, number> = {
  * A session's stage from its repos' PRs: the most pressing open one; `ready`
  * only when every open PR is. Merged when every PR merged; null with no PR.
  */
-export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | null }>): PrStage | null {
-  const withPr = repos.filter((r): r is { name: string; pr: StagePr } => !!r.pr);
+export function prStageOf(
+  repos: ReadonlyArray<{ name: string; pr: StagePr | null; also?: ReadonlyArray<{ pr: StagePr }> }>,
+): PrStage | null {
+  // A repo's other open PRs (stageRepos' `also`: other branches it worked on) count as its own.
+  const withPr = repos.flatMap((r) =>
+    r.pr ? [{ name: r.name, pr: r.pr }, ...(r.also ?? []).map((a) => ({ name: r.name, pr: a.pr }))] : [],
+  );
   if (!withPr.length) return null;
   const open = withPr.filter((r) => r.pr.state === 'OPEN');
   const shown = open.length ? open : withPr;
@@ -121,6 +131,43 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
     prs,
     key: `${kind}:${shown.map((r) => `${r.name}@${r.pr.headSha}`).join(',')}`,
   };
+}
+
+/**
+ * Per repo, the PRs its stage reads, across the branches it worked on (session-branches.ts: Claude may have
+ * moved on after a PR merged, to a new branch and a new PR): `pr` the newest open one, else the checked-out
+ * branch's own whatever its state — never another branch's merged or closed one (reported: a repo's own checkout on
+ * main read "PR #55 · merged", from a branch it was on a month before); `also` every other open one, newest first — a
+ * session that opened PRs from two branches of one repo shows both. `earlier`: the merged and closed rest, newest
+ * first, those merged over `EARLIER_SHOWN_MS` ago left out — the PR tab folds them under it ("earlier: #3592
+ * merged"), and they drop out of the stage's pills. Pure.
+ */
+export function stageRepos<P extends StagePr>(
+  repos: ReadonlyArray<{ name: string; pr: P | null; branch?: string; otherPrs?: ReadonlyArray<{ branch: string; pr: P }> }>,
+  now: number = Date.now(),
+): Array<{
+  name: string;
+  pr: P | null;
+  branch?: string;
+  also: Array<{ branch?: string; pr: P }>;
+  earlier: Array<{ branch?: string; pr: P }>;
+}> {
+  return repos.map((r) => {
+    const all: Array<{ branch?: string; pr: P }> = [
+      ...(r.pr ? [{ ...(r.branch ? { branch: r.branch } : {}), pr: r.pr }] : []),
+      ...(r.otherPrs ?? []).filter((o) => !r.pr || o.pr.url !== r.pr.url),
+    ];
+    const open = all.filter((x) => x.pr.state === 'OPEN').sort((a, b) => b.pr.number - a.pr.number);
+    const chosen = open[0] ?? all.find((x) => x.pr === r.pr) ?? null;
+    const recent = (x: { pr: P }) => !x.pr.mergedAt || now - Date.parse(x.pr.mergedAt) < EARLIER_SHOWN_MS;
+    return {
+      name: r.name,
+      pr: chosen?.pr ?? null,
+      ...(chosen?.branch ? { branch: chosen.branch } : {}),
+      also: open.filter((x) => x !== chosen),
+      earlier: all.filter((x) => x !== chosen && x.pr.state !== 'OPEN' && recent(x)).sort((a, b) => b.pr.number - a.pr.number),
+    };
+  });
 }
 
 /** A stage in a word or two, for one PR's pill: "waiting for review", "ready to merge"… */

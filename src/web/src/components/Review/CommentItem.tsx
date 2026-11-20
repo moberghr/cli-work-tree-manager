@@ -127,10 +127,12 @@ export function CommentItem({ comment, currentLineContent }: Props) {
           <Markdown source={comment.body} />
         </div>
         <div className="wd-comment-actions">
-          <button type="button" className="wd-comment-btn" onClick={() => review.openReplyAt(replyParentId)}>
-            Reply
-          </button>
-          {!isReply && (
+          {!review.draftsOnly && (
+            <button type="button" className="wd-comment-btn" onClick={() => review.openReplyAt(replyParentId)}>
+              Reply
+            </button>
+          )}
+          {!isReply && !review.draftsOnly && (
             <button
               type="button"
               className={'wd-comment-btn' + (isResolved ? '' : ' wd-comment-btn-resolve')}

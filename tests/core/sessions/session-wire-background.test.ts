@@ -22,7 +22,12 @@ vi.mock('../../../src/core/sessions/session-meta.js', () => ({
 vi.mock('../../../src/core/conversations/context-usage.js', () => ({ readContextUsage: () => null }));
 
 // The session's agent: Claude's, but with its background lookup answered here (`work` decides what it says).
-const background = vi.hoisted(() => ({ answer: null as { what: string | null } | null, asked: [] as number[] }));
+const background = vi.hoisted(() => ({
+  answer: null as { what: string | null } | null,
+  asked: [] as number[],
+  /** The background commands its conversation has running; null: the read throws. */
+  commands: [] as string[] | null,
+}));
 vi.mock('../../../src/core/agents/index.js', async (orig) => {
   const real = await orig<typeof import('../../../src/core/agents/index.js')>();
   return {
@@ -34,6 +39,10 @@ vi.mock('../../../src/core/agents/index.js', async (orig) => {
         conversation: a.conversation && {
           ...a.conversation,
           backgroundWorkSince: (_s: WorktreeSession, ms: number) => (background.asked.push(ms), background.answer),
+          backgroundCommandNames: () => {
+            if (background.commands === null) throw new Error('transcript unreadable');
+            return background.commands;
+          },
         },
       };
     },
@@ -67,5 +76,28 @@ describe('sessionWire: In background', () => {
     const row = sessionWire(s, { claudesFor: () => busy, liveKnown: true });
     expect(row.attention?.state).toBe('idle');
     expect(row.attention).not.toHaveProperty('background');
+  });
+
+  it('Claude Code says `shell`: idle, marked with the background command its conversation has running', () => {
+    const shell = { ...busy, busy: false, state: 'shell' as const };
+    background.commands = ['Run the backend tests'];
+    expect(sessionWire(s, { claudesFor: () => shell, liveKnown: true }).attention).toMatchObject({
+      state: 'idle',
+      background: { what: 'Run the backend tests', command: true },
+    });
+    // A conversation that can't be read still says In background, with no name.
+    background.commands = null;
+    expect(sessionWire(s, { claudesFor: () => shell, liveKnown: true }).attention).toMatchObject({
+      state: 'idle',
+      background: { what: null, command: true },
+    });
+  });
+});
+
+describe('sessionWire: kept after its PR merges', () => {
+  it('says so for a live session you asked to keep, and for no other', () => {
+    expect(sessionWire({ ...s, keepAfterMerge: true }, {}).keepAfterMerge).toBe(true);
+    expect(sessionWire(s, {})).not.toHaveProperty('keepAfterMerge');
+    expect(sessionWire({ ...s, keepAfterMerge: true, archivedAt: ended }, {})).not.toHaveProperty('keepAfterMerge');
   });
 });

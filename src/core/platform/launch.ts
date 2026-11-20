@@ -2,6 +2,7 @@ import spawn from './spawn.js';
 import { detachHere } from './process.js';
 import { applyEnvDelta, hasEnvDelta, type EnvDelta } from './env-delta.js';
 import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-launcher.js';
+import { launchFor } from './batch-launch.js';
 
 /** Get the platform-appropriate default editor. */
 export function getEditor(): string {
@@ -12,7 +13,8 @@ export function getEditor(): string {
 export function openInEditor(filePath: string): void {
   const editor = getEditor();
   // This terminal's (vi) or a window of its own (notepad): to be seen.
-  spawn.sync(editor, [filePath], { stdio: 'inherit', windowsHide: false });
+  // Not a tool run: the editor keeps cmd.exe's usual lookup for its own terminals (spawn.ts `keepCwdLookup`).
+  spawn.sync(editor, [filePath], { stdio: 'inherit', windowsHide: false, keepCwdLookup: true });
 }
 
 /** Open a URL in the default browser. */
@@ -20,7 +22,7 @@ export function openUrl(url: string): void {
   const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   // `cmd /c start` is a console program: hidden, or a window flashes before the browser opens.
-  spawn(cmd, args, { stdio: 'ignore', detached: detachHere(), windowsHide: true }).unref();
+  spawn(cmd, args, { stdio: 'ignore', detached: detachHere(), windowsHide: true, keepCwdLookup: true }).unref();
 }
 
 /** VS Code and the editors built on it: the folder, then `--goto file:line`, opens the file at its line in that folder's window. */
@@ -47,7 +49,8 @@ export function editorArgs(editor: string, folder: string, file?: { path: string
 
 /** Open VS Code in the given directory. */
 export function openVSCode(dir: string): void {
-  spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit', windowsHide: false }); // the editor's window is the point
+  // The editor's window is the point; its terminals and tasks keep cmd.exe's usual lookup (spawn.ts `keepCwdLookup`).
+  spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit', windowsHide: false, keepCwdLookup: true });
 }
 
 /**
@@ -66,5 +69,9 @@ export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {},
   const spawnOpts: Parameters<typeof spawn.sync>[2] =
     // The AI tool runs in this terminal: nothing to hide.
     env ? { cwd, stdio: 'inherit', windowsHide: false, env: env as NodeJS.ProcessEnv } : { cwd, stdio: 'inherit', windowsHide: false };
-  spawn.sync(cmd, args, spawnOpts);
+  // Windows: npm's claude.cmd is skipped for node on its script, and another batch file never gets a prompt
+  // cmd.exe would act on (`&`, `%`, quotes, a line break that cuts the rest): refused, said why (batch-launch.ts).
+  const launch = launchFor(cmd, args, { env: env ?? process.env });
+  if ('refused' in launch) throw new Error(`${launch.refused} (give it the prompt in its terminal instead)`);
+  spawn.sync(launch.cmd, launch.args, spawnOpts);
 }

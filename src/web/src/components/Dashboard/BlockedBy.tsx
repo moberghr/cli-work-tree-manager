@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { addBlocker, removeBlocker, type SessionSummary } from '../../api/client.js';
 import { prUrl } from '../../../../core/rail/blocks.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 /**
  * In the session strip: what this session waits on (core/session-blocks.ts) —
@@ -87,13 +88,16 @@ export function BlockedByDialog({
       setBusy(false);
     }
   };
+  const backdrop = useBackdropClose(() => !busy && onClose());
+
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label="Blocked by"
-      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
     >
       <form
         className="wd-modal"
@@ -127,15 +131,9 @@ export function BlockedByDialog({
           </label>
           <label className="wd-modal-row">
             <span>…or a pull request</span>
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://github.com/org/repo/pull/12"
-              disabled={busy}
-            />
+            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="A pull request link" disabled={busy} />
           </label>
-          {url.trim() && !pr && <p className="wd-modal-error">Not a GitHub pull request URL.</p>}
+          {url.trim() && !pr && <p className="wd-modal-error">Not a pull request link of a git host work knows.</p>}
           {error && (
             <p className="wd-modal-error" role="alert">
               {error}

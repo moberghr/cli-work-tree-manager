@@ -52,6 +52,16 @@ const h = vi.hoisted(() => {
       this.writes.push(typeof data === 'string' ? data : String.fromCharCode(...data));
       cb?.();
     }
+    // A frame drawn (the latency meter's "on screen"); tests call it to draw one.
+    renderCb: (() => void) | null = null;
+    onRender(cb: () => void) {
+      this.renderCb = cb;
+      return {
+        dispose: () => {
+          this.renderCb = null;
+        },
+      };
+    }
     onData(cb: (d: string) => void) {
       this.dataCb = cb;
       return {
@@ -135,6 +145,15 @@ vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: h.FakeWebgl }));
 vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: class {} }));
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
+// The tab's own connection, straight from its relay address (terminal-socket.ts has its own tests: the ticket, the
+// direct connection to the PTY host, the fallback): these drive the socket as the relay's.
+vi.mock('../../src/web/src/api/terminal-socket.js', () => ({
+  openTerminalSocket: (_id: string, opts: { relayUrl: string }) => {
+    const ws = new (globalThis as unknown as { WebSocket: new (url: string) => WebSocket }).WebSocket(opts.relayUrl);
+    Object.defineProperty(ws, 'route', { value: 'relay' });
+    return ws;
+  },
+}));
 
 // ---- WebSocket fake ----------------------------------------------------------
 
@@ -272,6 +291,44 @@ describe('PtyView', () => {
     ws.serverOpen();
     act(() => ws.binary('hello'));
     expect(term.writes).toContain('hello');
+  });
+
+  it("the corner shows when a keystroke's echo was on screen — its first frame, not the spinner's after it — and the debug log gets it", () => {
+    vi.useFakeTimers();
+    let clock = 1_000;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 204 }));
+    try {
+      const { ws, term } = mount();
+      ws.serverOpen();
+      act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
+      act(() => term.type('a'));
+      clock += 29;
+      act(() => ws.binary('a')); // the echo: arrived after 29 ms
+      clock += 50;
+      act(() => term.renderCb?.()); // drawn 79 ms after the key
+      clock += 100;
+      act(() => ws.binary('spinner'));
+      act(() => term.renderCb?.()); // a working Claude's spinner: not the key's
+      clock += 600;
+      act(() => {
+        vi.advanceTimersByTime(600); // the corner's half second is up
+      });
+      const badge = container.querySelector('.wd-pty-latency')!;
+      expect(badge.textContent).toBe('⌁ 79 ms');
+      expect(badge.getAttribute('title')).toContain('its echo arrived in 29 ms');
+      expect(badge.getAttribute('title')).toContain('it was on screen in 79 ms');
+      act(() => {
+        vi.advanceTimersByTime(10_000); // the next send to the debug log
+      });
+      const sent = fetchMock.mock.calls.find(([url]) => url === '/api/terminal-perf');
+      expect(sent).toBeDefined();
+      expect(JSON.parse(String(sent![1]!.body))).toMatchObject({ sessionId: 's1', keys: [{ arrived: 29, shown: 79 }], stalls: [] });
+    } finally {
+      fetchMock.mockRestore();
+      now.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('on exit prints a message; Enter restarts with a new socket, other keys are ignored', () => {

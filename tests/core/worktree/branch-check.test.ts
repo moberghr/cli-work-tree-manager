@@ -24,8 +24,9 @@ const session = (target: string, branch: string, archivedAt?: string): WorktreeS
   }) as WorktreeSession;
 
 /** Branches by repo path, and the sessions there are. */
-function deps(branches: Record<string, string[]>, sessions: WorktreeSession[] = []): BranchCheckDeps {
+function deps(branches: Record<string, string[]>, sessions: WorktreeSession[] = [], own: Record<string, string> = {}): BranchCheckDeps {
   return {
+    ownsBranch: (target, b) => own[target] === b,
     branchExists: (repo, b) => (branches[repo] ?? []).includes(b),
     validBranch: (b) => !b.startsWith('-') && !b.endsWith('/') && !b.includes(' '),
     sessions: () => sessions,
@@ -69,5 +70,14 @@ describe('firstFreeBranch', () => {
   it('stops at -9', () => {
     expect(firstFreeBranch('b', () => true)).toBeNull();
     expect(firstFreeBranch('b', (n) => n !== 'b-9')).toBe('b-9');
+  });
+});
+
+describe('the branch the project’s own folder is on', () => {
+  it('is said so (Create opens that folder), and no other branch is', () => {
+    const config = { worktreesRoot: '/wt', repos: { api: '/repos/api' }, groups: {}, copyFiles: [] };
+    const d = deps({ '/repos/api': ['main'] }, [], { api: 'main' });
+    expect(checkBranch('api', 'main', config, d)).toMatchObject({ exists: true, ownCheckout: true });
+    expect(checkBranch('api', 'feat/x', config, d)).not.toHaveProperty('ownCheckout');
   });
 });

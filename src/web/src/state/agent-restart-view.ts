@@ -74,3 +74,32 @@ export function queuedText(w: AgentsWire): string | null {
 export function restartSummary(r: RestartWire): string {
   return restartCountsText({ restarted: r.now.length, later: r.later.length, failed: r.failed.length, firstError: r.failed[0]?.error });
 }
+
+/**
+ * What a session's own "Restart Claude" says once asked (reported: an MCP server added to an account didn't show in
+ * a running session, and the way out was a second terminal with `claude --continue`): restarted now, after its
+ * turn, or why not. Pure.
+ */
+export function restartNote(r: Pick<RestartWire, 'now' | 'later' | 'failed'>, sessionId: string): { text: string; error?: boolean } {
+  const failed = r.failed.find((f) => f.id === sessionId);
+  if (failed) return { text: `Couldn’t restart its Claude: ${failed.error}`, error: true };
+  if (r.later.includes(sessionId)) return { text: 'It is working or waiting on you: its Claude restarts when this turn ends.' };
+  if (r.now.includes(sessionId))
+    return { text: 'Its Claude restarted: the conversation goes on, with its settings, MCP servers and plugins read again.' };
+  return { text: 'Its Claude is not running: it starts fresh when you open its terminal.' };
+}
+
+/**
+ * What "Restart all Claudes" says once asked (reported: turning a plugin off, or any change to Claude's own setup,
+ * reached no running session until each was restarted by hand): how many restarted, how many wait for their turn,
+ * and the first that couldn't. Pure.
+ */
+export function restartAllNote(r: Pick<RestartWire, 'now' | 'later' | 'failed'>): { text: string; error?: boolean } {
+  const text = restartCountsText({
+    restarted: r.now.length,
+    later: r.later.length,
+    failed: r.failed.length,
+    ...(r.failed[0] ? { firstError: r.failed[0].error } : {}),
+  });
+  return { text, ...(r.failed.length && !r.now.length && !r.later.length ? { error: true } : {}) };
+}

@@ -12,6 +12,8 @@ interface Props {
   /** Served by the dev server: a DEV badge on the top bar. */
   dev?: boolean;
   route: DashboardRoute;
+  /** The session rail folded away (the Reviews tab's toggle): the main slot takes the width. */
+  railFolded?: boolean;
   sessions: SessionSummary[];
   onSelectTab: (tab: DashboardRoute['tab']) => void;
   onSelectSession: (id: string) => void;
@@ -61,6 +63,7 @@ interface Props {
 export function DashboardLayout({
   dev = false,
   route,
+  railFolded = false,
   sessions,
   onSelectTab,
   onSelectSession,
@@ -121,7 +124,7 @@ export function DashboardLayout({
       />
       <div
         ref={bodyRef}
-        className={'wd-dash-body' + (railOpen ? ' wd-dash-rail-open' : '')}
+        className={'wd-dash-body' + (railOpen ? ' wd-dash-rail-open' : '') + (railFolded ? ' wd-dash-rail-folded' : '')}
         style={{ [RAIL_SPEC.cssVar as string]: `${railWidth}px` }}
       >
         {railOpen && <div className="wd-dash-rail-backdrop" onClick={() => setRailOpen(false)} aria-hidden />}

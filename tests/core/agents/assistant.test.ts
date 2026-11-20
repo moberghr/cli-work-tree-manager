@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { workCommand } from '../../../src/core/platform/work-command.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import {
@@ -11,6 +12,7 @@ import {
   prepareAssistantDir,
   assistantContextDay,
   assistantContextMonth,
+  assistantContextReview,
   readAssistantContext,
   writeAssistantContext,
 } from '../../../src/core/agents/assistant.js';
@@ -54,9 +56,11 @@ describe('the assistant folder', () => {
     expect(dir).toBe(path.join(home, '.work', 'assistant'));
     expect(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf-8')).toContain('work sessions --json');
     const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf-8'));
+    // Run by the work that wrote it, by its path — never whatever `work` PATH finds first.
     expect(settings.hooks).toEqual({
-      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'work hook assistant-context', timeout: 5 }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: workCommand(['hook', 'assistant-context']), timeout: 5 }] }],
     });
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).not.toMatch(/^work /);
     expect(settings.permissions.allow).toEqual(ASSISTANT_ALLOW.map(claudeAllowRule));
     expect(settings.permissions.allow).toContain('Bash(work sessions:*)');
     expect(settings.permissions.allow).toContain('Bash(work cleanup --json)');
@@ -276,5 +280,35 @@ describe('POST /api/assistant/context', () => {
     expect(assistantContextMonth()).toBeNull();
     await post({ tab: 'sessions', month: '2026-10' }); // another tab: no month
     expect(assistantContextMonth()).toBeNull();
+  });
+  it('on the Reviews tab: only which PR is kept; its review is described as it is at each prompt (a re-prepare or submit shows at once)', async () => {
+    const app = new Hono();
+    mountAssistantRoutes(app);
+    const post = (body: unknown) =>
+      app.request('/api/assistant/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const { writeReview, updateReview } = await import('../../../src/core/review/review-store.js');
+    const { demoReview } = await import('../../../src/server/demo/demo-reviews.js');
+    const { describeReviewNow } = await import('../../../src/core/review/review-now.js');
+    await post({ tab: 'reviews', review: { repo: 'api', number: 231 } });
+    expect(assistantContextReview()).toEqual({ repo: 'api', number: 231 });
+    expect(describeReviewNow('api', 231)).toBe('The Reviews tab shows api PR #231: no review of it is prepared (any more).');
+    writeReview(demoReview(new Date('2026-11-02T10:00:00Z')));
+    // A review exists now, and still nothing of it is in the stored context: only which PR.
+    expect(readAssistantContext()).not.toContain('Refunds');
+    expect(readAssistantContext()).toContain('[work dashboard]');
+    const said = readAssistantContext(Date.now(), describeReviewNow('api', 231))!;
+    expect(said).toContain('the prepared review of api PR #231');
+    expect(said).toContain('<<< Refunds: partial refunds on paid orders >>>'); // the PR's text fenced as data
+    expect(said).toContain('2 draft comment(s) wait');
+    updateReview('api', 231, (r) => ({ ...r, drafts: r.drafts.map((d) => ({ ...d, state: 'posted' as const })) }));
+    expect(readAssistantContext(Date.now(), describeReviewNow('api', 231))).toContain('0 draft comment(s) wait');
+    await post({ tab: 'reviews', review: { repo: 'api', number: 'x' } });
+    expect(assistantContextReview()).toBeNull();
+    await post({ tab: 'sessions', review: { repo: 'api', number: 231 } }); // another tab: no review
+    expect(assistantContextReview()).toBeNull();
   });
 });

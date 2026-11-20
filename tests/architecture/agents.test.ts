@@ -58,7 +58,8 @@ describe('agents', () => {
         if (
           target.startsWith('src/core/agents/') &&
           !target.startsWith(CLAUDE_DIR) &&
-          !/^src\/core\/agents\/(types|typing)\.js$/.test(target)
+          // types and typing, and session-hooks: which hooks work gives every agent (agent-neutral, like types)
+          !/^src\/core\/agents\/(types|typing|session-hooks)\.js$/.test(target)
         )
           others.push(`${rel(abs)} → ${target}`);
       }

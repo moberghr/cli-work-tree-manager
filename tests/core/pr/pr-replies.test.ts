@@ -12,6 +12,8 @@ import {
   markPostedAnswered,
   postDrafts,
   postReply,
+  replyFolder,
+  replyFolderOnDisk,
   postedSince,
   rememberSent,
   retireResolvedReplies,
@@ -163,14 +165,6 @@ describe('reply drafts', () => {
 
       posted('2026-10-27T10:30:00.000Z'); // the last check is older than the reply: it may not have seen it
       expect(saveDraft('s1', T1, 'again')).toMatchObject({ ok: false, error: 'a reply to this thread was already posted' });
-    });
-
-    it('a session launched --unsafe drafts only what the watch handed it', () => {
-      createCiStore().save('s1', ci([thread(T1)]));
-      expect(saveDraft('s1', T1, 'x', new Date(), { unsafe: true })).toMatchObject({ ok: false });
-      expect(listReplies('s1')).toEqual([]);
-      rememberSent('s1', [thread(T1)]);
-      expect(saveDraft('s1', T1, 'x', new Date(), { unsafe: true })).toMatchObject({ ok: true });
     });
   });
 
@@ -456,11 +450,11 @@ describe('never stuck on a stale check: the thread read from GitHub now (liveOpe
     expect(await err(JSON.stringify({ data: { viewer: { login: 'me' }, node: null } }))).toMatch(/isn't a review thread/);
   });
 
-  it("draftReply: work's own record first (no GitHub call); else GitHub's, saved; never for an --unsafe session", async () => {
+  it("draftReply: work's own record first (no GitHub call); else GitHub's, saved", async () => {
     const id = 'sess1';
     rememberSent(id, [thread(T1)]);
     const run = gh(answer());
-    const io = { unsafe: false, repos: () => repos, run };
+    const io = { repos: () => repos, run };
     expect(await draftReply(id, T1, 'Known one', io)).toMatchObject({ ok: true });
     expect(run).not.toHaveBeenCalled();
     // Not in work's last check (reported: two new bot threads, and `work pr reply` refused them).
@@ -470,9 +464,6 @@ describe('never stuck on a stale check: the thread read from GitHub now (liveOpe
       reply: { threadId: T, status: 'draft', prNumber: 2000, draft: 'We keep http:// for local development.' },
     });
     expect(listReplies(id).map((r) => r.threadId)).toContain(T);
-    const unsafe = await draftReply('sess2', T, 'x', { ...io, unsafe: true, run: gh(answer()) });
-    expect(unsafe).toMatchObject({ ok: false });
-    expect(listReplies('sess2')).toEqual([]);
   });
 
   it('draftReply: answered before, and the reviewer answered since (work has yet to see it): GitHub says so, it starts over', async () => {
@@ -489,15 +480,15 @@ describe('never stuck on a stale check: the thread read from GitHub now (liveOpe
         }),
       ),
     );
-    const r = await draftReply('sess4', T, 'New answer', { unsafe: false, repos: () => repos, run: gh(answer()) });
+    const r = await draftReply('sess4', T, 'New answer', { repos: () => repos, run: gh(answer()) });
     expect(r).toMatchObject({ ok: true, reply: { status: 'draft', draft: 'New answer' } });
     // …but not when the last word is still yours: the earlier reply stands.
-    const mine = await draftReply('sess4', T, 'Again', { unsafe: false, repos: () => repos, run: gh(answer({ lastBy: 'domagojmedo' })) });
+    const mine = await draftReply('sess4', T, 'Again', { repos: () => repos, run: gh(answer({ lastBy: 'domagojmedo' })) });
     expect(mine).toMatchObject({ ok: true }); // the draft above is a draft now, not posted
   });
 
   it("draftReply: GitHub's refusal is said, with that work's check didn't list it either", async () => {
-    const r = await draftReply('sess3', T, 'x', { unsafe: false, repos: () => repos, run: gh(answer({ resolved: true })) });
+    const r = await draftReply('sess3', T, 'x', { repos: () => repos, run: gh(answer({ resolved: true })) });
     expect(r).toEqual({
       ok: false,
       error: "the thread is resolved on GitHub: nothing to answer (work's last check didn't list it either)",
@@ -548,6 +539,84 @@ describe('retireResolvedReplies — a draft for a thread resolved on GitHub goes
     rememberSent(id, [thread(T2)]);
     expect(await retireResolvedReplies(id, ci([]), null, run)).toEqual([]);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("a reply is asked from its own repo's folder: that repo's host server (#63 final H1)", () => {
+  const session = {
+    target: 'shop',
+    isGroup: true,
+    paths: ['/wt/shop/api', '/wt/shop/web'],
+    repos: ['api', 'web'],
+  } as unknown as WorktreeSession;
+
+  it("replyFolder: the reply's repo, else the session's first folder", () => {
+    expect(replyFolder(session, 'web')).toBe('/wt/shop/web');
+    expect(replyFolder(session, 'api')).toBe('/wt/shop/api');
+    expect(replyFolder(session, 'gone')).toBe('/wt/shop/api');
+    expect(replyFolder(session, undefined)).toBe('/wt/shop/api');
+  });
+
+  it('retireResolvedReplies asks each thread from the folder its repo has; no folder for it: not asked', async () => {
+    const id = 'r3';
+    rememberSent(id, [thread(T1, { repo: 'web' }), thread(T2, { repo: 'nowhere' })]);
+    const run = vi.fn<CommandRunner>(async () => ({
+      code: 0,
+      stdout: JSON.stringify({ data: { node: { isResolved: true } } }),
+      stderr: '',
+    }));
+    const folders: Record<string, string> = { web: '/wt/shop/web' };
+    const ci = { checkedAt: 'x', repos: [] } as unknown as SessionCi;
+    expect(await retireResolvedReplies(id, ci, (repo) => folders[repo] ?? null, run)).toEqual([T1]);
+    expect(run.mock.calls.map((c) => c[2])).toEqual(['/wt/shop/web']);
+  });
+
+  it("postDrafts posts each draft from its repo's folder", async () => {
+    const s = { ...session, branch: 'feat/x' } as WorktreeSession;
+    const id = sessionIdFor(s);
+    rememberSent(id, [thread(T1, { repo: 'web' })]);
+    saveDraft(id, T1, 'Done');
+    const cwds: string[] = [];
+    const run: CommandRunner = async (_cmd, args, cwd) => {
+      cwds.push(cwd);
+      return isThreadRead(args) ? threadNow() : { code: 0, stdout: '{}', stderr: '' };
+    };
+    await postDrafts(s, listReplies(id), false, run);
+    expect(new Set(cwds)).toEqual(new Set(['/wt/shop/web']));
+  });
+
+  it("the dashboard's Post (the route) asks and posts from the reply's repo's folder, for a group session (F007)", async () => {
+    const s = { ...session, branch: 'feat/x', createdAt: 'x', lastAccessedAt: 'x' } as WorktreeSession;
+    saveHistory([s]);
+    const id = sessionIdFor(s);
+    rememberSent(id, [thread(T1, { repo: 'web' })]);
+    const cwds: string[] = [];
+    const run: CommandRunner = async (_cmd, args, cwd) => {
+      cwds.push(cwd);
+      return isThreadRead(args) ? threadNow() : { code: 0, stdout: '{}', stderr: '' };
+    };
+    const a = new Hono();
+    mountPrReplyRoutes(a, { broadcast: () => {}, run });
+    const res = await a.request(`/api/sessions/${id}/replies/${T1}/post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: 'Done', resolve: false }),
+    });
+    expect(res.status).toBe(200);
+    expect(cwds.length).toBeGreaterThan(0);
+    expect(new Set(cwds)).toEqual(new Set(['/wt/shop/web']));
+  });
+
+  it("the PR watch's retiring (ci-routes): the reply's repo's folder when it's there, else the first one that is, else none (F007)", () => {
+    const on =
+      (...there: string[]) =>
+      (p: string) =>
+        there.includes(p);
+    expect(replyFolderOnDisk(session, 'web', on('/wt/shop/api', '/wt/shop/web'))).toBe('/wt/shop/web');
+    expect(replyFolderOnDisk(session, 'web', on('/wt/shop/api'))).toBe('/wt/shop/api'); // its folder gone
+    expect(replyFolderOnDisk(session, 'nowhere', on('/wt/shop/web'))).toBe('/wt/shop/web');
+    expect(replyFolderOnDisk(session, 'web', on())).toBeNull();
+    expect(replyFolderOnDisk(null, 'web', on('/wt/shop/web'))).toBeNull();
   });
 });
 

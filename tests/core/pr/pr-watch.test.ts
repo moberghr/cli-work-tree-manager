@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   autoArchiveVerdict,
+  KEPT_ON_REQUEST,
   createPrWatch,
   ciFixMessage,
   conflictMessage,
@@ -178,6 +179,127 @@ describe('PR watch', () => {
     t += 10 * 60_000;
     await h.watch.tick();
     expect(h.deps.preflight.mock.calls.length).toBe(calls + 1);
+  });
+
+  it("one host's API limit rests only that host: a session on another is checked as ever", async () => {
+    let t = LATER;
+    const az = { ...repo('payments', pr({ number: 3 })), host: 'azure' } as RepoShipState;
+    let azLimited = false;
+    const asked: Array<{ id: string; restingAzure: boolean; restingGithub: boolean }> = [];
+    const deps: PrWatchDeps = {
+      sessions: () => [
+        { id: 'az', session: { ...session(), target: 'payments' } },
+        { id: 'gh', session: session() },
+      ],
+      preflight: vi.fn(async (s: WorktreeSession, o?: { resting?: (host: string | undefined) => boolean }) => {
+        const id = s.target === 'payments' ? 'az' : 'gh';
+        asked.push({ id, restingAzure: !!o?.resting?.('azure'), restingGithub: !!o?.resting?.(undefined) });
+        if (id === 'gh') return { repos: [repo('api', pr())] };
+        return { repos: [azLimited ? ({ ...az, pr: null, ghError: 'TF400733: The request was blocked' } as RepoShipState) : az] };
+      }),
+      archive: vi.fn(async () => {}),
+      tell: vi.fn(async () => {}),
+      broadcast: vi.fn(),
+      options: () => ON,
+      told: () => ({ has: () => false, add: () => undefined }),
+      rateLimited: (host, text) => (host === 'azure' ? /TF400733/.test(text) : /rate limit/i.test(text)),
+      now: () => t,
+    };
+    const watch = createPrWatch(deps);
+    await watch.tick();
+    azLimited = true;
+    await watch.tick();
+    expect(watch.state('az')?.repos[0].pr?.number).toBe(3); // kept, not "no PR"
+    asked.length = 0;
+    t += 60_000;
+    await watch.tick();
+    // Azure DevOps rests: its session isn't checked; GitHub's is, told only Azure DevOps rests.
+    expect(asked).toEqual([{ id: 'gh', restingAzure: true, restingGithub: false }]);
+    expect(watch.state('gh')?.repos[0].pr?.number).toBe(7);
+    asked.length = 0;
+    azLimited = false;
+    t += 10 * 60_000;
+    await watch.tick();
+    expect(asked.map((a) => a.id).sort()).toEqual(['az', 'gh']);
+    expect(asked.every((a) => !a.restingAzure)).toBe(true);
+  });
+
+  it('a session on two hosts, one resting: checked (the other host is asked), but it keeps what it knew and acts on nothing', async () => {
+    let t = LATER;
+    const az = (p: ShipPr | null, ghError?: string) =>
+      ({ ...repo('payments', p), host: 'azure', ...(ghError ? { ghError } : {}) }) as RepoShipState;
+    let answer: RepoShipState[] = [repo('api', pr()), az(pr({ number: 3 }))];
+    const restingSeen: boolean[] = [];
+    const tell = vi.fn(async () => {});
+    const archive = vi.fn(async () => {});
+    const watch = createPrWatch({
+      sessions: () => [{ id: 'mix', session: session(true) }],
+      preflight: vi.fn(async (_s: WorktreeSession, o?: { resting?: (host: string | undefined) => boolean }) => {
+        restingSeen.push(!!o?.resting?.('azure'));
+        return { repos: answer };
+      }),
+      archive,
+      tell,
+      broadcast: vi.fn(),
+      options: () => ON,
+      told: () => ({ has: () => false, add: () => undefined }),
+      rateLimited: (host, text) => host === 'azure' && /TF400733/.test(text),
+      now: () => t,
+    });
+    await watch.tick();
+    answer = [repo('api', pr()), az(null, 'TF400733: The request was blocked')];
+    await watch.tick(); // Azure DevOps rests from here
+    t += 60_000;
+    // GitHub's PR now fails its checks (that would be told) and Azure DevOps' wasn't asked (reads as no PR).
+    answer = [repo('api', failing('bbb')), az(null)];
+    await watch.tick();
+    expect(restingSeen).toEqual([false, false, true]); // still checked: GitHub isn't resting
+    expect(watch.state('mix')?.repos.map((r) => r.pr?.number)).toEqual([7, 3]);
+    expect(watch.state('mix')?.repos[0].pr?.checks).toBe('pass');
+    expect(tell).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it("after a restart, a session's saved check says which host it is on: one whose host rests isn't asked before its first check", async () => {
+    let t = LATER;
+    let phase: 'start' | 'first' | 'after' = 'start';
+    const azSession = (target: string) => ({ ...session(), target });
+    const saved: SessionCi = {
+      checkedAt: '2026-09-30T10:00:00.000Z',
+      repos: [{ name: 'billing', pr: pr({ number: 9 }), done: false, host: 'azure' }],
+    };
+    const preflight = vi.fn(async (s: WorktreeSession) => ({
+      repos: [{ ...repo(s.target, null), host: 'azure', ghError: 'TF400733: The request was blocked' } as RepoShipState],
+    }));
+    const watch = createPrWatch({
+      // At start both sessions (so the saved check of `billing` is kept); the first sweep sees only `payments`.
+      sessions: () =>
+        phase === 'first'
+          ? [{ id: 'payments', session: azSession('payments') }]
+          : [
+              { id: 'payments', session: azSession('payments') },
+              { id: 'billing', session: azSession('billing') },
+            ],
+      preflight,
+      archive: vi.fn(async () => {}),
+      tell: vi.fn(async () => {}),
+      broadcast: vi.fn(),
+      options: () => ON,
+      told: () => ({ has: () => false, add: () => undefined }),
+      rateLimited: (host, text) => host === 'azure' && /TF400733/.test(text),
+      now: () => t,
+      saved: { load: () => [['billing', saved]], save: vi.fn() },
+    });
+    expect(watch.state('billing')?.repos[0].pr?.number).toBe(9);
+    phase = 'first';
+    await watch.tick(); // payments: Azure DevOps refuses, and rests
+    expect(preflight).toHaveBeenCalledTimes(1);
+    phase = 'after';
+    t += 60_000;
+    await watch.tick();
+    // billing was never preflighted by this watch; its saved check puts it on Azure DevOps, which rests.
+    expect(preflight).toHaveBeenCalledTimes(1);
+    expect(watch.state('billing')?.repos[0].pr?.number).toBe(9);
   });
 
   it('a review lookup that fails keeps the last count for the same PR', async () => {
@@ -570,6 +692,17 @@ describe('PR watch', () => {
     );
   });
 
+  it('never archives a session you asked to keep after its PR merges, and says so (reported: archived before its release)', async () => {
+    const activity = createActivityLog();
+    const h = harness([repo('api', merged(), true)], ON, false, null, {
+      activity,
+      sessions: () => [{ id: 's1', session: { ...session(), keepAfterMerge: true } }],
+    });
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+    expect(activity.snapshot().recent[0].notes[0].text).toContain(KEPT_ON_REQUEST);
+  });
+
   it('never archives while its Claude is in the middle of a turn', async () => {
     const activity = createActivityLog();
     const h = harness([repo('api', merged(), true)], ON, false, null, { busy: () => true, activity });
@@ -702,18 +835,44 @@ describe('PR watch', () => {
       expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(2);
     });
 
-    it('never hands review text to a session running with permission checks off', async () => {
+    it('a row from before --unsafe was retired (launchedUnsafe: true) is handed its review text like any other', async () => {
       const h = harness([repo('api', pr())], ON, false, fb([thread('1', 'alice')]));
-      h.deps.sessions = () => [{ id: 's1', session: { ...session(), launchedUnsafe: true } }];
+      const old = Object.assign(session(), { launchedUnsafe: true }); // nothing reads it any more
+      h.deps.sessions = () => [{ id: 's1', session: old }];
+      await h.watch.tick();
+      expect(h.deps.tell).toHaveBeenCalledTimes(1);
+      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+    });
+
+    it('an agent still running as started --unsafe before the retirement gets no review text; the strip still counts (remove next release)', async () => {
+      let t = LATER;
+      let unsafe = true;
+      const runsUnsafe = vi.fn((id: string) => (id === 's1' && unsafe ? ('outside' as const) : null));
+      const activity = createActivityLog();
+      const h = harness([repo('api', pr({ updatedAt: '2026-10-26T12:53:12Z' }))], ON, false, fb([thread('1', 'alice')]), {
+        now: () => t,
+        runsUnsafe,
+        activity,
+      });
       await h.watch.tick();
       expect(h.deps.tell).not.toHaveBeenCalled();
-      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1); // still counted for the strip
-
-      const host = harness([repo('api', pr())], ON, false, fb([thread('1', 'alice')]));
-      (host.deps as PrWatchDeps).runsUnsafe = () => true; // a PTY-host session spawned --unsafe
-      const w = createPrWatch(host.deps);
-      await w.tick();
-      expect(host.deps.tell).not.toHaveBeenCalled();
+      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+      expect(runsUnsafe).toHaveBeenCalledWith('s1');
+      // Said in Activity, at warn, with what lifts it (N5).
+      const held = activity
+        .snapshot()
+        .recent.flatMap((r) => r.notes)
+        .find((n) => n.text.includes('held'));
+      expect(held).toMatchObject({ level: 'warn' });
+      expect(held?.text).toContain('1 new review comment on #');
+      expect(held?.text).toContain(
+        'held: its agent still runs as started --unsafe, so review text waits until it is restarted — quit it in its terminal and start it again with `work tree`',
+      );
+      // Restarted by a current host: the guard drops out, and the thread is handed over at its next read.
+      unsafe = false;
+      t += THREADS_RECHECK_MS + 1;
+      await h.watch.tick();
+      expect(h.deps.tell).toHaveBeenCalledTimes(1);
     });
 
     it('only looks at open PRs, and not at all when turned off', async () => {
@@ -898,7 +1057,7 @@ describe('PR watch: replies whose thread was resolved on GitHub go', () => {
     await h.watch.tick();
     expect(retireReplies).toHaveBeenCalledWith('s1', expect.objectContaining({ repos: [expect.objectContaining({ name: 'api' })] }));
     const notes = activity.snapshot().recent.flatMap((r) => r.notes.map((n) => n.text));
-    expect(notes.some((t) => t.includes('1 reply dropped: its thread was resolved on GitHub'))).toBe(true);
+    expect(notes.some((t) => t.includes('1 reply dropped: its thread was resolved on their host'))).toBe(true);
   });
 
   it("its failure is the check's business only: nothing else stops", async () => {

@@ -5,6 +5,7 @@ import { DEFAULT_ACCOUNT, type WorkConfig } from '../../platform/config.js';
 import { configView } from '../../platform/config-cache.js';
 import type { EnvDelta } from '../../platform/env-delta.js';
 import { report } from '../../platform/report.js';
+import { ACCOUNT_NAME_RE, accountNameProblem } from '../../sessions/account-names.js';
 
 /**
  * Claude Code accounts: each is a config folder (`CLAUDE_CONFIG_DIR`). The default one is `~/.claude`, with no env set;
@@ -21,7 +22,7 @@ export interface ClaudeAccount {
 /** The config an account lookup reads: the accounts as written, and the folders an account's can't be in. */
 type AccountConfig = (Pick<WorkConfig, 'claudeAccounts' | 'claudeAccount'> & Partial<Pick<WorkConfig, 'worktreesRoot' | 'repos'>>) | null;
 
-export const ACCOUNT_NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+export { ACCOUNT_NAME_RE };
 
 /** The default account's folder. */
 export const defaultAccountDir = (): string => path.join(os.homedir(), '.claude');
@@ -48,8 +49,9 @@ const sameOrInside = (dirKey: string, rootKey: string): boolean => dirKey === ro
  * its login and conversations there, which git would see, a worktree's removal would delete, or work's own state holds.
  */
 export function accountProblem(name: string, dir: string, taken: Iterable<string> = [], roots: Iterable<string> = []): string | null {
-  if (name === DEFAULT_ACCOUNT) return `“${DEFAULT_ACCOUNT}” is the account at ~/.claude and can't be reused`;
-  if (!ACCOUNT_NAME_RE.test(name)) return `“${name}” is not a valid account name (lower-case letters, digits and dashes, up to 32)`;
+  // The name's rules are the dashboard's too (account-names.ts, checked as you type).
+  const badName = accountNameProblem(name);
+  if (badName) return badName;
   if (!path.isAbsolute(dir)) return `${dir} is not an absolute folder`;
   const key = accountDirKey(dir);
   if (key === accountDirKey(defaultAccountDir())) return '~/.claude is the default account';

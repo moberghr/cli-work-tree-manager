@@ -202,6 +202,18 @@ describe('work state --export', () => {
     expect(newer.meta['time:issue-ids']).toEqual({ 'APP-1': 10001 });
   });
 
+  it('prepared PR reviews (your drafts, what you submitted) are counted and exported too', async () => {
+    const { writeReview } = await import('../../../src/core/review/review-store.js');
+    const { demoReview } = await import('../../../src/server/demo/demo-reviews.js');
+    const { exportLegacyState, stateSummary } = await import('../../../src/core/platform/db-export.js');
+    writeReview(demoReview(new Date('2026-11-02T10:00:00Z')));
+    expect(stateSummary().counts.pr_reviews).toBe(1);
+    const out = path.join(home, 'export-reviews');
+    exportLegacyState(out);
+    const newer = JSON.parse(fs.readFileSync(path.join(out, 'newer-state.json'), 'utf-8'));
+    expect(newer.pr_reviews['api#231'].drafts.map((d: { id: string }) => d.id)).toEqual(['d1', 'd2']);
+  });
+
   it('writes the old JSON layout, and importing that gives back the same state', async () => {
     legacyTree();
     await addTask('added after the move');
@@ -243,7 +255,7 @@ describe('an old PTY host that outlived the upgrade', () => {
     expect(Object.keys(dbPtySessions.read())).toEqual([id]); // imported
     // The v1 host keeps running: it re-creates the old file and records a
     // session started after the upgrade, having forgotten the first one.
-    const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' };
+    const tool = { cmd: 'claude', baseArgs: [], resumeFlag: '', promptFileFlag: '', promptFlag: '' };
     write('pty-sessions.json', { later: { cwd: '/wt/later', tool, startedAt: 't2' }, junk: 1 });
     // Written after the import — dated so, not left to the clock (the same millisecond reads as "not newer").
     const later = new Date(Date.now() + 60_000);
@@ -261,7 +273,7 @@ describe('an old PTY host that outlived the upgrade', () => {
   it('a pty-sessions.json OLDER than the database list (a `work state --export` copy) is set aside, not adopted', async () => {
     legacyTree();
     loadHistory(); // first open: imports (and renames) the legacy files
-    const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' };
+    const tool = { cmd: 'claude', baseArgs: [], resumeFlag: '', promptFileFlag: '', promptFlag: '' };
     write('pty-sessions.json', { stale: { cwd: '/wt/stale', tool, startedAt: 't0' } });
     const old = new Date(Date.now() - 60_000);
     fs.utimesSync(path.join(work, 'pty-sessions.json'), old, old);

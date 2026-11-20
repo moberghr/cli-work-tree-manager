@@ -23,6 +23,8 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['catchup'], load: async () => (await import('./commands/catchup.js')).catchupCommand },
   { names: ['snooze'], load: async () => (await import('./commands/snooze.js')).snoozeCommand },
   { names: ['pin'], load: async () => (await import('./commands/pin.js')).pinCommand },
+  { names: ['keep'], load: async () => (await import('./commands/keep.js')).keepCommand },
+  { names: ['show'], load: async () => (await import('./commands/show.js')).showCommand },
   { names: ['section'], load: async () => (await import('./commands/section.js')).sectionCommand },
   { names: ['note'], load: async () => (await import('./commands/note.js')).noteCommand },
   { names: ['block'], load: async () => (await import('./commands/block.js')).blockCommand },
@@ -47,6 +49,7 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['overlaps'], load: async () => (await import('./commands/overlaps.js')).overlapsCommand },
   { names: ['search'], load: async () => (await import('./commands/search.js')).searchCommand },
   { names: ['pr'], load: async () => (await import('./commands/pr.js')).prCommand },
+  { names: ['review'], load: async () => (await import('./commands/review.js')).reviewCommand },
   { names: ['timesheet'], load: async () => (await import('./commands/timesheet.js')).timesheetCommand },
   { names: ['prune'], load: async () => (await import('./commands/prune.js')).pruneCommand },
   { names: ['sync'], load: async () => (await import('./commands/sync.js')).syncCommand },
@@ -83,7 +86,6 @@ function showHelp() {
   console.log('  work tree|t <project|group> <branch>               - Create/switch to worktree');
   console.log('  work tree <project|group> <branch> --base <branch> - Create from a specific base branch');
   console.log('  work tree <project|group> <branch> --open          - Also open VS Code');
-  console.log('  work tree <project|group> <branch> --unsafe        - Skip AI tool permission checks');
   console.log('  work remove <project|group> <branch>               - Remove worktree');
   console.log('  work remove <project|group> <branch> --force       - Force remove worktree');
   console.log('  work status [project|group] [branch]               - Show worktree status');
@@ -131,7 +133,6 @@ function showHelp() {
   console.log('  work list ai');
   console.log('  work tree ai feature/login');
   console.log('  work tree frontend feature/login --open');
-  console.log('  work tree ai feature/hotfix --unsafe');
   console.log('  work remove ai feature/login');
   console.log('');
   console.log(chalk.gray('  # Groups (multi-repo worktrees):'));

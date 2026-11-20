@@ -78,6 +78,23 @@ describe('prSections', () => {
     expect(prSections(noViewer, [])[0].mine).toBe(false);
   });
 
+  it("each repo's PR is yours by who you are on its own server: a GitHub Enterprise login isn't github.com's (#63 final H3)", () => {
+    const mixed = {
+      checkedAt: '',
+      viewer: 'sam', // the session's one (github.com's): what an older server sent
+      repos: [
+        { name: 'frontend', done: false, viewer: 'sam', pr: { ...shipPr(1), author: 'sam' } },
+        { name: 'backend', done: false, viewer: 'sam-corp', pr: { ...shipPr(2, { url: 'https://ghe/2' }), author: 'sam-corp' } },
+        { name: 'docs', done: false, pr: { ...shipPr(3, { url: 'https://gh/3' }), author: 'sam' } },
+      ],
+    } as unknown as SessionCi;
+    expect(prSections(mixed, []).map((s) => [s.repo, s.mine])).toEqual([
+      ['frontend', true],
+      ['backend', true],
+      ['docs', true], // no viewer of its own: the session's
+    ]);
+  });
+
   it('who opened it: from the PR watch, else from the PR list; unknown is null', () => {
     const withAuthors = {
       ...ci,
@@ -143,5 +160,31 @@ describe('a PR only the list knows', () => {
     expect(one({ reviewDecision: 'APPROVED', checksStatus: 'SUCCESS' })).toBe('ready');
     expect(one({ reviewDecision: 'REVIEW_REQUIRED', checksStatus: 'PENDING' })).toBe('in_review');
     expect(one({ conflicting: true })).toBe('conflict');
+  });
+});
+
+describe('the PR tab: every PR the session owns (session-prs.ts)', () => {
+  it("two open PRs of one repo say their branch; one in another repo says so; a failed check that isn't required shows quietly", () => {
+    const ci = {
+      checkedAt: 'x',
+      repos: [
+        {
+          name: 'api',
+          branch: 'fix/probe',
+          pr: shipPr(3656),
+          otherPrs: [{ branch: 'fix/culture', pr: shipPr(3657, { optionalFailing: [{ name: 'OWASP Security Review' }] }) }],
+          done: false,
+        },
+      ],
+      elsewhere: [{ repo: 'kvika/docs', branch: 'docs/x', pr: shipPr(87) }],
+    } as unknown as SessionCi;
+    const s = prSections(ci, []);
+    expect(s.map((x) => [x.repo, x.number, x.branchShown ?? false, x.elsewhere ?? false])).toEqual([
+      ['api', 3657, true, false],
+      ['api', 3656, true, false],
+      ['kvika/docs', 87, false, true],
+    ]);
+    expect(s[0].optionalFailing).toEqual([{ name: 'OWASP Security Review' }]);
+    expect(s[0].checks).toBe('pass');
   });
 });

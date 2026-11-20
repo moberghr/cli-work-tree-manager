@@ -130,3 +130,47 @@ describe('Needs you (the header line, from the session row: no fetch)', () => {
     expect(prNeedsLine({})).toBeNull();
   });
 });
+
+describe('Keep after its PR merges, from the header too', () => {
+  it('after Ship, with the way back once kept; not without the action, never for an archived session', () => {
+    const keep = vi.fn();
+    const off = sessionHeaderItems(session(), null, { ...actions(), keep });
+    const at = off.findIndex((i) => i.label.startsWith('Ship'));
+    expect(off[at + 1].label).toBe('Keep after its PR merges');
+    off[at + 1].run();
+    expect(keep).toHaveBeenLastCalledWith(true);
+    const on = sessionHeaderItems(session({ keepAfterMerge: true }), null, { ...actions(), keep });
+    const kept = on.find((i) => i.label === 'Archive after its PR merges')!;
+    kept.run();
+    expect(keep).toHaveBeenLastCalledWith(false);
+    const has = (items: Array<{ label: string }>) => items.some((i) => i.label.includes('PR merges'));
+    expect(has(sessionHeaderItems(session(), null, actions()))).toBe(false);
+    expect(has(sessionHeaderItems(session({ archivedAt: '2026-11-01T00:00:00Z' }), null, { ...actions(), keep }))).toBe(false);
+  });
+
+  it('Processes… is offered for a live session when the header can open it', () => {
+    const processes = vi.fn();
+    const items = sessionHeaderItems(session(), null, { ...actions(), processes });
+    items.find((i) => i.label === 'Processes…')!.run();
+    expect(processes).toHaveBeenCalled();
+    expect(sessionHeaderItems(session(), null, actions()).some((i) => i.label === 'Processes…')).toBe(false);
+    expect(
+      sessionHeaderItems(session({ archivedAt: '2026-11-01T00:00:00Z' }), null, { ...actions(), processes }).some(
+        (i) => i.label === 'Processes…',
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('Restart Claude (asked for: a way to restart a session from the app, to pick up changes)', () => {
+  it('says what happened: restarted now, after its turn, refused, or not running', async () => {
+    const { restartNote } = await import('../../src/web/src/state/agent-restart-view.js');
+    expect(restartNote({ now: ['s1'], later: [], failed: [] }, 's1').text).toContain('Its Claude restarted');
+    expect(restartNote({ now: [], later: ['s1'], failed: [] }, 's1').text).toContain('restarts when this turn ends');
+    expect(restartNote({ now: [], later: [], failed: [{ id: 's1', error: 'no host' }] }, 's1')).toEqual({
+      text: 'Couldn’t restart its Claude: no host',
+      error: true,
+    });
+    expect(restartNote({ now: ['other'], later: [], failed: [] }, 's1').text).toContain('is not running');
+  });
+});

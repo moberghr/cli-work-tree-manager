@@ -1,3 +1,4 @@
+import type { SessionLocalReviewWire } from '../api-types.js';
 import fs from 'node:fs';
 import { agentOf, agentWire } from '../agents/index.js';
 import { readStatus } from '../status/session-status.js';
@@ -18,11 +19,14 @@ import type {
   SessionWire,
   BlockerWire,
   PrStageWire,
+  SessionBranchWire,
+  ElsewherePr,
 } from '../api-types.js';
 import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/session-archive.js';
 import { isArchiving, isRestoring } from '../archive/archiving.js';
 import { sessionTitle } from '../conversations/session-title.js';
-import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
+import { prStageOf, stageRepos, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
+import { stageInputOf } from '../pr/branch-work.js';
 import { isLeftover } from '../worktree/leftover.js';
 import { recordedRepos, sessionRepos } from './session-repos.js';
 import { DEFAULT_ACCOUNT, getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
@@ -49,6 +53,8 @@ export interface SessionWireOptions {
   reviewThreadsFor?: (id: string) => number;
   /** Reply drafts its Claude wrote for you to post (pr-replies.ts). */
   replyDraftsFor?: (id: string) => number;
+  /** Where its own review stands (local-review.ts `row`); null: it has none. */
+  localReviewFor?: (id: string) => SessionLocalReviewWire | null;
   /** Where its PR stands (pr-stage.ts over the PR watch's last check), and whether you've seen it there. */
   prStageFor?: (id: string) => PrStageWire | null;
   /** You have notes on it (session-notes.ts). */
@@ -70,6 +76,9 @@ export interface SessionWireOptions {
     s: WorktreeSession,
     lastActivity: number,
   ) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
+  /** Every branch it worked on, with what's known of each (branch-facts.ts `createSessionBranches`); null when
+   *  it stayed on one. */
+  branchesFor?: (id: string, s: WorktreeSession) => SessionBranchWire[] | null;
   /** Where it sits in a stack (stack-sessions.ts). */
   stackFor?: (id: string) => {
     parent: { id: string; branch: string; title?: string } | null;
@@ -86,6 +95,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const reviewThreads = s.archivedAt ? 0 : (opts.reviewThreadsFor?.(id) ?? 0);
   const replyDrafts = s.archivedAt ? 0 : (opts.replyDraftsFor?.(id) ?? 0);
   const prStage = s.archivedAt ? null : (opts.prStageFor?.(id) ?? null);
+  const localReview = s.archivedAt ? null : (opts.localReviewFor?.(id) ?? null);
   const wire: SessionWire = {
     id,
     target: s.target,
@@ -133,6 +143,12 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
             known: opts.liveKnown === true,
             hosted: opts.hostedLive?.(id) ?? true,
             background: () => agentOf(s).conversation?.backgroundWorkSince?.(s, idleFrom(meta.attention!)) ?? null,
+            commands: () =>
+              bestEffort(
+                `background commands of ${s.target}:${s.branch}`,
+                () => agentOf(s).conversation?.backgroundCommandNames?.(s, 0) ?? [],
+                [],
+              ) ?? [],
           })
         : (meta.attention ?? (shadowed || s.archivedAt ? null : (opts.outputStatusFor?.(id) ?? null))),
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,
@@ -142,6 +158,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     ...(reviewThreads > 0 ? { openReviewThreads: reviewThreads } : {}),
     ...(replyDrafts > 0 ? { replyDrafts } : {}),
     ...(prStage ? { prStage } : {}),
+    ...(localReview ? { localReview } : {}),
     ...otherBranches(s),
   };
   // Snoozed: only while it holds (a time not yet reached, or the status it
@@ -157,7 +174,10 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   if (stack?.parent) wire.stackedOn = stack.parent;
   if (stack?.children) wire.stackedChildren = stack.children;
   if (stack?.merged) wire.stackParentMerged = stack.merged;
+  const branches = s.archivedAt ? null : (opts.branchesFor?.(id, s) ?? null);
+  if (branches?.length) wire.branches = branches;
   if (opts.hasNote?.(id)) wire.hasNote = true;
+  if (s.keepAfterMerge && !s.archivedAt) wire.keepAfterMerge = true;
   if (isArchiving(id)) wire.archiving = true;
   if (!s.archivedAt && isAsleep(readStatus(id)?.stoppedAt, wire.ptyStatus === 'running', wire.lastActivity ?? 0)) wire.asleep = true;
   const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);
@@ -247,10 +267,17 @@ export const stageSeenKey = (stageKey: string) => `stage:${stageKey}`;
  * for a stage that would bring it back to the Inbox (one lookup, not one per row).
  */
 export function prStageWire(
-  ci: { repos: Array<{ name: string; pr: StagePr | null }> } | null | undefined,
+  ci:
+    | {
+        repos: Array<{ name: string; pr: StagePr | null; branch?: string; otherPrs?: Array<{ branch: string; pr: StagePr }> }>;
+        elsewhere?: ElsewherePr[];
+      }
+    | null
+    | undefined,
   seen: (key: string) => boolean,
 ): PrStageWire | null {
-  const stage = prStageOf(ci?.repos ?? []);
+  // Every open PR across the branches it worked on (stageRepos), and its listed PRs in repos it doesn't have.
+  const stage = prStageOf(stageRepos(stageInputOf(ci)));
   if (!stage) return null;
   return STAGE_WANTS_YOU.has(stage.kind) && seen(stageSeenKey(stage.key)) ? { ...stage, seen: true } : stage;
 }

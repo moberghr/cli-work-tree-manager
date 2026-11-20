@@ -17,6 +17,7 @@ import {
   forgetOtherBaseCheckoutEntries,
 } from '../sessions/history.js';
 import { bestEffort } from '../platform/best-effort.js';
+import { recordCheckedOutBranches } from '../sessions/session-branches.js';
 import { isFolderSession, recordedRepos, sessionRepos, type SessionRepo } from '../sessions/session-repos.js';
 import { hasInstructionsBlock, writeSessionInstructions } from './session-instructions.js';
 import { sessionFolderPath } from './session-folder.js';
@@ -926,6 +927,12 @@ async function setupGroupWorktree(
     },
   );
 
+  // The branch each repo is on now joins the session's record (session-branches.ts): a re-entry onto a branch
+  // Claude switched to, a Restore that checked its branch out again.
+  bestEffort(`record the branches of ${groupName}:${branchName}`, () =>
+    recordCheckedOutBranches({ target: groupName, branch: branchName, isGroup: true, paths: allPaths }),
+  );
+
   report('info', '');
   report('info', `Branch: ${branchName}`);
   if (port !== undefined) report('detail', `Dev-server port: ${port}`);
@@ -1000,6 +1007,10 @@ async function setupSingleWorktree(
     base,
     base ? { [workTreePath]: base } : undefined,
     { ...(isNew ? { repos: [targetName] } : {}), account: opts.account },
+  );
+
+  bestEffort(`record the branches of ${targetName}:${branchName}`, () =>
+    recordCheckedOutBranches({ target: targetName, branch: branchName, isGroup: false, paths: [workTreePath] }),
   );
 
   report('info', `Branch: ${branchName}`);

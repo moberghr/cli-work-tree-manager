@@ -17,7 +17,11 @@ import { scanChanges } from '../core/diff/overlap-scan.js';
 import { timeAgo } from '../core/platform/format.js';
 import { livePtys } from './shared/live-ptys.js';
 import { statusFromOutput } from '../core/pty/output-status.js';
-import type { SessionWire } from '../core/api-types.js';
+import type { SessionBranchWire, SessionWire } from '../core/api-types.js';
+import { sessionBranchesNow } from '../core/stacks/branch-facts.js';
+import { branchLine } from '../core/sessions/branch-view.js';
+import { createCiStore } from '../core/pr/pr-watch-store.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 
 /** A `work sessions --json` row: the dashboard's row, plus what it shows
  *  derived from it: what its agent is doing (status, label), what waits on
@@ -71,6 +75,8 @@ export const sessionsCommand: CommandModule = {
     const live = await livePtys();
     const now = Date.now();
     const changes = argv.changes ? await scanChanges(history) : null;
+    // Every branch each worked on (session-branches.ts), with their PRs as the PR watch last saw them.
+    const branches = await branchesOf(history.filter((s) => all || !s.archivedAt));
     const wires = history.map((s) => {
       const w = sessionWire(s, {
         ...(live
@@ -83,6 +89,7 @@ export const sessionsCommand: CommandModule = {
             }
           : {}),
         ...(changes ? { diffStatFor: (id: string) => changes.stats.get(id) ?? null } : {}),
+        branchesFor: (id: string) => branches.get(id) ?? null,
       });
       const o = changes?.overlaps.get(w.id);
       return o ? { ...w, overlaps: o } : w;
@@ -115,8 +122,21 @@ export const sessionsCommand: CommandModule = {
         ].filter(Boolean);
         console.log(`  ${label} ${name}  ${bits.join('  ')}`);
         if (r.attention?.summary) console.log(chalk.gray(`  ${''.padEnd(16)} ${r.attention.summary}`));
+        if (r.branches?.length) console.log(chalk.gray(`  ${''.padEnd(16)} branches: ${r.branches.map(branchLine).join(' · ')}`));
       }
       console.log('');
     }
   },
 };
+
+/** The sessions' branches, each looked at now (git, a few runs per branch of a session that has more than one). */
+async function branchesOf(sessions: Parameters<typeof sessionBranchesNow>[0][]): Promise<Map<string, SessionBranchWire[]>> {
+  const checks = new Map(createCiStore().load());
+  const out = new Map<string, SessionBranchWire[]>();
+  for (const s of sessions) {
+    const id = sessionIdFor(s);
+    const b = await sessionBranchesNow(s, checks.get(id)).catch(() => null);
+    if (b) out.set(id, b);
+  }
+  return out;
+}

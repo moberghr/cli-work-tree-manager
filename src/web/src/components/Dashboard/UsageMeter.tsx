@@ -8,6 +8,8 @@ import { accountName } from '../../state/accounts.js';
 
 interface Props {
   onOpenSession: (id: string) => void;
+  /** The Accounts page (Claude logins: add, log in, the default). */
+  onAccounts?: () => void;
   /** Injectable for tests. */
   load?: () => Promise<UsageWire>;
 }
@@ -31,7 +33,7 @@ function TokenRow({ label, t, muted = false }: { label: string; t: TokenTotals; 
  * the sessions that used most. The limits are what the agent's status line
  * last reported (core/usage/), so the panel says how old they are.
  */
-export function UsageMeter({ onOpenSession, load = fetchUsage }: Props) {
+export function UsageMeter({ onOpenSession, onAccounts, load = fetchUsage }: Props) {
   const [data, setData] = useState<UsageWire | null>(null);
   /** Why the last fetch failed (null: it didn't). Old numbers stay on screen meanwhile. */
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +99,14 @@ export function UsageMeter({ onOpenSession, load = fetchUsage }: Props) {
           )}
           {(data || !error) && <Limits data={data} now={now} />}
           {data && <Tokens data={data} onOpen={(id) => (setOpen(false), onOpenSession(id))} />}
+          {onAccounts && (
+            <p className="wd-usage-note">
+              <button type="button" className="wd-link-button" onClick={() => (setOpen(false), onAccounts())}>
+                Claude accounts…
+              </button>{' '}
+              add a login, log in again, choose the default
+            </p>
+          )}
         </div>
       )}
     </div>

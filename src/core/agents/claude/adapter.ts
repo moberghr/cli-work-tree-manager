@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { backgroundWorkSince, listTranscripts, listUsageFiles } from './files.js';
-import { backgroundCommandsRunning } from './background-commands.js';
+import { backgroundCommandNames, backgroundCommandsRunning } from './background-commands.js';
+import { claudePrLinks } from './pr-links.js';
 import { getAiTool } from '../../platform/ai-launcher.js';
 import {
   claudeProjectsRoots,
@@ -15,10 +16,18 @@ import { accountDir, accountEnv, configDirEnv, defaultAccountName, sessionAccoun
 import { readTranscriptTail } from './transcript.js';
 import { claudeContextWindow, claudeEntries } from './entries.js';
 import { claudeEvents } from './hooks.js';
+import { sessionSettingsFile, startedWithSessionSettings, withSessionSettings } from './session-settings.js';
 import { claudeSessionsDirs, readLiveClaudes } from './live.js';
 import { ANSWER_KEYS, checkDialog } from './permission.js';
 import { typeThenEnter } from '../typing.js';
-import { internalClaudeSpawn } from './internal.js';
+import {
+  CLAUDE_READ_ONLY_LINES,
+  CLAUDE_READ_ONLY_LOCAL_LINES,
+  claudeReadDenyRules,
+  claudeSettingsFile,
+  internalClaudeReadOnlySpawn,
+  internalClaudeSpawn,
+} from './internal.js';
 import { claudeWorkspace } from './workspace.js';
 import { claudeSkills } from './skills.js';
 import { claudeUsage } from './usage.js';
@@ -57,6 +66,10 @@ export const claudeAgent: AgentAdapter = {
     cleanEnv: (env) => withoutParentSession(env),
     // The session's account (null: work's own runs, on the configured default).
     env: (session) => accountEnv(session ? sessionAccount(session) : defaultAccountName()),
+    // `--settings ~/.work/claude-settings.json`: work's hooks and status line for this Claude alone.
+    // (`write: false`: the dev server names the file the installed work wrote, never its own build.)
+    sessionTool: (tool, o) => withSessionSettings(tool, sessionSettingsFile(o)),
+    startedWithSessionHooks: startedWithSessionSettings,
   },
   conversation: {
     files: (s) => listTranscripts(s),
@@ -76,6 +89,8 @@ export const claudeAgent: AgentAdapter = {
     lastWriteMs: (cwd) => getClaudeActivityMs(cwd),
     backgroundWorkSince,
     backgroundCommands: backgroundCommandsRunning,
+    backgroundCommandNames,
+    prLinks: claudePrLinks,
     // In the session's own account's projects folder: that is where its `--continue` looks.
     restoreDir: (s) => {
       const cwd = s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : s.paths[0];
@@ -92,7 +107,23 @@ export const claudeAgent: AgentAdapter = {
     permissionDialog: { check: checkDialog, keys: { allow: ANSWER_KEYS.allow, deny: ANSWER_KEYS.deny } },
   },
   // `claude -p --tools "" --strict-mcp-config [--model haiku]` in a neutral folder, tagged internal.
-  oneShot: { command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }) },
+  // Read-only in a folder (a PR's checkout): `claude -p --restricted --tools Read,Grep,Glob --setting-sources user --add-dir <it> …`.
+  oneShot: {
+    command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }),
+    readOnly: {
+      command: ({ small, cwd, deny }) => ({
+        cmd: 'claude',
+        ...internalClaudeReadOnlySpawn({ cwd, ...(small ? { model: CLAUDE_SMALL_MODEL } : {}), ...(deny ? { deny } : {}) }),
+      }),
+      isSettingsFile: claudeSettingsFile,
+      promptLines: CLAUDE_READ_ONLY_LINES,
+      localLines: CLAUDE_READ_ONLY_LOCAL_LINES,
+      denyRules: (repos) => claudeReadDenyRules(repos),
+      // Its flags were measured on one Claude Code (READ_ONLY_MIN_VERSION): an older one gets no checkout run.
+      // Loaded when a review asks: the hook processes load this adapter on every turn edge.
+      available: async () => (await import('./version.js')).claudeReadOnlyAvailable(),
+    },
+  },
   instructionsFile: 'CLAUDE.md',
   // CLAUDE.md's own import syntax (Claude Code reads the file it names, relative to this one).
   instructionsImport: (relPath) => `@${relPath}`,

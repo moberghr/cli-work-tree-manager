@@ -73,6 +73,24 @@ export interface AgentConversation {
   /** Background commands (a build, tests, a dev server) its conversation started since `sinceMs` — the agent
    *  process's start — and that haven't ended: stopping the agent would stop them (idle sleep keeps it awake). */
   backgroundCommands?(session: WorktreeSession, sinceMs: number): number;
+  /** What those commands are, newest first, each in a line (the session list names what runs while its prompt is free). */
+  backgroundCommandNames?(session: WorktreeSession, sinceMs: number): string[];
+  /**
+   * The pull requests a stretch of its conversation file names as the session's own (made or worked on by it), in
+   * file order — Claude Code writes a line for each. `text`: whole lines of a conversation file; a line cut at either
+   * end is skipped. Absent: the agent doesn't say, and a session's PRs come from its branches alone.
+   */
+  prLinks?(text: string): ConversationPrLink[];
+}
+
+/** A pull request a conversation says the session made or worked on (`AgentConversation.prLinks`). */
+export interface ConversationPrLink {
+  url: string;
+  number: number;
+  /** The host's name for its repo (`owner/name`), as the agent wrote it; '' when it didn't. */
+  repo: string;
+  /** ISO, when the line says. */
+  at?: string;
 }
 
 /** Whose conversations a resume check looks in: a session's (its account), or the environment the agent will start with (`env` wins). */
@@ -100,6 +118,18 @@ export interface AgentLaunch {
    * own runs (the assistant, one-shot summaries), on the configured default. Absent: nothing to change.
    */
   env?(session: Pick<WorktreeSession, 'account'> | null): EnvDelta;
+  /**
+   * The tool as work starts it for a session, its hooks (session-hooks.ts) given to this process alone — never written
+   * into the user's settings, where every other agent run on the machine would fire them (Claude: `--settings` with
+   * work's own file, claude/session-settings.ts). Applied at every spawn, restore and restart, so a stored tool from
+   * before gets it too. Absent: started as `tool` says (no hooks).
+   */
+  sessionTool?(tool: AiToolSpec, o?: { write?: boolean }): AiToolSpec;
+  /**
+   * A running process of it, by its command line, was started with `sessionTool`'s hooks. One that wasn't — started
+   * before this build, by an older work — still needs the hooks older builds put in its own settings (`AgentEvents.bridge`).
+   */
+  startedWithSessionHooks?(commandLine: string): boolean;
 }
 
 /** Whether a keystroke may answer a permission request now (the dialog on its screen is that request's), and if not, why. */
@@ -127,6 +157,42 @@ export interface AgentInput {
 export interface AgentOneShot {
   /** How to start one; `small`: a few words are wanted (a smaller, cheaper model). */
   command(opts: { small?: boolean }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  /**
+   * Optional: a one-shot run that may READ a folder — a pull request's temporary checkout, for the Reviews AI step
+   * (review-tree.ts). Read-only file tools only, confined to `cwd`; nothing that runs a command, writes, or reaches
+   * the network; none of the folder's own settings, hooks or MCP servers (they are the PR author's), but its
+   * instructions file (the repo's conventions); the env tagged internal like `command`. Absent: the agent has no
+   * such mode, and callers use the text-only `command` with the diff alone.
+   */
+  readOnly?: AgentReadOnly;
+}
+
+/** The agent's read-only one-shot in a folder (`AgentOneShot.readOnly`), and what only the agent knows about it. */
+export interface AgentReadOnly {
+  command(opts: { small?: boolean; cwd: string; deny?: string[] }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+  /**
+   * A file of the folder (its path relative to it, `/` or `\`) the agent would read as its own settings — hooks, env,
+   * permissions, tool servers: deleted from the copy before the run (the folder is someone else's). Whatever case it's
+   * written in: a case-blind file system opens `.Claude/settings.json` as the settings file.
+   */
+  isSettingsFile(relPath: string): boolean;
+  /** What the run's prompt says of the folder in the agent's own words: its tools, and which of its files it was given. */
+  promptLines: string[];
+  /**
+   * The same for a run in YOUR folder (a session's own changes, core/review/local-review-tree.ts): nothing is
+   * deleted there. Absent: the agent's read-only run is for a temporary checkout only.
+   */
+  localLines?: string[];
+  /**
+   * The files the repos' own settings forbid reading, as rules for `command`'s `deny` (the run loads none of the
+   * folder's settings, so they wouldn't hold otherwise). `sub`: the repo's folder under where the run starts.
+   */
+  denyRules?(repos: ReadonlyArray<{ dir: string; sub: string | null }>): string[];
+  /**
+   * Whether the installed agent can run it as it was measured (Claude: its version, at least the one its flags were
+   * measured on). Not ok: no checkout run, and `why` says so. Absent: always.
+   */
+  available?(): Promise<{ ok: boolean; why?: string }>;
 }
 
 /** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */
@@ -137,7 +203,7 @@ export interface LiveAgent {
   cwd: string;
   busy: boolean;
   /** What the agent says it is doing: mid-turn, at its prompt, or waiting on you (a permission, a dialog). */
-  state: 'busy' | 'idle' | 'waiting' | null;
+  state: 'busy' | 'idle' | 'waiting' | 'shell' | null;
   /** When that last changed (ms). */
   stateAt: number | null;
   /** While waiting: what for ("input needed", "dialog open"). */
@@ -154,7 +220,7 @@ export interface AgentLive {
 /** A point in an agent's turn work hooks into: a prompt arrives, the turn ends, the agent notifies (a permission prompt, idle). */
 export type TurnEdge = 'turn-start' | 'turn-end' | 'notify';
 
-/** One of work's hooks: the command (`work hook <edge>`) an agent runs at a turn edge, under an owner (which work web installed it). */
+/** One of work's hooks in a folder's own settings (the Ctrl+K assistant's): the command an agent runs at a turn edge, under an owner. */
 export interface WorkHook {
   owner: string;
   edge: TurnEdge;
@@ -162,12 +228,23 @@ export interface WorkHook {
   timeoutSec?: number;
 }
 
-/** How work hears an agent's turns: hooks the agent runs at each edge, and what it sends them. */
+/**
+ * How work hears an agent's turns: hooks the agent runs at each edge (given to the processes work starts,
+ * `AgentLaunch.sessionTool`), and what it sends them.
+ */
 export interface AgentEvents {
-  /** Install these hooks in the agent's settings in one write, replacing those owners' earlier ones, and removing `remove`. */
-  install(hooks: WorkHook[], remove?: Array<{ owner: string; edge: TurnEdge }>): Promise<void>;
-  /** Remove hooks synchronously (a shutdown handler can't wait). */
-  removeSync(hooks: Array<{ owner: string; edge: TurnEdge }>): void;
+  /**
+   * Take hooks of these owners out of the agent's own settings (every account's): work once installed them there, and
+   * every agent run on the machine fired them (session-hooks.ts `RETIRED_HOOK_OWNERS`). Settings already without them
+   * aren't written.
+   */
+  removeInstalled(hooks: ReadonlyArray<{ owner: string; edge: TurnEdge }>): Promise<void>;
+  /**
+   * While agents started before the update still run (they have no `sessionTool` hooks of their own, and the agent
+   * reads its settings live), put work's hooks in its own settings — the very commands `sessionTool` gives, so an agent
+   * that has both runs each once — under owners `removeInstalled` takes out once those agents are gone.
+   */
+  bridge(): Promise<void>;
   /** What a hook was sent (its stdin, parsed): the folder it fired in, and the status event it means. */
   read(edge: TurnEdge, payload: unknown): { cwd?: string; status: StatusEvent | null };
   /** The hook output that hands `text` (pending notes) to the agent: at a turn's start as more context, at its end as "go on with this". */
@@ -236,6 +313,21 @@ export class AccountAdminError extends Error {
   }
 }
 
+/** One thing a copy of an account's setup to another does (`AgentAccountAdmin.setupPlan`). */
+export interface AccountSetupItem {
+  /** What kind of thing it is, in the agent's own words (Claude: file, folder, settings, mcp, marketplace, plugin). */
+  kind: string;
+  name: string;
+  does: 'adds' | 'replaces' | 'merges into';
+  /** Something to know of it (a sign-in it needs on the other account, where it comes from). */
+  note?: string;
+}
+
+export interface AccountSetupResult extends AccountSetupItem {
+  ok: boolean;
+  error?: string;
+}
+
 /** Adding, choosing and forgetting an agent's accounts (`work account`). Never deletes an account's folder: its login and conversations are the user's. */
 export interface AgentAccountAdmin {
   /** Record a new account (its folder: `dir`, else the agent's default place for it), made when missing. Returns the folder. */
@@ -250,8 +342,22 @@ export interface AgentAccountAdmin {
   remove(name: string, usedBy: () => AccountUsers): Promise<void>;
   /** Start the agent's own CLI in this terminal on the account, so the user logs in (blocks until it exits). */
   login(name: string): void;
+  /**
+   * The same CLI as `login` starts, for a terminal work starts itself (the dashboard's login terminal, in the PTY host):
+   * its command and how its environment differs for the account. In the agent's own permission mode, as every start.
+   * Throws an AccountAdminError for an unknown account.
+   */
+  loginLaunch(name: string): { tool: AiToolSpec; agentEnv: EnvDelta };
   /** Give the account work's skills (the install at setup reaches only the accounts there were then). */
   installSkills(name: string): { ok: boolean; message: string };
+  /**
+   * What copying `from`'s setup to `to` would do (its instructions, agents, commands, settings, tool servers,
+   * plugins — never a login, a token or a conversation): a read. Empty: `to` is set up the same already. Throws an
+   * AccountAdminError for an unknown account, or one copied to itself. Absent: the agent has no setup to copy.
+   */
+  setupPlan?(from: string, to: string): AccountSetupItem[];
+  /** Do it, each thing reported; one that fails is said and the rest still go. Nothing on `to` is deleted. */
+  copySetup?(from: string, to: string): Promise<AccountSetupResult[]>;
 }
 
 /** Running a session on one of several logins of the agent, and moving it from one to another. */

@@ -23,6 +23,7 @@ import {
   requestDesktop,
   seenVersion,
   type UpdatesDeps,
+  networkFailure,
 } from '../../../src/core/updates/update-source.js';
 
 const note = (version: string, body = 'notes'): ReleaseNote => ({ version, name: `work ${version}`, body, publishedAt: '', url: '' });
@@ -183,6 +184,17 @@ describe('fetchReleases', () => {
     const noGh = async () => ({ code: 127, stdout: '', stderr: '' });
     await expect(fetchReleases(limited, noGh)).rejects.toThrow(/limit for this address is spent; no gh/);
     await expect(fetchReleases(async () => Promise.reject(new Error('offline')), noGh)).rejects.toThrow(/offline/);
+  });
+
+  it('no network: said so at once, and gh (which would meet the same network) is not asked', async () => {
+    const gh = vi.fn(async () => ({ code: 0, stdout: '[]', stderr: '' }));
+    const noDns = async () => Promise.reject(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }));
+    await expect(fetchReleases(noDns, gh)).rejects.toThrow("no network: GitHub couldn't be reached (ENOTFOUND)");
+    const slow = async () => Promise.reject(Object.assign(new Error('timed out'), { name: 'TimeoutError' }));
+    await expect(fetchReleases(slow, gh)).rejects.toThrow('no answer from GitHub in 15 s');
+    expect(gh).not.toHaveBeenCalled();
+    // Any other failure still asks gh.
+    expect(networkFailure(new Error('certificate has expired'))).toBeNull();
   });
 });
 

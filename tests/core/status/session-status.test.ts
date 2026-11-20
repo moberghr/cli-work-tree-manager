@@ -462,6 +462,40 @@ describe("withLiveClaude (Claude Code's own state over the hooks, when newer)", 
     expect(asked).toEqual([]);
   });
 
+  it('Claude Code says `shell` (a background command still runs, its prompt free): idle, marked In background with what runs (reported: read Idle)', () => {
+    const shell = (sec: number) => ({ state: 'shell' as const, stateAt: at(sec).getTime() });
+    const asked: string[] = [];
+    const commands = (names: string[]) => () => (asked.push('asked'), names);
+    // Its turn ended, the tests go on: the state stays idle, the mark says what runs.
+    expect(withLiveClaude(rec('idle', 10), shell(9), { ...known, commands: commands(['Run the backend tests']) })).toEqual({
+      ...rec('idle', 10),
+      background: { what: 'Run the backend tests', command: true },
+    });
+    // A finished turn you haven't looked at stays unseen: "review" still shows.
+    expect(withLiveClaude({ ...rec('idle', 10), seen: false }, shell(11), { ...known, commands: commands([]) })).toMatchObject({
+      state: 'idle',
+      seen: false,
+      background: { what: null, command: true },
+    });
+    // Several: the newest, and how many more. None asked for (an agent that can't name them): no name.
+    expect(
+      withLiveClaude(rec('idle', 10), shell(9), { ...known, commands: commands(['npm run dev', 'dotnet test', 'x']) }).background,
+    ).toEqual({ what: 'npm run dev and 2 more', command: true });
+    expect(withLiveClaude(rec('idle', 10), shell(9), known).background).toEqual({ what: null, command: true });
+    // Newer than a working / needs-input record: that turn is over (a Stop the hooks missed).
+    expect(withLiveClaude(rec('working', 10), shell(11), { ...known, commands: commands(['npm test']) })).toMatchObject({
+      state: 'idle',
+      seen: true,
+      background: { what: 'npm test', command: true },
+    });
+    // Older than a working record (a prompt since): the turn is the news, and nothing is asked.
+    asked.length = 0;
+    const working = withLiveClaude(rec('working', 10), shell(9), { ...known, commands: commands(['npm test']) });
+    expect(working.state).toBe('working');
+    expect(working).not.toHaveProperty('background');
+    expect(asked).toEqual([]);
+  });
+
   it("Claude's own turn is working with no background mark (only a background agent's is)", () => {
     expect(withLiveClaude(rec('working', 10), { state: 'busy', stateAt: at(11).getTime() }, known)).not.toHaveProperty('background');
     expect(withLiveClaude(rec('idle', 10), { state: 'busy', stateAt: at(11).getTime() }, known)).not.toHaveProperty('background');

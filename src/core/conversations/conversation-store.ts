@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { promisify } from 'node:util';
 import { getConfigDir } from '../platform/config.js';
 import { agentOf } from '../agents/index.js';
 import { sessionIdFor } from '../sessions/session-id.js';
@@ -8,6 +9,9 @@ import { archiveRoot, readArchive, readArchivedTranscript } from '../archive/ses
 import { matchingLines, queryWords, snippet } from '../archive/archive-search.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import type { ConversationHit } from '../api-types.js';
+import type { ConversationPrLink } from '../agents/types.js';
+import { noteSessionPrs, readSessionPrs } from '../pr/session-prs.js';
+import { report } from '../platform/report.js';
 
 /**
  * work's own copy of every session's Claude conversations, at
@@ -24,22 +28,34 @@ import type { ConversationHit } from '../api-types.js';
  * 30 minutes. Removing the session removes it (sessionStatePaths).
  */
 
+const gunzip = promisify(zlib.gunzip);
+
 export const conversationRoot = (): string => path.join(getConfigDir(), 'conversations');
 export const conversationDirFor = (id: string, root = conversationRoot()): string => path.join(root, id);
 
 export interface SyncResult {
   files: number;
   bytes: number;
+  /** PRs its agent's new lines name as the session's (`AgentConversation.prLinks`), put on its list (session-prs.ts). */
+  prs?: number;
 }
 
-/** Bring a session's copy up to date with its transcripts. */
+/**
+ * Bring a session's copy up to date with its transcripts. The new lines are read for the PRs they name as the
+ * session's (`prLinks`) on the way, and those go on the session's PR list; a session whose list was never filled
+ * from its whole conversation has its copy read once for them (`scanned`).
+ */
 export async function syncConversation(
   s: WorktreeSession,
   root = conversationRoot(),
   sources = agentOf(s).conversation?.files(s) ?? [],
+  prLinks: ((text: string) => ConversationPrLink[]) | null | undefined = agentOf(s).conversation?.prLinks,
 ): Promise<SyncResult> {
-  const dir = conversationDirFor(sessionIdFor(s), root);
+  const id = sessionIdFor(s);
+  const dir = conversationDirFor(id, root);
   const out: SyncResult = { files: 0, bytes: 0 };
+  const found: ConversationPrLink[] = [];
+  const scan = prLinks ? lineScanner((text) => found.push(...prLinks(text))) : null;
   for (const src of sources) {
     const dest = path.join(dir, path.basename(src.file));
     // Packed while it was quiet (compressQuietCopies): unchanged since, it
@@ -63,18 +79,112 @@ export async function syncConversation(
     }
     await fs.promises.mkdir(dir, { recursive: true });
     if (have > src.size) {
-      // Smaller than our copy: the file was replaced. Copy it whole.
+      // Smaller than our copy: the file was replaced. Copy it whole (its lines are read by the scan below, or were).
       await fs.promises.copyFile(src.file, dest);
       out.bytes += src.size;
     } else {
-      out.bytes += await appendRange(src.file, dest, have, src.size);
+      const feed = scan?.file();
+      out.bytes += await appendRange(src.file, dest, have, src.size, feed);
+      feed?.end();
     }
     // The copy's time is the conversation's last write, not when we copied
     // it: search orders by it, and shows it.
     await fs.promises.utimes(dest, new Date(), new Date(src.mtimeMs)).catch(() => undefined);
     out.files++;
   }
+  if (prLinks) {
+    const prs = await notePrLinks(s, id, dir, found, prLinks);
+    if (prs) out.prs = prs;
+  }
   return out;
+}
+
+/**
+ * Feeds text in pieces to `onLines` as whole lines: a line cut at a piece's end waits for the rest. The first line of
+ * a range that started mid-line is cut at its start — whatever reads it skips a line that doesn't parse.
+ */
+function lineScanner(onLines: (text: string) => void) {
+  return {
+    file() {
+      let carry = '';
+      return {
+        push(buf: Buffer) {
+          const text = carry + buf.toString('utf8');
+          const nl = text.lastIndexOf('\n');
+          if (nl < 0) {
+            carry = text.length > 1_000_000 ? '' : text; // a line this long isn't one of the short lines read here
+            return;
+          }
+          onLines(text.slice(0, nl));
+          carry = text.slice(nl + 1);
+        },
+        end() {
+          if (carry) onLines(carry);
+          carry = '';
+        },
+      };
+    },
+  };
+}
+
+/** The new lines' PRs onto the session's list; the first time, every PR its whole kept copy names. Returns how many it named. */
+async function notePrLinks(
+  s: WorktreeSession,
+  id: string,
+  dir: string,
+  found: ConversationPrLink[],
+  prLinks: (text: string) => ConversationPrLink[],
+): Promise<number> {
+  if (s.archivedAt) return 0;
+  const whole = rescanPrLinks.has(id) || !readSessionPrs(id)?.scanned;
+  const links = [...found];
+  // Scanned only when every file of the copy was read: one that couldn't be is read again next time.
+  let readAll = true;
+  if (whole) {
+    // Read off the event loop, one file at a time (a long session's copy is tens of megabytes).
+    const names = await fs.promises.readdir(dir).catch((err: NodeJS.ErrnoException) => {
+      if (err.code !== 'ENOENT') readAll = false;
+      return [] as string[];
+    });
+    for (const n of names.filter((x) => x.endsWith('.jsonl') || x.endsWith('.jsonl.gz'))) {
+      try {
+        const buf = await fs.promises.readFile(path.join(dir, n));
+        links.push(...prLinks((n.endsWith('.gz') ? await gunzip(buf) : buf).toString('utf8')));
+      } catch (err) {
+        // Vanished (packed meanwhile, or gone): its lines are in the other file or nowhere. Anything else: again.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') readAll = false;
+      }
+    }
+  }
+  if (!links.length && !whole) return 0;
+  try {
+    notedPrLinks(id, links, whole && readAll);
+  } catch (err) {
+    // The new lines are copied already, so the next sync won't see them again: it reads the whole copy instead.
+    rescanPrLinks.add(id);
+    report('warn', `couldn't keep the PRs named in ${id}'s conversation (${(err as Error).message}); read again at the next sync`);
+    return 0;
+  }
+  if (whole && readAll) rescanPrLinks.delete(id);
+  return new Set(links.map((l) => l.url)).size;
+}
+
+/** Sessions whose PR links couldn't be kept: their whole copy is read again at the next sync (this process's memory). */
+const rescanPrLinks = new Set<string>();
+
+function notedPrLinks(id: string, links: ConversationPrLink[], scanned: boolean): void {
+  noteSessionPrs(
+    id,
+    links.map((l) => ({
+      url: l.url,
+      number: l.number,
+      ...(l.repo ? { repoId: l.repo.toLowerCase() } : {}),
+      source: 'agent' as const,
+      ...(l.at ? { at: l.at } : {}),
+    })),
+    new Date(),
+    scanned ? { scanned: true } : {},
+  );
 }
 
 /** A copy kept gzipped: its time is the conversation's last write, so a newer source means it went on. */
@@ -153,7 +263,7 @@ export async function compressQuietCopies(
  * session at once (a turn's and the sweep's, or `work search` beside work
  * web) write the same bytes to the same place instead of doubling lines.
  */
-async function appendRange(src: string, dest: string, from: number, to: number): Promise<number> {
+async function appendRange(src: string, dest: string, from: number, to: number, feed?: { push(buf: Buffer): void }): Promise<number> {
   await (await fs.promises.open(dest, 'a')).close(); // create it if new
   const [inp, out] = [await fs.promises.open(src, 'r'), await fs.promises.open(dest, 'r+')];
   try {
@@ -164,6 +274,7 @@ async function appendRange(src: string, dest: string, from: number, to: number):
       const { bytesRead } = await inp.read(buf, 0, buf.length, pos);
       if (bytesRead === 0) break;
       await out.write(buf, 0, bytesRead, pos);
+      feed?.push(buf.subarray(0, bytesRead));
       done += bytesRead;
     }
     return done;

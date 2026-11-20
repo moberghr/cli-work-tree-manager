@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { AgentAdapter } from '../agents/types.js';
-import { agentFor, agentSettings, assistantAgent } from '../agents/index.js';
+import { agentFor, agentSettings, assistantAgent, sessionToolFor } from '../agents/index.js';
 import { statusFromOutput, type PtyOutput } from './output-status.js';
 import type { SessionAttention } from '../api-types.js';
 import type { HostBeat } from './host-health.js';
@@ -17,6 +17,8 @@ import { hasEnvDelta, type EnvDelta } from '../platform/env-delta.js';
 import { ensureHost, findHost, PtyHostClient, findHostPatient, PtyHostVersionError } from './pty-host-client.js';
 import { logSwallowed, swallow } from '../platform/best-effort.js';
 import { ASSISTANT_ID, prepareAssistantDir } from '../agents/assistant.js';
+import { accountLoginId, accountOfLoginId } from './account-login-id.js';
+import { accountLoginSpec } from './account-login.js';
 
 /**
  * `work web`'s view of the Claude PTYs. The PTYs themselves live in the
@@ -170,7 +172,11 @@ export function assistantSpec(): { cwd: string; tool: ReturnType<AgentAdapter['l
   const agent = assistantAgent(settings);
   // Work's own session, not any session's: the configured default account (`launch.env(null)`).
   const agentEnv = agent.launch.env?.(null);
-  return { cwd: prepareAssistantDir(agent), tool: agent.launch.tool(settings), ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
+  return {
+    cwd: prepareAssistantDir(agent),
+    tool: sessionToolFor(agent.launch.tool(settings), { write: mayStartHost }),
+    ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}),
+  };
 }
 
 export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
@@ -181,7 +187,11 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
   const launch = agentFor(config, session).launch;
   // The session's account: its agent's folder env, applied by the host over whatever environment it starts with.
   const agentEnv = launch.env?.(session);
-  return { cwd, tool: launch.tool(config), port: session.port, ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
+  // Its hooks in the spec itself (`--settings`, agents/session-hooks.ts), so a PTY host from before this build — it
+  // outlives updates — starts it with them too; a current host replaces the flag with its own, never twice. The dev
+  // server names the file the installed work wrote, never its own build (`write: false`).
+  const tool = sessionToolFor(launch.tool(config), { write: mayStartHost });
+  return { cwd, tool, port: session.port, ...(hasEnvDelta(agentEnv) ? { agentEnv } : {}) };
 }
 
 /**
@@ -190,14 +200,24 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
  * unknown session.
  */
 export async function ensurePty(sessionId: string, extra: { initialPrompt?: string } = {}): Promise<string | null> {
+  // An account's login terminal (the Accounts page) is no session: the agent's own CLI on that account (account-login.ts).
+  const loginFor = accountOfLoginId(sessionId);
   // The dashboard assistant (Ctrl+K) is not a worktree: it runs in its own
   // folder, which is (re)written first (assistant.ts).
-  const session = sessionId === ASSISTANT_ID ? null : findSession(sessionId);
+  const notASession = sessionId === ASSISTANT_ID || loginFor !== null;
+  const session = notASession ? null : findSession(sessionId);
   // Not for a session being archived, or archived: its Claude was stopped on
   // purpose (a Terminal tab still open on it reconnects and would start it).
-  const refused = sessionId === ASSISTANT_ID ? null : noClaudeBecause(session, sessionId);
+  const refused = notASession ? null : noClaudeBecause(session, sessionId);
   if (refused) throw new Error(refused);
-  const base = sessionId === ASSISTANT_ID ? assistantSpec() : session ? spawnSpecFor(session) : null;
+  const base =
+    loginFor !== null
+      ? accountLoginSpec(loginFor, agentFor(loadConfig()).accounts)
+      : sessionId === ASSISTANT_ID
+        ? assistantSpec()
+        : session
+          ? spawnSpecFor(session)
+          : null;
   if (!base) return null;
   // The first prompt only applies to a fresh spawn (the host ignores the
   // spec when the session's PTY is already running).
@@ -218,6 +238,28 @@ export async function ensurePty(sessionId: string, extra: { initialPrompt?: stri
   }
   live.add(sessionId);
   return c.attachUrl(sessionId);
+}
+
+/**
+ * Where a dashboard page connects a terminal straight to the PTY host (with a one-time ticket for its origin), once
+ * `ensurePty` has it running. Null when the host can't give one (from before tickets): the page goes through work
+ * web's relay as before.
+ */
+export async function terminalTicketUrl(sessionId: string, origin: string): Promise<string | null> {
+  const c = await getClient(false);
+  return c ? c.ticketUrl(sessionId, origin).catch(() => null) : null;
+}
+
+/** Start an account's login terminal in the PTY host (or find it running); its id, for the terminal WebSocket. */
+export async function startAccountLogin(name: string): Promise<string> {
+  const id = accountLoginId(name);
+  if (!(await ensurePty(id))) throw new Error('the PTY host could not be started');
+  return id;
+}
+
+/** Stop an account's login terminal (nothing when none runs). */
+export async function stopAccountLogin(name: string): Promise<void> {
+  await disposePty(accountLoginId(name));
 }
 
 /** Side-effect-free check: does an active (non-exited) PTY exist for this

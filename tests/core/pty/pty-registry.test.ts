@@ -3,11 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HALT_RESUME_MS, PtyRegistry, type PtyLike, type PtySpawner } from '../../../src/core/pty/pty-registry.js';
-import type { AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
+import { buildAiLaunchArgs, getAiTool, type AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 import { isPersistedPty, keepEnv } from '../../../src/core/pty/pty-host-protocol.js';
 import { withReporter } from '../../../src/core/platform/report.js';
 
-const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '--continue' } as unknown as AiToolSpec;
+const tool = { cmd: 'claude', baseArgs: [], resumeFlag: '--continue' } as unknown as AiToolSpec;
 
 class FakePty implements PtyLike {
   static nextPid = 100;
@@ -154,6 +154,25 @@ describe('PtyRegistry', () => {
     expect(Object.keys(readSaved())).toEqual(['a']); // and it's off the list from then on
   });
 
+  it("never restores an account's login terminal, and a fresh one never resumes a conversation (the Accounts page's)", async () => {
+    const first = makeRegistry(() => true);
+    first.spawn('a', { cwd: '/x', tool });
+    first.spawn('account-login:work', {
+      cwd: '/home/.work/account-login',
+      tool,
+      fresh: true,
+      agentEnv: { CLAUDE_CONFIG_DIR: '/acc/work' },
+    });
+    expect(spawned[1].spec.resume).toBe(false); // `fresh`: a login, not a conversation to go on with
+    await first.flush();
+    first.disposeAllKeepingState();
+    await first.flush();
+    const second = makeRegistry(() => true);
+    expect(await second.restore()).toEqual(['a']);
+    expect(second.get('account-login:work')).toBeNull();
+    expect(Object.keys(readSaved())).toEqual(['a']);
+  });
+
   it('does not restore sessions whose worktree is gone', async () => {
     fs.writeFileSync(sessionsPath, JSON.stringify({ a: { cwd: '/gone', tool, startedAt: '' } }));
     const reg = new PtyRegistry({ spawner, hasConversation: () => false, sessionsPath, cwdExists: () => false });
@@ -241,18 +260,54 @@ describe('PtyRegistry launch options', () => {
     expect(spawned[0].spec.resume).toBe(false);
   });
 
-  it('passes unsafe, the prompt and the forwarded env to the first spawn', () => {
+  it('passes the prompt and the forwarded env to the first spawn', () => {
     const reg = makeRegistry();
-    reg.spawn('a', { cwd: '/x', tool, unsafe: true, initialPrompt: 'do it', env: { A: '1' } });
-    expect(spawned[0].spec).toMatchObject({ unsafe: true, initialPrompt: 'do it', env: { A: '1' } });
+    reg.spawn('a', { cwd: '/x', tool, initialPrompt: 'do it', env: { A: '1' } });
+    expect(spawned[0].spec).toMatchObject({ initialPrompt: 'do it', env: { A: '1' } });
   });
 
-  it('never persists env, prompt or fresh; a restore keeps unsafe and continues', async () => {
+  it('an older client asking for unsafe: nothing of it is kept, and the agent starts in its own permission mode', async () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool, ...{ unsafe: true } }); // an older `work` still sends it
+    await reg.flush();
+    expect(readSaved().a).not.toHaveProperty('unsafe');
+    expect(buildAiLaunchArgs(getAiTool({}), spawned[0].spec).args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it("a restore list from an older host (unsafe: true, its tool's unsafeFlag) starts the agent without the flag", async () => {
+    const oldTool = { ...getAiTool({}), unsafeFlag: '--dangerously-skip-permissions' };
+    fs.writeFileSync(
+      sessionsPath,
+      JSON.stringify({ a: { cwd: '/x', tool: oldTool, unsafe: true, startedAt: '2026-10-01T09:00:00.000Z' } }),
+    );
+    const reg = makeRegistry(() => true);
+    await reg.restore();
+    expect(spawned).toHaveLength(1);
+    const { args } = buildAiLaunchArgs(spawned[0].spec.tool, spawned[0].spec);
+    // Started normally: work's own hooks file (`--settings`, given to every session's Claude) and its resume flag.
+    expect(args).toEqual(['--settings', path.join(os.homedir(), '.work', 'claude-settings.json'), '--continue']);
+    // The entry it rewrites says it starts normally: what lifts the one-release guards (legacy-unsafe.ts).
+    expect(readSaved().a).not.toHaveProperty('unsafe');
+    expect(readSaved().a.tool).not.toHaveProperty('unsafeFlag');
+    // And a restart by this host keeps it so.
+    const done = reg.restart('a');
+    spawned[0].pty.exit(0);
+    await done;
+    await reg.flush();
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1].spec).not.toHaveProperty('unsafe');
+    expect(readSaved().a).not.toHaveProperty('unsafe');
+    expect(readSaved().a.tool).not.toHaveProperty('unsafeFlag');
+    // The restart carries work's hooks too, once (the flag is the host's, never doubled).
+    expect(buildAiLaunchArgs(spawned[1].spec.tool, spawned[1].spec).args.filter((a) => a === '--settings')).toHaveLength(1);
+  });
+
+  it('never persists env, prompt or fresh; a restore continues', async () => {
     const first = makeRegistry();
-    first.spawn('a', { cwd: '/x', tool, unsafe: true, fresh: true, initialPrompt: 'p', env: { SECRET: 's' } });
+    first.spawn('a', { cwd: '/x', tool, fresh: true, initialPrompt: 'p', env: { SECRET: 's' } });
     await first.flush();
     const saved = readSaved().a;
-    expect(saved).toMatchObject({ cwd: '/x', unsafe: true });
+    expect(saved).toMatchObject({ cwd: '/x' });
     expect(saved).not.toHaveProperty('env');
     expect(saved).not.toHaveProperty('initialPrompt');
     expect(saved).not.toHaveProperty('fresh');
@@ -261,7 +316,7 @@ describe('PtyRegistry launch options', () => {
     first.disposeAllKeepingState();
     const second = makeRegistry(() => true);
     await second.restore();
-    expect(spawned[1].spec).toMatchObject({ unsafe: true, resume: true });
+    expect(spawned[1].spec).toMatchObject({ resume: true });
     expect(spawned[1].spec.initialPrompt).toBeUndefined();
     expect(spawned[1].spec.env).toBeUndefined();
   });

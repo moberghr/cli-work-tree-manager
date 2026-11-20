@@ -38,7 +38,8 @@ export interface SessionLike {
  *   done        — finished a turn you haven't looked at
  *   working     — mid-turn
  *   background  — its turn ended, a background agent that turn started is
- *                 still at it: still busy, but its prompt is free
+ *                 still at it: still busy, but its prompt is free; or idle
+ *                 with a background command it started still running
  *   asleep      — its Claude was stopped while idle (idle sleep, `work stop`)
  *                 and hasn't run since: opening it starts it again
  *   quiet       — finished, and you've seen it
@@ -79,6 +80,8 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
   if (a) {
     if (a.state === 'needs_input') return 'needs_input';
     if (a.state === 'working') return a.background ? 'background' : 'working';
+    // Idle with a background command of its still running (a build, tests, a dev server): not asleep, not idle.
+    if (a.background) return 'background';
   }
   // A finished turn you haven't looked at is yours to review, not Claude's state: the blue "review" badge says it
   // (owedToYou's 'turn'); the icon says what its Claude is — idle, or asleep.
@@ -114,7 +117,7 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
   done: "Its Claude finished a turn you haven't looked at yet: the Inbox's Done section. On a row it's the blue review badge, beside what its Claude is now.",
   working: 'Its Claude is working on your last instruction right now.',
   background:
-    'Its Claude finished its turn, and a background agent that turn started is still at work. Its prompt is free: you can talk to it. The agent’s result comes back as a new turn.',
+    'Its Claude finished its turn, and something it started is still at work: a background agent, or a background command (a build, tests, a dev server). Its prompt is free: you can talk to it. The result comes back as a new turn.',
   asleep:
     'Its Claude was stopped to free memory: idle for a while, nothing attached, nothing of it still running. Opening the session starts it again, where it left off.',
   quiet: "Its Claude finished, and you've seen it. Nothing to do.",
@@ -232,6 +235,8 @@ export const OWED_SHORT: Record<Owed['kind'], (n: number) => string> = {
   conflict: () => 'conflict',
   checks: () => 'CI',
   merge: () => 'merge',
+  // "review" is a finished turn's word already (its diff to review): the session's own review says what it is.
+  review: () => 'review ready',
 };
 export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
   turn: () => 'a finished turn to review',
@@ -240,6 +245,7 @@ export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
   conflict: (n) => (n === 1 ? 'a merge conflict' : `${n} PRs with merge conflicts`),
   checks: (n) => (n === 1 ? 'checks failing' : `${n} PRs with checks failing`),
   merge: () => 'ready to merge',
+  review: () => 'its review finished: open its Review tab',
 };
 
 export interface OwedBadge {

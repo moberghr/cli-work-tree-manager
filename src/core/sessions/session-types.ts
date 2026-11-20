@@ -38,8 +38,9 @@ export interface WorktreeSession {
    *  be lost, its branch kept. Re-entering it with `work tree` (or Restore)
    *  recreates the worktree and clears it. */
   archivedAt?: string;
-  /** The AI tool was last launched with `--unsafe` (skip-permissions).
-   *  Untrusted text (PR review comments) is never auto-delivered to it. */
+  /** From before `--unsafe` was retired: its agent was last launched directly with the skip-permissions flag.
+   *  Written no more; read only by legacy-unsafe.ts for one release, and cleared by a current direct launch
+   *  when no agent of the session still runs (`clearLaunchedUnsafeWhenIdle`). REMOVE IN THE NEXT RELEASE. */
   launchedUnsafe?: boolean;
   /** The agent it runs (`claude`, `codex`, …: agents/), recorded when it was
    *  created — when work has an adapter for it — so changing the default
@@ -51,6 +52,8 @@ export interface WorktreeSession {
   /** The name you gave it (the dashboard's rename); otherwise it is named
    *  after its first prompt (session-title.ts). */
   title?: string;
+  /** You asked to keep it once its PR merges (the rail menu, `work keep`): the PR watch and Ship's merge don't archive it. */
+  keepAfterMerge?: boolean;
 }
 
 /** How a session folder's instructions file is made (WorktreeSession.instructions). */

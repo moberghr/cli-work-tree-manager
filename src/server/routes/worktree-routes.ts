@@ -3,7 +3,9 @@ import { forgetCatchUp } from '../../core/conversations/catch-up.js';
 import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import crossSpawn from 'cross-spawn';
+import crossSpawn from '../../core/platform/spawn.js';
+import { programPath } from '../../core/platform/program-path.js';
+import { whenStarted } from '../../core/platform/started.js';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -285,7 +287,13 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     const failed = await new Promise<string | null>((resolve) => {
       try {
         // Not detached on Windows: cmd.exe running code.cmd would then flash a console window (process.ts).
-        const child = crossSpawn(editor, editorArgs(editor, folder, file), { detached: detachHere(), stdio: 'ignore', windowsHide: true });
+        // keepCwdLookup: the editor is no tool run — its own terminals and tasks would inherit shellEnv's switch (spawn.ts).
+        const child = crossSpawn(editor, editorArgs(editor, folder, file), {
+          detached: detachHere(),
+          stdio: 'ignore',
+          windowsHide: true,
+          keepCwdLookup: true,
+        });
         // A missing editor surfaces as 'error' — on Windows only when the
         // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
         // so wait for an error, an exit, or a moment of it running.
@@ -314,7 +322,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   // argv array, no shell (§1.1). wt splits its OWN command line on `;`,
   // so a path or title containing one is refused/stripped rather than
   // escaped.
-  app.post('/api/sessions/:id/open-terminal', (c) => {
+  app.post('/api/sessions/:id/open-terminal', async (c) => {
     const id = c.req.param('id');
     const session = findSession(id);
     const spec = session ? spawnSpecFor(session) : null;
@@ -326,19 +334,22 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
       return c.json({ error: 'worktree path contains ";", which wt.exe cannot take' }, 400);
     }
     const title = `${session.target} · ${session.branch || '(base)'}`.replace(/;/g, ' ');
+    let child: ReturnType<typeof spawn>;
     try {
-      const child = spawn('wt.exe', ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'], {
+      child = spawn(programPath('wt.exe'), ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'], {
         stdio: 'ignore',
         shell: false,
         windowsHide: false, // a Windows Terminal tab: the window is what was asked for
+        // node's spawn, not work's wrapper: no shellEnv — the shell in the tab is the user's (shell-env.ts).
       });
-      // A missing wt.exe fails asynchronously, after we've answered —
-      // swallow it so it can't crash the server.
-      child.on('error', () => {});
-      child.unref();
-      return c.json({ ok: true });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);
     }
+    // A missing wt.exe fails after spawn() returns: wait for it to start (or not) and answer that, never "ok" for a
+    // window that didn't open. Its later errors are swallowed so they can't crash the server.
+    const why = await whenStarted(child);
+    child.unref();
+    if (why) return c.json({ error: `Windows Terminal didn't start: ${why}` }, 500);
+    return c.json({ ok: true });
   });
 }

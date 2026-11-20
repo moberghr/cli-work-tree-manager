@@ -343,22 +343,48 @@ fn find_or_start_web(rt: Option<&runtime::Runtime>) -> Result<String, String> {
     Err("<code>work web</code> did not come up within 25 s. Run it in a terminal to see why.".into())
 }
 
+/// The program that hands a link to the user's browser, and its arguments: the URL as one argument, no shell in
+/// between. On Windows it is the URL protocol handler, not `explorer`: given a URL with a query string
+/// (`?draftShareId=…`, as a Confluence draft's link has), explorer opens a File Explorer window on Documents
+/// instead of the page (reported: a link in a terminal opened Windows Explorer).
+fn browser_command(url: &str) -> (&'static str, Vec<String>) {
+    #[cfg(windows)]
+    return ("rundll32", vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()]);
+    #[cfg(target_os = "macos")]
+    return ("open", vec![url.to_string()]);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    return ("xdg-open", vec![url.to_string()]);
+}
+
 /// A link the page opens in a new window (a PR, a Jira issue): in the user's
-/// browser, not in another app window. Only http(s); explorer gets the URL as
-/// one argument, no shell in between.
+/// browser, not in another app window. Only http(s).
 fn open_in_browser(url: &Url) {
     if url.scheme() != "http" && url.scheme() != "https" {
         log(&format!("not opening {url}: not an http(s) link"));
         return;
     }
-    #[cfg(windows)]
-    let r = spawn_collected(Command::new("explorer").arg(url.as_str()));
-    #[cfg(target_os = "macos")]
-    let r = spawn_collected(Command::new("open").arg(url.as_str()));
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let r = spawn_collected(Command::new("xdg-open").arg(url.as_str()));
+    let (program, args) = browser_command(url.as_str());
+    let r = spawn_collected(Command::new(program).args(args));
     if let Err(e) = r {
         log(&format!("could not open {url}: {e}"));
+    }
+}
+
+/// A navigation of the window itself that belongs in the user's browser: an
+/// http(s) page off this machine (a link in a comment or a PR description
+/// that has no target=_blank). Followed in the window, it replaced the
+/// dashboard and there was no way back. work web, the loading page
+/// (`tauri.localhost` on Windows, `tauri://` elsewhere) and anything else
+/// local stay in the window.
+fn belongs_in_browser(url: &Url) -> bool {
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = url.host_str() else { return false };
+    let host = host.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => !ip.is_loopback(),
+        Err(_) => host != "localhost" && !host.ends_with(".localhost"),
     }
 }
 
@@ -471,7 +497,12 @@ fn main() {
                         }
                         false
                     }
-                    None => url.host_str() != Some(updates::ASK_HOST),
+                    None if url.host_str() == Some(updates::ASK_HOST) => false,
+                    None if belongs_in_browser(&url) => {
+                        open_in_browser(&url);
+                        false
+                    }
+                    None => true,
                 });
             // For scripts/terminal-latency.ts: a DevTools port to drive the page through. Tauri sets
             // WebView2's browser arguments itself, which overrides WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
@@ -614,6 +645,34 @@ mod tests {
         spawn_collected_to(&mut cmd, None, move |line| tx.send(line).unwrap()).unwrap();
         // Collected without a word: the sender goes with the thread, nothing sent.
         assert!(rx.recv_timeout(std::time::Duration::from_secs(20)).is_err());
+    }
+
+    #[test]
+    fn a_link_goes_to_the_browser_whole_and_never_through_explorer() {
+        // A Confluence draft's link: its query string is what made explorer open a folder.
+        let url = "https://example.atlassian.net/wiki/spaces/X/pages/edit-v2/1?draftShareId=ab-12&x=1";
+        let (program, args) = browser_command(url);
+        assert_ne!(program, "explorer");
+        assert_eq!(args.last().map(String::as_str), Some(url));
+        #[cfg(windows)]
+        assert_eq!((program, args.len()), ("rundll32", 2));
+    }
+
+    #[test]
+    fn only_pages_off_this_machine_go_to_the_browser() {
+        let out = |u: &str| belongs_in_browser(&Url::parse(u).unwrap());
+        assert!(out("https://my.adventures.is/"));
+        assert!(out("http://github.com/org/repo/pull/1"));
+        assert!(out("https://10.0.0.5:8080/"));
+        // work web, the loading page, a local server: the window.
+        assert!(!out("http://127.0.0.1:49674/#/sessions"));
+        assert!(!out("http://localhost:5173/"));
+        assert!(!out("http://[::1]:3000/"));
+        assert!(!out("http://tauri.localhost/index.html"));
+        assert!(!out("tauri://localhost/index.html"));
+        assert!(!out("about:blank"));
+        // The page's asks are the app's, never the browser's (handled before this).
+        assert!(out("http://work-desktop.invalid/check"));
     }
 
     #[test]

@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { AccountSwitchWire, AccountsWire } from '../../../../core/api-types.js';
 import { cancelAccountSwitch, fetchAccounts, switchSessionAccount, type SessionSummary } from '../../api/client.js';
-import { accountName, accountRow, currentAccount, loginText, pendingText } from '../../state/accounts.js';
+import {
+  accountName,
+  accountRow,
+  currentAccount,
+  hasMultipleAccounts,
+  loginText,
+  noSwitchText,
+  pendingText,
+} from '../../state/accounts.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 
 interface Props {
   session: SessionSummary;
@@ -10,6 +19,8 @@ interface Props {
   onClose: () => void;
   /** The switch that waited for its turn was cancelled: it stays on its account. */
   onCancelled?: (to: string) => void;
+  /** The Accounts page's Add account (a login to move it to, or one to log in to). */
+  onAddAccount?: () => void;
   /** Test seams; default to GET /api/accounts, POST and DELETE /api/sessions/:id/account. */
   load?: () => Promise<AccountsWire>;
   switchTo?: (sessionId: string, to: string) => Promise<AccountSwitchWire>;
@@ -28,6 +39,7 @@ export function AccountDialog({
   onSwitched,
   onClose,
   onCancelled,
+  onAddAccount,
   load = fetchAccounts,
   switchTo = switchSessionAccount,
   cancelSwitch = cancelAccountSwitch,
@@ -81,13 +93,16 @@ export function AccountDialog({
   }
 
   const name = session.title && session.titleIsYours ? session.title : session.branch;
+  const backdrop = useBackdropClose(close);
+
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={`Claude account of ${session.branch}`}
-      onClick={(e) => e.target === e.currentTarget && close()}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => e.key === 'Escape' && close()}
     >
       <form className="wd-modal" onSubmit={submit}>
@@ -116,7 +131,12 @@ export function AccountDialog({
               Couldn&apos;t list the accounts: {loadError}
             </p>
           )}
-          {data && (
+          {data && !hasMultipleAccounts(data) && (
+            <p className="wd-account-note" role="status">
+              {noSwitchText(null)}
+            </p>
+          )}
+          {data && hasMultipleAccounts(data) && (
             <ul className="wd-account-list" role="radiogroup" aria-label="Accounts">
               {data.accounts.map((a) => {
                 const row = accountRow(a, current);
@@ -153,6 +173,11 @@ export function AccountDialog({
           )}
         </div>
         <footer className="wd-modal-footer">
+          {onAddAccount && data && (
+            <button type="button" className="wd-link-button wd-account-add-link" onClick={onAddAccount} disabled={busy}>
+              {hasMultipleAccounts(data) ? 'Add or log in to an account…' : 'Add another account…'}
+            </button>
+          )}
           <button type="button" className="wd-btn-secondary" onClick={close} disabled={busy}>
             Cancel
           </button>

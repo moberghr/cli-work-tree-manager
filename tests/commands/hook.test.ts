@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { computeHookOutput, runTurnHook } from '../../src/commands/hook.js';
+import { assistantViewNow, computeHookOutput, runTurnHook } from '../../src/commands/hook.js';
 import { isOwnCheckout, ownCheckoutNote } from '../../src/core/worktree/own-checkout.js';
 import { readStatus } from '../../src/core/status/session-status.js';
 import { clearCommentStoreCache, getCommentFileStore } from '../../src/core/comments/comment-file-store.js';
@@ -232,5 +232,35 @@ describe('what Claude was handed is resolved when its turn really ends', () => {
     expect(byId(s, draft.id).resolved).toBeUndefined();
     expect(byId(s, reply.id).resolved).toBeUndefined();
     expect(byId(s, fresh.id).resolved).toBeUndefined();
+  });
+});
+
+describe("the assistant's view, as it is at this prompt (assistantViewNow)", () => {
+  it('the Reviews tab: its review read now; none prepared says so; nothing named is null', async () => {
+    const { writeAssistantContext } = await import('../../src/core/agents/assistant.js');
+    const { writeReview } = await import('../../src/core/review/review-store.js');
+    const { demoReview } = await import('../../src/server/demo/demo-reviews.js');
+    expect(await assistantViewNow()).toBeNull(); // no context stored
+    writeAssistantContext('The user is on the Reviews tab.', Date.now(), undefined, undefined, { repo: 'api', number: 231 });
+    expect(await assistantViewNow()).toBe('The Reviews tab shows api PR #231: no review of it is prepared (any more).');
+    writeReview(demoReview(new Date('2026-11-02T10:00:00Z')));
+    expect(await assistantViewNow()).toContain('the prepared review of api PR #231');
+    writeAssistantContext('The user is on the Sessions tab.');
+    expect(await assistantViewNow()).toBeNull();
+  });
+
+  it('a reader that fails says so in the context (and the debug log), never vanishing', async () => {
+    const { writeAssistantContext } = await import('../../src/core/agents/assistant.js');
+    vi.doMock('../../src/core/review/review-now.js', () => ({
+      describeReviewNow: () => {
+        throw new Error('no such table: pr_reviews');
+      },
+    }));
+    try {
+      writeAssistantContext('The user is on the Reviews tab.', Date.now(), undefined, undefined, { repo: 'api', number: 231 });
+      expect(await assistantViewNow()).toBe("(work couldn't read the review of api PR #231 now: no such table: pr_reviews)");
+    } finally {
+      vi.doUnmock('../../src/core/review/review-now.js');
+    }
   });
 });

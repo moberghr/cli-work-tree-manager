@@ -48,9 +48,13 @@ export async function fetchReleases(
         : res.status === 403
           ? "GitHub's limit for this address is spent"
           : `GitHub answered ${res.status}`,
-    (err: Error) => err.message,
+    (err: Error) => err,
   );
-  if (typeof why !== 'string') return why;
+  if (why instanceof Error) {
+    // The network itself (no DNS, no route, offline, no answer in time): gh would only meet the same, slowly.
+    const offline = networkFailure(why);
+    if (offline) throw new Error(offline);
+  } else if (typeof why !== 'string') return why;
   const r = await run('gh', ['api', `repos/${RELEASES_REPO}/releases?per_page=30`], process.cwd());
   if (r.code === 0) {
     try {
@@ -59,7 +63,32 @@ export async function fetchReleases(
       /* not JSON */
     }
   }
-  throw new Error(`couldn't read the releases (${why}${r.code === 127 ? '; no gh to ask instead' : ''})`);
+  const reason = why instanceof Error ? why.message : why;
+  throw new Error(`couldn't read the releases (${reason}${r.code === 127 ? '; no gh to ask instead' : ''})`);
+}
+
+/** The codes Node's fetch gives (in `cause`) when the network itself failed: no DNS, no route, refused, reset. */
+const NETWORK_CODES = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+/**
+ * A fetch that failed because of the network, in words ("no network: GitHub couldn't be reached (ENOTFOUND)", "no
+ * answer from GitHub in 15 s"); null for any other failure. Pure.
+ */
+export function networkFailure(err: Error): string | null {
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return 'no answer from GitHub in 15 s — check your network';
+  const code = (err as Error & { cause?: { code?: unknown } }).cause?.code;
+  if (typeof code === 'string' && NETWORK_CODES.has(code)) return `no network: GitHub couldn't be reached (${code})`;
+  return null;
 }
 
 /** The desktop app's updater, when the app that wrote it still runs. */

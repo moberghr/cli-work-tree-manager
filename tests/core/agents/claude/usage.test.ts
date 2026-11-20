@@ -24,23 +24,28 @@ describe("Claude's usage source", () => {
     expect(claudeUsage.read()).toMatchObject([{ account: 'default', windows: [{ id: 'five_hour', usedPercent: 12 }] }]);
   });
 
-  it('setup wraps the status line, gives it back when disabled, and leaves it alone on a lean server', async () => {
+  /** What an older work web left: the line wrapped, the original saved. */
+  const oldWrap = () => {
+    writeSettings({ statusLine: { type: 'command', command: 'work hook statusline || (echo mine)' } });
+    fs.mkdirSync(path.dirname(savedFile()), { recursive: true });
+    fs.writeFileSync(savedFile(), JSON.stringify({ original: { type: 'command', command: 'echo mine' } }));
+  };
+
+  it('setup gives back a status line an older work web wrapped; settings with none of it are left alone', async () => {
     writeSettings({ statusLine: { type: 'command', command: 'echo mine' } });
-    expect(await claudeUsage.setup!({ enabled: true, lean: true })).toBe('status line left alone (lean server)');
+    expect(await claudeUsage.setup!({ enabled: true, lean: false })).toBe("status line: nothing of work's in your settings");
     expect(statusLine()).toEqual({ type: 'command', command: 'echo mine' });
-    expect(await claudeUsage.setup!({ enabled: true, lean: false })).toBe('status line wrapped: it records the plan limits');
-    expect(statusLine()!.command).toBe('work hook statusline || (echo mine)');
-    expect(await claudeUsage.setup!({ enabled: false, lean: false })).toBe('status line given back (usage.statusLine is false)');
+    oldWrap();
+    expect(await claudeUsage.setup!({ enabled: true, lean: true })).toMatch(/given back in default/);
     expect(statusLine()).toEqual({ type: 'command', command: 'echo mine' });
   });
 
   it('restore: back, not ours (both fine), or kept with the saved copy damaged (not fine)', async () => {
-    writeSettings({ statusLine: { type: 'command', command: 'echo mine' } });
-    await claudeUsage.setup!({ enabled: true, lean: false });
+    oldWrap();
     expect(await claudeUsage.restore!()).toEqual({ ok: true, message: restoreMessage('restored') });
     expect(await claudeUsage.restore!()).toEqual({ ok: true, message: restoreMessage('not-ours') });
 
-    await claudeUsage.setup!({ enabled: true, lean: false });
+    oldWrap();
     fs.writeFileSync(savedFile(), '{broken');
     expect(await claudeUsage.restore!()).toEqual({ ok: false, message: restoreMessage('kept') });
   });

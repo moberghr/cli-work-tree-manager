@@ -4,6 +4,7 @@ import { createWorktree, fetchBranchCheck, fetchProjects, lookupPr, type Project
 import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
 import { onBranchChange } from '../../utils/branch-input.js';
+import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 import { fetchAccounts } from '../../api/client.js';
 import { accountLabel, accountName } from '../../state/accounts.js';
 import type { AccountsWire } from '../../../../core/api-types.js';
@@ -27,6 +28,8 @@ interface Props {
   onClose: () => void;
   /** The Repos page, for a project that isn't in the list yet. */
   onManageRepos?: () => void;
+  /** The Accounts page's Add account, from the Claude account pick. */
+  onAddAccount?: () => void;
   /** Test seam; defaults to GET /api/branch-check. */
   checkBranch?: (target: string, branch: string) => Promise<BranchCheck>;
   /** Test seam; defaults to GET /api/pr-start. */
@@ -44,6 +47,9 @@ export function branchNote(check: BranchCheck, suggested: boolean): { text: stri
     if (!check.free) return { text: `${check.branch} and its -2 … -9 are all taken: type a name for the branch.`, blocks: true };
     return null;
   }
+  // The branch the project's own folder is on: it can't be checked out twice, so Create opens that folder.
+  if (check.ownCheckout)
+    return { text: `${check.branch} is the branch the project's own folder is on: Create opens it there (no new worktree).` };
   if (check.session?.archived) return { text: `${check.branch} is an archived session: Create restores it and gives it the prompt.` };
   if (check.session) return { text: `${check.branch} already has a session: Create opens it and gives it the prompt.` };
   if (check.exists) return { text: `${check.branch} exists: Create checks it out, with the commits it has.` };
@@ -71,6 +77,17 @@ export function moreLabel(name: string, base: string, account = ''): string {
  * The branch field's placeholder: the branch an empty field makes — the suggestion (or the free
  * name it gave way to) when there is a prompt, else the project's own checkout. Pure.
  */
+/**
+ * What Create does with no branch name, said under the empty field: it opens the project's own folder, on whatever
+ * branch that folder is on now — which may not be main. Null for a group (it needs a name) or a branch that is set. Pure.
+ */
+export function ownFolderNote(project: Pick<ProjectSummary, 'name' | 'kind' | 'ownBranch'> | undefined, branch: string): string | null {
+  if (!project || project.kind !== 'single' || branch.trim()) return null;
+  if (project.ownBranch)
+    return `No branch: opens ${project.name}’s own folder, which is on ${project.ownBranch} now (no new worktree). For another branch, type its name.`;
+  return project.ownBranch === null ? `No branch: opens ${project.name}’s own folder as it is (it is on no branch now).` : null;
+}
+
 export function branchPlaceholder(branch: string, suggested: boolean, isGroup: boolean, hasPrompt: boolean): string {
   if (suggested && branch && hasPrompt) return `${branch} (suggested; type to name your own)`;
   return isGroup ? 'feat/whatever (a group needs one)' : 'empty: the project as it is, on its own checkout';
@@ -82,6 +99,7 @@ export function NewWorktreeModal({
   onCreated,
   onClose,
   onManageRepos,
+  onAddAccount,
   checkBranch = fetchBranchCheck,
   findPr = lookupPr,
   loadAccounts = fetchAccounts,
@@ -97,14 +115,16 @@ export function NewWorktreeModal({
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
   const [more, setMore] = useState(!!initial?.base);
-  // Claude accounts: a pick shows only when there is more than one (the default is preselected).
+  // Claude accounts: a pick shows only when there is more than one (the default is preselected); with one, a link to add another.
   const [accounts, setAccounts] = useState<AccountsWire | null>(null);
+  const [onlyAccount, setOnlyAccount] = useState(false);
   const [account, setAccount] = useState('');
   useEffect(() => {
     let live = true;
     loadAccounts().then(
       (a) => {
-        if (!live || a.accounts.length < 2) return;
+        if (!live) return;
+        if (a.accounts.length < 2) return setOnlyAccount(a.accounts.length === 1);
         setAccounts(a);
         setAccount((cur) => cur || (a.accounts.find((x) => x.isDefault) ?? a.accounts[0]).name);
       },
@@ -157,7 +177,11 @@ export function NewWorktreeModal({
   const checkFor = check && check.target === target.trim() && check.branch === wanted.trim() ? check : null;
   // A suggestion that's taken gives way to a free name: new work never lands on an old branch unasked.
   const branch = suggested && checkFor?.free ? checkFor.free : wanted;
-  const note = checkFor ? branchNote(checkFor, suggested) : null;
+  const ownNote = ownFolderNote(
+    projects?.singles.find((p) => p.name === target.trim()),
+    branch,
+  );
+  const note = checkFor ? branchNote(checkFor, suggested) : ownNote ? { text: ownNote } : null;
   const checkRef = useRef(checkBranch);
   checkRef.current = checkBranch;
   useEffect(() => {
@@ -267,16 +291,15 @@ export function NewWorktreeModal({
     }
   }
 
-  function onBackdropClick(e: React.MouseEvent) {
-    if (e.target === e.currentTarget) onClose();
-  }
+  const backdrop = useBackdropClose(onClose);
 
   return (
     <div
       className="wd-modal-backdrop"
       role="dialog"
       aria-modal="true"
-      onClick={onBackdropClick}
+      onMouseDown={backdrop.onMouseDown}
+      onClick={backdrop.onClick}
       onKeyDown={(e) => {
         if (e.key === 'Escape') onClose();
       }}
@@ -326,7 +349,7 @@ export function NewWorktreeModal({
                       lookUpPr();
                     }
                   }}
-                  placeholder="https://github.com/owner/repo/pull/123, or #123"
+                  placeholder="A pull request link, or #123"
                   disabled={submitting || prLooking}
                 />
                 <button type="button" className="wd-btn-secondary" onClick={lookUpPr} disabled={submitting || prLooking || !prRef.trim()}>
@@ -410,7 +433,23 @@ export function NewWorktreeModal({
                       </option>
                     ))}
                   </select>
+                  {onAddAccount && (
+                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                      Add account…
+                    </button>
+                  )}
                 </label>
+              )}
+              {!accounts && onlyAccount && onAddAccount && (
+                <p className="wd-modal-row wd-modal-hint">
+                  <span>Claude account</span>
+                  <span>
+                    one login (~/.claude) ·{' '}
+                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                      Add another account…
+                    </button>
+                  </span>
+                </p>
               )}
               <label className="wd-modal-row">
                 <span>Base branch (optional)</span>

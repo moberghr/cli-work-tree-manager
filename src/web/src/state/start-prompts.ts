@@ -1,5 +1,6 @@
 import type { JiraIssue, PrInfo } from '../api/panes.js';
 import { jiraPrompt as coreJiraPrompt } from '../../../core/jira/jira-prompt.js';
+import { commandsFor } from '../../../core/hosts/commands.js';
 
 /**
  * First messages for a session started from a ticket or a PR. They're a
@@ -28,16 +29,16 @@ export function prPick(pr: PrInfo): { target: string; branch: string; prompt: st
  * review.
  */
 export function prPrompt(pr: PrInfo): string {
+  // The PR's host's commands (GitHub's when the server didn't say).
+  const cmd = commandsFor(pr.host);
   if (!pr.isMine) {
     return [
       `Review PR #${pr.number}: ${pr.title}`,
       pr.url,
       '',
-      ...(pr.fork
-        ? [`It comes from a fork, so its branch isn't here: gh pr checkout ${pr.number} --detach gives you its code to try.`]
-        : []),
-      `It isn't mine: read what it changes (gh pr diff ${pr.number}), run what's useful to check it, and tell me what you'd comment and why.`,
-      "Don't commit, push or post anything on GitHub.",
+      ...(pr.fork ? [`It comes from a fork, so its branch isn't here: ${cmd.checkout(pr.number, true)} gives you its code to try.`] : []),
+      `It isn't mine: read what it changes (${cmd.diff(pr.number)}), run what's useful to check it, and tell me what you'd comment and why.`,
+      `Don't commit, push or post anything on ${cmd.host}.`,
     ].join('\n');
   }
   const lines = [`Continue on PR #${pr.number}: ${pr.title}`, pr.url, ''];
@@ -47,11 +48,11 @@ export function prPrompt(pr: PrInfo): string {
     );
   }
   if (pr.checksStatus === 'FAILURE') {
-    lines.push('Its checks are failing. Find out why (gh pr checks, then the failing job logs) and fix them.');
+    lines.push(`Its checks are failing. Find out why (${cmd.checks(pr.number)}, then the failing job logs) and fix them.`);
   }
   if (pr.reviewDecision === 'CHANGES_REQUESTED') {
-    lines.push(`Review asked for changes. Address the review comments (gh pr view ${pr.number} --comments). Don't reply on GitHub.`);
+    lines.push(`Review asked for changes. Address the review comments (${cmd.comments(pr.number)}). Don't reply on ${cmd.host}.`);
   }
-  if (lines.length === 3) lines.push('Get up to speed on what it changes (gh pr diff) and tell me where it stands.');
+  if (lines.length === 3) lines.push(`Get up to speed on what it changes (${cmd.diff(pr.number)}) and tell me where it stands.`);
   return lines.join('\n');
 }

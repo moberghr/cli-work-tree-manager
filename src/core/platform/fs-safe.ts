@@ -105,11 +105,23 @@ export function ensureFile(filePath: string, initialContent: string): void {
  * advisory-lock mechanism as npm/yarn/pnpm. Caller is responsible for
  * ensuring the target file exists first (see `ensureFile`).
  */
+/**
+ * How long withFileLock waits for a lock someone else holds. A holder may run git while it has it (a checkpoint:
+ * `git add`, `write-tree` — seconds on a loaded machine), and several queue up: 20 tries at most 500 ms apart gave up
+ * after ~8 s, and the fifth of five checkpoints at once failed with "Lock file is already being held". About a minute
+ * now; a holder that died is taken over after `stale` (10 s) whatever this says.
+ */
+export const LOCK_RETRIES = { retries: 70, minTimeout: 25, maxTimeout: 1000, factor: 2 } as const;
+
+/** The longest LOCK_RETRIES-style retries wait in all (ms): each wait doubles from minTimeout, capped at maxTimeout. Pure. */
+export function lockWaitBudgetMs(r: { retries: number; minTimeout: number; maxTimeout: number; factor: number }): number {
+  let total = 0;
+  for (let i = 0; i < r.retries; i++) total += Math.min(r.maxTimeout, r.minTimeout * r.factor ** i);
+  return total;
+}
+
 export async function withFileLock<T>(filePath: string, fn: () => T | Promise<T>): Promise<T> {
-  const release = await lockfile().lock(filePath, {
-    retries: { retries: 20, minTimeout: 25, maxTimeout: 500, factor: 2 },
-    stale: 10_000,
-  });
+  const release = await lockfile().lock(filePath, { retries: { ...LOCK_RETRIES }, stale: 10_000 });
   try {
     return await fn();
   } finally {

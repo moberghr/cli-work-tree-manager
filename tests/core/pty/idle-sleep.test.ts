@@ -4,6 +4,7 @@ import {
   sleepAfterMs,
   sleepCandidates,
   sleepPlan,
+  NOT_RESUMABLE,
   stillAtWork,
   type SleepChecks,
 } from '../../../src/core/pty/idle-sleep.js';
@@ -66,6 +67,7 @@ describe('stillAtWork — idle means idle: a quiet Claude still doing something 
     live: () => 'idle',
     backgroundCommands: () => 0,
     runningFrom: async () => [],
+    resumable: () => true,
     ...over,
   });
 
@@ -78,6 +80,8 @@ describe('stillAtWork — idle means idle: a quiet Claude still doing something 
     expect(await stillAtWork(p, idle({ shown: () => 'needs_input' }))).toMatch(/answer/);
     expect(await stillAtWork(p, idle({ live: () => 'busy' }))).toMatch(/busy/);
     expect(await stillAtWork(p, idle({ live: () => 'waiting' }))).toMatch(/dialog/);
+    // Claude Code's own word for a background command still running: awake, whatever the transcript read says.
+    expect(await stillAtWork(p, idle({ live: () => 'shell' }))).toBe('Claude Code says a background command it started is still running');
   });
 
   it('a background command it started still running: awake — asked from the Claude process start, its pid passed along', async () => {
@@ -107,5 +111,39 @@ describe('stillAtWork — idle means idle: a quiet Claude still doing something 
   it('sleepPlan: the ones to stop, and why each other one stays', async () => {
     const plan = await sleepPlan([p, { ...p, id: 's2' }], idle({ shown: (id) => (id === 's2' ? 'working' : 'idle') }));
     expect(plan).toEqual({ sleep: ['s1'], awake: [{ id: 's2', why: 'its Claude is working' }] });
+  });
+});
+
+describe('a Claude with no conversation yet is never put to sleep (reported: a session started with a prompt came back empty)', () => {
+  const p = { id: 's1', pid: 42, startedAt: '2026-11-19T07:50:53Z' };
+  const checks = (over: Partial<SleepChecks> = {}): SleepChecks => ({
+    shown: () => null,
+    live: () => null,
+    backgroundCommands: () => 0,
+    runningFrom: async () => [],
+    resumable: () => false,
+    ...over,
+  });
+
+  it('quiet, unattended, no status and no live state (it sits at "do you trust this folder?"): it stays awake, and says why', async () => {
+    const why = await stillAtWork(p, checks());
+    expect(why).toBe(NOT_RESUMABLE);
+    expect(why).toContain('no conversation to resume yet');
+    const plan = await sleepPlan([p], checks());
+    expect(plan).toEqual({ sleep: [], awake: [{ id: 's1', why: NOT_RESUMABLE }] });
+  });
+
+  it('once it has a conversation it sleeps like any other; a check that can’t tell keeps it awake', async () => {
+    expect(await stillAtWork(p, checks({ resumable: () => true }))).toBeNull();
+    expect(
+      await stillAtWork(
+        p,
+        checks({
+          resumable: () => {
+            throw new Error('its session is gone');
+          },
+        }),
+      ),
+    ).toContain("couldn't tell");
   });
 });

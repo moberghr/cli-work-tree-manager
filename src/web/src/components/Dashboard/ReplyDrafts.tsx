@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { hostName } from '../../../../core/hosts/commands.js';
+import { threadHostId } from '../../../../core/hosts/links.js';
 import type { OpenReviewThread, PrReply, RepliesWire, ThreadCode } from '../../../../core/api-types.js';
 import { Markdown } from '../Markdown.js';
 import { threadCodeLines } from '../../state/pr-tab.js';
@@ -287,7 +289,13 @@ function Waiting({
   return (
     <article className="wd-reply">
       <div className="wd-reply-head">
-        <a href={thread.url} target="_blank" rel="noreferrer" className="wd-reply-where" title="Open the thread on GitHub">
+        <a
+          href={thread.url}
+          target="_blank"
+          rel="noreferrer"
+          className="wd-reply-where"
+          title={`Open the thread on ${hostName(threadHostId(thread.threadId))}`}
+        >
           PR #{thread.prNumber}
           {thread.where ? ` · ${thread.where}` : ''}
         </a>
@@ -311,7 +319,7 @@ function Waiting({
           {state === 'asking' ? 'Asking…' : state === 'asked' ? 'Asked — the draft will show here' : 'Ask Claude to reply'}
         </button>
         <a className="wd-link-button" href={thread.url} target="_blank" rel="noreferrer">
-          Answer on GitHub ↗
+          Answer on {hostName(threadHostId(thread.threadId))} ↗
         </a>
       </div>
     </article>
@@ -337,7 +345,13 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
   return (
     <article className="wd-reply">
       <div className="wd-reply-head">
-        <a href={reply.url} target="_blank" rel="noreferrer" className="wd-reply-where" title="Open the thread on GitHub">
+        <a
+          href={reply.url}
+          target="_blank"
+          rel="noreferrer"
+          className="wd-reply-where"
+          title={`Open the thread on ${hostName(threadHostId(reply.threadId))}`}
+        >
           PR #{reply.prNumber}
           {reply.where ? ` · ${reply.where}` : ''}
         </a>
@@ -362,7 +376,7 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
           className="wd-btn-primary"
           disabled={!!busy || !text.trim()}
           onClick={() => act('resolve')}
-          title="Post from your GitHub account, then resolve the thread"
+          title={`Post from your ${hostName(threadHostId(reply.threadId))} account, then resolve the thread`}
         >
           {busy === 'resolve' ? 'Posting…' : 'Post & resolve'}
         </button>
@@ -371,7 +385,7 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
           className="wd-btn-secondary"
           disabled={!!busy || !text.trim()}
           onClick={() => act('post')}
-          title="Post from your GitHub account; leave the thread open"
+          title={`Post from your ${hostName(threadHostId(reply.threadId))} account; leave the thread open`}
         >
           {busy === 'post' ? 'Posting…' : 'Post'}
         </button>
