@@ -1168,7 +1168,7 @@ export interface RepliesWire {
 // ---- the rail's pins and sections (rail-layout.ts) -------------------------------
 
 /** GET /api/rail (and every rail write's answer). */
-export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail/rail-layout.js';
+export type { RailLayout, RailSection, RailPlace, RailColor, PlacePatch, SectionOp } from './rail/rail-layout.js';
 
 // ---- the PTY host's heartbeat (host-health.ts) ----------------------------------------
 

@@ -30,6 +30,7 @@ work update [target] [branch]                      # Bring a session's branch up
 work catchup [target] [branch]                     # A few sentences on where a session stands (core/conversations/catch-up.ts)
 work snooze [target] [branch] [--for 2h|tomorrow|change] [--until <time>] [--off]  # Out of the Inbox (core/rail/snooze.ts; --until 14:00 | fri | "fri 14:00" | +3h | 2026-10-03 14:00)
 work pin [target] [branch] [--off]                 # Pin to the top of the dashboard's rail
+work color [target] [branch] [--set red|orange|yellow|green|blue|purple] [--off]  # Mark a session with a color: a bar down its rail row's edge, a square in the Sessions table, Ctrl+P and the Inbox (prints it with no option)
 work keep [target] [branch] [--off]                # Keep it once its PR merges, instead of archiving it (the rail menu's Keep after its PR merges)
 work note [target] [branch] [--set "…"|--set-file f|--append "…"|--clear]  # Your notes on a session (prints them with no option)
 work block [target] [branch] --on <alias> --on-branch <branch> | --pr <url> | --off  # It waits on another session or a PR: out of the Inbox until that is done (no option: lists it)

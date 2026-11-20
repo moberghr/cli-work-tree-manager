@@ -11,10 +11,31 @@ export interface MenuItem {
   separated?: boolean;
 }
 
+/** One pick of a row of swatches (the rail's colors): its name is its tooltip and what a screen reader says. */
+export interface MenuSwatch {
+  key: string;
+  label: string;
+  /** Sets its color (`wd-tag-<color>`); none: the "no color" swatch. */
+  className?: string;
+  /** What the session has now. */
+  current?: boolean;
+  run: () => void;
+}
+
+/** A row of swatches in place of an item: "Color  ● ● ● ● ● ● ⊘". */
+export interface MenuSwatches {
+  label: string;
+  swatches: MenuSwatch[];
+  separated?: boolean;
+}
+
+/** What a menu lists: items, and rows of swatches. */
+export type MenuEntry = MenuItem | MenuSwatches;
+
 interface RowMenuProps {
   x: number;
   y: number;
-  items: MenuItem[];
+  items: MenuEntry[];
   onClose: () => void;
   /** A muted line under the items (the session header's: how full its context is). */
   footer?: string;
@@ -25,8 +46,9 @@ interface RowMenuProps {
 /**
  * A row's right-click menu (session rail, Tasks) at the pointer, or a
  * button's (the session header's ⋯) — kept inside the window when opened
- * near an edge. ↑/↓ move, Enter picks; closes on a pick, Esc, Tab, a click
- * elsewhere, the window losing focus or resizing.
+ * near an edge. ↑/↓ move (through a row of swatches one by one, ←/→ too),
+ * Enter picks; closes on a pick, Esc, Tab, a click elsewhere, the window
+ * losing focus or resizing.
  *
  * Focuses its first item once, on opening: the parent re-renders on every
  * background refresh, and re-running that would snap ↑/↓ back to the top.
@@ -62,12 +84,17 @@ export function RowMenu({ x, y, items, onClose, footer, anchor = 'left' }: RowMe
         e.preventDefault();
         onClose();
       }
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      // ←/→ only within a row of swatches.
+      const sideways =
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+        !!(document.activeElement as HTMLElement | null)?.closest('.wd-row-menu-swatches');
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && !sideways) return;
       const buttons = [...(ref.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
       if (buttons.length === 0) return;
       e.preventDefault();
       const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      const next = e.key === 'ArrowDown' ? (i + 1) % buttons.length : (i - 1 + buttons.length) % buttons.length;
+      const forward = e.key === 'ArrowDown' || e.key === 'ArrowRight';
+      const next = forward ? (i + 1) % buttons.length : (i - 1 + buttons.length) % buttons.length;
       buttons[next].focus();
     };
     window.addEventListener('mousedown', away);
@@ -83,23 +110,51 @@ export function RowMenu({ x, y, items, onClose, footer, anchor = 'left' }: RowMe
   }, []);
   return (
     <div ref={ref} className="wd-row-menu" role="menu" style={pos}>
-      {items.map((it) => (
-        <button
-          key={it.label}
-          type="button"
-          role="menuitem"
-          className={
-            'wd-row-menu-item' + (it.danger ? ' wd-row-menu-item-danger' : '') + (it.separated ? ' wd-row-menu-item-separated' : '')
-          }
-          onClick={() => {
-            onClose();
-            it.run();
-          }}
-        >
-          <span>{it.label}</span>
-          {it.hint && <kbd className="wd-row-menu-hint">{it.hint}</kbd>}
-        </button>
-      ))}
+      {items.map((it) =>
+        'swatches' in it ? (
+          <div
+            key={it.label}
+            className={'wd-row-menu-swatches' + (it.separated ? ' wd-row-menu-item-separated' : '')}
+            role="group"
+            aria-label={it.label}
+          >
+            <span className="wd-row-menu-swatches-label">{it.label}</span>
+            {it.swatches.map((sw) => (
+              <button
+                key={sw.key}
+                type="button"
+                role="menuitemradio"
+                aria-checked={!!sw.current}
+                aria-label={sw.label}
+                title={sw.label}
+                className={
+                  'wd-row-menu-swatch ' + (sw.className ?? 'wd-row-menu-swatch-none') + (sw.current ? ' wd-row-menu-swatch-current' : '')
+                }
+                onClick={() => {
+                  onClose();
+                  sw.run();
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <button
+            key={it.label}
+            type="button"
+            role="menuitem"
+            className={
+              'wd-row-menu-item' + (it.danger ? ' wd-row-menu-item-danger' : '') + (it.separated ? ' wd-row-menu-item-separated' : '')
+            }
+            onClick={() => {
+              onClose();
+              it.run();
+            }}
+          >
+            <span>{it.label}</span>
+            {it.hint && <kbd className="wd-row-menu-hint">{it.hint}</kbd>}
+          </button>
+        ),
+      )}
       {footer && <p className="wd-row-menu-footer">{footer}</p>}
     </div>
   );

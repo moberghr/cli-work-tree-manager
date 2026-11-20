@@ -3,7 +3,8 @@ import type { SessionSummary } from '../../../api/client.js';
 import type { SnoozeChoice, SnoozeFor } from '../../../../../core/rail/snooze.js';
 import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
-import type { PlacePatch, RailSection } from '../../../../../core/rail/rail-layout.js';
+import { RAIL_COLOR_LABEL, type PlacePatch, type RailLayout, type RailSection } from '../../../../../core/rail/rail-layout.js';
+import { colorSwatches, sharedColor } from '../../../state/rail-menu.js';
 
 /** What the bulk bar can do; each returns a promise per session (the same calls as the one-session buttons). */
 export interface BulkActions {
@@ -30,6 +31,7 @@ export function BulkBar({
   onClear,
   busy,
   sections = [],
+  places = {},
 }: {
   selected: SessionSummary[];
   /** Ticked, but hidden by the filter: left out. */
@@ -41,6 +43,8 @@ export function BulkBar({
   busy: string | null;
   /** The rail's sections, for Move to. */
   sections?: RailSection[];
+  /** The rail's places, for the color the ticked sessions have now. */
+  places?: RailLayout['places'];
 }) {
   const [mode, setMode] = useState<null | 'send' | 'archive' | 'delete'>(null);
   const [text, setText] = useState('');
@@ -158,7 +162,7 @@ export function BulkBar({
                 const r = e.currentTarget.getBoundingClientRect();
                 setMoveAt({ x: r.left, y: r.bottom + 2 });
               }}
-              title="Pin them, or put them under one of the rail's sections"
+              title="Pin them, put them under one of the rail's sections, or color them"
             >
               Rail ▾
             </button>
@@ -208,6 +212,18 @@ export function BulkBar({
                   },
                 ]
               : []),
+            colorSwatches(
+              sharedColor(
+                live.map((s) => s.id),
+                { places },
+              ),
+              (color) =>
+                onRun(
+                  color ? `Colored ${RAIL_COLOR_LABEL[color].toLowerCase()}` : 'Took the color off',
+                  (s) => actions.place!(s, { color }),
+                  live,
+                ),
+            ),
           ]}
         />
       )}

@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import {
   applyPlacePatch,
   applySectionOp,
+  asRailPlace,
   cleanPlacePatch,
   cleanSectionOp,
   cleanSections,
@@ -74,6 +75,26 @@ describe('places and sections: validation', () => {
     expect(applyPlacePatch(undefined, { pinned: true })).toEqual({ pinned: true });
     expect(applyPlacePatch({ pinned: true }, { pinned: false, section: 'x' })).toEqual({ section: 'x' });
     expect(applyPlacePatch({ section: 'x' }, { section: null })).toBeNull();
+  });
+
+  it('a color: one of the six or null; it keeps a row that is neither pinned nor in a section, and moving keeps it', () => {
+    expect(cleanPlacePatch({ color: 'orange' })).toEqual({ color: 'orange' });
+    expect(cleanPlacePatch({ color: null })).toEqual({ color: null });
+    expect(cleanPlacePatch({ color: 'pink' })).toBeNull();
+    expect(cleanPlacePatch({ color: '' })).toBeNull();
+    expect(cleanPlacePatch({ pinned: true, color: 3 })).toBeNull();
+
+    expect(applyPlacePatch(undefined, { color: 'blue' })).toEqual({ color: 'blue' });
+    expect(applyPlacePatch({ color: 'blue', pinned: true }, { pinned: false })).toEqual({ color: 'blue' });
+    expect(applyPlacePatch({ color: 'blue', section: 'x' }, placeForGroup({ key: 'rest' }))).toEqual({ color: 'blue' });
+    expect(applyPlacePatch({ color: 'blue', section: 'x' }, { color: null })).toEqual({ section: 'x' });
+    expect(applyPlacePatch({ color: 'blue' }, { color: null })).toBeNull();
+  });
+
+  it('a stored place: a color alone is a place; one that is not of the six is dropped', () => {
+    expect(asRailPlace({ color: 'green' })).toEqual({ color: 'green' });
+    expect(asRailPlace({ pinned: true, color: 'teal' })).toEqual({ pinned: true });
+    expect(asRailPlace({ color: 'teal' })).toBeNull();
   });
 
   it('sections: trimmed names, unique ids, at most 30', () => {
@@ -158,7 +179,24 @@ describe('the rail routes (state.db)', () => {
 
     expect((await put('/api/sessions/nope/rail', { pinned: true })).status).toBe(404);
     expect((await put(`/api/sessions/${ida}/rail`, { pinned: 'yes' })).status).toBe(400);
+    expect((await put(`/api/sessions/${ida}/rail`, { color: 'pink' })).status).toBe(400);
     expect((await post('/api/rail/sections', { op: 'add', id: 'x', name: '' })).status).toBe(400);
+  });
+
+  it('a color: set on its own, kept when its section is removed, taken off with null', async () => {
+    const { put, post } = setup();
+    const id = sessionIdFor(b);
+    placeSession(id, { pinned: false, section: null, color: null }); // whatever an earlier test left
+    expect(await (await put(`/api/sessions/${id}/rail`, { color: 'orange' })).json()).toMatchObject({
+      places: { [id]: { color: 'orange' } },
+    });
+    await post('/api/rail/sections', { op: 'add', id: 'c', name: 'C' });
+    await put(`/api/sessions/${id}/rail`, { section: 'c' });
+    expect(readRailLayout().places[id]).toEqual({ color: 'orange', section: 'c' });
+    await post('/api/rail/sections', { op: 'remove', id: 'c' });
+    expect(readRailLayout().places[id]).toEqual({ color: 'orange' });
+    await put(`/api/sessions/${id}/rail`, { color: null });
+    expect(readRailLayout().places[id]).toBeUndefined();
   });
 
   it("a session's place goes with it (a re-created session starts unpinned)", async () => {

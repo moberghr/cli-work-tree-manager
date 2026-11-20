@@ -3,7 +3,9 @@ import type { SessionSummary } from '../../api/client.js';
 import { displayStatus } from '../../state/session-display.js';
 import { switcherLabel, switcherResults } from '../../state/quick-switch.js';
 import { StatusIcon } from './StatusIcon.js';
+import { ColorMark } from './ColorMark.js';
 import { modalOpen } from '../../state/modal-open.js';
+import type { RailLayout } from '../../../../core/rail/rail-layout.js';
 
 /**
  * Ctrl+P: type a few letters of a session's name, branch or repo and press
@@ -14,10 +16,13 @@ export function QuickSwitcher({
   sessions,
   onOpen,
   onClose,
+  layout,
 }: {
   sessions: SessionSummary[];
   onOpen: (id: string) => void;
   onClose: (picked: boolean) => void;
+  /** The rail's places: each session's color, a square before its name. */
+  layout?: Pick<RailLayout, 'places'>;
 }) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -80,6 +85,7 @@ export function QuickSwitcher({
               onMouseEnter={() => setActive(i)}
             >
               <StatusIcon kind={displayStatus(s)} />
+              <ColorMark color={layout?.places[s.id]?.color} />
               <span className="wd-switcher-name">{switcherLabel(s)}</span>
               <span className="wd-switcher-sub">
                 {s.target}

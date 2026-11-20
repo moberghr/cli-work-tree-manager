@@ -1,14 +1,14 @@
 import type { Hono } from 'hono';
-import { cleanPlacePatch, cleanSectionOp } from '../../core/rail/rail-layout.js';
+import { cleanPlacePatch, cleanSectionOp, PLACE_PATCH_EXPECTED } from '../../core/rail/rail-layout.js';
 import { changeRailSections, placeSession, readRailLayout } from '../../core/rail/rail-store.js';
 import { findSession } from '../../core/sessions/web-state.js';
 
 /**
- * The rail's pins and sections (rail-layout.ts):
+ * The rail's pins, sections and colors (rail-layout.ts):
  *
  *   GET /api/rail                    RailLayout
  *   POST /api/rail/sections          {op: add|rename|move|remove, id, name?, by?}  one change, to the list as it is now
- *   PUT /api/sessions/:id/rail       {pinned?, section?: id | null}
+ *   PUT /api/sessions/:id/rail       {pinned?, section?: id | null, color?: red|orange|yellow|green|blue|purple | null}
  *
  * Every window is told (`rail-changed`).
  */
@@ -30,7 +30,7 @@ export function mountRailRoutes(app: Hono, opts: { broadcast: (event: string, da
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
     const patch = cleanPlacePatch(await c.req.json().catch(() => null));
-    if (!patch) return c.json({ error: 'expected {pinned?: boolean, section?: string | null}' }, 400);
+    if (!patch) return c.json({ error: PLACE_PATCH_EXPECTED }, 400);
     const r = placeSession(id, patch);
     if (!r.ok) return c.json({ error: r.error }, 409);
     changed();

@@ -16,6 +16,8 @@ import { isArchived, lastActiveAt, agentCan, agentName, displayStatus, waitingOn
 import { prNeedsLine } from '../../../state/pr-tab.js';
 import { StatusIcon } from '../StatusIcon.js';
 import { InboxFollowUp } from '../InboxFollowUp.js';
+import { ColorMark } from '../ColorMark.js';
+import type { RailLayout } from '../../../../../core/rail/rail-layout.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank, prWantsYou, reviewWantsYou } from '../../../../../core/status/attention.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -34,6 +36,8 @@ interface Props {
   onAnswer?: (id: string, req: AnswerRequest) => Promise<unknown>;
   /** The follow-up panel's calls (its reply, and the send); tests swap them. */
   followUp?: { load?: (id: string) => Promise<string | null>; send?: (id: string, body: string) => Promise<void> };
+  /** The rail's places: each session's color, a square before its name. */
+  layout?: Pick<RailLayout, 'places'>;
 }
 
 interface Section {
@@ -116,6 +120,7 @@ export function InboxTab({
   onAnswer = answerPermission,
   onReviewAll,
   followUp,
+  layout,
 }: Props) {
   /** The finished session whose follow-up panel is open (one at a time). */
   const [following, setFollowing] = useState<string | null>(null);
@@ -239,6 +244,7 @@ export function InboxTab({
                     >
                       <StatusIcon kind={kind} />
                       <span className="wd-inbox-name">
+                        <ColorMark color={layout?.places[s.id]?.color} />
                         <span className="wd-inbox-branch">{s.titleIsYours && s.title ? s.title : s.branch}</span>
                         <span className="wd-inbox-target">{s.target}</span>
                       </span>

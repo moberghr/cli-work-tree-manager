@@ -51,7 +51,14 @@ import { demoCodeFile, demoCodeFiles, demoCodeSearch } from './demo-code.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
 import { buildStamp } from '../../core/platform/build-stamp.js';
 import { cleanOrder } from '../../core/rail/session-order.js';
-import { applyPlacePatch, applySectionOp, cleanPlacePatch, cleanSectionOp, type RailLayout } from '../../core/rail/rail-layout.js';
+import {
+  applyPlacePatch,
+  applySectionOp,
+  cleanPlacePatch,
+  cleanSectionOp,
+  PLACE_PATCH_EXPECTED,
+  type RailLayout,
+} from '../../core/rail/rail-layout.js';
 import { prUrl } from '../../core/rail/blocks.js';
 import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
@@ -710,7 +717,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ order });
   });
 
-  // The rail's pins and sections, in memory, by the real rules (rail-layout.ts).
+  // The rail's pins, sections and colors, in memory, by the real rules (rail-layout.ts).
   let rail: RailLayout = { sections: [], places: {} };
   const railChanged = () => broadcast({ event: 'rail-changed', data: { ts: Date.now() } });
   app.get('/api/rail', (c) => c.json(rail));
@@ -734,7 +741,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const id = c.req.param('id');
     if (!scenario.list().some((x) => x.id === id)) return notFound(c);
     const patch = cleanPlacePatch(await json(c));
-    if (!patch) return c.json({ error: 'expected {pinned?: boolean, section?: string | null}' }, 400);
+    if (!patch) return c.json({ error: PLACE_PATCH_EXPECTED }, 400);
     if (patch.section && !rail.sections.some((s) => s.id === patch.section)) return c.json({ error: 'no such section' }, 409);
     const places = { ...rail.places };
     const next = applyPlacePatch(places[id], patch);

@@ -9,7 +9,7 @@ import type { BulkActions } from '../../src/web/src/components/Dashboard/tabs/Bu
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** The rail's pins and sections in the Sessions table: on the rows, a filter, a grouping, and the bulk bar's Rail ▾. */
+/** The rail's pins, sections and colors in the Sessions table: on the rows, a filter, a grouping, and the bulk bar's Rail ▾. */
 
 const now = new Date().toISOString();
 const session = (id: string): SessionSummary =>
@@ -24,7 +24,10 @@ const session = (id: string): SessionSummary =>
     activityState: 'stale',
   }) as SessionSummary;
 const SESSIONS = [session('a'), session('b'), session('c')];
-const LAYOUT: RailLayout = { sections: [{ id: 'x', name: 'Client X' }], places: { a: { pinned: true }, b: { section: 'x' } } };
+const LAYOUT: RailLayout = {
+  sections: [{ id: 'x', name: 'Client X' }],
+  places: { a: { pinned: true, color: 'orange' }, b: { section: 'x' }, c: { color: 'orange' } },
+};
 
 let container: HTMLDivElement;
 let root: Root;
@@ -81,6 +84,27 @@ describe('the rail in the Sessions table', () => {
       ]),
     );
     expect(tags).toEqual({ 'feat/a': '📌', 'feat/b': 'Client X', 'feat/c': null });
+  });
+
+  it('a colored row: a square before its name, named', () => {
+    const marks = Object.fromEntries(
+      [...container.querySelectorAll('tbody tr')].map((r) => [
+        r.querySelector('.wd-st-branch')!.textContent,
+        r.querySelector('.wd-color-mark')?.getAttribute('aria-label') ?? null,
+      ]),
+    );
+    expect(marks).toEqual({ 'feat/a': 'Orange', 'feat/b': null, 'feat/c': 'Orange' });
+  });
+
+  it('a Color filter: one color, or no color', () => {
+    select('Color filter', 'orange');
+    expect(branches()).toEqual(['feat/a', 'feat/c']);
+    select('Color filter', 'none');
+    expect(branches()).toEqual(['feat/b']);
+    select('Color filter', 'blue');
+    expect(branches()).toEqual([]);
+    select('Color filter', 'any');
+    expect(branches()).toEqual(['feat/a', 'feat/b', 'feat/c']);
   });
 
   it('a Rail filter: pinned, a section, in none', () => {
@@ -171,5 +195,30 @@ describe('the rail in the Sessions table', () => {
     });
     expect(place).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }), { pinned: false, section: 'x' });
     expect(place).toHaveBeenCalledWith(expect.objectContaining({ id: 'c' }), { pinned: false, section: 'x' });
+  });
+
+  it('the bulk bar colors them; the color they share is marked, none when they differ', async () => {
+    const tick = (id: string) => act(() => container.querySelector<HTMLInputElement>(`input[aria-label="Select api feat/${id}"]`)!.click());
+    const openRail = () => act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Rail ▾')!.click());
+    const swatch = (label: string) => document.querySelector<HTMLButtonElement>(`[role="menuitemradio"][aria-label="${label}"]`)!;
+    const marked = () =>
+      [...document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]')].map((b) => b.getAttribute('aria-label'));
+    tick('a');
+    tick('c');
+    openRail();
+    expect(marked()).toEqual(['Orange']);
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    tick('b');
+    openRail();
+    expect(marked()).toEqual([]);
+    await act(async () => swatch('Green').click());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    for (const id of ['a', 'b', 'c']) expect(place).toHaveBeenCalledWith(expect.objectContaining({ id }), { color: 'green' });
+    expect(container.querySelector('.wd-bulk-outcome')?.textContent).toContain('Colored green 3.');
   });
 });

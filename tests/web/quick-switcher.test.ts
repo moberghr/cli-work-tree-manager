@@ -115,6 +115,23 @@ describe('QuickSwitcher', () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  it('a session with a color: a square before its name', () => {
+    act(() =>
+      root.render(
+        createElement(QuickSwitcher, {
+          sessions: SESSIONS,
+          onOpen: () => {},
+          onClose: () => {},
+          layout: { places: { b: { color: 'purple' } } },
+        }),
+      ),
+    );
+    const marks = [...container.querySelectorAll('.wd-switcher-item')].map(
+      (li) => li.querySelector('.wd-color-mark')?.getAttribute('aria-label') ?? null,
+    );
+    expect(marks).toEqual(['Purple', null, null]);
+  });
+
   it('Tab stays in the switcher', () => {
     act(() => root.render(createElement(QuickSwitcher, { sessions: SESSIONS, onOpen: () => {}, onClose: () => {} })));
     const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });

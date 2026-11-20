@@ -13,6 +13,7 @@ import { sessionIdFor } from '../../src/core/sessions/session-id.js';
 import { snoozeCommand } from '../../src/commands/snooze.js';
 import { pinCommand } from '../../src/commands/pin.js';
 import { sectionCommand } from '../../src/commands/section.js';
+import { colorCommand } from '../../src/commands/color.js';
 import { updateCommand } from '../../src/commands/update.js';
 import { catchupCommand } from '../../src/commands/catchup.js';
 import { noteCommand } from '../../src/commands/note.js';
@@ -62,6 +63,7 @@ const COMMANDS: Record<string, { handler: (argv: unknown) => unknown }> = {
   snoozeCommand,
   pinCommand,
   sectionCommand,
+  colorCommand,
   updateCommand,
   catchupCommand,
   noteCommand,
@@ -91,6 +93,24 @@ describe('work snooze', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(os.tmpdir());
     await run('snooze', 'snoozeCommand', {});
     expect(errors.join('\n')).toContain('not inside a work session');
+  });
+});
+
+describe('work color', () => {
+  it('sets a color, says it, keeps it through a pin, takes it off', async () => {
+    out.length = 0;
+    await run('color', 'colorCommand', {});
+    expect(out.join('\n')).toContain('No color');
+    await run('color', 'colorCommand', { set: 'orange' });
+    expect(readRailLayout().places[id]).toEqual({ color: 'orange' });
+    await run('pin', 'pinCommand', {});
+    await run('pin', 'pinCommand', { off: true });
+    expect(readRailLayout().places[id]).toEqual({ color: 'orange' });
+    out.length = 0;
+    await run('color', 'colorCommand', {});
+    expect(out.join('\n')).toBe('Orange');
+    await run('color', 'colorCommand', { off: true });
+    expect(readRailLayout().places[id]).toBeUndefined();
   });
 });
 

@@ -5,6 +5,14 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ## Unreleased
 
+- **Color your sessions.** Right-click a session in the rail → Color, and pick
+  one of six (red, orange, yellow, green, blue, purple). Its row gets a thin
+  bar down its left edge, so sessions of one color stand out as a group
+  without moving under a heading; a pinned session or one in a section can
+  have one too. The Sessions table, Ctrl+P and the Inbox show it as a small
+  square before the name, the Sessions table's View ▾ filters by it, and the
+  bulk bar's Rail ▾ colors several at once. From a terminal:
+  `work color --set orange`, `--off` to take it off.
 - **Click the project field and type.** In New worktree, a click on the
   project field selects the project in it, so what you type replaces it and
   searches. The click used to leave the cursor after the name, and what you
