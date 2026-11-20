@@ -63,17 +63,33 @@ export function RepoSwitch({ items, active, onPick }: Props) {
   };
   const remeasureRef = useRef(remeasure);
   remeasureRef.current = remeasure;
-  // After every render: the rest of the line (what's shown, the picker's label, the update chip) moves with the diff.
+  // When what is measured can change: the repos and the one on screen (the pills' text, the button's name).
   useLayoutEffect(() => {
     remeasureRef.current();
-  });
+  }, [items, active, canMeasure]);
   useEffect(() => {
     if (!canMeasure) return;
     const toolbar = wrapRef.current?.closest<HTMLElement>('[role="toolbar"]');
     const ro = new ResizeObserver(() => remeasureRef.current());
-    if (toolbar) ro.observe(toolbar);
+    // The rest of the line (what's shown, the picker's label, the update chip) moves with the diff: when one of them
+    // resizes, or comes or goes.
+    const watchKids = () => {
+      if (toolbar) for (const k of Array.from(toolbar.children)) ro.observe(k); // observing one twice is a no-op
+    };
+    watchKids();
+    const mo = new MutationObserver(() => {
+      watchKids();
+      remeasureRef.current();
+    });
+    if (toolbar) {
+      ro.observe(toolbar);
+      mo.observe(toolbar, { childList: true });
+    }
     if (measureRef.current) ro.observe(measureRef.current); // the names' widths, once the font is in
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, [canMeasure]);
 
   const fit = measure ? repoPills(items, active, measure.room, (n) => measure.widths[n] ?? 0, measure.more) : { pills: items, more: false };
@@ -226,13 +242,19 @@ function RepoMenu({
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
+    // Inlined rather than calling `close`: that one is a new function each render, these are stable.
+    const shut = (refocus: boolean) => {
+      setOpen(false);
+      setQuery('');
+      if (refocus) buttonRef.current?.focus();
+    };
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) close(false);
+      if (!rootRef.current?.contains(e.target as Node)) shut(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault(); // used: closing this, not leaving full screen as well
-      close(true);
+      shut(true);
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);

@@ -302,6 +302,14 @@ describe('a group of many repos in the switch: the pills that fit, the rest in a
     expect(names(repoPills(items, 'frontend-admin-portal', 75, width, btn))).toEqual(['▾']);
   });
 
+  it("the repo on screen the button names is not also taken as a pill, even when '+N' would be wider than that button", () => {
+    const items = [item('bbbb', 1), item('a', 1), item('dddddddddd', 0)];
+    // Not pinned (40 > 90 − 60), so the room is budgeted beside the 30 px button naming bbbb: it must not become a pill too.
+    const r = repoPills(items, 'bbbb', 90, width, { count: 60, named: 30 });
+    expect(names(r)).toEqual(['a', '▾']);
+    expect(repoMoreButton(items, r.pills, 'bbbb')).toMatchObject({ label: 'bbbb', current: true });
+  });
+
   it("no room even for the one on screen: the list's button alone, naming it", () => {
     const r = repoPills(many, 'bbb', 40, width, btn);
     expect(names(r)).toEqual(['▾']);

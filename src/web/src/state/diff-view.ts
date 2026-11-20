@@ -100,7 +100,8 @@ export function repoPills(
   let left = room - (current && !pinned ? more.named : more.count) - (pinned ? widthOf(pinned.name) : 0);
   const taken = pinned ? [pinned] : [];
   for (const r of items) {
-    if (r === pinned || (r.files ?? 0) === 0 || widthOf(r.name) > left) continue;
+    // The one on screen is never taken here: pinned already, or named by the button the room was budgeted for.
+    if (r === current || (r.files ?? 0) === 0 || widthOf(r.name) > left) continue;
     taken.push(r);
     left -= widthOf(r.name);
   }
