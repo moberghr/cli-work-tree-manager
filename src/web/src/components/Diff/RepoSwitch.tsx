@@ -1,5 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react';
-import { repoMenuSections, repoMoreButton, repoPills, type RepoMoreButton, type RepoSwitchItem } from '../../state/diff-view.js';
+import {
+  repoMenuSections,
+  repoMoreButton,
+  repoPills,
+  type RepoMoreButton,
+  type RepoMoreWidths,
+  type RepoSwitchItem,
+} from '../../state/diff-view.js';
 
 interface Props {
   /** Every repo of the session, in its order (repoSwitch). */
@@ -9,11 +16,11 @@ interface Props {
   onPick: (name: string) => void;
 }
 
-/** What the line leaves the switch, each pill's width, and the list button's (its gap included). */
+/** What the line leaves the switch, each pill's width, and the list button's, counting or naming the repo on screen (its gap included). */
 interface Measure {
   room: number;
   widths: Record<string, number>;
-  more: number;
+  more: RepoMoreWidths;
 }
 
 /** The pills' segmented border (1px a side), and a pixel spare for rounding. */
@@ -45,11 +52,12 @@ export function RepoSwitch({ items, active, onPick }: Props) {
     if (!box) return;
     const widths: Record<string, number> = {};
     for (const el of box.querySelectorAll<HTMLElement>('[data-repo]')) widths[el.dataset.repo!] = el.getBoundingClientRect().width;
-    const moreBtn = box.querySelector<HTMLElement>('[data-more]');
+    const gap = px(getComputedStyle(wrap).columnGap);
+    const widthOf = (sel: string) => (box.querySelector<HTMLElement>(sel)?.getBoundingClientRect().width ?? 0) + gap;
     const next: Measure = {
       room: roomFor(wrap, toolbar) - GROUP_BORDER - SLACK,
       widths,
-      more: (moreBtn?.getBoundingClientRect().width ?? 0) + px(getComputedStyle(wrap).columnGap),
+      more: { count: widthOf('[data-more]'), named: widthOf('[data-more-named]') },
     };
     setMeasure((prev) => (prev && sameMeasure(prev, next) ? prev : next));
   };
@@ -105,6 +113,7 @@ export function RepoSwitch({ items, active, onPick }: Props) {
               ))}
             </div>
             <MoreButtonBody button={{ label: `+${items.length}`, current: false, hidden: items.length, hiddenChanged: 1 }} data-more />
+            <MoreButtonBody button={{ label: active ?? '', current: true, hidden: items.length, hiddenChanged: 1 }} data-more-named />
           </div>
         </div>
       )}
@@ -146,6 +155,7 @@ function MoreButtonBody({
   title?: string;
   buttonRef?: Ref<HTMLButtonElement>;
   'data-more'?: boolean;
+  'data-more-named'?: boolean;
 }) {
   return (
     <button
@@ -388,7 +398,8 @@ function sameMeasure(a: Measure, b: Measure): boolean {
   const keys = Object.keys(b.widths);
   return (
     close(a.room, b.room) &&
-    close(a.more, b.more) &&
+    close(a.more.count, b.more.count) &&
+    close(a.more.named, b.more.named) &&
     keys.length === Object.keys(a.widths).length &&
     keys.every((k) => a.widths[k] !== undefined && close(a.widths[k], b.widths[k]))
   );

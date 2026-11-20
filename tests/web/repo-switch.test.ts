@@ -7,14 +7,15 @@ import type { RepoSwitchItem } from '../../src/web/src/state/diff-view.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// jsdom lays nothing out: the toolbar is given a width, a repo's pill ten pixels a letter, the list's button 30,
-// anything else its data-w.
+// jsdom lays nothing out: the toolbar is given a width, a repo's pill ten pixels a letter, the list's button 30
+// counting the rest and 90 naming the repo on screen, anything else its data-w.
 let toolbarWidth = 0;
 let resized: (() => void) | null = null;
 const widthOf = (el: Element): number => {
   const h = el as HTMLElement;
   if (h.dataset?.repo) return h.dataset.repo.length * 10;
   if (h.hasAttribute?.('data-more')) return 30;
+  if (h.hasAttribute?.('data-more-named')) return 90;
   return Number(h.dataset?.w ?? 0);
 };
 
@@ -136,6 +137,19 @@ describe('RepoSwitch', () => {
     expect(pills()).toEqual([]);
     expect(moreButton()!.textContent).toBe('repo-07▾');
     expect(moreButton()!.classList.contains('wd-diff-repo-more-current')).toBe(true);
+  });
+
+  it("the button naming the repo on screen is measured as wide as it shows, not as '+N'", async () => {
+    const items = [item('api', 1), item('frontend-admin-portal', 0), item('web', 0)];
+    // 300 − 100 − 3 = 197: no room for frontend-admin-portal (210), so the button names it (90); api (30) fits beside it.
+    await renderSwitch(items, 'frontend-admin-portal', 300);
+    expect(pills()).toEqual(['api 1']);
+    expect(moreButton()!.textContent).toBe('frontend-admin-portal▾');
+    // 220 − 100 − 3 = 117: beside '+N' api would fit (117 − 30), beside the name it doesn't (117 − 90 = 27).
+    toolbarWidth = 220;
+    await act(async () => resized?.());
+    expect(pills()).toEqual([]);
+    expect(moreButton()!.textContent).toBe('frontend-admin-portal▾');
   });
 
   it('the list: every repo, changed first, found by typing; Enter picks', async () => {
