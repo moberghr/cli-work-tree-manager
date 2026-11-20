@@ -1,3 +1,7 @@
+import { issueSources } from '../../core/issues/jira-source.js';
+import { listIssues } from '../../core/issues/issue-source.js';
+import type { IssuesWire } from '../../core/api-types.js';
+import { placeJira } from '../../core/issues/jira-placed.js';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -106,13 +110,53 @@ export function mountPanesRoutes(app: Hono, opts: PanesMountOptions): void {
   // Single `acli jira auth status` probe (combined with the issue search
   // inside fetchJiraPane) — replaces the previous two-call pattern. Also
   // dedups concurrent refreshes; `acli` can be slow.
+  // Your issues from every connector (issue-source.ts), each marked with the project your rules start it in.
+  // One read at a time: a connector's tool can be slow, and the tab and a refresh ask together.
+  let issuesInFlight: Promise<IssuesWire> | null = null;
+  app.get('/api/issues', async (c) => {
+    issuesInFlight ??= (async () => {
+      const run = opts.activity?.start('jira', 'Fetching your issues');
+      try {
+        const r = await listIssues(issueSources(), loadConfig());
+        const down = r.sources.filter((s) => !s.available);
+        if (down.length && down.length === r.sources.length)
+          run?.fail(`${down.map((s) => s.name).join(', ')}: not available or not signed in`);
+        else
+          run?.done(
+            `${r.issues.length} issue${r.issues.length === 1 ? '' : 's'}${down.length ? ` · ${down.map((s) => s.name).join(', ')} not available` : ''}`,
+          );
+        return r;
+      } catch (err) {
+        run?.fail((err as Error).message);
+        throw err;
+      } finally {
+        issuesInFlight = null;
+      }
+    })();
+    try {
+      return c.json(await issuesInFlight);
+    } catch (err) {
+      return c.json({ sources: [], issues: [], error: (err as Error).message } satisfies IssuesWire & { error: string }, 502);
+    }
+  });
+
+  // The page's old route (an app from before Issues still asks it): Jira's issues alone, in their own shape.
   let jiraInFlight: Promise<{ available: boolean; issues: JiraIssue[] }> | null = null;
   app.get('/api/jira', async (c) => {
     if (!jiraInFlight) {
       jiraInFlight = (async () => {
         const run = opts.activity?.start('jira', 'Fetching your Jira issues');
         try {
-          const r = await fetchJiraPane();
+          const got = await fetchJiraPane();
+          // Where your issue rules start each (by its project alone: the list carries no components): Start opens with it.
+          const cfg = loadConfig();
+          const r = {
+            ...got,
+            issues: got.issues.map((i) => {
+              const placed = placeJira(i, undefined, cfg);
+              return placed?.target ? { ...i, startsIn: placed.target } : i;
+            }),
+          };
           if (!r.available) run?.fail('Jira CLI (acli) not available or not logged in');
           else run?.done(`${r.issues.length} issue${r.issues.length === 1 ? '' : 's'}`);
           return r;

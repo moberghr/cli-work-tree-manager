@@ -32,7 +32,7 @@ export const timeCommand: CommandModule = {
         const t = await sessionWorkTime(s);
         const ms = t.byDay.filter((d) => d.day >= since).reduce((n, d) => n + d.ms, 0);
         if (ms >= 60_000)
-          rows.push({ name: `${s.target} · ${s.title ? s.title : s.branch}`, ms, ...(s.jiraKey ? { jira: s.jiraKey } : {}) });
+          rows.push({ name: `${s.target} · ${s.title ? s.title : s.branch}`, ms, ...(s.issueKey ? { jira: s.issueKey } : {}) });
       }
       rows.sort((a, b) => b.ms - a.ms);
       if (rows.length === 0) console.log(chalk.gray(`No Claude work in the last ${days} days.`));
@@ -55,8 +55,8 @@ export const timeCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      if (!s.jiraKey) {
-        console.error(chalk.red('This session has no Jira issue (work tree … --jira-key KEY).'));
+      if (!s.issueKey) {
+        console.error(chalk.red('This session has no Jira issue (work tree … --issue-key KEY).'));
         process.exitCode = 1;
         return;
       }
@@ -66,7 +66,7 @@ export const timeCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      const r = await logWorkDay(id, s.jiraKey, day.day, day.ms, jiraWorklogPoster(settings));
+      const r = await logWorkDay(id, s.issueKey, day.day, day.ms, jiraWorklogPoster(settings));
       if (!r.ok) {
         console.error(chalk.red(r.error));
         process.exitCode = 1;

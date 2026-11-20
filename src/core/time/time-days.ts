@@ -103,7 +103,7 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
     : [];
   const hints = settings.hints;
   const projects = projectsOf(settings, [
-    ...all.map((s) => s.jiraKey),
+    ...all.map((s) => s.issueKey),
     ...jira.map((j) => j.key),
     ...assigned.map((c) => c.key),
     ...Object.keys(hints ?? {}),

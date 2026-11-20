@@ -66,6 +66,10 @@ function deps(issues: JiraIssue[], answer: (prompt: string) => string | null, ov
   return d;
 }
 const sure = (target: string) => () => JSON.stringify({ target, confident: true, reason: 'stored cards are backend work' });
+/** A rule of yours that says where, and that the watch may start it by itself. */
+const auto =
+  (target: string): NonNullable<WatchDeps['place']> =>
+  () => ({ target, reason: `your issue rule: jira:APP -> ${target} (auto)`, auto: true });
 
 describe('the Jira watch', () => {
   it('off: does nothing; turning it on leaves what is assigned now alone', async () => {
@@ -99,24 +103,84 @@ describe('the Jira watch', () => {
     expect(await sweepJira(back)).toEqual({ started: 0, suggested: 0, waiting: 0 }); // adopted now
     expect(readDecision('OPS-2470')).toMatchObject({ action: 'baseline' });
     // After that, a really new one is started as before.
-    const later = deps([issue('APP-1'), issue('OPS-2465'), issue('OPS-2470'), issue('APP-9')], sure('acme-backend'));
+    const later = deps([issue('APP-1'), issue('OPS-2465'), issue('OPS-2470'), issue('APP-9')], sure('acme-backend'), {
+      place: auto('acme-backend'),
+    });
     expect(await sweepJira(later)).toMatchObject({ started: 1 });
     expect(later.started.map((x) => x.key)).toEqual(['APP-9']);
   });
 
-  it('a newly assigned issue it is sure about: worktree feat/<KEY> in that project, started; once', async () => {
+  it('a newly assigned issue of an (auto) rule: worktree feat/<KEY> in that project, started; once', async () => {
     setEnabled(true, []);
-    const d = deps([issue('APP-2')], sure('acme-backend'));
+    const d = deps([issue('APP-2')], sure('jobly'), { place: auto('acme-backend') });
     expect(await sweepJira(d)).toMatchObject({ started: 1 });
     expect(d.started).toEqual([{ target: 'acme-backend', branch: 'feat/APP-2', key: 'APP-2' }]);
     expect(readDecision('APP-2')).toMatchObject({
       action: 'started',
       target: 'acme-backend',
       sessionId: 'sid-APP-2',
-      reason: 'stored cards are backend work',
+      reason: 'your issue rule: jira:APP -> acme-backend (auto)',
     });
     await sweepJira(d);
     expect(d.started).toHaveLength(1); // decided: not again
+  });
+
+  it('nothing starts by itself unless a rule says (auto): the model’s answer, however sure, is a suggestion with its project', async () => {
+    setEnabled(true, []);
+    const notes: string[] = [];
+    const d = deps([issue('APP-30')], sure('acme-backend'), { note: (text) => void notes.push(text) });
+    expect(await sweepJira(d)).toEqual({ started: 0, suggested: 1, waiting: 0 });
+    expect(d.started).toEqual([]);
+    expect(readDecision('APP-30')).toMatchObject({ action: 'suggested', target: 'acme-backend', reason: 'stored cards are backend work' });
+    expect(notes[0]).toContain('APP-30: not started by itself (no rule of yours is about it); it would go in acme-backend');
+  });
+
+  it('a rule that only says where (no (auto)): a suggestion in its project, the model not asked', async () => {
+    setEnabled(true, []);
+    const asked: string[] = [];
+    const notes: string[] = [];
+    const d = deps([issue('APP-31')], (p) => (asked.push(p), sure('jobly')()), {
+      place: () => ({ target: 'acme', reason: 'your issue rule: jira:APP -> acme', auto: false }),
+      note: (text) => void notes.push(text),
+    });
+    expect(await sweepJira(d)).toEqual({ started: 0, suggested: 1, waiting: 0 });
+    expect(readDecision('APP-31')).toMatchObject({ action: 'suggested', target: 'acme', reason: 'your issue rule: jira:APP -> acme' });
+    expect(asked).toEqual([]);
+    expect(notes[0]).toContain('its rule doesn’t say (auto)');
+  });
+
+  it('an (auto) rule comes first: started where it says, with the rule as the reason, and the model is not asked', async () => {
+    setEnabled(true, []);
+    const asked: string[] = [];
+    const d = deps([issue('APP-7')], (p) => (asked.push(p), JSON.stringify({ target: 'jobly', confident: true, reason: 'a guess' })), {
+      place: (i, detail) => {
+        expect(i.key).toBe('APP-7');
+        expect(detail?.project?.key).toBe('APP');
+        return { target: 'acme', reason: 'your issue rule: jira:APP -> acme (auto)', auto: true };
+      },
+    });
+    expect(await sweepJira(d)).toMatchObject({ started: 1, suggested: 0 });
+    expect(d.started).toEqual([{ target: 'acme', branch: 'feat/APP-7', key: 'APP-7' }]);
+    expect(readDecision('APP-7')).toMatchObject({ action: 'started', target: 'acme', reason: 'your issue rule: jira:APP -> acme (auto)' });
+    expect(asked).toEqual([]);
+  });
+
+  it('rules that don’t settle it leave it to you with why (never a guess between them); no rule about it: the model suggests', async () => {
+    setEnabled(true, []);
+    const asked: string[] = [];
+    const d = deps([issue('APP-8'), issue('APP-9')], (p) => (asked.push(p), sure('acme-backend')()), {
+      place: (i) => (i.key === 'APP-8' ? { target: null, reason: 'your issue rules name several projects for it (acme, jobly)' } : null),
+    });
+    expect(await sweepJira(d)).toMatchObject({ started: 0, suggested: 2 });
+    expect(readDecision('APP-8')).toMatchObject({
+      action: 'suggested',
+      reason: 'your issue rules name several projects for it (acme, jobly)',
+    });
+    expect(readDecision('APP-8')?.target).toBeUndefined();
+    expect(d.started).toEqual([]);
+    expect(readDecision('APP-9')).toMatchObject({ action: 'suggested', target: 'acme-backend' });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain('APP-9');
   });
 
   it('not sure, or a project that is not yours: a suggestion for you, nothing started', async () => {
@@ -145,6 +209,7 @@ describe('the Jira watch', () => {
     const d = deps(
       ['APP-10', 'APP-11', 'APP-12'].map((k) => issue(k)),
       sure('jobly'),
+      { place: auto('jobly') },
     );
     expect(await sweepJira(d)).toEqual({ started: 2, suggested: 0, waiting: 1 });
     expect(readDecision('APP-12')).toBeNull();
@@ -152,7 +217,7 @@ describe('the Jira watch', () => {
     const more = deps(
       ['APP-13', 'APP-14', 'APP-15'].map((k) => issue(k)),
       sure('jobly'),
-      { maxPerDay: 4 },
+      { maxPerDay: 4, place: auto('jobly') },
     );
     expect(await sweepJira(more)).toEqual({ started: 1, suggested: 0, waiting: 2 }); // 3 today already, 4 a day
   });
@@ -160,6 +225,7 @@ describe('the Jira watch', () => {
   it('a start that fails is recorded with the reason (Start it again from the Jira tab)', async () => {
     setEnabled(true, []);
     const d = deps([issue('APP-20')], sure('jobly'), {
+      place: auto('jobly'),
       start: async () => {
         throw new Error('branch feat/APP-20 is checked out elsewhere');
       },
@@ -192,7 +258,7 @@ describe('deciding where it belongs', () => {
 
   it("history: earlier issues of a Jira project, from sessions' keys and branch names", () => {
     const h = projectHistory([
-      { target: 'acme', branch: 'feat/APP-3937', jiraKey: 'APP-3937' },
+      { target: 'acme', branch: 'feat/APP-3937', issueKey: 'APP-3937' },
       { target: 'acme', branch: 'task/app-3936-multi-user' },
       { target: 'acme-backend', branch: 'fix/APP-1' },
       { target: 'jobly', branch: 'fix/retries' },

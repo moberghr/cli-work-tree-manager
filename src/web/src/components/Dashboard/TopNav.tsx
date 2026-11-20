@@ -42,7 +42,7 @@ const TABS: TabDef[] = [
   { key: 'inbox', label: 'Inbox', hotkey: 'i' },
   { key: 'sessions', label: 'Sessions', hotkey: 's' },
   { key: 'start', label: 'Start', hotkey: 'w' },
-  { key: 'jira', label: 'Jira', hotkey: 'j' },
+  { key: 'issues', label: 'Issues', hotkey: 'j' },
   { key: 'reviews', label: 'Reviews', hotkey: 'v' },
   { key: 'time', label: 'Time', hotkey: 'h' },
 ];

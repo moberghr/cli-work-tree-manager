@@ -41,7 +41,7 @@ export function mountCatchUpRoutes(
     const s = findSession(id);
     if (!s) return c.json({ error: 'unknown session' }, 404);
     const logged = Object.fromEntries(Object.entries(loggedDays(id)).map(([day, l]) => [day, l.seconds]));
-    return c.json({ configured: !!worklogSettings(loadConfig()), issueKey: s.jiraKey ?? null, logged } satisfies WorklogWire);
+    return c.json({ configured: !!worklogSettings(loadConfig()), issueKey: s.issueKey ?? null, logged } satisfies WorklogWire);
   });
   app.post('/api/sessions/:id/worklog', async (c) => {
     const id = c.req.param('id');
@@ -50,12 +50,12 @@ export function mountCatchUpRoutes(
     const settings = worklogSettings(loadConfig());
     if (!settings)
       return c.json({ error: 'Jira worklogs are not set up (config jiraWorklog: site, email, and an API token in JIRA_API_TOKEN).' }, 409);
-    if (!s.jiraKey) return c.json({ error: 'this session has no Jira issue' }, 409);
+    if (!s.issueKey) return c.json({ error: 'this session has no Jira issue' }, 409);
     const body = (await c.req.json().catch(() => ({}))) as { day?: unknown };
     const time = await sessionWorkTime(s);
     const day = typeof body.day === 'string' ? time.byDay.find((d) => d.day === body.day) : time.byDay[0];
     if (!day) return c.json({ error: 'no work that day to log' }, 409);
-    const r = await logWorkDay(id, s.jiraKey, day.day, day.ms, opts.postWorklog?.(settings) ?? jiraWorklogPoster(settings));
+    const r = await logWorkDay(id, s.issueKey, day.day, day.ms, opts.postWorklog?.(settings) ?? jiraWorklogPoster(settings));
     if (!r.ok) return c.json({ error: r.error }, r.status);
     return c.json(r);
   });

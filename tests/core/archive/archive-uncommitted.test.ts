@@ -230,7 +230,7 @@ describe('Restore puts it back once', () => {
       worktreeRemoved: true,
       keptBecause: null,
       transcripts: [],
-      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], issueKey: null },
       uncommitted: { api: saved },
     } as ArchiveRecord;
     fs.mkdirSync(path.join(root, id), { recursive: true });

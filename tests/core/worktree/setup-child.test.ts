@@ -21,12 +21,12 @@ const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 
 describe('the child run, as argv (pure)', () => {
   it('target, branch, --setup-only, each base, the Jira key and the name', () => {
     expect(baseArgs({ default: 'dev', perRepo: { web: 'feat/x' } })).toEqual(['--base=dev', '--base=web=feat/x']);
-    expect(childArgs({ target: 'api', branch: 'feat/a', base: { perRepo: {} }, jiraKey: 'PAY-1', name: ' Retry ' })).toEqual([
+    expect(childArgs({ target: 'api', branch: 'feat/a', base: { perRepo: {} }, issueKey: 'PAY-1', name: ' Retry ' })).toEqual([
       'tree',
       'api',
       'feat/a',
       '--setup-only',
-      '--jira-key=PAY-1',
+      '--issue-key=PAY-1',
       '--name=Retry',
     ]);
     expect(childArgs({ target: 'api' })).toEqual(['tree', 'api', '--setup-only']); // the repo's own checkout

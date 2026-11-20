@@ -86,7 +86,7 @@ export const treeCommand: CommandModule = {
           'The Claude account a new session runs on (a name from `work account list`; default: the configured default). An existing session keeps its own.',
         type: 'string',
       })
-      .option('jira-key', {
+      .option('issue-key', {
         describe: 'Link a Jira issue key to this worktree session',
         type: 'string',
         hidden: true,
@@ -122,7 +122,7 @@ export const treeCommand: CommandModule = {
       }
       throw err;
     }
-    const jiraKey = argv['jira-key'] as string | undefined;
+    const issueKey = argv['issue-key'] as string | undefined;
     const account = argv.account as string | undefined;
     const promptFile = argv['prompt-file'] as string | undefined;
     let initialPrompt = argv.prompt as string | undefined;
@@ -263,7 +263,7 @@ export const treeCommand: CommandModule = {
       console.log(chalk.cyan(`Working on base repo: ${targetName}`));
       const opened = await openBaseCheckout(targetName, config, {
         pull,
-        jiraKey,
+        issueKey,
         name: typeof argv.name === 'string' ? argv.name : undefined,
         account,
       });
@@ -290,7 +290,7 @@ export const treeCommand: CommandModule = {
             .filter(Boolean)
         : [];
     const { value: result, warnings } = await keepingWarnings(() =>
-      setupWorktree(targetName, branchName, config, baseSpec, jiraKey, {
+      setupWorktree(targetName, branchName, config, baseSpec, issueKey, {
         pull,
         name: argv.name as string | undefined,
         ...(account ? { account } : {}),

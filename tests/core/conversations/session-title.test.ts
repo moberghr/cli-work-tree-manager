@@ -58,7 +58,7 @@ describe('sessionTitle', () => {
 
   it('else what the archive kept, else its Jira key, else nothing', () => {
     expect(sessionTitle(s(), 'From the archive')).toBe('From the archive');
-    expect(sessionTitle(s({ jiraKey: 'PAY-12' }))).toBe('PAY-12');
+    expect(sessionTitle(s({ issueKey: 'PAY-12' }))).toBe('PAY-12');
     expect(sessionTitle(s())).toBeNull();
   });
 

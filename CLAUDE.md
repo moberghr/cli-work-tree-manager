@@ -114,7 +114,7 @@ How each part of work is built, and its rules (the `§` lines), is in `.claude/r
 | Status | `attention-inbox.md` (hooks, status, Inbox, snooze, search, context), `activity.md`, `usage.md`, `today.md` |
 | Diffs | `diff-review.md` (`wd`), `the-diff-tab.md`, `checkpoint-trigger-reload-loop-guard.md`, `revert-batched-review.md` |
 | Pull requests | `git-hosts.md`, `pr-watch.md`, `ship-archive.md` (Ship, Archive, Restore), `reviews.md` |
-| Other pages | `time.md`, `jira-watch.md`, `repos-page.md`, `settings.md`, `first-run.md` |
+| Other pages | `time.md`, `issues.md` (the Issues tab, which project an issue starts in), `jira-watch.md`, `repos-page.md`, `settings.md`, `first-run.md` |
 | Storage and moving | `state-storage.md`, `moving-to-another-computer.md` |
 | Shipping | `desktop-app.md`, `updates-and-release-notes.md`, `demo-mode.md` |
 | Small | `tab-completions.md`, `color-forcing.md`, `work-dash.md` (removed in 2.0) |

@@ -1,3 +1,4 @@
+import { sessionIssue } from '../issues/issue-source.js';
 import type { SessionLocalReviewWire } from '../api-types.js';
 import fs from 'node:fs';
 import { agentOf, agentWire } from '../agents/index.js';
@@ -108,7 +109,9 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     repos: wireRepos(s),
     folder: s.isGroup,
     baseBranch: s.baseBranch,
-    jiraKey: s.jiraKey,
+    issueKey: s.issueKey,
+    // Its issue whatever it came from (a Jira key is one): what a row links to.
+    ...(sessionIssue(s) ? { issue: sessionIssue(s)! } : {}),
     createdAt: s.createdAt,
     lastAccessedAt: s.lastAccessedAt,
     draftCount: meta.draftCount,

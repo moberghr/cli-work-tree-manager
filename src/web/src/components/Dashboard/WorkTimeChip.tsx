@@ -10,10 +10,10 @@ const REFRESH_MS = 60_000;
  * else the latest day it worked (in the last two weeks). Null when it hasn't
  * worked in that time: a lifetime total is no day's worklog. Pure.
  */
-export function worklogLine(s: Pick<SessionSummary, 'jiraKey' | 'title' | 'branch'>, t: WorkTime): { text: string; day: string } | null {
+export function worklogLine(s: Pick<SessionSummary, 'issueKey' | 'title' | 'branch'>, t: WorkTime): { text: string; day: string } | null {
   const d = t.byDay[0]; // newest first
   if (!d) return null;
-  return { text: `${s.jiraKey ? `${s.jiraKey} ` : ''}${worklogTime(d.ms)} — ${s.title || s.branch}`, day: d.day };
+  return { text: `${s.issueKey ? `${s.issueKey} ` : ''}${worklogTime(d.ms)} — ${s.title || s.branch}`, day: d.day };
 }
 
 function weekday(day: string, now: number): string {
@@ -92,7 +92,7 @@ export function WorkTimeChip({ session }: { session: SessionSummary }) {
       >
         <span aria-hidden>⏱</span> {copied === 'ok' ? 'Copied' : copied === 'failed' ? "Couldn't copy" : formatWorked(time.workedMs)}
       </button>
-      {line && session.jiraKey && <LogToJira sessionId={session.id} day={line.day} jiraKey={session.jiraKey} />}
+      {line && session.issueKey && <LogToJira sessionId={session.id} day={line.day} issueKey={session.issueKey} />}
     </span>
   );
 }
@@ -102,7 +102,7 @@ export function WorkTimeChip({ session }: { session: SessionSummary }) {
  * worklog (core/jira-worklog.ts), when config `jiraWorklog` is set up. What
  * is already logged for that day isn't logged again; the rest is.
  */
-function LogToJira({ sessionId, day, jiraKey }: { sessionId: string; day: string; jiraKey: string }) {
+function LogToJira({ sessionId, day, issueKey }: { sessionId: string; day: string; issueKey: string }) {
   const [state, setState] = useState<{ configured: boolean; logged: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ text: string; error?: boolean } | null>(null);
@@ -139,9 +139,9 @@ function LogToJira({ sessionId, day, jiraKey }: { sessionId: string; day: string
         className="wd-work-time-jira"
         disabled={busy}
         onClick={log}
-        title={`Write ${weekday(day, Date.now()) === 'Today' ? "today's" : `${day}'s`} work to ${jiraKey} as a worklog${state.logged ? ` (${worklogTime(state.logged * 1000)} logged already: only what was added since)` : ''}`}
+        title={`Write ${weekday(day, Date.now()) === 'Today' ? "today's" : `${day}'s`} work to ${issueKey} as a worklog${state.logged ? ` (${worklogTime(state.logged * 1000)} logged already: only what was added since)` : ''}`}
       >
-        {busy ? 'Logging…' : state.logged ? `→ ${jiraKey} ✓` : `→ ${jiraKey}`}
+        {busy ? 'Logging…' : state.logged ? `→ ${issueKey} ✓` : `→ ${issueKey}`}
       </button>
       {result && (
         <span className={'wd-work-time-result' + (result.error ? ' wd-tab-error' : '')} role="status">

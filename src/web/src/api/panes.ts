@@ -37,6 +37,8 @@ export interface PrInfo {
 }
 
 export interface JiraIssue {
+  /** Where it is from (a connector's id); absent: Jira, from the page's old route. */
+  source?: string;
   key: string;
   summary: string;
   status: string;
@@ -45,6 +47,8 @@ export interface JiraIssue {
   issuetype: string;
   priority: string;
   url: string;
+  /** The project your issue rules start it in (Settings → Issues), when they say. */
+  startsIn?: string;
 }
 
 export interface TaskItem {
@@ -184,6 +188,30 @@ export function fetchPrs(): Promise<{
   return getJson('/api/prs');
 }
 
+/**
+ * Your issues from every connector (GET /api/issues), as the tab takes them: the list, whether any connector
+ * could be asked, and a note naming the ones that couldn't.
+ */
+export async function fetchIssueList(): Promise<{
+  issues: JiraIssue[];
+  available?: boolean;
+  error?: string;
+  /** The connectors asked, by name (the tab says where its list is from). */
+  from?: string[];
+}> {
+  const r = await getJson<import('../../../core/api-types.js').IssuesWire>('/api/issues');
+  const down = r.sources.filter((s) => !s.available);
+  return {
+    issues: r.issues,
+    available: r.sources.length === 0 || down.length < r.sources.length,
+    from: r.sources.filter((s) => s.available).map((s) => s.name),
+    ...(down.length
+      ? { error: `${down.map((s) => s.name).join(', ')}: not available or not signed in${down[0].error ? ` (${down[0].error})` : ''}` }
+      : {}),
+  };
+}
+
+/** The page's old route: Jira's issues alone (kept for callers from before Issues). */
 export function fetchJira(): Promise<{
   issues: JiraIssue[];
   available?: boolean;
@@ -211,21 +239,23 @@ function reason(err: unknown): Error {
 }
 
 export function fetchJiraWatch(): Promise<JiraWatchState> {
-  return getJson('/api/jira/watch');
+  return getJson('/api/issues/watch');
 }
 
 export function setJiraWatch(enabled: boolean): Promise<{ settings: JiraWatchState['settings'] }> {
-  return postJson<{ settings: JiraWatchState['settings'] }>('/api/jira/watch', { enabled }, 'PUT').catch((e) => Promise.reject(reason(e)));
+  return postJson<{ settings: JiraWatchState['settings'] }>('/api/issues/watch', { enabled }, 'PUT').catch((e) =>
+    Promise.reject(reason(e)),
+  );
 }
 
 export function startJiraIssue(key: string, target: string): Promise<{ ok: true; sessionId: string }> {
-  return postJson<{ ok: true; sessionId: string }>(`/api/jira/watch/${encodeURIComponent(key)}/start`, { target }).catch((e) =>
+  return postJson<{ ok: true; sessionId: string }>(`/api/issues/watch/${encodeURIComponent(key)}/start`, { target }).catch((e) =>
     Promise.reject(reason(e)),
   );
 }
 
 export function dismissJiraIssue(key: string): Promise<{ ok: true }> {
-  return postJson<{ ok: true }>(`/api/jira/watch/${encodeURIComponent(key)}/dismiss`, {}).catch((e) => Promise.reject(reason(e)));
+  return postJson<{ ok: true }>(`/api/issues/watch/${encodeURIComponent(key)}/dismiss`, {}).catch((e) => Promise.reject(reason(e)));
 }
 
 export function fetchTasks(): Promise<{ tasks: TaskItem[] }> {
@@ -248,7 +278,7 @@ export interface CreateWorktreeRequest {
   target: string;
   branch: string;
   base?: string;
-  jiraKey?: string;
+  issueKey?: string;
   /** Start Claude with this as its first message. */
   prompt?: string;
   /** A name for the session, shown instead of the branch. */

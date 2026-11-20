@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
   fetchJira: async () => ({ issues: api.issues, available: true }),
+  fetchIssueList: async () => ({ issues: api.issues, available: true, from: ['Jira'] }),
   fetchJiraWatch: async () => api.watch,
   setJiraWatch: (on: boolean) => api.setJiraWatch(on),
   startJiraIssue: (k: string, t: string) => api.startJiraIssue(k, t),
@@ -53,7 +54,7 @@ const session = (over: Partial<SessionSummary>) =>
   ({ id: 's', target: 'api', branch: 'b', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '', ...over }) as SessionSummary;
 const SESSIONS = [
   session({ id: 'deps', branch: 'chore/deps-update' }),
-  session({ id: 'sd3', branch: 'feat/APP-3', jiraKey: 'APP-3' }),
+  session({ id: 'sd3', branch: 'feat/APP-3', issueKey: 'APP-3' }),
   session({ id: 'gone', branch: 'feat/cache', archivedAt: '2026-10-01T00:00:00Z' }),
 ];
 
@@ -305,7 +306,7 @@ describe('Start', () => {
   it('Jira: a watch suggestion: pick a project and Start in it (no dialog); a started one opens its session', async () => {
     const p = renderJira();
     await flush();
-    expect(container.textContent).toContain('not sure where it belongs — maybe acme');
+    expect(container.textContent).toContain('not started by itself — it would go in acme');
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="Project for APP-1"]')!;
     expect(select.value).toBe('acme');
     await act(async () => button('Start in acme').click());

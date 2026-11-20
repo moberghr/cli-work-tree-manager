@@ -1,3 +1,4 @@
+import type { IssuesWire } from '../../core/api-types.js';
 import { demoReview, demoReviewFiles } from './demo-reviews.js';
 import type { SessionReviewWire } from '../../core/api-types.js';
 import { stopRefusal } from '../../core/sessions/process-stop.js';
@@ -216,16 +217,16 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/sessions/:id/worklog', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
     return w
-      ? c.json({ configured: true, issueKey: w.jiraKey ?? null, logged: worklogs.get(w.id) ?? {} } satisfies WorklogWire)
+      ? c.json({ configured: true, issueKey: w.issueKey ?? null, logged: worklogs.get(w.id) ?? {} } satisfies WorklogWire)
       : notFound(c);
   });
   app.post('/api/sessions/:id/worklog', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
     if (!w) return notFound(c);
-    if (!w.jiraKey) return c.json({ error: 'this session has no Jira issue' }, 409);
+    if (!w.issueKey) return c.json({ error: 'this session has no Jira issue' }, 409);
     const day = dayKey(scenario.clockMs());
     worklogs.set(w.id, { ...(worklogs.get(w.id) ?? {}), [day]: 3600 });
-    return c.json({ ok: true, logged: 3600, total: 3600, text: `1h logged on ${w.jiraKey} for ${day}` });
+    return c.json({ ok: true, logged: 3600, total: 3600, text: `1h logged on ${w.issueKey} for ${day}` });
   });
 
   // A session's timeline: built by the real buildTimeline from what the demo has.
@@ -1201,11 +1202,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/activity', (c) => c.json(activity.log.snapshot()));
   app.get('/api/prs', (c) => c.json({ prs: scenario.prs() }));
   app.get('/api/jira', (c) => c.json({ available: true, issues: scenario.jira() }));
+  app.get('/api/issues', (c) =>
+    c.json({
+      sources: [{ id: 'jira', name: 'Jira', available: true }],
+      issues: scenario.jira().map((i) => ({ source: 'jira', ...i })),
+    } satisfies IssuesWire),
+  );
 
   // The Jira watch, in memory: the switch works; nothing is ever started.
   let jiraWatch: JiraWatchState['settings'] = { enabled: false, since: null };
   const jiraDecisions: JiraDecision[] = [];
-  app.get('/api/jira/watch', (c) =>
+  const watchAt = (tail = '') => [`/api/issues/watch${tail}`, `/api/jira/watch${tail}`];
+  app.on('GET', watchAt(), (c) =>
     c.json({
       settings: jiraWatch,
       decisions: jiraDecisions,
@@ -1214,14 +1222,14 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
       nextRunAt: null,
     } satisfies JiraWatchState),
   );
-  app.put('/api/jira/watch', async (c) => {
+  app.on('PUT', watchAt(), async (c) => {
     const body = await json(c);
     if (typeof body.enabled !== 'boolean') return c.json({ error: 'enabled (true/false) required' }, 400);
     jiraWatch = { enabled: body.enabled, since: body.enabled ? new Date().toISOString() : null };
     return c.json({ settings: jiraWatch });
   });
-  app.post('/api/jira/watch/:key/start', (c) => c.json({ error: 'the demo starts nothing' }, 400));
-  app.post('/api/jira/watch/:key/dismiss', (c) => {
+  app.on('POST', watchAt('/:key/start'), (c) => c.json({ error: 'the demo starts nothing' }, 400));
+  app.on('POST', watchAt('/:key/dismiss'), (c) => {
     const d = jiraDecisions.find((x) => x.key === c.req.param('key'));
     if (!d) return c.json({ error: 'no such issue' }, 404);
     d.action = 'dismissed';

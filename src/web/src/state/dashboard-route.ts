@@ -6,11 +6,13 @@
  *   `#/inbox`                         → Inbox: sessions that need you, in order
  *   `#/today`                         → Sessions · Today: what each session did (digest)
  *   `#/cleanup`                       → Clean up: worktrees that can go (from Sessions)
- *   `#/start`                         → Start: new worktree, Jira issues and PRs to start from
+ *   `#/start`                         → Start: new worktree and PRs to start from
+ *   `#/issues`                       → Issues: what is assigned to you (Jira today), to start from
  *   `#/accounts`                      → Claude accounts: add, log in, the default, remove
  *   `#/settings`                      → Settings: work's settings (config.json), by section
  *   `#/repos/<alias>`                 → Repos, with that repo's settings open
- *   `#/prs`, `#/jira`                 → (old) Start, which has both now
+ *   `#/prs`                           → (old) Start, which has them now
+ *   `#/jira`                          → (old) Issues
  *   `#/tasks`                         → (old) Sessions: Tasks is a panel in the top bar now
  *   `#/s/<sessionId>`                → Session detail (default: terminal sub-tab)
  *   `#/s/<sessionId>/term`           → Session detail · terminal
@@ -33,10 +35,10 @@
  */
 
 export type DashboardTab =
-  'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'reviews' | 'time' | 'repos' | 'accounts' | 'settings' | 'welcome';
+  'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'issues' | 'reviews' | 'time' | 'repos' | 'accounts' | 'settings' | 'welcome';
 
 /** Pages that no longer exist, and where their links land now. */
-const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start' };
+const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start', jira: 'issues' };
 export type SessionSubTab = 'diff' | 'term' | 'pr' | 'code' | 'branches' | 'review' | 'timeline';
 
 /** Sub-tabs that no longer exist, and where their links land now. */
@@ -75,7 +77,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
   sessionSubTab: 'term',
 };
 
-const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|accounts|settings|welcome|prs|jira|reviews|time|tasks)\/?$/;
+const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|accounts|settings|welcome|prs|jira|issues|reviews|time|tasks)\/?$/;
 const REPO_SETTINGS_RE = /^#\/repos\/([^/]+)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|branches|review|timeline))?\/?$/;
 const REVIEW_RE = /^#\/reviews\/([^/]+)\/(\d+)(?:\/(story|comments)\/(\d+))?\/?$/;

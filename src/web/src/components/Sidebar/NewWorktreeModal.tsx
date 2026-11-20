@@ -16,7 +16,7 @@ interface Props {
     target?: string;
     branch?: string;
     base?: string;
-    jiraKey?: string;
+    issueKey?: string;
     /** First message for Claude (Jira / PR picks pre-fill one). */
     prompt?: string;
   };
@@ -70,7 +70,7 @@ export function moreLabel(name: string, base: string, account = ''): string {
  * Claude: just the worktree; no branch either: the project's own checkout.
  *
  * Reused by every "create worktree from X" flow — PRs (prefill target +
- * branch), Jira (prefill jiraKey + branch slug), Tasks (prefill branch
+ * branch), Jira (prefill issueKey + branch slug), Tasks (prefill branch
  * as `todo/<slug>`), and the standalone "+ New" button.
  */
 /**
@@ -273,7 +273,7 @@ export function NewWorktreeModal({
         target: target.trim(),
         branch: finalBranch,
         base: base.trim() || undefined,
-        jiraKey: initial?.jiraKey,
+        issueKey: initial?.issueKey,
         prompt: prompt.trim() || undefined,
         name: name.trim() || undefined,
         // Only a pick other than the configured default is sent: without one the server uses the default.

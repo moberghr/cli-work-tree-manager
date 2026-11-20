@@ -22,7 +22,9 @@ export interface WorktreeSession {
   instructions?: SessionInstructions;
   createdAt: string;
   lastAccessedAt: string;
-  jiraKey?: string;
+  issueKey?: string;
+  /** Which system `issueKey` is a key of (a connector's id: `jira`, `github`, `azure`); absent: Jira's (a session from before others existed). Read both with `sessionIssue` (core/issues/issue-source.ts). */
+  issueSource?: string;
   /** Branch this worktree was forked from. Recorded when known at creation time.
    *  For groups with a single shared base this is that base; with per-repo bases
    *  it's the representative/default (see `baseBranches` for the per-repo map). */

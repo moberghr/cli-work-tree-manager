@@ -91,7 +91,7 @@ describe('the Settings page', () => {
       'Agents & terminals',
       'Pull requests',
       'Reviews',
-      'Jira',
+      'Issues',
       'Time',
       'Archive & usage',
     ]);

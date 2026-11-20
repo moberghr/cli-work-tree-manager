@@ -106,7 +106,7 @@ export interface SessionSummary {
   /** A session folder: a repo can be added to it (absent from a server before this: read `isGroup`). */
   folder?: boolean;
   baseBranch?: string;
-  jiraKey?: string;
+  issueKey?: string;
   createdAt: string;
   lastAccessedAt: string;
   /** Dashboard-only; absent when fetching from the wd -c review server. */

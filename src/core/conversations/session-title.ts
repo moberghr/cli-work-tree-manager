@@ -88,5 +88,5 @@ export function sessionTitle(s: WorktreeSession, fallbackPrompt?: string | null)
   }
   const fallback = fallbackPrompt ? titleText(fallbackPrompt) : null;
   if (fallback) return clip(fallback);
-  return s.jiraKey ?? null;
+  return s.issueKey ?? null;
 }

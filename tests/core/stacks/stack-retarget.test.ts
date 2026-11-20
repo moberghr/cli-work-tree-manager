@@ -144,7 +144,7 @@ describe('parentTipFor', () => {
       worktreeRemoved: true,
       keptBecause: null,
       transcripts: [],
-      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], issueKey: null },
       tips: { 'other-web': 'aaaa', 'shop-web': 'bbbb' },
     });
     const config = {
@@ -283,7 +283,7 @@ describe('when the parent is archived (not only after the child’s next turn)',
         promptCount: 0,
         lastSummary: null,
         prs: [{ repo: 'api', number: 12, url: 'https://x/12', state: 'MERGED' }],
-        jiraKey: null,
+        issueKey: null,
       },
       tips: { api: tip },
     });
@@ -346,7 +346,7 @@ describe('the merged parent, end to end (archive record → route → no longer 
         promptCount: 0,
         lastSummary: null,
         prs: [{ repo: 'api', number: 12, url: 'https://x/12', state: prState }],
-        jiraKey: null,
+        issueKey: null,
       },
       tips: { api: tip },
     };
