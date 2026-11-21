@@ -6,6 +6,7 @@ import type { SessionAttention, SessionSummary } from '../../src/web/src/api/cli
 import { InboxTab } from '../../src/web/src/components/Dashboard/tabs/InboxTab.js';
 import { DashboardLayout } from '../../src/web/src/components/Dashboard/DashboardLayout.js';
 import { DEFAULT_ROUTE } from '../../src/web/src/state/dashboard-route.js';
+import { allStylesheets } from './stylesheets.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -211,9 +212,7 @@ describe('the session rail folded (the Reviews tab)', () => {
     expect(container.querySelector('.wd-dash-body')!.className).toContain('wd-dash-rail-folded');
     draw(false);
     expect(container.querySelector('.wd-dash-body')!.className).not.toContain('wd-dash-rail-folded');
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const css = fs.readFileSync(path.join(__dirname, '../../src/web/src/styles/dashboard.css'), 'utf8');
+    const css = allStylesheets();
     expect(css).toMatch(/\.wd-dash-rail-folded > \.wd-dash-rail,\s*\.wd-dash-rail-folded > \.wd-resize-divider \{\s*display: none;/);
   });
 });

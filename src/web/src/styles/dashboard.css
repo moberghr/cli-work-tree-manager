@@ -12,24 +12,7 @@
   background: var(--bg);
 }
 
-/* A button that reads as a link (Review all, Clean up, Show 1 older…).
-   Panels that want it in their own colour override it (.wd-activity-panel). */
-.wd-link-button {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--accent);
-  cursor: pointer;
-}
-.wd-link-button:hover:not(:disabled) {
-  text-decoration: underline;
-}
-.wd-link-button:disabled {
-  color: var(--muted);
-  cursor: default;
-}
+/* .wd-link-button: ui/ui.css (Button, the link kind). */
 
 /* ---- Top nav -------------------------------------------------------------*/
 
@@ -85,68 +68,18 @@
   align-items: stretch;
 }
 
+/* The top bar's tabs: Tab (ui/ui.css). Where they sit: the underline shifted up onto the bar's border line, or
+   the active one's sits ON the border and looks like nothing. */
 .wd-dash-tab {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 13px;
-  padding: 0 16px;
-  margin: 0;
-  cursor: pointer;
   position: relative;
-  border-bottom: 2px solid transparent;
-  /* Vertically centre the label and shift the underline up just enough
-     to align with the bottom of the topnav border. Otherwise the
-     active underline sits ON the topnav border and looks like nothing. */
-  display: inline-flex;
-  align-items: center;
   margin-bottom: -1px;
-  transition:
-    color 80ms ease,
-    border-color 80ms ease,
-    background 80ms ease;
-  border-radius: 0;
-}
-.wd-dash-tab:hover {
-  color: var(--fg);
-  background: var(--hover);
-}
-.wd-dash-tab:focus-visible {
-  outline: 2px solid var(--accent, #0969da);
-  outline-offset: -3px;
-}
-.wd-dash-tab-active {
-  color: var(--fg);
-  border-bottom-color: var(--accent, #0969da);
-  font-weight: 500;
-}
-.wd-dash-tab-active:hover {
-  background: transparent;
 }
 
 .wd-dash-topnav-spacer {
   flex: 1;
 }
 
-/* A quiet top-bar button (Tasks). */
-.wd-topnav-btn {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.wd-topnav-btn:hover,
-.wd-topnav-btn-on {
-  color: var(--fg);
-  background: var(--hover);
-}
+/* .wd-topnav-btn: ui/ui.css (Button, the quiet kind). */
 /* Tasks: a small panel under its button (TasksPanel), the Tasks list in it. */
 .wd-tasks-popover {
   position: relative;
@@ -172,9 +105,6 @@
   align-items: stretch;
   gap: 8px;
 }
-.wd-tasks-panel .wd-tab-header h1 {
-  font-size: 14px;
-}
 .wd-tasks-panel .wd-tab-controls {
   display: flex;
   flex-direction: row-reverse;
@@ -199,36 +129,10 @@
   margin: 0;
   padding: 0;
 }
-/* "Now / Today" beside the Sessions title. */
-.wd-segmented {
-  display: inline-flex;
+/* "Now / Today" beside the Sessions title: where it sits (the control itself: ui/ui.css, Segmented). */
+.wd-tab-header h1 .wd-segmented,
+.wd-tab-header h1 + .wd-segmented {
   margin-left: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-  vertical-align: middle;
-}
-.wd-segmented-btn {
-  appearance: none;
-  background: var(--bg);
-  border: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 400;
-  padding: 3px 10px;
-  cursor: pointer;
-}
-.wd-segmented-btn + .wd-segmented-btn {
-  border-left: 1px solid var(--border);
-}
-.wd-segmented-btn:hover {
-  color: var(--fg);
-}
-.wd-segmented-btn-on {
-  background: var(--hover);
-  color: var(--fg);
-  font-weight: 600;
 }
 
 /* ---- Body: rail + main ---------------------------------------------------*/
@@ -239,164 +143,11 @@
   min-height: 0;
 }
 
-.wd-dash-rail {
-  /* Driven by the rail ResizeDivider (which also draws the separator). */
-  width: var(--rail-width, 160px);
-  flex-shrink: 0;
-  background: var(--sidebar-bg, var(--header-bg));
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .wd-dash-body > .wd-resize-divider {
   width: 4px;
   flex-shrink: 0;
 }
 
-/* Search and + on one row (the top bar already says "Sessions"). */
-.wd-dash-rail-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 12px 10px 8px;
-}
-.wd-dash-rail-new {
-  appearance: none;
-  flex-shrink: 0;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  width: 30px;
-  height: 28px;
-  border-radius: 6px;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-.wd-dash-rail-new:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
-
-.wd-dash-rail-empty {
-  padding: 12px;
-  font-size: 12px;
-  color: var(--muted);
-  margin: 0;
-}
-
-.wd-dash-rail-list {
-  list-style: none;
-  margin: 0;
-  padding: 0 6px 12px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.wd-dash-rail-item {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--fg);
-  font-family: inherit;
-  font-size: 13px;
-  text-align: left;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  margin-bottom: 1px;
-  overflow: hidden;
-}
-.wd-dash-rail-item:hover {
-  background: var(--hover);
-}
-.wd-dash-rail-item-active {
-  background: color-mix(in srgb, var(--accent, #0969da) 12%, transparent);
-  font-weight: 500;
-}
-
-.wd-dash-rail-lines {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.wd-dash-rail-line {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-.wd-dash-rail-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-dash-rail-item-unseen .wd-dash-rail-name {
-  font-weight: 600;
-}
-.wd-dash-rail-slot {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.wd-rail-slot-needs {
-  color: var(--del-fg);
-  font-weight: 600;
-}
-.wd-rail-slot-working {
-  color: var(--add-fg);
-}
-.wd-rail-slot-background {
-  color: var(--background-fg);
-}
-/* What waits on you (owedBadge): a pink pill, whatever its Claude is doing. */
-.wd-rail-slot-owed {
-  color: var(--review-fg);
-  font-weight: 600;
-  background: color-mix(in srgb, var(--review-fg) 14%, transparent);
-  border-radius: 8px;
-  padding: 0 6px;
-}
-/* A finished turn you haven't looked at: the same pill, in Done's blue. */
-.wd-rail-slot-owed-turn {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-/* Its PR waits on reviewers or checks: said, quietly. */
-.wd-st-owed {
-  margin-left: 8px;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.wd-rail-slot-waiting {
-  color: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
-}
-.wd-rail-slot-archiving {
-  font-style: italic;
-}
-.wd-dash-rail-sub {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-}
-.wd-dash-rail-summary {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .wd-dash-rail-stat,
 .wd-diffstat {
   flex-shrink: 0;
@@ -404,54 +155,11 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.wd-dash-rail-stat {
-  color: var(--muted);
-}
 .wd-diffstat-add {
   color: var(--add-fg);
 }
 .wd-diffstat-del {
   color: var(--del-fg);
-}
-
-/* One dot vocabulary for every view (see state/session-display.ts). */
-.wd-rail-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 4px;
-  background: #6e7681;
-}
-.wd-rail-dot-needs_input {
-  background: var(--del-fg);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--del-fg) 30%, transparent);
-}
-.wd-rail-dot-done {
-  background: var(--accent);
-}
-.wd-rail-dot-working {
-  background: var(--add-fg);
-  animation: wd-inbox-pulse 1.4s ease-in-out infinite;
-}
-.wd-rail-dot-background {
-  background: var(--background-fg);
-}
-.wd-rail-dot-active {
-  background: var(--add-fg);
-}
-.wd-rail-dot-open {
-  background: #d29922;
-} /* amber */
-.wd-rail-dot-quiet,
-.wd-rail-dot-recent,
-.wd-rail-dot-stale {
-  background: #6e7681;
-} /* grey */
-@media (prefers-reduced-motion: reduce) {
-  .wd-rail-dot-working {
-    animation: none;
-  }
 }
 
 /* The status as an icon (StatusIcon): same colours, drawn in currentColor. */
@@ -505,107 +213,11 @@
     animation: none;
   }
 }
-/* A selected rail row's background: the glyph cut out of a filled icon matches it. */
-.wd-dash-rail-item-active .wd-status-icon {
-  --status-icon-cut: var(--current);
-}
 
-/* PR badge: #123 + checks glyph, colored by checks state. */
+/* PR badge (#123): a tag Badge, toned by its stage (prChipClass, SessionBits). Its digits line up. */
 .wd-pr-chip {
   flex-shrink: 0;
-  display: inline-block;
-  font-size: 11px;
-  line-height: 16px;
-  padding: 0 5px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  text-decoration: none;
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-a.wd-pr-chip:hover {
-  border-color: var(--accent);
-  color: var(--fg);
-}
-.wd-pr-chip-draft {
-  border-style: dashed;
-}
-/* A rail row's PR pills: right-aligned on its second line; small, never squeezed. */
-.wd-rail-prs {
-  display: inline-flex;
-  flex-shrink: 0;
-  gap: 3px;
-  margin-left: auto;
-}
-/* "keep": it stays once its PR merges. Beside the PR pills, dashed so it doesn't read as a PR. */
-.wd-rail-keep {
-  flex-shrink: 0;
-  margin-left: auto;
-  padding: 0 4px;
-  font-size: 10px;
-  line-height: 14px;
-  color: var(--muted);
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-}
-.wd-rail-keep + .wd-rail-prs {
-  margin-left: 3px;
-}
-.wd-st-keep {
-  border-style: dashed;
-}
-.wd-rail-prs .wd-pr-chip {
-  font-size: 10px;
-  line-height: 14px;
-  padding: 0 4px;
-}
-.wd-pr-stage-good {
-  border-color: var(--add-fg);
-  color: var(--add-fg);
-}
-.wd-pr-stage-bad {
-  border-color: var(--del-fg);
-  color: var(--del-fg);
-}
-/* A merged PR (GitHub's purple): a group shows it beside the one still open. */
-.wd-pr-stage-merged {
-  border-color: var(--merged-fg, #8957e5);
-  color: var(--merged-fg, #8957e5);
-}
-
-.wd-dash-rail-pending {
-  font-size: 10px;
-  color: white;
-  background: #8957e5;
-  border-radius: 8px;
-  padding: 1px 5px;
-}
-.wd-dash-rail-drafts {
-  font-size: 10px;
-  color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0 5px;
-}
-
-.wd-dash-rail-overflow {
-  font-size: 11px;
-  color: var(--muted);
-  padding: 6px 12px;
-}
-.wd-dash-rail-older {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--accent, #0969da);
-  cursor: pointer;
-}
-.wd-dash-rail-older:hover {
-  text-decoration: underline;
 }
 
 .wd-dash-main {
@@ -626,41 +238,16 @@ a.wd-pr-chip:hover {
   height: 100%;
   overflow: hidden;
 }
-.wd-tab-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.wd-tab-header h1 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-}
-.wd-tab-header-muted {
-  font-weight: 400;
-  color: var(--muted);
-  font-size: 13px;
-}
+/* .wd-tab-header: ui/ui.css (PageHeader). */
 .wd-tab-controls {
   display: flex;
   align-items: center;
   gap: 12px;
   font-size: 12px;
 }
+/* A page header's picks (Select, compact: ui/ui.css). Where they sit: */
 .wd-tab-controls select {
   margin-left: 4px;
-  font-family: inherit;
-  font-size: 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  border-radius: 4px;
-  padding: 2px 4px;
 }
 .wd-tab-empty {
   padding: 32px 24px;
@@ -699,17 +286,7 @@ a.wd-pr-chip:hover {
   font-weight: 600;
 }
 .wd-session-group-name {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-}
-.wd-session-group-kind {
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0 6px;
+  font-family: var(--font-mono);
 }
 
 /* Member repos of a multi-repo group, as pills after the GROUP badge. */
@@ -721,15 +298,9 @@ a.wd-pr-chip:hover {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* A member repo (a tag Badge): its name in monospace, like a branch's. */
 .wd-session-group-repos li {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--fg);
-  background: var(--sidebar-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0 8px;
+  font-family: var(--font-mono);
 }
 /* In table rows the badge carries the repo list as a tooltip. */
 .wd-session-group-kind-hint {
@@ -738,10 +309,8 @@ a.wd-pr-chip:hover {
 
 /* ---- Start: where new work comes from (StartTab) --------------------------*/
 
-.wd-start-section {
-  padding: 4px 32px 8px;
-  max-width: 1000px;
-}
+/* ---- The Start page (StartTab): styles/pages/start.css ----*/
+/* Used across the app (a section's small-capital title, a quiet note), not only on Start: here, not in its stylesheet. */
 .wd-start-title {
   margin: 16px 0 6px;
   font-size: 12px;
@@ -755,276 +324,13 @@ a.wd-pr-chip:hover {
   font-size: 13px;
   color: var(--muted);
 }
-.wd-start-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-/* key · what · state · Start (or the session already on it); a PR row adds its repo before the state */
-.wd-start-row {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) 140px 200px;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 4px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.wd-start-row-pr {
-  grid-template-columns: 96px minmax(0, 1fr) 160px 140px 200px;
-}
-.wd-start-key {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 13px;
-  color: var(--accent);
-  text-decoration: none;
-}
-.wd-start-key:hover {
-  text-decoration: underline;
-}
-.wd-start-key-pr {
-  color: var(--muted);
-}
-.wd-start-what {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-start-repo {
-  font-size: 12px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-start-author {
-  margin-left: 6px;
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-/* A PR row's title truncates; its author stays. */
-.wd-tab-start .wd-start-list .wd-start-what {
-  display: flex;
-  align-items: baseline;
-}
-.wd-start-pr-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Start's quick filter: a chip per repo. */
-.wd-start-filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 12px 32px 0;
-}
-.wd-start-chip {
-  padding: 2px 10px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  cursor: pointer;
-}
-.wd-start-chip:hover {
-  color: inherit;
-}
-.wd-start-chip[aria-pressed='true'] {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.wd-start-chip-count {
-  margin-left: 2px;
-  opacity: 0.7;
-}
-.wd-start-state {
-  font-size: 13px;
-  color: var(--muted);
-}
-.wd-start-state-bad {
-  color: var(--del-fg);
-}
-.wd-start-state-good {
-  color: var(--add-fg);
-}
-.wd-start-action {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-.wd-start-existing {
-  font-size: 13px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* What the Jira watch did with an issue: under its row, across. */
-.wd-start-row > .wd-jira-watch {
-  grid-column: 2 / -1;
-  margin-top: 0;
-}
-.wd-start-watch {
-  padding: 16px 32px 24px;
-  color: var(--muted);
-}
-@media (max-width: 720px) {
-  .wd-start-section {
-    padding: 4px 12px 8px;
-  }
-  .wd-start-filter {
-    padding: 12px 12px 0;
-  }
-  .wd-start-row,
-  .wd-start-row-pr {
-    grid-template-columns: 80px minmax(0, 1fr) auto;
-  }
-  .wd-start-state,
-  .wd-start-row-pr > .wd-start-repo {
-    display: none;
-  }
-}
 
 /* ---- Welcome (first run) -------------------------------------------------*/
 
-.wd-welcome-intro,
-.wd-welcome-step {
-  padding: 0 32px;
-  max-width: 1100px;
-}
-.wd-welcome-intro {
-  margin: 4px 0 8px;
-  font-size: 14px;
-  color: var(--muted);
-}
-.wd-welcome-step {
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-.wd-welcome-step .wd-tab-repos {
-  margin: 0 -32px;
-}
-.wd-welcome-step .wd-tab-repos .wd-tab-header h1 {
-  font-size: 15px;
-}
-.wd-welcome-ok {
-  margin-left: 6px;
-  color: var(--add-fg);
-  text-transform: none;
-  letter-spacing: 0;
-}
-.wd-welcome-field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0;
-  font-size: 13px;
-}
-.wd-welcome-field > span {
-  width: 130px;
-  flex-shrink: 0;
-  color: var(--muted);
-}
-.wd-welcome-field input {
-  flex: 1;
-  max-width: 520px;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12px;
-}
-.wd-welcome-tools {
-  list-style: none;
-  margin: 0 0 6px;
-  padding: 0;
-}
-.wd-welcome-tools li {
-  display: grid;
-  grid-template-columns: 18px 120px minmax(0, 1fr);
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 13px;
-}
-.wd-welcome-tool-ok .wd-welcome-tool-mark {
-  color: var(--add-fg);
-}
-.wd-welcome-tool-bad .wd-welcome-tool-mark,
-.wd-welcome-tool-bad .wd-welcome-tool-detail {
-  color: var(--del-fg);
-}
-.wd-welcome-tool-detail,
-.wd-welcome-tool-optional .wd-welcome-tool-mark {
-  color: var(--muted);
-}
-.wd-welcome-start {
-  display: flex;
-  gap: 10px;
-  margin: 6px 0;
-}
-@media (max-width: 720px) {
-  .wd-welcome-intro,
-  .wd-welcome-step {
-    padding: 0 12px;
-  }
-  .wd-welcome-step .wd-tab-repos {
-    margin: 0 -12px;
-  }
-  .wd-welcome-field {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 2px;
-  }
-  .wd-welcome-tools li {
-    grid-template-columns: 18px minmax(0, 1fr);
-  }
-  .wd-welcome-tool-detail {
-    grid-column: 2;
-  }
-}
+/* ---- The first run (WelcomeTab): styles/pages/welcome.css ----*/
 
-/* ---- Repos page: the scanned folders' repos, and the groups ------------*/
-
-.wd-repos-roots,
-.wd-repos-confirm,
-.wd-tab-repos > .wd-repos-list,
-.wd-tab-repos > .wd-tab-empty,
-.wd-repos-groups {
-  padding-left: 32px;
-  padding-right: 32px;
-  max-width: 1100px;
-}
-.wd-repos-roots {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding-top: 4px;
-  padding-bottom: 8px;
-  font-size: 13px;
-}
-.wd-repos-root {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12px;
-}
-.wd-repos-root-add input {
-  width: 240px;
-  font-size: 12px;
-}
-.wd-repos-cost,
-.wd-repos-hint {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
+/* ---- Repos page: styles/pages/repos.css ----------------------------------*/
+/* A confirm row and an error line, used beyond Repos (Accounts, the update strip): here, not in its stylesheet. */
 .wd-repos-confirm {
   display: flex;
   flex-wrap: wrap;
@@ -1036,156 +342,15 @@ a.wd-pr-chip:hover {
   font-size: 13px;
   color: var(--warn-fg);
 }
-.wd-repos-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-/* folder + path · origin · alias / groups / sessions · actions */
-.wd-repos-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr) 140px;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.wd-repos-group {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr) 140px;
-}
-.wd-repos-name {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.wd-repos-folder {
-  font-weight: 600;
-}
-.wd-repos-path,
-.wd-repos-origin {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-repos-state,
-.wd-repos-members,
-.wd-repos-pick {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.wd-repos-alias {
-  width: 100%;
-  max-width: 220px;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12px;
-}
-.wd-repos-alias-name {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  color: var(--accent);
-}
-.wd-repos-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 12px;
-  cursor: default;
-}
-.wd-repos-chip input {
-  margin: 0;
-}
-.wd-repos-pick .wd-repos-chip {
-  cursor: pointer;
-}
-.wd-repos-chip-on {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.wd-repos-chip-bad {
-  border-color: var(--del-fg);
-  color: var(--del-fg);
-}
-.wd-repos-warn {
-  font-size: 12px;
-  color: var(--warn-fg);
-}
-.wd-repos-actions {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 10px;
-}
-.wd-repos-remove {
-  color: var(--del-fg);
-}
-.wd-tab-back {
-  margin-right: 10px;
-  font-size: 13px;
-  font-weight: 400;
-  vertical-align: middle;
-}
 .wd-repos-error {
   grid-column: 1 / -1;
   font-size: 12px;
   color: var(--del-fg);
 }
-.wd-repos-ignored .wd-repos-folder {
-  font-weight: 400;
-  color: var(--muted);
-}
-.wd-repos-groups {
-  padding-bottom: 32px;
-}
-.wd-repos-newgroup {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 4px;
-}
-.wd-repos-newgroup > input {
-  width: 180px;
-}
-.wd-repos-newgroup .wd-repos-error {
-  flex-basis: 100%;
-}
 .wd-modal-aside {
   align-self: flex-start;
   margin: -4px 0 4px;
   font-size: 12px;
-}
-@media (max-width: 720px) {
-  .wd-repos-roots,
-  .wd-repos-confirm,
-  .wd-tab-repos > .wd-repos-list,
-  .wd-tab-repos > .wd-tab-empty,
-  .wd-repos-groups {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  .wd-repos-row,
-  .wd-repos-group {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .wd-repos-origin {
-    display: none;
-  }
-  .wd-repos-state,
-  .wd-repos-members {
-    grid-column: 1 / -1;
-  }
-  .wd-repos-actions {
-    grid-row: 1;
-    grid-column: 2;
-  }
 }
 
 /* ---- Tasks tab: flat list ------------------------------------------------*/
@@ -1215,15 +380,9 @@ a.wd-pr-chip:hover {
   font-size: 13px;
   cursor: text;
 }
+/* A task's text while edited (Input, compact). */
 .wd-task-edit {
   flex: 1;
-  font: inherit;
-  font-size: 13px;
-  background: var(--bg);
-  border: 1px solid var(--accent, var(--border));
-  color: var(--fg);
-  border-radius: 4px;
-  padding: 2px 6px;
 }
 .wd-task-action {
   font-size: 11px;
@@ -1245,53 +404,13 @@ a.wd-pr-chip:hover {
   display: flex;
   gap: 6px;
 }
+/* "+ Add task…" (Input): how wide. */
 .wd-task-add input {
-  font-family: inherit;
-  font-size: 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  border-radius: 4px;
-  padding: 4px 8px;
   width: 220px;
 }
 
 /* ---- Session detail (drill-in) -------------------------------------------*/
 
-.wd-session-detail {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-.wd-session-detail-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 24px 10px;
-  flex-shrink: 0;
-  min-width: 0;
-}
-.wd-session-detail h1 {
-  font-size: 18px;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  min-width: 0;
-}
-.wd-session-detail-target,
-.wd-session-detail-sep {
-  color: var(--muted);
-  font-weight: 400;
-}
-.wd-session-detail-branch {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* A session folder's repos, beside its name (SessionHeader). */
 .wd-session-repos {
   font-size: 12px;
@@ -1361,79 +480,6 @@ a.wd-pr-chip:hover {
   position: static;
 }
 
-.wd-session-subtabs {
-  display: flex;
-  gap: 0;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.wd-session-subtab {
-  appearance: none;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 13px;
-  padding: 10px 16px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.wd-session-subtab:hover {
-  color: var(--fg);
-}
-.wd-session-subtab-active {
-  color: var(--fg);
-  border-bottom-color: var(--accent, #0969da);
-  font-weight: 500;
-}
-.wd-session-subtab-meta {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 400;
-}
-.wd-session-subtab-badge {
-  background: var(--accent, #0969da);
-  color: white;
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-}
-.wd-session-subtab-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* The diff layout defaults to 100vh (full-page wd). Inside the session
-   detail it sits under the top nav + header + sub-tabs, so fill the
-   remaining space instead — otherwise its bottom is clipped off-screen. */
-.wd-session-subtab-body > .wd-web-review-layout {
-  height: auto;
-  flex: 1;
-  min-height: 0;
-  /* Pin the row to the container so the sidebar/main scroll internally
-     rather than the implicit row growing to fit their content. */
-  grid-template-rows: minmax(0, 1fr);
-}
-.wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-main {
-  height: auto;
-  min-height: 0;
-}
-/* The diff filling the window (its toolbar's Full screen; Esc leaves): over the top bar, the rail (20) and the
-   session's header and tabs — and under everything a key can open over it: the Ctrl+K assistant (40), the
-   panels (50–60), menus and dialogs (1000), toasts and the update card. */
-.wd-session-subtab-body.wd-diff-full {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  background: var(--bg);
-}
 .wd-diff-open-page {
   text-decoration: none;
   white-space: nowrap;
@@ -1443,98 +489,9 @@ a.wd-pr-chip:hover {
    State colors, shared by the inbox rows, the rail dots and the tab badge:
    needs input = red (blocked on you), done-unseen = accent blue (review
    me), working = green. */
+/* A top bar tab's count: a count Badge in red (TopNav). Where it sits: */
 .wd-dash-tab-badge {
-  display: inline-block;
   margin-left: 6px;
-  min-width: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--del-fg, #d1242f);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  text-align: center;
-}
-/* The page's width, as the Sessions table: on a wide screen the name and what it wants get the room (#59). */
-.wd-inbox-section {
-  padding: 4px 32px 12px;
-}
-.wd-inbox-section-title {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  margin: 16px 0 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-.wd-inbox-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-/* One row a session, every row the same width: icon · name · what · when | actions. */
-.wd-inbox-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  align-items: center;
-  border-top: 1px solid var(--border);
-}
-.wd-inbox-item:first-child {
-  border-top: none;
-}
-.wd-inbox-item:hover,
-.wd-inbox-item:focus-within {
-  background: var(--hover);
-}
-.wd-inbox-row {
-  appearance: none;
-  display: grid;
-  grid-template-columns: 16px minmax(160px, 360px) minmax(0, 1fr) 56px;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
-  padding: 10px 12px;
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-.wd-inbox-row:focus-visible {
-  outline: 2px solid var(--accent, #0969da);
-  outline-offset: -2px;
-}
-.wd-inbox-name {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-.wd-inbox-target {
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-inbox-branch {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-inbox-summary {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  color: var(--muted);
 }
 .wd-inbox-since {
   font-size: 12px;
@@ -1542,99 +499,16 @@ a.wd-pr-chip:hover {
   white-space: nowrap;
   text-align: right;
 }
-.wd-inbox-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  padding-right: 12px;
-}
-/* Snooze, Mark seen, Terminal: there when the row is hovered or focused. */
-.wd-inbox-more {
-  display: inline-flex;
-  gap: 10px;
-  margin-right: 4px;
-  font-size: 12px;
-  visibility: hidden;
-}
-.wd-inbox-item:hover .wd-inbox-more,
-.wd-inbox-item:focus-within .wd-inbox-more {
-  visibility: visible;
-}
-/* The rest, in a line, pointing to the rail. */
-.wd-inbox-rest {
-  margin: 20px 32px;
-  color: var(--muted);
-  font-size: 13px;
-}
-/* "2 snoozed" / "1 waiting on others", opened: until when (Unsnooze), and on what. */
-.wd-inbox-rest-list {
-  list-style: none;
-  margin: -12px 32px 20px;
-  padding: 0;
-  font-size: 13px;
-}
-.wd-inbox-rest-list li {
-  padding: 4px 0;
-}
-@media (max-width: 640px) {
-  .wd-inbox-item {
-    grid-template-columns: 1fr;
-  }
-  .wd-inbox-row {
-    grid-template-columns: 16px 1fr auto;
-  }
-  .wd-inbox-summary {
-    grid-column: 2 / -1;
-  }
-  .wd-inbox-actions {
-    justify-content: flex-start;
-    padding: 0 12px 10px 40px;
-  }
-  .wd-inbox-more {
-    visibility: visible;
-  }
-}
 
-/* Small secondary buttons used on table rows and inbox items. */
-.wd-row-action {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11px;
-  padding: 3px 8px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.wd-row-action:hover:not(:disabled) {
-  color: var(--fg);
-  background: var(--hover);
-}
-.wd-row-action:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.wd-row-action-danger:hover:not(:disabled) {
-  color: var(--del-fg);
-  border-color: var(--del-fg);
-}
+/* .wd-row-action: ui/ui.css (Button, the row kind). */
 .wd-row-error {
   color: var(--del-fg);
   font-size: 11px;
   margin-left: 6px;
 }
 
+/* "archived" (a dashed tag Badge): where it sits. */
 .wd-archived-pill {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  padding: 0 6px;
   margin-left: 6px;
 }
 
@@ -1647,175 +521,14 @@ a.wd-pr-chip:hover {
   white-space: nowrap;
 }
 
-/* ---- Sessions table ----------------------------------------------------- */
-.wd-session-table-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-.wd-session-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.wd-session-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--header-bg);
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.wd-session-table td {
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-.wd-session-row {
-  cursor: pointer;
-}
-.wd-session-row:hover {
-  background: var(--hover);
-}
-.wd-session-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-/* Dimmed, but not its Restore. */
-.wd-session-row-archived > td:not(.wd-st-col-more) {
-  opacity: 0.65;
-}
-.wd-st-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
 .wd-st-status .wd-rail-dot {
   margin-top: 0;
-}
-.wd-session-row-unseen .wd-st-status,
-.wd-session-row-unseen .wd-st-branch {
-  font-weight: 600;
-}
-/* Name and repo on one line, then a badge or two only when they matter. */
-.wd-st-session {
-  max-width: 360px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.wd-st-branch {
-  font-weight: 500;
-}
-.wd-st-target {
-  font-size: 12px;
-  color: var(--muted);
-}
-/* The repo or group, its own column. */
-.wd-st-col-project {
-  white-space: nowrap;
-}
-.wd-st-col-project .wd-session-group-kind {
-  margin-left: 2px;
-}
-/* "84% full": the conversation is past 70%. */
-.wd-st-full {
-  margin-left: 8px;
-  font-size: 11px;
-  color: var(--warn-fg);
-  border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
-  border-radius: 999px;
-  padding: 0 6px;
-}
-.wd-st-col-summary {
-  width: 40%;
-  max-width: 0;
-}
-.wd-st-summary {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg);
 }
 .wd-st-col-changes,
 .wd-st-col-when {
   white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
-}
-/* ⋯ on hover (or focus): the row's menu. */
-.wd-st-col-more {
-  width: 36px;
-  text-align: right;
-  cursor: default;
-  white-space: nowrap;
-}
-/* An archived row's Restore: always there (the archived list is for bringing one back). */
-.wd-st-restore {
-  appearance: none;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  padding: 1px 10px;
-  cursor: pointer;
-  margin-right: 4px;
-}
-.wd-st-restore:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.wd-st-more {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--muted);
-  font: inherit;
-  font-size: 15px;
-  line-height: 1;
-  padding: 2px 8px;
-  cursor: pointer;
-  visibility: hidden;
-}
-.wd-session-row:hover .wd-st-more,
-.wd-session-row:focus-within .wd-st-more {
-  visibility: visible;
-}
-.wd-st-more:hover {
-  color: var(--fg);
-  border-color: var(--border);
-  background: var(--bg);
-}
-/* "View ▾": the table's filter, grouping and sort in one popover. */
-.wd-view-menu {
-  position: relative;
-}
-.wd-view-menu-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 40;
-  display: grid;
-  gap: 8px;
-  min-width: 220px;
-  padding: 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
-  font-size: 13px;
 }
 .wd-view-menu-panel > label:not(.wd-tab-check) {
   display: grid;
@@ -1829,9 +542,6 @@ a.wd-pr-chip:hover {
   margin: 12px 24px;
   font-size: 13px;
 }
-.wd-session-group .wd-session-table {
-  margin-bottom: 8px;
-}
 .wd-tab-check {
   display: inline-flex;
   align-items: center;
@@ -1839,26 +549,6 @@ a.wd-pr-chip:hover {
   cursor: pointer;
 }
 
-/* ---- Session header strip ---------------------------------------------- */
-.wd-session-detail-btn {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.wd-session-detail-btn:hover:not(:disabled) {
-  color: var(--fg);
-  background: var(--hover);
-}
-.wd-session-detail-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
 .wd-session-strip {
   display: flex;
   align-items: center;
@@ -1903,11 +593,6 @@ a.wd-pr-chip:hover {
 /* The header's chips row: only what wants a look; most sessions have none (SessionDetail). */
 .wd-session-strip:empty {
   display: none;
-}
-.wd-session-detail-header .wd-status-line {
-  flex-shrink: 0;
-  font-size: 13px;
-  color: var(--muted);
 }
 
 /* "3 branches ▾" beside the session's name (BranchesChip), and its list. */
@@ -2020,7 +705,7 @@ a.wd-pr-chip:hover {
   border-color: var(--accent, var(--fg));
 }
 .wd-branches-tab-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -2240,43 +925,10 @@ a.wd-pr-chip:hover {
   gap: 4px;
   font-size: 12px;
 }
-.wd-ship-group select {
-  font: inherit;
-  font-size: 12px;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 4px 6px;
-}
-
-/* ---- Narrow / phone layout (<= 720px) ---------------------------------- */
-.wd-dash-rail-toggle {
-  display: none;
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--fg);
-  font-size: 16px;
-  line-height: 1;
-  width: 32px;
-  height: 30px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.wd-dash-rail-backdrop {
-  display: none;
-}
 @media (max-width: 720px) {
   .wd-dash-topnav {
     gap: 8px;
     padding: 0 8px;
-  }
-  .wd-dash-rail-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
   }
   /* Tabs: one horizontally scrollable strip instead of clipping. */
   .wd-dash-tabs {
@@ -2304,91 +956,13 @@ a.wd-pr-chip:hover {
   .wd-dash-body > .wd-resize-divider {
     display: none;
   }
-  .wd-dash-rail {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 20;
-    width: min(300px, 85vw);
-    transform: translateX(-100%);
-    transition: transform 160ms ease;
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
-  }
-  .wd-dash-rail-open .wd-dash-rail {
-    transform: none;
-  }
-  .wd-dash-rail-open .wd-dash-rail-backdrop {
-    display: block;
-    position: absolute;
-    inset: 0;
-    z-index: 19;
-    background: rgba(15, 20, 25, 0.35);
-  }
 
-  .wd-tab-header {
-    padding: 12px 16px;
-  }
+  /* .wd-tab-header in a narrow window: ui/ui.css (PageHeader). */
   .wd-tab-controls {
     flex-wrap: wrap;
     gap: 8px 12px;
   }
-  .wd-inbox-section {
-    padding: 4px 12px 12px;
-  }
 
-  /* Table -> stacked rows: status + session + summary stay, the rest wraps. */
-  .wd-session-table thead {
-    display: none;
-  }
-  .wd-session-table,
-  .wd-session-table tbody {
-    display: block;
-  }
-  .wd-session-row {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 2px 10px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-  }
-  .wd-session-table td {
-    padding: 0;
-    border: 0;
-  }
-  .wd-st-col-status {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .wd-st-session {
-    grid-column: 2;
-    grid-row: 1;
-    max-width: none;
-    min-width: 0;
-  }
-  .wd-st-col-when {
-    grid-column: 3;
-    grid-row: 1;
-  }
-  .wd-st-col-summary {
-    grid-column: 1 / -1;
-    width: auto;
-    max-width: none;
-  }
-  .wd-st-col-changes {
-    grid-column: 1 / 3;
-  }
-  .wd-st-col-more {
-    display: none;
-  }
-  .wd-st-label {
-    display: none;
-  }
-
-  .wd-session-detail-header {
-    padding: 12px 12px 4px;
-    gap: 8px;
-  }
   .wd-session-strip {
     padding: 0 12px 10px;
   }
@@ -2398,27 +972,12 @@ a.wd-pr-chip:hover {
     margin-left: 12px;
     margin-right: 12px;
   }
-  .wd-session-subtabs {
-    padding: 0 12px;
-    overflow-x: auto;
-  }
   .wd-modal {
     min-width: 0;
     width: calc(100vw - 24px);
   }
-  /* Session diff: stack the file tree above the diff instead of a
-     side-by-side split that leaves the diff a sliver. */
-  .wd-session-subtab-body > .wd-web-review-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
-  }
   .wd-session-subtab-body > .wd-web-review-layout > .wd-resize-divider {
     display: none;
-  }
-  .wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-sidebar {
-    max-height: 38vh;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
   }
 }
 /* A group repo that's merged or untouched: done, shown quietly. */
@@ -2442,7 +1001,7 @@ a.wd-pr-chip:hover {
   font-size: 12px;
 }
 .wd-dev-port {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   color: var(--muted, #656d76);
 }
 .wd-dev-live .wd-dev-port,
@@ -2486,7 +1045,7 @@ a.wd-pr-chip:hover {
   font-size: 14px;
 }
 .wd-pty-elsewhere code {
-  font-family: var(--mono, ui-monospace, Consolas, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   background: var(--hover);
   padding: 1px 5px;
@@ -2504,73 +1063,12 @@ a.wd-pr-chip:hover {
   font-size: 12px;
 }
 
-/* Inbox: what a permission prompt wants to run, answerable in place. */
-.wd-inbox-request {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12px;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-inbox-request-tool {
-  font-weight: 600;
-  color: var(--muted);
-}
-.wd-inbox-answer-error {
-  color: var(--del-fg);
-  font-size: 12px;
-}
 .wd-row-action-allow {
   color: var(--fg);
   border-color: var(--add-fg, #2ea043);
 }
 .wd-row-action-allow:hover:not(:disabled) {
   background: color-mix(in srgb, var(--add-fg, #2ea043) 14%, transparent);
-}
-
-/* Review queue: a slim bar over the session while walking finished work. */
-.wd-inbox-review-all {
-  font-size: 12px;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.wd-review-queue-bar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--accent, #0969da) 8%, var(--bg));
-  font-size: 13px;
-}
-.wd-review-queue-title {
-  font-weight: 600;
-}
-.wd-review-queue-pos {
-  font-variant-numeric: tabular-nums;
-}
-.wd-review-queue-hint {
-  color: var(--muted);
-  font-size: 12px;
-}
-.wd-review-queue-actions {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-}
-.wd-review-queue-next kbd {
-  font-size: 10px;
-  margin-left: 4px;
-  opacity: 0.8;
-}
-@media (max-width: 640px) {
-  .wd-review-queue-hint {
-    display: none;
-  }
 }
 
 /* Two live sessions change the same files: they'll conflict on merge. */
@@ -2639,11 +1137,6 @@ a.wd-pr-chip:hover {
 .wd-ctx-full .wd-ctx-fill {
   background: var(--del-fg);
 }
-.wd-st-overlap {
-  margin-left: 6px;
-  color: var(--warn-fg);
-  cursor: help;
-}
 
 /* "Prompts ▾": saved one-click instructions for a session. */
 .wd-prompts {
@@ -2652,6 +1145,7 @@ a.wd-pr-chip:hover {
   align-items: center;
   gap: 8px;
 }
+/* The saved prompts: a Menu's list and items (ui/ui.css), dropped under its button rather than at the pointer. */
 .wd-prompts-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -2660,30 +1154,7 @@ a.wd-pr-chip:hover {
   min-width: 240px;
   max-width: 360px;
   margin: 0;
-  padding: 4px;
   list-style: none;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
-}
-.wd-prompts-item {
-  appearance: none;
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--fg);
-  cursor: pointer;
-}
-.wd-prompts-item:hover,
-.wd-prompts-item:focus-visible {
-  background: var(--hover);
 }
 .wd-prompts-empty {
   padding: 6px 10px;
@@ -2700,117 +1171,6 @@ a.wd-pr-chip:hover {
 }
 .wd-prompts-state-error {
   color: var(--del-fg);
-}
-
-/* Today: what each session did (digest). */
-.wd-today-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 20px 24px;
-}
-.wd-today-list-loading {
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-.wd-today-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  background: var(--bg);
-}
-.wd-today-card-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 14px;
-}
-.wd-today-title {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--fg);
-  font-size: 14px;
-  cursor: pointer;
-  text-align: left;
-}
-.wd-today-title:hover .wd-today-branch {
-  text-decoration: underline;
-}
-.wd-today-target {
-  color: var(--muted);
-}
-.wd-today-branch {
-  font-weight: 600;
-}
-.wd-today-facts {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-today-state-needs_input {
-  color: var(--del-fg);
-  font-weight: 600;
-}
-.wd-today-state-working {
-  color: var(--add-fg, #1a7f37);
-}
-.wd-today-pr {
-  color: var(--accent, #0969da);
-  text-decoration: none;
-}
-.wd-today-pr:hover {
-  text-decoration: underline;
-}
-.wd-today-pr-merged {
-  color: #8250df;
-}
-.wd-today-section {
-  margin-top: 8px;
-}
-.wd-today-section h3 {
-  margin: 0 0 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-.wd-today-prompts,
-.wd-today-done {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.wd-today-prompts {
-  list-style: none;
-  padding-left: 0;
-}
-.wd-today-prompts time {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  margin-right: 6px;
-}
-.wd-today-more {
-  color: var(--muted);
-  font-size: 12px;
-}
-.wd-today-last {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--muted);
-}
-@media (max-width: 640px) {
-  .wd-today-list {
-    padding: 10px 12px 20px;
-  }
 }
 
 /* The pages that lay their content straight into the pane (overflow:
@@ -2846,148 +1206,10 @@ a.wd-pr-chip:hover {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--bg);
-}
-.wd-today-list {
-  flex-shrink: 0;
 }
 
-/* Clean up: worktrees that can go, chosen and applied in one go. */
-.wd-tab-cleanup {
-  overflow-y: auto;
-}
-.wd-tab-cleanup > .wd-tab-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg);
-}
-.wd-cleanup-progress {
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-cleanup-section {
-  padding: 8px 24px 12px;
-}
-.wd-cleanup-section .wd-inbox-section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.wd-cleanup-hint {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--muted);
-  max-width: 820px;
-}
-.wd-cleanup-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.wd-cleanup-item {
-  display: grid;
-  grid-template-columns: 22px minmax(160px, 260px) 1fr auto 150px;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-bottom: 4px;
-  font-size: 13px;
-}
-.wd-cleanup-item-on {
-  border-color: var(--accent, #0969da);
-}
-.wd-cleanup-name {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.wd-cleanup-name:hover .wd-inbox-branch {
-  text-decoration: underline;
-}
-.wd-cleanup-reason {
-  color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-cleanup-when {
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.wd-cleanup-action {
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-cleanup-results {
-  margin: 10px 24px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.wd-cleanup-results p {
-  margin: 0 0 4px;
-}
-.wd-cleanup-results ul {
-  margin: 0;
-  padding-left: 18px;
-}
-.wd-cleanup-bar {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: flex-end;
-  padding: 10px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-  font-size: 13px;
-  margin-top: auto;
-}
-.wd-cleanup-bar > span:first-child {
-  margin-right: auto;
-}
-.wd-cleanup-confirm-hint {
-  font-size: 12px;
-  color: var(--muted);
-}
-@media (max-width: 640px) {
-  .wd-cleanup-item {
-    grid-template-columns: 22px 1fr;
-  }
-  .wd-cleanup-reason,
-  .wd-cleanup-when,
-  .wd-cleanup-item select,
-  .wd-cleanup-action {
-    grid-column: 2;
-  }
-  .wd-cleanup-section {
-    padding: 6px 12px 10px;
-  }
-}
-.wd-cleanup-item select {
-  font: inherit;
-  font-size: 12px;
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg);
-  color: var(--fg);
-}
+/* ---- The Clean up page (CleanupTab, BuildFolders, MergedBranches): styles/pages/cleanup.css ----*/
+/* A row's action pick: Select, compact (ui/ui.css). */
 
 /* The Ctrl+K assistant: a Claude session in a right-hand panel. */
 .wd-assistant {
@@ -3066,22 +1288,10 @@ a.wd-pr-chip:hover {
   flex: 1;
   min-width: 0;
 }
+/* Ask (Button, small secondary): where it sits; pressed while the assistant is open. */
 .wd-assistant-toggle {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  padding: 3px 8px;
-  cursor: pointer;
   margin-right: 8px;
 }
-.wd-assistant-toggle:hover,
 .wd-assistant-toggle-on {
   background: var(--hover);
 }
@@ -3133,23 +1343,6 @@ a.wd-pr-chip:hover {
   --tag: var(--tag-purple);
 }
 
-/* Rail: a colored row's bar, down its left edge in the list's gutter (no status is a bar, and the active row is a tint,
-   not a border). It reaches over the 1px between rows, so neighbours of one color read as one block. */
-.wd-dash-rail-colored {
-  position: relative;
-}
-.wd-dash-rail-colored::before {
-  content: '';
-  position: absolute;
-  left: -5px;
-  top: 0;
-  bottom: -1px;
-  width: 3px;
-  border-radius: 1.5px;
-  background: var(--tag);
-  pointer-events: none;
-}
-
 /* A session's color where a row has room (Sessions table, Ctrl+P, Inbox): a small square before its name. */
 .wd-color-mark {
   display: inline-block;
@@ -3159,51 +1352,13 @@ a.wd-pr-chip:hover {
   border-radius: 2px;
   background: var(--tag);
 }
-.wd-st-session .wd-color-mark {
-  margin-right: 6px;
-}
 
-/* Rail: drag to reorder */
-.wd-dash-rail-list li[draggable='true'] {
-  cursor: grab;
-}
-.wd-dash-rail-dragging {
-  opacity: 0.45;
-}
-.wd-dash-rail-drop-before {
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-.wd-dash-rail-drop-after {
-  box-shadow: inset 0 -2px 0 var(--accent);
-}
 .wd-pr-chip-open {
   cursor: pointer;
 }
-.wd-dash-rail-search {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  padding: 5px 8px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.wd-dash-rail-search:focus {
-  outline: none;
-  border-color: var(--accent);
-}
+/* A page header's search box (Input): how wide. */
 .wd-tab-search {
   min-width: 220px;
-  padding: 4px 8px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
 }
 .wd-archive-hits {
   margin: 18px 24px 16px;
@@ -3241,64 +1396,11 @@ a.wd-pr-chip:hover {
   color: var(--fg);
   overflow-wrap: anywhere;
 }
-.wd-session-title {
-  margin-left: 12px;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--muted);
-  cursor: text;
-  max-width: 42ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-.wd-session-title:hover {
-  color: var(--fg);
-  text-decoration: underline dotted;
-}
-.wd-session-title-empty {
-  font-style: italic;
-  opacity: 0.6;
-}
-.wd-session-title-input {
-  margin-left: 12px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 400;
-  padding: 2px 6px;
-  min-width: 32ch;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-}
-.wd-st-title {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-  max-width: 48ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* "What the colours mean" (StatusLegend): a "?" beside the sessions list. */
 .wd-legend {
   margin-left: auto;
   margin-right: 6px;
-}
-.wd-legend-toggle {
-  width: 22px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  background: transparent;
-  border-color: transparent;
 }
 /* The `?` list of keyboard shortcuts (ShortcutsHelp): centred, over everything, a popover. */
 .wd-shortcuts {
@@ -3351,7 +1453,7 @@ a.wd-pr-chip:hover {
   margin: 0;
 }
 .wd-shortcuts kbd {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   padding: 1px 5px;
   border: 1px solid var(--border);
@@ -3679,7 +1781,6 @@ a.wd-pr-chip:hover {
 }
 .wd-outdated-list .wd-link-button {
   text-align: left;
-  padding: 0;
 }
 .wd-outdated-waits {
   color: var(--muted);
@@ -3700,10 +1801,6 @@ a.wd-pr-chip:hover {
   margin: 0 8px 4px;
   color: var(--muted);
   font-size: 11px;
-}
-.wd-help-panel .wd-row-menu-item:disabled {
-  color: var(--muted);
-  cursor: default;
 }
 .wd-help-restart {
   color: var(--accent);
@@ -3933,16 +2030,7 @@ a.wd-pr-chip:hover {
   padding: 1px 0;
   color: var(--muted);
 }
-.wd-activity-panel .wd-link-button {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
+/* Its links (Button link, tone inherit): ui/ui.css. */
 .wd-activity-panel .wd-link-button:hover {
   text-decoration: underline;
 }
@@ -4006,7 +2094,7 @@ a.wd-pr-chip:hover {
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 .wd-reply-code table {
@@ -4076,17 +2164,9 @@ a.wd-pr-chip:hover {
   font-weight: 600;
   color: var(--muted);
 }
+/* A drafted reply (TextArea). */
 .wd-reply-text {
   width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  font-size: 12px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
-  resize: vertical;
 }
 .wd-reply-actions {
   display: flex;
@@ -4094,144 +2174,28 @@ a.wd-pr-chip:hover {
   align-items: center;
   margin-top: 8px;
 }
-.wd-reply-actions .wd-link-button {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--muted);
-  cursor: pointer;
-}
+/* Its links (link buttons, tone muted): ui/ui.css. */
 .wd-reply-actions .wd-link-button:hover {
   text-decoration: underline;
 }
 
-/* Renaming a session in the rail (F2 / right-click → Rename). */
-.wd-dash-rail-item-renaming {
-  cursor: default;
-  background: var(--current);
-}
-.wd-dash-rail-rename {
-  width: 100%;
-  font: inherit;
-  font-size: 12px;
-  background: var(--bg);
-  border: 1px solid var(--accent);
-  color: var(--fg);
-  border-radius: 3px;
-  padding: 1px 4px;
-}
+/* The menu (.wd-row-menu…): ui/ui.css (Menu). */
 
-/* A row's right-click menu, at the pointer. */
-.wd-row-menu {
-  position: fixed;
-  z-index: 1000;
-  min-width: 140px;
-  padding: 4px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-}
-.wd-row-menu-item {
-  appearance: none;
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  width: 100%;
-  padding: 5px 8px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.wd-row-menu-item:hover,
-.wd-row-menu-item:focus-visible {
-  background: var(--hover);
-  outline: none;
-}
-.wd-row-menu-footer {
-  white-space: nowrap;
-  margin: 4px 0 0;
-  padding: 6px 8px 2px;
-  border-top: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 11px;
-}
-.wd-row-menu-hint {
-  color: var(--muted);
-  font-size: 11px;
-  font-family: inherit;
-}
-/* A row of swatches in a menu (the rail's Color): rounded squares, as the marks are; the current one ringed. */
-.wd-row-menu-swatches {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 8px;
-}
-.wd-row-menu-swatches-label {
-  flex: 1;
-  margin-right: 10px;
-  font-size: 12px;
-  color: var(--fg);
-}
-.wd-row-menu-swatch {
-  appearance: none;
-  flex-shrink: 0;
-  width: 15px;
-  height: 15px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: var(--tag);
-  cursor: pointer;
-}
-.wd-row-menu-swatch:hover,
-.wd-row-menu-swatch:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.wd-row-menu-swatch-current {
-  box-shadow:
-    0 0 0 2px var(--bg),
-    0 0 0 3.5px var(--fg);
-}
-/* No color: an empty square, struck through. */
-.wd-row-menu-swatch-none {
-  --tag: var(--muted);
-  background: linear-gradient(
-    to top right,
-    transparent calc(50% - 0.75px),
-    var(--muted) calc(50% - 0.75px),
-    var(--muted) calc(50% + 0.75px),
-    transparent calc(50% + 0.75px)
-  );
-  box-shadow: inset 0 0 0 1px var(--muted);
-}
-.wd-row-menu-swatch-none.wd-row-menu-swatch-current {
-  box-shadow:
-    inset 0 0 0 1px var(--muted),
-    0 0 0 2px var(--bg),
-    0 0 0 3.5px var(--fg);
+/* A branch's name or a time, wherever a row always shows one (the rail and the Sessions table mark theirs with
+   .wd-mono, as they show your title instead when you gave one). */
+.wd-inbox-branch,
+.wd-today-branch,
+.wd-session-detail-branch,
+.wd-inbox-since,
+.wd-cleanup-when,
+td.wd-st-col-when {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
 }
 
 /* The branch a session's worktree is really on, when Claude (or you) switched it (OtherBranchChip). */
 .wd-other-branch {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--warn-fg);
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  padding: 0 6px;
   margin-left: 6px;
-  vertical-align: middle;
-  white-space: nowrap;
 }
 
 /* The Jira watch (StartTab): its switch, and what it did with an issue. */
@@ -4252,7 +2216,6 @@ a.wd-pr-chip:hover {
 }
 .wd-jira-watch-started .wd-link-button {
   margin-left: 6px;
-  font-size: 11px;
 }
 .wd-jira-watch-ask {
   color: var(--warn-fg);
@@ -4264,14 +2227,9 @@ a.wd-pr-chip:hover {
   margin-top: 4px;
   flex-wrap: wrap;
 }
+/* Its pick (Select, compact) and buttons (Button, small): ui/ui.css. How wide the pick may grow: */
 .wd-jira-watch-actions select {
-  font: inherit;
-  font-size: 11px;
   max-width: 140px;
-}
-.wd-jira-watch-actions button {
-  font-size: 11px;
-  padding: 2px 8px;
 }
 .wd-jira-watch-error {
   display: block;
@@ -4363,15 +2321,6 @@ a.wd-pr-chip:hover {
   color: var(--muted);
 }
 
-.wd-row-menu-item-danger {
-  color: var(--del-fg);
-}
-.wd-row-menu-item-separated {
-  border-top: 1px solid var(--border);
-  margin-top: 3px;
-  padding-top: 7px;
-}
-
 /* A short message at the bottom of the window (Toast). */
 .wd-toast {
   position: fixed;
@@ -4412,18 +2361,7 @@ a.wd-pr-chip:hover {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
   overflow: hidden;
 }
-.wd-switcher-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  padding: 12px 14px;
-  font: inherit;
-  font-size: 14px;
-  background: var(--bg);
-  color: var(--fg);
-  outline: none;
-}
+/* .wd-switcher-input: ui/ui.css (Input, bare). */
 .wd-switcher-list {
   list-style: none;
   margin: 0;
@@ -4473,17 +2411,6 @@ a.wd-pr-chip:hover {
   font-family: inherit;
 }
 
-/* Snoozed (snooze.ts): the rail's slot, the Inbox's last section. */
-.wd-rail-slot-snoozed {
-  color: var(--muted);
-  font-style: italic;
-}
-
-/* The Sessions table's ticked rows and the bar acting on them (BulkBar). */
-.wd-st-col-pick {
-  width: 28px;
-  text-align: center;
-}
 .wd-bulk-bar {
   display: flex;
   align-items: center;
@@ -4509,10 +2436,9 @@ a.wd-pr-chip:hover {
   gap: 6px;
   align-items: flex-start;
 }
+/* The prompt (TextArea): takes the room the buttons leave. */
 .wd-bulk-send textarea {
   flex: 1;
-  font: inherit;
-  font-size: 12px;
   min-width: 240px;
 }
 .wd-bulk-confirm {
@@ -4582,72 +2508,6 @@ a.wd-pr-chip:hover {
   margin-left: 6px;
 }
 
-/* Rail groups: Pinned, your sections, the rest (rail-layout.ts). */
-.wd-dash-rail-group {
-  padding: 8px 12px 2px;
-}
-.wd-dash-rail-group + .wd-dash-rail-group {
-  padding-top: 2px;
-}
-.wd-dash-rail-group-toggle {
-  appearance: none;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  background: none;
-  border: 0;
-  padding: 2px 0;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--muted);
-  cursor: pointer;
-  text-align: left;
-}
-.wd-dash-rail-group-toggle:hover {
-  color: var(--fg);
-}
-.wd-dash-rail-group-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-radius: 3px;
-}
-.wd-dash-rail-group-caret {
-  width: 10px;
-  flex: none;
-}
-.wd-dash-rail-group-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-dash-rail-group-count {
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-.wd-dash-rail-group-drop {
-  box-shadow: inset 0 -2px 0 var(--accent);
-}
-.wd-dash-rail-group-empty {
-  padding: 2px 12px 6px 27px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.wd-dash-rail-group-naming {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.wd-dash-rail-group-error {
-  font-size: 11px;
-  color: var(--status-deleted-fg);
-}
-
 /* Fork dialog (ForkSessionModal), and Add a repo (AddRepoDialog). */
 .wd-fork-note,
 .wd-add-repo-note {
@@ -4700,21 +2560,6 @@ a.wd-pr-chip:hover {
   color: var(--muted);
 }
 
-/* Sessions table: the row's place in the rail (📌, or its section). */
-.wd-st-rail {
-  margin-left: 6px;
-  padding: 0 6px;
-  font-size: 11px;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  white-space: nowrap;
-}
-.wd-st-rail-pin {
-  border: 0;
-  padding: 0;
-}
-
 /* Your notes on a session (SessionNotes). */
 .wd-notes-chip {
   appearance: none;
@@ -4736,21 +2581,9 @@ a.wd-pr-chip:hover {
   flex-direction: column;
   gap: 4px;
 }
+/* Your notes (TextArea). */
 .wd-notes-text {
   width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  font-size: 13px;
-  padding: 6px 8px;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  resize: vertical;
-}
-.wd-notes-text:focus {
-  outline: none;
-  border-color: var(--accent);
 }
 .wd-notes-bar {
   display: flex;
@@ -4762,9 +2595,6 @@ a.wd-pr-chip:hover {
 .wd-notes-status {
   flex: 1;
   color: var(--muted);
-}
-.wd-dash-rail-note {
-  font-size: 11px;
 }
 
 /* Blocked by (BlockedByChip): what a session waits on. */
@@ -4901,10 +2731,9 @@ a.wd-pr-chip:hover {
 .wd-host-health-outdated {
   border-color: var(--accent);
 }
+/* Restart it (Button, small). Where it sits: */
 .wd-host-health .wd-btn-secondary {
   margin-left: 6px;
-  padding: 1px 8px;
-  font-size: 12px;
 }
 /* A keystroke's round trip (PtyView). */
 .wd-pty-frame {
@@ -4984,6 +2813,9 @@ a.wd-pr-chip:hover {
   cursor: pointer;
   font: inherit;
 }
+.wd-pr-fold:hover {
+  color: var(--fg);
+}
 .wd-pr-name {
   flex-shrink: 0;
 }
@@ -4999,28 +2831,9 @@ a.wd-pr-chip:hover {
   font-size: 12px;
   color: var(--muted);
 }
+/* A PR's stage on the PR tab: a tag Badge toned by it (merged's purple and draft's dashes: with the PR chips). */
 .wd-prtab-stage {
   flex-shrink: 0;
-  font-size: 12px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-.wd-prtab-stage-good {
-  color: var(--add-fg, #1a7f37);
-  border-color: color-mix(in srgb, var(--add-fg, #1a7f37) 50%, var(--border));
-}
-.wd-prtab-stage-bad {
-  color: var(--del-fg, #d1242f);
-  border-color: color-mix(in srgb, var(--del-fg, #d1242f) 50%, var(--border));
-}
-.wd-prtab-stage-merged {
-  color: var(--merged-fg, #8957e5);
-  border-color: color-mix(in srgb, var(--merged-fg, #8957e5) 50%, var(--border));
-}
-.wd-prtab-stage-draft {
-  border-style: dashed;
 }
 .wd-pr-link {
   flex-shrink: 0;
@@ -5081,411 +2894,7 @@ a.wd-pr-chip:hover {
 .wd-tab-time > * {
   flex-shrink: 0;
 }
-.wd-time-rules {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-time-hint,
-.wd-time-error {
-  margin: 12px 32px 0;
-  font-size: 13px;
-}
-.wd-time-error {
-  color: var(--del-fg);
-}
-.wd-time-body {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 24px;
-  padding: 16px 32px 32px;
-  max-width: 1200px;
-}
-.wd-time-days {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.wd-time-day {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  width: 100%;
-  padding: 7px 10px;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  color: inherit;
-  background: none;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.wd-time-day:hover {
-  background: var(--hover, rgba(127, 127, 127, 0.08));
-}
-.wd-time-day-on {
-  background: var(--selected, rgba(37, 99, 235, 0.1));
-}
-.wd-time-day-total {
-  grid-row: 1 / span 2;
-  grid-column: 2;
-  align-self: center;
-  font-variant-numeric: tabular-nums;
-}
-.wd-time-day-status {
-  font-size: 11px;
-  color: var(--muted);
-}
-.wd-time-status-edited {
-  color: var(--accent);
-}
-.wd-time-status-posted {
-  color: var(--add-fg);
-}
-.wd-time-status-changed {
-  color: #b45309;
-}
-.wd-time-outcome {
-  font-size: 13px;
-}
-.wd-time-graph {
-  margin: 10px 32px 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-time-code {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  color: var(--fg, inherit);
-  letter-spacing: 0.05em;
-}
-.wd-time-error-inline {
-  color: var(--del-fg);
-}
-.wd-time-ai {
-  margin-left: 4px;
-  padding: 0 4px;
-  font-size: 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-.wd-time-status-off,
-.wd-time-status-not-workday {
-  font-style: italic;
-}
-.wd-time-detail-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.wd-time-detail-head h2 {
-  margin: 0;
-  font-size: 16px;
-}
-.wd-time-spacer {
-  flex: 1;
-}
-.wd-time-off {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-}
-.wd-time-rows {
-  width: 100%;
-  margin-top: 12px;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.wd-time-rows th {
-  text-align: left;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.wd-time-rows td,
-.wd-time-rows th {
-  padding: 5px 6px;
-  border-bottom: 1px solid var(--border);
-}
-.wd-time-num,
-.wd-time-rows th.wd-time-num {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.wd-time-key {
-  width: 110px;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-}
-.wd-time-hours {
-  width: 70px;
-  text-align: right;
-}
-.wd-time-title {
-  color: var(--muted);
-}
-.wd-time-tag {
-  margin-left: 6px;
-  padding: 0 5px;
-  font-size: 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.wd-time-why {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--muted);
-}
-.wd-time-tag-warn {
-  color: var(--del-fg);
-  border-color: currentColor;
-}
-.wd-time-total-label {
-  text-align: right;
-  color: var(--muted);
-}
-.wd-time-off-total {
-  color: #b45309;
-}
-.wd-time-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-.wd-time-note {
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-time-evidence h3 {
-  margin: 20px 0 4px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-.wd-time-evidence ul {
-  margin: 4px 0 8px;
-  padding-left: 18px;
-  font-size: 13px;
-}
-.wd-time-ev-key {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-time-body[hidden] {
-  display: none;
-}
-/* Month navigation and the Days | Month switch; the Month view's grid. */
-.wd-time-nav {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 14px 32px 0;
-}
-.wd-time-month-name {
-  min-width: 130px;
-  text-align: center;
-  font-weight: 600;
-}
-.wd-time-views {
-  display: flex;
-  margin-left: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.wd-time-views button {
-  padding: 5px 14px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--muted);
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-.wd-time-views button[aria-pressed='true'] {
-  color: inherit;
-  font-weight: 600;
-  background: var(--selected, rgba(37, 99, 235, 0.1));
-}
-.wd-time-month {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 32px 32px;
-}
-.wd-time-month-pad {
-  margin: 0;
-}
-.wd-time-month-bar,
-.wd-time-month-progress {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.wd-time-month-progress progress {
-  flex: 1;
-  min-width: 120px;
-}
-.wd-time-grid-box {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.wd-time-grid {
-  border-collapse: collapse;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.wd-time-grid th,
-.wd-time-grid td {
-  padding: 5px 6px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-.wd-time-grid thead th {
-  font-weight: 600;
-  color: var(--muted);
-  text-align: left;
-}
-.wd-time-grid-key {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-}
-.wd-time-grid-title {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--muted);
-}
-.wd-time-grid-day {
-  padding: 0;
-  text-align: center;
-}
-.wd-time-grid-open {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  width: 100%;
-  min-width: 34px;
-  padding: 4px 2px;
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-.wd-time-grid-open:hover {
-  background: var(--hover, rgba(127, 127, 127, 0.08));
-}
-.wd-time-grid-num {
-  font-size: 13px;
-  color: var(--fg, inherit);
-}
-.wd-time-grid-cell {
-  text-align: center;
-}
-.wd-time-grid-cell {
-  padding: 0;
-}
-.wd-time-grid-edit {
-  width: 100%;
-  min-width: 34px;
-  min-height: 26px;
-  padding: 4px 2px;
-  font: inherit;
-  color: inherit;
-  text-align: center;
-  background: none;
-  border: 0;
-  cursor: text;
-}
-.wd-time-grid-edit:hover:not(:disabled) {
-  background: var(--hover, rgba(127, 127, 127, 0.08));
-  outline: 1px solid var(--border);
-}
-.wd-time-grid-input {
-  width: 44px;
-  padding: 3px 2px;
-  font: inherit;
-  text-align: center;
-}
-.wd-time-grid-edited {
-  color: var(--accent);
-}
-.wd-time-grid-today {
-  background: var(--hover, rgba(127, 127, 127, 0.08));
-}
-.wd-time-grid-posted {
-  color: var(--add-fg);
-}
-.wd-time-grid tfoot td {
-  font-weight: 600;
-  border-bottom: 0;
-}
-.wd-time-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-sizing: border-box;
-  border: 1px solid var(--muted);
-}
-.wd-time-dot-posted {
-  background: var(--add-fg);
-  border-color: var(--add-fg);
-}
-.wd-time-dot-changed {
-  background: #b45309;
-  border-color: #b45309;
-}
-.wd-time-dot-edited {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.wd-time-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-time-month-out h3 {
-  margin: 4px 0;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-.wd-time-month-out ul {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-}
-@media (max-width: 720px) {
-  .wd-time-body {
-    grid-template-columns: 1fr;
-    padding: 12px;
-  }
-  .wd-time-nav {
-    margin: 12px 12px 0;
-  }
-  .wd-time-month {
-    padding: 12px;
-  }
-}
+/* ---- Time page: styles/pages/time.css ------------------------------------*/
 
 /* The Code tab: the session's files (a tree, a filter) beside the open file, read only. */
 .wd-code {
@@ -5501,15 +2910,9 @@ a.wd-pr-chip:hover {
   border-right: 1px solid var(--border);
   background: var(--sidebar-bg);
 }
+/* Find a file (Input): where it sits. */
 .wd-code-filter {
   margin: 8px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
 }
 .wd-code-tree {
   flex: 1;
@@ -5633,7 +3036,7 @@ a.wd-pr-chip:hover {
   min-height: 34px;
 }
 .wd-code-path {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5718,7 +3121,7 @@ a.wd-pr-chip:hover {
   gap: 8px;
 }
 .wd-code-search-line {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre;
   overflow: hidden;
@@ -5777,175 +3180,7 @@ a.wd-pr-chip:hover {
   background: color-mix(in srgb, var(--warn-fg) 18%, transparent);
 }
 
-/* Claude account… (AccountDialog) and the account chip. */
-.wd-account-note {
-  margin: 0 0 10px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-account-busy {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-account-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.wd-account-row {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto;
-  align-items: baseline;
-  gap: 4px 10px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.wd-account-row-off {
-  cursor: default;
-  opacity: 0.7;
-}
-.wd-account-name {
-  font-weight: 600;
-}
-.wd-account-dir {
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-account-login {
-  font-size: 11px;
-  color: var(--muted);
-}
-.wd-account-login-bad {
-  color: var(--status-deleted-fg);
-}
-.wd-account-hint {
-  grid-column: 2 / -1;
-  font-size: 11px;
-  color: var(--muted);
-}
-/* The account chip (AccountChip) is the stack chip's style (.wd-stack, .wd-overlap-link); a switch waiting for its turn after it. */
-.wd-account-pending {
-  color: var(--accent, inherit);
-}
-.wd-account-add-link {
-  margin-right: auto;
-}
-/* The Accounts page (#/accounts): one row per login, the Add form, and its login terminal. */
-.wd-tab-accounts {
-  overflow-y: auto;
-}
-.wd-tab-accounts > * {
-  flex-shrink: 0;
-}
-.wd-accounts-intro,
-.wd-accounts-add,
-.wd-accounts-confirm,
-.wd-accounts-list {
-  padding-left: 32px;
-  padding-right: 32px;
-  max-width: 1100px;
-}
-.wd-accounts-intro {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.wd-accounts-add {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px;
-  margin-bottom: 12px;
-  font-size: 13px;
-}
-.wd-accounts-add label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.wd-accounts-add input {
-  width: 220px;
-}
-.wd-accounts-error {
-  flex-basis: 100%;
-  grid-column: 1 / -1;
-  font-size: 12px;
-  color: var(--status-deleted-fg);
-}
-.wd-accounts-list {
-  list-style: none;
-  margin: 0;
-}
-/* name + folder · login · usage · sessions · actions */
-.wd-accounts-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) 100px minmax(0, 1.6fr) minmax(0, 1fr) 300px;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 4px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.wd-accounts-name {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.wd-accounts-usage,
-.wd-accounts-sessions {
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-accounts-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-@media (max-width: 800px) {
-  .wd-accounts-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .wd-accounts-usage,
-  .wd-accounts-sessions {
-    grid-column: 1 / -1;
-  }
-}
-.wd-modal.wd-account-login-panel {
-  width: min(960px, 94vw);
-  max-width: 94vw;
-  height: min(640px, 88vh);
-}
-.wd-account-login-panel > .wd-account-note {
-  margin: 8px 16px;
-}
-.wd-account-login-term {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 16px;
-  background: #1e1e1e;
-}
-.wd-account-login-term .wd-pty-host {
-  flex: 1;
-  min-width: 0;
-}
-.wd-account-login-term > p {
-  margin: 12px;
-  color: #d4d4d4;
-}
+/* ---- The Claude accounts page (AccountsTab): styles/pages/accounts.css ----*/
 /* Reviews (#64): the list by repo — the page while no review is open, folded away (Reviews ▾) while one is —
    beside one review: a compact header with Overview · Stories · Comments, the mode's body, and the submit bar. */
 .wd-reviews {
@@ -5956,129 +3191,13 @@ a.wd-pr-chip:hover {
   min-height: 0;
   overflow: hidden;
 }
-.wd-reviews-nolist {
-  grid-template-columns: minmax(0, 1fr);
-}
 .wd-reviews-listonly {
   grid-template-columns: minmax(320px, 560px) minmax(0, 1fr);
-}
-.wd-reviews-pick {
-  padding: 24px;
 }
 /* The session rail folded on the Reviews tab (its ⇤ button). */
 .wd-dash-rail-folded > .wd-dash-rail,
 .wd-dash-rail-folded > .wd-resize-divider {
   display: none;
-}
-.wd-reviews-list {
-  overflow: auto;
-  min-height: 0;
-  padding: 12px 8px 12px 16px;
-}
-.wd-reviews-main {
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.wd-reviews-list ul,
-.wd-review-tree ul,
-.wd-review-tests {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.wd-reviews-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-.wd-reviews-grouping {
-  font-size: 12px;
-  margin: 4px 0;
-}
-.wd-seg {
-  border: 1px solid var(--border, #8884);
-  background: none;
-  color: inherit;
-  padding: 1px 8px;
-  cursor: pointer;
-  font: inherit;
-}
-.wd-seg + .wd-seg {
-  border-left: none;
-}
-.wd-seg-on {
-  background: var(--bg-subtle, #8882);
-  font-weight: 600;
-}
-.wd-reviews-group-head {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  margin: 12px 0 4px;
-}
-.wd-reviews-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  text-align: left;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-.wd-reviews-row:hover,
-.wd-reviews-row-active {
-  border-color: var(--border, #8884);
-  background: var(--bg-subtle, #8881);
-}
-.wd-reviews-row-title {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-reviews-row-meta {
-  font-size: 12px;
-  opacity: 0.8;
-}
-.wd-reviews-status {
-  font-weight: 600;
-}
-.wd-reviews-status-waiting,
-.wd-reviews-status-failed,
-.wd-review-warn,
-.wd-review-test-removed,
-.wd-review-test-skipped {
-  color: var(--warn, #b7791f);
-}
-.wd-reviews-status-ready {
-  color: var(--ok, #2f855a);
-}
-.wd-review-in-doubt,
-.wd-review-dropped {
-  margin: 6px 0;
-  padding: 6px 8px;
-  border: 1px solid var(--warn, #b7791f);
-  border-radius: 4px;
-}
-.wd-review-in-doubt p {
-  margin: 0 0 6px;
-}
-.wd-review-dropped ul {
-  margin: 6px 0;
-  padding-left: 18px;
-  max-height: 160px;
-  overflow: auto;
-}
-.wd-review-dropped li div {
-  white-space: pre-wrap;
 }
 .wd-review {
   display: flex;
@@ -6086,83 +3205,11 @@ a.wd-pr-chip:hover {
   min-height: 0;
   height: 100%;
 }
-.wd-review-header {
-  padding: 8px 16px 0;
-  border-bottom: 1px solid var(--border, #8884);
-}
-.wd-review-crumbs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.wd-review-crumbs h2 {
-  margin: 0;
-  font-size: 17px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-review-railbtn,
-.wd-review-listbtn {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.wd-review-listbtn-on {
-  background: var(--current);
-}
-.wd-review-metaline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.wd-review-metaline p {
-  margin: 4px 0;
-}
-.wd-review-modes {
-  display: flex;
-  align-items: center;
-  margin: 6px 0 8px;
-}
-.wd-review-modes .wd-seg {
-  padding: 3px 14px;
-}
-.wd-review-keys {
-  margin-left: 12px;
-  font-size: 12px;
-}
-.wd-review-mode-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.wd-review-repo {
-  font-weight: 400;
-  opacity: 0.75;
-}
-.wd-review-actions {
-  display: flex;
-  gap: 8px;
-  margin: 4px 0;
-}
-/* What one review is also asked to look at: takes the room the buttons leave. */
+/* What one review is also asked to look at (Input): takes the room the buttons leave. */
 .wd-session-review-also {
   flex: 1 1 220px;
   min-width: 140px;
   max-width: 420px;
-}
-.wd-review-tests-strip {
-  font-size: 13px;
-}
-.wd-review-tests-detail {
-  max-height: 30vh;
-  overflow: auto;
-  margin-top: 4px;
 }
 .wd-review-body {
   flex: 1;
@@ -6171,705 +3218,15 @@ a.wd-pr-chip:hover {
   grid-template-columns: var(--review-tree-width, 300px) 4px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
-.wd-review-tree {
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 8px;
-  font-size: 13px;
-}
-.wd-review-tree-section {
-  margin-bottom: 6px;
-}
-.wd-review-tree-head {
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-  padding: 2px 0;
-  width: 100%;
-  overflow-wrap: anywhere;
-}
-.wd-review-tree-meta {
-  font-size: 11px;
-  opacity: 0.85;
-  margin: 0 0 2px 14px;
-}
-/* A file wherever a review lists one (FileRow): the change badge, the name bold, its comments, ✓ and line counts on
-   top; its folder under it in monospace, dimmed. */
-.wd-review-filerow {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  background: none;
-  border: none;
-  border-left: 2px solid transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  padding: 4px 6px 4px 8px;
-  border-radius: 0 4px 4px 0;
-}
-button.wd-review-filerow {
-  cursor: pointer;
-}
-button.wd-review-filerow:hover:not(:disabled) {
-  background: var(--hover);
-}
-button.wd-review-filerow:disabled {
-  cursor: default;
-}
-.wd-review-tree .wd-review-filerow {
-  margin-left: 6px;
-  width: calc(100% - 6px);
-}
-.wd-review-filerow-current,
-button.wd-review-filerow-current:hover:not(:disabled) {
-  background: var(--current);
-  border-left-color: var(--accent);
-}
-.wd-review-filerow-viewed .wd-review-filerow-top > .wd-review-filename,
-.wd-review-filerow-viewed .wd-review-badge,
-.wd-review-filerow-viewed .wd-review-folder {
-  opacity: 0.55;
-}
-.wd-review-filerow-top {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-.wd-review-filerow-top > .wd-review-filename {
-  flex: 1 1 auto;
-}
-/* No folder line (the story tree): inline flow with a hanging indent under the badge, the facts floated right after the
-   name — on its last line when they fit there, else on the next. */
-.wd-review-filerow-oneline {
-  display: block;
-  padding-left: 22px;
-  text-indent: -22px;
-  line-height: 18px;
-}
-.wd-review-filerow-oneline > * {
-  text-indent: 0;
-}
-.wd-review-filerow-oneline > .wd-review-badge {
-  vertical-align: top;
-  margin-right: 6px;
-}
-.wd-review-filerow-oneline > .wd-review-filename {
-  display: inline;
-}
-.wd-review-filerow-oneline > .wd-review-filerow-facts {
-  float: right;
-  margin-left: 8px;
-}
-/* Under the name: its folder, and its line counts at the right — in the same place on every row. */
-.wd-review-filerow-sub {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  margin: 1px 0 0 22px;
-}
-.wd-review-filerow-sub > .wd-review-folder {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.wd-review-filerow-sub > .wd-review-counts {
-  flex: none;
-  margin-left: auto;
-  line-height: 14px;
-}
-.wd-review-filename {
-  min-width: 0;
-  font-weight: 600;
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--fg);
-  overflow-wrap: normal;
-  word-break: normal;
-}
-.wd-review-filerow-facts {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  line-height: 18px;
-}
-.wd-review-filerow .wd-review-folder {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10.5px;
-  line-height: 14px;
-}
-.wd-review-filerow-detail {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  margin-left: 22px;
-}
-.wd-review-badge {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.wd-review-badge-added {
-  background: var(--status-added-bg);
-  color: var(--status-added-fg);
-}
-.wd-review-badge-modified {
-  background: var(--status-modified-bg);
-  color: var(--status-modified-fg);
-}
-.wd-review-badge-deleted {
-  background: var(--status-deleted-bg);
-  color: var(--status-deleted-fg);
-}
-.wd-review-badge-renamed {
-  background: var(--status-renamed-bg);
-  color: var(--status-renamed-fg);
-}
-.wd-review-badge-binary {
-  background: var(--status-binary-bg);
-  color: var(--status-binary-fg);
-}
-.wd-review-counts {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.wd-review-plus {
-  color: var(--status-added-fg);
-}
-.wd-review-minus {
-  color: var(--status-deleted-fg);
-}
-.wd-review-diffstat {
-  display: inline-flex;
-  gap: 1px;
-  margin-left: 2px;
-}
-.wd-review-block {
-  width: 6px;
-  height: 6px;
-  border-radius: 1px;
-  background: var(--status-binary-bg);
-}
-.wd-review-block-add {
-  background: var(--status-added-fg);
-}
-.wd-review-block-del {
-  background: var(--status-deleted-fg);
-}
-.wd-review-filecomments {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 5px;
-  height: 15px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  background: var(--status-renamed-bg);
-  color: var(--status-renamed-fg);
-}
-.wd-review-fileviewed {
-  color: var(--status-added-fg);
-  font-size: 12px;
-  font-weight: 700;
-}
-/* Lists on the wide overview stay compact: the counts near the name, not across the page. */
-.wd-review-gaps .wd-review-filerow,
-.wd-review-noise .wd-review-filerow,
-.wd-review-folded-files .wd-review-filerow,
-.wd-review-story-testfiles .wd-review-filerow {
-  max-width: 640px;
-}
-.wd-review-walk-where .wd-review-folder {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-weight: normal;
-}
-/* Where a comment is: badge, the name bold, ":169" in monospace. */
-.wd-review-where {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 5px;
-  min-width: 0;
-}
-.wd-review-where .wd-review-filename {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.wd-review-fileline {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--muted);
-  margin-left: -5px;
-}
-.wd-review-walk-item {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-.wd-review-walk-item:hover .wd-review-filename {
-  text-decoration: underline;
-}
-/* A folder wraps only after a slash (FolderPath's <wbr>), never inside a folder's name. */
-.wd-review-folder {
-  color: var(--muted);
-  font-size: 11px;
-  opacity: 0.85;
-  overflow-wrap: normal;
-  word-break: normal;
-}
-/* A story's sentence in the tree: three lines at most, the whole on hover. */
-.wd-review-tree-label {
-  display: -webkit-inline-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: normal;
-  vertical-align: top;
-  max-width: calc(100% - 24px);
-}
-.wd-review-tree-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  box-sizing: border-box;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 50%;
-  background: var(--hover);
-  margin-right: 2px;
-  vertical-align: top;
-}
-/* A story's risk as a stripe on its head, and its number's ring: 5 red, 4 amber, 3 blue, 2 and 1 grey. */
-.wd-review-tree-head[class*='wd-review-tree-risk-'] {
-  border-left: 3px solid var(--risk, var(--border));
-  padding-left: 5px;
-  border-radius: 0 4px 4px 0;
-}
-.wd-review-tree-head[class*='wd-review-tree-risk-'] .wd-review-tree-num {
-  background: none;
-  border: 1.5px solid var(--risk, var(--border));
-  color: var(--risk, var(--muted));
-}
-.wd-review-tree-risk-5 {
-  --risk: var(--status-deleted-fg);
-}
-.wd-review-tree-risk-4 {
-  --risk: var(--warn-fg);
-}
-.wd-review-tree-risk-3 {
-  --risk: var(--status-renamed-fg);
-}
-.wd-review-tree-risk-2,
-.wd-review-tree-risk-1 {
-  --risk: var(--muted);
-}
-.wd-review-tree-current > .wd-review-tree-head {
-  background: var(--current);
-  border-radius: 4px;
-}
-.wd-review-diff-pane {
-  overflow: auto;
-  min-width: 0;
-  padding: 0 12px 12px;
-}
-.wd-review-section {
-  margin: 0 0 16px;
-}
-.wd-review-section-head {
-  padding: 10px 0 8px;
-  border-bottom: 1px solid var(--border, #8884);
-  margin-bottom: 10px;
-  overflow-wrap: anywhere;
-}
-.wd-review-section-head h3 {
-  margin: 0 0 6px;
-  font-size: 16px;
-}
-.wd-review-section-head p {
-  margin: 4px 0;
-  max-width: 110ch;
-  line-height: 1.45;
-}
-/* A story's page: its sentence, its badges, then its reasoning as paragraphs a line of ~80 characters wide. */
-.wd-review-section-head h3.wd-review-story-title {
-  font-size: 17px;
-  line-height: 1.35;
-  max-width: 80ch;
-  overflow-wrap: normal;
-}
-.wd-review-section-head p.wd-review-story-badges {
-  margin: 0 0 10px;
-}
-.wd-review-story-badges .wd-review-flag:first-of-type {
-  margin-left: 8px;
-}
-.wd-review-story-text {
-  max-width: 80ch;
-  overflow-wrap: normal;
-}
-.wd-review-story-text section + section {
-  margin-top: 10px;
-}
-.wd-review-story-text h4 {
-  margin: 0 0 2px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.wd-review-section-head .wd-review-story-text p {
-  margin: 0;
-  max-width: 80ch;
-  font-size: 14px;
-  line-height: 1.55;
-}
 /* A file's "What changed here", under its header, above its code. */
 .wd-file-note {
   padding: 6px 12px 8px;
   border-bottom: 1px solid var(--border, #8884);
 }
-/* What the AI step put between backticks: code, inline. */
-.wd-review-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.88em;
-  padding: 0 3px;
-  border-radius: 3px;
-  background: var(--hover);
-  overflow-wrap: anywhere;
-}
-.wd-review-file-summary > summary {
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-.wd-review-file-summary p {
-  margin: 4px 0 0;
-  max-width: 80ch;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.wd-review-walk-plain .wd-review-file-summary {
-  margin-bottom: 8px;
-}
-.wd-review-story-tests {
-  margin-top: 6px;
-  font-size: 13px;
-}
-.wd-review-story-testfiles {
-  margin: 0 0 12px;
-  padding: 6px 10px;
-  border-left: 3px solid var(--border);
-}
-.wd-review-story-testfiles ul,
-.wd-review-folded-files ul,
-.wd-review-noise ul,
-.wd-review-gaps ul,
-.wd-review-attention ul,
-.wd-review-cards,
-.wd-review-walk-list {
-  list-style: none;
-  margin: 4px 0 8px;
-  padding: 0;
-}
-.wd-review-folded-files li,
-.wd-review-story-testfiles li,
-.wd-review-noise li,
-.wd-review-gaps li {
-  padding: 2px 0;
-}
-.wd-review-next {
-  margin: 16px 0 24px;
-}
-/* The pager's bar and the comment walk's: ← position →, progress, a way back. */
-.wd-review-pagerbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--border, #8884);
-  background: var(--header-bg);
-  flex-wrap: wrap;
-}
-.wd-review-pager-pos {
-  min-width: 110px;
-  text-align: center;
-}
-.wd-review-progress {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.wd-review-progress-bar {
-  display: inline-block;
-  width: 90px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--hover);
-  overflow: hidden;
-}
-.wd-review-progress-bar span {
-  display: block;
-  height: 100%;
-  background: var(--add-fg);
-}
-.wd-review-pager,
-.wd-review-walk {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.wd-review-walk-pane {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px 16px 16px;
-}
-.wd-review-walk-where {
-  font-weight: 600;
-}
-.wd-review-walk-looked {
-  font-size: 12px;
-  margin-left: auto;
-}
-.wd-review-walk-story {
-  margin: 0 0 6px;
-}
-.wd-review-walk-body {
-  white-space: pre-wrap;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.wd-review-walk-list {
-  margin-top: 16px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  font-size: 13px;
-}
-.wd-review-walk-list li {
-  padding: 2px 0;
-}
-.wd-review-walk-current {
-  font-weight: 600;
-}
-/* The overview: in short, what needs you beside the stories, then what nothing tests and what is not worth reading. */
-.wd-review-overview {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px 20px 20px;
-}
-.wd-review-overview h3 {
-  margin: 0 0 6px;
-  font-size: 14px;
-}
-.wd-review-short {
-  margin-bottom: 16px;
-}
-.wd-review-short p,
-.wd-review-short ul {
-  margin: 0;
-  max-width: 110ch;
-  font-size: 14px;
-  line-height: 1.5;
-}
-.wd-review-overview-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-}
-.wd-review-attention li {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 2px 0;
-}
-.wd-review-attention li input {
-  margin-top: 6px;
-}
-.wd-review-attention-item {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  text-align: left;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 4px 6px;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.wd-review-attention-item:hover {
-  border-color: var(--border);
-  background: var(--hover);
-}
-.wd-review-gist {
-  font-size: 13px;
-}
-.wd-review-looked {
-  opacity: 0.55;
-}
-.wd-review-cards li + li {
-  margin-top: 6px;
-}
-.wd-review-card {
-  display: flex;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.wd-review-card:hover {
-  background: var(--hover);
-}
-.wd-review-card-num {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: 11px;
-  background: var(--hover);
-  text-align: center;
-  font-size: 12px;
-  line-height: 22px;
-  font-weight: 600;
-}
-.wd-review-card-body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.wd-review-card-title {
-  font-weight: 600;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.wd-review-card-lead {
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.wd-review-card-facts {
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-review-tests-covered {
-  color: var(--add-fg);
-}
-.wd-review-tests-gap,
-.wd-review-tests-unit-only {
-  color: var(--warn-fg);
-}
-.wd-review-risk-5 {
-  color: var(--del-fg);
-  font-weight: 600;
-  opacity: 1;
-}
-.wd-review-risk-4 {
-  color: var(--warn-fg);
-  font-weight: 600;
-  opacity: 1;
-}
-.wd-review-also {
-  margin-top: 8px;
-}
-.wd-review-gaps,
-.wd-review-noise,
-.wd-review-overview .wd-review-tests-strip {
-  margin-top: 16px;
-}
-.wd-review-overview .wd-review-tests {
-  margin-top: 6px;
-}
 /* A new file's leading import lines, folded into one row. */
 .wd-import-fold .wd-content {
   font-size: 12px;
   padding: 2px 8px;
-}
-.wd-review-file {
-  margin-bottom: 10px;
-  scroll-margin-top: 90px;
-}
-.wd-review-file-why {
-  font-size: 12px;
-  margin: 2px 0;
-}
-.wd-review-risk {
-  font-size: 12px;
-  opacity: 0.8;
-}
-.wd-review-flag {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 10px;
-  font-size: 11px;
-  background: var(--warn-bg, #b7791f22);
-}
-.wd-review-submit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-top: 1px solid var(--border, #8884);
-  background: var(--bg, #fff);
-  flex-wrap: wrap;
-}
-.wd-review-submit textarea {
-  flex: 1;
-  min-width: 160px;
-  font: inherit;
-  resize: vertical;
-}
-.wd-review-settings td {
-  padding: 4px 8px 4px 0;
 }
 .wd-fix-myself-list {
   list-style: none;
@@ -6887,9 +3244,6 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   margin-left: 22px;
 }
 @media (max-width: 760px) {
-  .wd-review-overview-cols {
-    grid-template-columns: 1fr;
-  }
   .wd-reviews,
   .wd-reviews-listonly,
   .wd-review-body {
@@ -6940,18 +3294,9 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   align-items: baseline;
   gap: 6px;
 }
-.wd-host-badge {
-  padding: 0 6px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-}
+/* .wd-host-badge ("on GitHub"): Badge, a tag (ui/ui.css). */
 .wd-host-where {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
 }
 .wd-host-open {
@@ -6962,14 +3307,7 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   font-weight: 700;
   color: var(--add-fg);
 }
-.wd-host-outdated {
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  background: var(--status-modified-bg);
-  color: var(--status-modified-fg);
-}
+/* .wd-host-outdated: Badge, a status in amber (ui/ui.css). */
 .wd-host-gist {
   color: var(--muted);
   overflow: hidden;
@@ -6988,13 +3326,7 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   align-items: baseline;
   gap: 6px;
 }
-.wd-host-assoc {
-  font-size: 10px;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0 4px;
-}
+/* .wd-host-assoc ("member"): Badge, a tag (ui/ui.css). */
 .wd-host-comment-body {
   margin-top: 2px;
   line-height: 1.45;
@@ -7019,168 +3351,18 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   font-weight: 600;
   margin-bottom: 6px;
 }
-.wd-review-discussed {
-  margin: 0 0 16px;
-}
-.wd-review-discussed-line {
-  margin: 4px 0;
-}
-.wd-review-discussed-list {
-  list-style: none;
-  margin: 4px 0 8px;
-  padding: 0;
-}
-.wd-review-discussed-list li {
-  padding: 2px 0;
-}
+/* A reviewer's verdict: Badge, a tag in its colour (ui/ui.css). One width, so the names after them line up. */
 .wd-host-verdict {
-  display: inline-block;
   min-width: 72px;
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
-  border: 1px solid var(--border);
-  color: var(--muted);
 }
-.wd-host-verdict-approved,
 .wd-host-approved {
   color: var(--add-fg);
 }
-.wd-host-verdict-changes-requested,
 .wd-host-changes {
   color: var(--del-fg);
 }
-.wd-review-filethreads {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 5px;
-  height: 15px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  border: 1px solid var(--muted);
-  color: var(--muted);
-}
-.wd-review-ftree ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.wd-review-ftree-dir {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  width: 100%;
-  border: 0;
-  background: none;
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-  padding-top: 3px;
-  padding-bottom: 3px;
-  font-size: 12px;
-}
-.wd-review-ftree-dir:hover {
-  background: var(--hover);
-}
 
-/* ---- Settings (#/settings) and a repo's settings (#/repos/<alias>) ---- */
-.wd-tab-settings {
-  overflow-y: auto;
-}
-.wd-tab-settings > * {
-  flex-shrink: 0;
-}
-.wd-settings-intro,
-.wd-settings-section,
-.wd-settings-elsewhere,
-.wd-tab-settings > .wd-setting-error {
-  padding-left: 32px;
-  padding-right: 32px;
-  max-width: 980px;
-}
-.wd-settings-intro {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.wd-settings-filter {
-  width: 220px;
-}
-.wd-settings-section h2 {
-  margin: 20px 0 6px;
-  font-size: 14px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 4px;
-}
-.wd-settings-elsewhere {
-  margin: 24px 0 32px;
-  font-size: 12px;
-}
-/* label · control, the help under the control */
-.wd-setting {
-  display: grid;
-  grid-template-columns: minmax(180px, 300px) minmax(0, 1fr);
-  column-gap: 16px;
-  row-gap: 2px;
-  padding: 8px 0;
-  align-items: start;
-}
-.wd-setting-label {
-  font-size: 13px;
-  padding-top: 4px;
-}
-.wd-setting-set .wd-setting-label {
-  font-weight: 600;
-}
-.wd-setting-control {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-}
-.wd-setting-help {
-  grid-column: 2;
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-  max-width: 62ch;
-}
-.wd-setting-input {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.wd-setting-input input[type='text'],
-.wd-setting-input select {
-  width: 280px;
-  max-width: 100%;
-}
-.wd-setting-input textarea {
-  width: 280px;
-  max-width: 100%;
-  font: inherit;
-  font-size: 13px;
-  resize: vertical;
-}
-.wd-setting-state {
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-setting-saved {
-  color: var(--status-added-fg, var(--muted));
-}
-.wd-setting-error {
-  flex-basis: 100%;
-  font-size: 12px;
-  color: var(--status-deleted-fg);
-}
+/* ---- The Settings page (SettingsTab, SettingInput): styles/pages/settings.css ----*/
 .wd-repo-settings {
   margin: 0 32px 16px;
   max-width: 980px;
@@ -7210,20 +3392,6 @@ button.wd-review-filerow-current:hover:not(:disabled) {
 .wd-repo-settings-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
-}
-@media (max-width: 700px) {
-  .wd-setting {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .wd-setting-help {
-    grid-column: 1;
-  }
-}
-
-/* Where a review would be, while none is prepared: why, and what to do. */
-.wd-review-not-prepared {
-  margin: 16px;
-  max-width: 80ch;
 }
 
 /* ⋯ → Processes…: what a session holds in memory (SessionProcesses). */
@@ -7255,7 +3423,7 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
 }
 .wd-procs-note {
   white-space: nowrap;
@@ -7303,100 +3471,10 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   flex: 1;
 }
 
-/* The review's recommendation (the AI step's advice) and the flows the change adds, changes or removes. */
-.wd-review-recommendation,
-.wd-review-flows {
-  margin-bottom: 16px;
-}
-.wd-review-recommendation p {
-  margin: 0;
-  max-width: 110ch;
-  padding: 8px 12px;
-  border-left: 3px solid var(--border);
-  font-size: 14px;
-  line-height: 1.5;
-}
-.wd-review-verdict-ready p {
-  border-left-color: var(--ok, #2f855a);
-}
-.wd-review-verdict-fix-first p {
-  border-left-color: var(--warn, #b7791f);
-}
-.wd-review-verdict-discuss p {
-  border-left-color: var(--accent, #2b6cb0);
-}
-.wd-review-flow {
-  max-width: 110ch;
-  padding: 4px 0;
-  font-size: 14px;
-  line-height: 1.5;
-}
-.wd-review-flow summary {
-  cursor: pointer;
-}
-.wd-review-flow ol {
-  margin: 6px 0 8px;
-  padding-left: 34px;
-}
-.wd-review-flow-change {
-  display: inline-block;
-  padding: 0 6px;
-  border-radius: 10px;
-  font-size: 11px;
-  background: var(--warn-bg, #b7791f22);
-}
-.wd-review-flow-added {
-  background: var(--ok-bg, #2f855a22);
-}
-.wd-review-flow-removed {
-  background: var(--danger-bg, #c5303022);
-}
-
-/* A note's own actions in a session's review (Send, Dismiss, or "sent"). */
-.wd-review-note-actions {
-  display: inline-flex;
-  flex: none;
-  gap: 8px;
-  align-items: center;
-  padding-top: 5px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.wd-review-pagerbar .wd-review-note-actions {
-  padding-top: 0;
-}
-
-/* A note's level in the overview, the minor notes folded, and "the changes have moved" on a session's review. */
-.wd-review-note-level {
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 10px;
-  font-size: 11px;
-}
-.wd-review-note-bug {
-  background: var(--danger-bg, #c5303022);
-}
-.wd-review-minor {
-  margin: 2px 0 8px;
-  font-size: 13px;
-}
-.wd-review-minor summary {
-  cursor: pointer;
-  color: var(--muted);
-}
 .wd-session-review-moved {
   margin: 6px 0 0;
   padding: 6px 10px;
   border-left: 3px solid var(--warn, #b7791f);
-}
-
-.wd-review-flow-links {
-  margin: 0 0 8px 34px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.wd-review-flow-links .wd-link-button {
-  margin-right: 10px;
 }
 
 /* The Accounts page's setup copy: its plan before, how each thing went after. */
@@ -7418,43 +3496,6 @@ button.wd-review-filerow-current:hover:not(:disabled) {
 }
 .wd-accounts-setup button {
   margin-right: 8px;
-}
-
-/* The Inbox's follow-up panel under a finished row: what its agent said, and your reply. */
-.wd-inbox-item {
-  flex-wrap: wrap;
-}
-.wd-inbox-followup {
-  flex: 0 0 100%;
-  box-sizing: border-box;
-  margin: 2px 32px 10px 60px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel, transparent);
-}
-.wd-inbox-followup-reply {
-  max-height: 260px;
-  overflow: auto;
-  margin-bottom: 8px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.wd-inbox-followup-box {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  resize: vertical;
-  font: inherit;
-  font-size: 13px;
-  padding: 6px 8px;
-}
-.wd-inbox-followup-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  font-size: 12px;
 }
 
 /* A file a session shows beside its terminal (ShownFilePane): the terminal left, the file right. */
@@ -7486,7 +3527,7 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   font-size: 12px;
 }
 .wd-shown-name {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7531,7 +3572,6 @@ button.wd-review-filerow-current:hover:not(:disabled) {
 }
 .wd-shown-outline .wd-link-button {
   text-align: left;
-  color: var(--muted);
 }
 .wd-shown-body {
   flex: 1;
@@ -7554,27 +3594,4 @@ button.wd-review-filerow-current:hover:not(:disabled) {
   .wd-shown-outline {
     display: none;
   }
-}
-
-/* A story's own verdict (the AI step's), and what a review was asked to pay attention to. */
-.wd-review-story-verdict {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 10px;
-  font-size: 11px;
-  border: 1px solid var(--border);
-}
-.wd-review-story-verdict-ready {
-  background: var(--ok-bg, #2f855a22);
-}
-.wd-review-story-verdict-fix-first {
-  background: var(--warn-bg, #b7791f22);
-}
-.wd-review-story-verdict-discuss {
-  background: var(--accent-bg, #2b6cb022);
-}
-.wd-review-attention-asked {
-  margin: -8px 0 14px;
-  max-width: 110ch;
 }

@@ -1,9 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { allStylesheets } from './stylesheets.js';
 
 /** #59: the Inbox's list spans the page, as the Sessions table does, and the name column grows with it. */
-const css = fs.readFileSync(path.join(__dirname, '../../src/web/src/styles/dashboard.css'), 'utf8');
+const css = allStylesheets();
 const rule = (selector: string): string => {
   const at = css.indexOf(`
 ${selector} {`);

@@ -1,0 +1,124 @@
+/* The Start page (StartTab). Its own stylesheet, loaded after dashboard.css (main.tsx): one page's rules can't change another's.
+   Its controls are the shared pieces (ui/ui.css): this places them. */
+
+.wd-start-section {
+  padding: 4px 32px 8px;
+  max-width: 1000px;
+}
+.wd-start-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* key · what · state · Start (or the session already on it); a PR row adds its repo before the state */
+.wd-start-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 140px 200px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.wd-start-row-pr {
+  grid-template-columns: 96px minmax(0, 1fr) 160px 140px 200px;
+}
+.wd-start-key {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.wd-start-key:hover {
+  text-decoration: underline;
+}
+.wd-start-key-pr {
+  color: var(--muted);
+}
+.wd-start-what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-start-repo {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-start-author {
+  margin-left: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* A PR row's title truncates; its author stays. */
+.wd-tab-start .wd-start-list .wd-start-what {
+  display: flex;
+  align-items: baseline;
+}
+.wd-start-pr-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Start's quick filter: a chip per repo. */
+.wd-start-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 32px 0;
+}
+/* The repos to show: ToggleChips (ui/ui.css). */
+.wd-start-chip-count {
+  margin-left: 2px;
+  opacity: 0.7;
+}
+.wd-start-state {
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-start-state-bad {
+  color: var(--del-fg);
+}
+.wd-start-state-good {
+  color: var(--add-fg);
+}
+.wd-start-action {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.wd-start-existing {
+  font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* What the Jira watch did with an issue: under its row, across. */
+.wd-start-row > .wd-jira-watch {
+  grid-column: 2 / -1;
+  margin-top: 0;
+}
+.wd-start-watch {
+  padding: 16px 32px 24px;
+  color: var(--muted);
+}
+@media (max-width: 720px) {
+  .wd-start-section {
+    padding: 4px 12px 8px;
+  }
+  .wd-start-filter {
+    padding: 12px 12px 0;
+  }
+  .wd-start-row,
+  .wd-start-row-pr {
+    grid-template-columns: 80px minmax(0, 1fr) auto;
+  }
+  .wd-start-state,
+  .wd-start-row-pr > .wd-start-repo {
+    display: none;
+  }
+}

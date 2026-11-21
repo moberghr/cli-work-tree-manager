@@ -1,0 +1,198 @@
+/* The Inbox (InboxTab): the sessions that want you. Its own stylesheet, loaded after dashboard.css (main.tsx): one page's rules can't change another's.
+   Its controls are the shared pieces (ui/ui.css): this places them. */
+
+/* The page's width, as the Sessions table: on a wide screen the name and what it wants get the room (#59). */
+.wd-inbox-section {
+  padding: 4px 32px 12px;
+}
+.wd-inbox-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 16px 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.wd-inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* One row a session, every row the same width: icon · name · what · when | actions. */
+.wd-inbox-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+.wd-inbox-item:first-child {
+  border-top: none;
+}
+.wd-inbox-item:hover,
+.wd-inbox-item:focus-within {
+  background: var(--hover);
+}
+.wd-inbox-row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 16px minmax(160px, 360px) minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.wd-inbox-row:focus-visible {
+  outline: 2px solid var(--accent, #0969da);
+  outline-offset: -2px;
+}
+.wd-inbox-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.wd-inbox-target {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-inbox-branch {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-inbox-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--muted);
+}
+.wd-inbox-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-right: 12px;
+}
+/* Snooze, Mark seen, Terminal: there when the row is hovered or focused. */
+.wd-inbox-more {
+  display: inline-flex;
+  gap: 10px;
+  margin-right: 4px;
+  font-size: 12px;
+  visibility: hidden;
+}
+.wd-inbox-item:hover .wd-inbox-more,
+.wd-inbox-item:focus-within .wd-inbox-more {
+  visibility: visible;
+}
+/* The rest, in a line, pointing to the rail. */
+.wd-inbox-rest {
+  margin: 20px 32px;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* "2 snoozed" / "1 waiting on others", opened: until when (Unsnooze), and on what. */
+.wd-inbox-rest-list {
+  list-style: none;
+  margin: -12px 32px 20px;
+  padding: 0;
+  font-size: 13px;
+}
+.wd-inbox-rest-list li {
+  padding: 4px 0;
+}
+/* Inbox: what a permission prompt wants to run, answerable in place. */
+.wd-inbox-request {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-inbox-request-tool {
+  font-weight: 600;
+  color: var(--muted);
+}
+.wd-inbox-answer-error {
+  color: var(--del-fg);
+  font-size: 12px;
+}
+/* Review queue: a slim bar over the session while walking finished work. */
+.wd-inbox-review-all {
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* The Inbox's follow-up panel under a finished row: what its agent said, and your reply. */
+.wd-inbox-item {
+  flex-wrap: wrap;
+}
+.wd-inbox-followup {
+  flex: 0 0 100%;
+  box-sizing: border-box;
+  margin: 2px 32px 10px 60px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel, transparent);
+}
+.wd-inbox-followup-reply {
+  max-height: 260px;
+  overflow: auto;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+/* The follow-up (TextArea). */
+.wd-inbox-followup-box {
+  width: 100%;
+}
+.wd-inbox-followup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* A narrow window (after its base rules, so it wins). */
+@media (max-width: 640px) {
+  .wd-inbox-item {
+    grid-template-columns: 1fr;
+  }
+  .wd-inbox-row {
+    grid-template-columns: 16px 1fr auto;
+  }
+  .wd-inbox-summary {
+    grid-column: 2 / -1;
+  }
+  .wd-inbox-actions {
+    justify-content: flex-start;
+    padding: 0 12px 10px 40px;
+  }
+  .wd-inbox-more {
+    visibility: visible;
+  }
+}
+@media (max-width: 720px) {
+  .wd-inbox-section {
+    padding: 4px 12px 12px;
+  }
+}

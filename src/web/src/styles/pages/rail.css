@@ -1,0 +1,406 @@
+/* The rail (SessionRail): every session down the left. Its own stylesheet, loaded after dashboard.css (main.tsx): one page's rules can't change another's.
+   Its controls are the shared pieces (ui/ui.css): this places them. */
+
+.wd-dash-rail {
+  /* Driven by the rail ResizeDivider (which also draws the separator). */
+  width: var(--rail-width, 160px);
+  flex-shrink: 0;
+  background: var(--sidebar-bg, var(--header-bg));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Search and + on one row (the top bar already says "Sessions"). */
+.wd-dash-rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 12px 10px 8px;
+}
+.wd-dash-rail-new {
+  appearance: none;
+  flex-shrink: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  width: 30px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wd-dash-rail-new:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+/* The legend's "?": a rail button made smaller and quieter (after the button's rules, so it wins, as it did). */
+.wd-legend-toggle {
+  width: 22px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+.wd-dash-rail-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.wd-dash-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+.wd-dash-rail-item {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 1px;
+  overflow: hidden;
+}
+.wd-dash-rail-item:hover {
+  background: var(--hover);
+}
+.wd-dash-rail-item-active {
+  background: color-mix(in srgb, var(--accent, #0969da) 12%, transparent);
+  font-weight: 500;
+}
+.wd-dash-rail-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wd-dash-rail-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.wd-dash-rail-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-dash-rail-item-unseen .wd-dash-rail-name {
+  font-weight: 600;
+}
+/* The plain slot (a time, "in review"): small quiet text. What waits on you is a status Badge instead,
+   placed by .wd-dash-rail-slot-pill. */
+.wd-dash-rail-slot {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-dash-rail-slot-pill {
+  flex-shrink: 0;
+}
+.wd-rail-slot-needs {
+  color: var(--del-fg);
+  font-weight: 600;
+}
+.wd-rail-slot-working {
+  color: var(--add-fg);
+}
+.wd-rail-slot-background {
+  color: var(--background-fg);
+}
+.wd-rail-slot-waiting {
+  color: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
+}
+.wd-rail-slot-archiving {
+  font-style: italic;
+}
+.wd-dash-rail-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.wd-dash-rail-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-dash-rail-stat {
+  color: var(--muted);
+}
+/* One dot vocabulary for every view (see state/session-display.ts). */
+.wd-rail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+  background: #6e7681;
+}
+.wd-rail-dot-needs_input {
+  background: var(--del-fg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--del-fg) 30%, transparent);
+}
+.wd-rail-dot-done {
+  background: var(--accent);
+}
+.wd-rail-dot-working {
+  background: var(--add-fg);
+  animation: wd-inbox-pulse 1.4s ease-in-out infinite;
+}
+.wd-rail-dot-background {
+  background: var(--background-fg);
+}
+.wd-rail-dot-active {
+  background: var(--add-fg);
+}
+.wd-rail-dot-open {
+  background: #d29922;
+} /* amber */
+.wd-rail-dot-quiet,
+.wd-rail-dot-recent,
+.wd-rail-dot-stale {
+  background: #6e7681;
+} /* grey */
+/* A selected rail row's background: the glyph cut out of a filled icon matches it. */
+.wd-dash-rail-item-active .wd-status-icon {
+  --status-icon-cut: var(--current);
+}
+/* A rail row's PR pills: right-aligned on its second line; small, never squeezed. */
+.wd-rail-prs {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+  margin-left: auto;
+}
+/* "keep": it stays once its PR merges (a dashed tag Badge). Beside the PR pills. */
+.wd-rail-keep {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.wd-rail-keep + .wd-rail-prs {
+  margin-left: 3px;
+}
+.wd-dash-rail-pending {
+  font-size: 10px;
+  color: white;
+  background: #8957e5;
+  border-radius: 8px;
+  padding: 1px 5px;
+}
+.wd-dash-rail-drafts {
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 5px;
+}
+.wd-dash-rail-overflow {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 6px 12px;
+}
+.wd-dash-rail-older {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent, #0969da);
+  cursor: pointer;
+}
+.wd-dash-rail-older:hover {
+  text-decoration: underline;
+}
+/* The merge method: Select (ui/ui.css). */
+
+/* ---- Narrow / phone layout (<= 720px) ---------------------------------- */
+.wd-dash-rail-toggle {
+  display: none;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 16px;
+  line-height: 1;
+  width: 32px;
+  height: 30px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wd-dash-rail-backdrop {
+  display: none;
+}
+/* Rail: a colored row's bar, down its left edge in the list's gutter (no status is a bar, and the active row is a tint,
+   not a border). It reaches over the 1px between rows, so neighbours of one color read as one block. */
+.wd-dash-rail-colored {
+  position: relative;
+}
+.wd-dash-rail-colored::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 0;
+  bottom: -1px;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--tag);
+  pointer-events: none;
+}
+/* Rail: drag to reorder */
+.wd-dash-rail-list li[draggable='true'] {
+  cursor: grab;
+}
+.wd-dash-rail-dragging {
+  opacity: 0.45;
+}
+.wd-dash-rail-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.wd-dash-rail-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+/* The rail's search (Input): where it sits. */
+.wd-dash-rail-search {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+/* Renaming a session in the rail (F2 / right-click → Rename). */
+.wd-dash-rail-item-renaming {
+  cursor: default;
+  background: var(--current);
+}
+/* A rail row's or section's name while edited (Input, compact). */
+.wd-dash-rail-rename {
+  width: 100%;
+}
+/* Snoozed (snooze.ts): the rail's slot, the Inbox's last section. */
+.wd-rail-slot-snoozed {
+  color: var(--muted);
+  font-style: italic;
+}
+/* Rail groups: Pinned, your sections, the rest (rail-layout.ts). */
+.wd-dash-rail-group {
+  padding: 8px 12px 2px;
+}
+.wd-dash-rail-group + .wd-dash-rail-group {
+  padding-top: 2px;
+}
+.wd-dash-rail-group-toggle {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.wd-dash-rail-group-toggle:hover {
+  color: var(--fg);
+}
+.wd-dash-rail-group-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.wd-dash-rail-group-caret {
+  width: 10px;
+  flex: none;
+}
+.wd-dash-rail-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-dash-rail-group-count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.wd-dash-rail-group-drop {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.wd-dash-rail-group-empty {
+  padding: 2px 12px 6px 27px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-dash-rail-group-naming {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wd-dash-rail-group-error {
+  font-size: 11px;
+  color: var(--status-deleted-fg);
+}
+.wd-dash-rail-note {
+  font-size: 11px;
+}
+
+/* A narrow window (after its base rules, so it wins). */
+@media (prefers-reduced-motion: reduce) {
+  .wd-rail-dot-working {
+    animation: none;
+  }
+}
+@media (max-width: 720px) {
+  .wd-dash-rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wd-dash-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(300px, 85vw);
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
+  }
+  .wd-dash-rail-open .wd-dash-rail {
+    transform: none;
+  }
+  .wd-dash-rail-open .wd-dash-rail-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 19;
+    background: rgba(15, 20, 25, 0.35);
+  }
+}

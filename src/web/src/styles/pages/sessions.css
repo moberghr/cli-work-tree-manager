@@ -1,0 +1,250 @@
+/* The Sessions page (SessionsTab): every session in a table. Its own stylesheet, loaded after dashboard.css (main.tsx): one page's rules can't change another's.
+   Its controls are the shared pieces (ui/ui.css): this places them. */
+
+/* What waits on you (owedBadge): a status Badge in the review colour, a finished turn's in the app's blue
+   (owedBadgeClass, SessionBits). */
+/* Its PR waits on reviewers or checks: said, quietly — small, as an owed pill (a status Badge) beside it is. */
+.wd-st-owed {
+  margin-left: 8px;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+/* ---- Sessions table ----------------------------------------------------- */
+.wd-session-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.wd-session-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wd-session-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--header-bg);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-session-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.wd-session-row {
+  cursor: pointer;
+}
+.wd-session-row:hover {
+  background: var(--hover);
+}
+.wd-session-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* Dimmed, but not its Restore. */
+.wd-session-row-archived > td:not(.wd-st-col-more) {
+  opacity: 0.65;
+}
+.wd-st-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.wd-session-row-unseen .wd-st-status,
+.wd-session-row-unseen .wd-st-branch {
+  font-weight: 600;
+}
+/* Name and repo on one line, then a badge or two only when they matter. */
+.wd-st-session {
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wd-st-branch {
+  font-weight: 500;
+}
+.wd-st-target {
+  font-size: 12px;
+  color: var(--muted);
+}
+/* The repo or group, its own column. */
+.wd-st-col-project {
+  white-space: nowrap;
+}
+.wd-st-col-project .wd-session-group-kind {
+  margin-left: 2px;
+}
+/* "84% full": the conversation is past 70%. */
+/* "84% full" (a warn tag Badge): where it sits. */
+.wd-st-full {
+  margin-left: 8px;
+}
+.wd-st-col-summary {
+  width: 40%;
+  max-width: 0;
+}
+.wd-st-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+/* ⋯ on hover (or focus): the row's menu. */
+.wd-st-col-more {
+  width: 36px;
+  text-align: right;
+  cursor: default;
+  white-space: nowrap;
+}
+/* An archived row's Restore: always there (the archived list is for bringing one back). */
+.wd-st-restore {
+  appearance: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 10px;
+  cursor: pointer;
+  margin-right: 4px;
+}
+.wd-st-restore:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wd-st-more {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+  visibility: hidden;
+}
+.wd-session-row:hover .wd-st-more,
+.wd-session-row:focus-within .wd-st-more {
+  visibility: visible;
+}
+.wd-st-more:hover {
+  color: var(--fg);
+  border-color: var(--border);
+  background: var(--bg);
+}
+/* "View ▾": the table's filter, grouping and sort in one popover. */
+.wd-view-menu {
+  position: relative;
+}
+.wd-view-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-size: 13px;
+}
+.wd-session-group .wd-session-table {
+  margin-bottom: 8px;
+}
+.wd-st-overlap {
+  margin-left: 6px;
+  color: var(--warn-fg);
+  cursor: help;
+}
+.wd-st-session .wd-color-mark {
+  margin-right: 6px;
+}
+.wd-st-title {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The Sessions table's ticked rows and the bar acting on them (BulkBar). */
+.wd-st-col-pick {
+  width: 28px;
+  text-align: center;
+}
+/* Sessions table: the row's place in the rail (📌, or its section). */
+/* Its rail section (a tag Badge) or the bare 📌 of a pinned one: where it sits. */
+.wd-st-rail {
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* A narrow window (after its base rules, so it wins). */
+@media (max-width: 720px) {
+  /* Table -> stacked rows: status + session + summary stay, the rest wraps. */
+  .wd-session-table thead {
+    display: none;
+  }
+  .wd-session-table,
+  .wd-session-table tbody {
+    display: block;
+  }
+  .wd-session-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 2px 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wd-session-table td {
+    padding: 0;
+    border: 0;
+  }
+  .wd-st-col-status {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .wd-st-session {
+    grid-column: 2;
+    grid-row: 1;
+    max-width: none;
+    min-width: 0;
+  }
+  .wd-st-col-when {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .wd-st-col-summary {
+    grid-column: 1 / -1;
+    width: auto;
+    max-width: none;
+  }
+  .wd-st-col-changes {
+    grid-column: 1 / 3;
+  }
+  .wd-st-col-more {
+    display: none;
+  }
+  .wd-st-label {
+    display: none;
+  }
+}

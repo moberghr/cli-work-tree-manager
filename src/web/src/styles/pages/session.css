@@ -1,0 +1,160 @@
+/* A session's page (SessionDetail): its header and tabs. Its own stylesheet, loaded after dashboard.css (main.tsx): one page's rules can't change another's.
+   Its controls are the shared pieces (ui/ui.css): this places them. */
+
+.wd-session-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.wd-session-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px 10px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.wd-session-detail h1 {
+  font-size: 18px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  min-width: 0;
+}
+.wd-session-detail-target,
+.wd-session-detail-sep {
+  color: var(--muted);
+  font-weight: 400;
+}
+.wd-session-detail-branch {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-session-subtabs {
+  display: flex;
+  gap: 0;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+/* A session's tabs: Tab (ui/ui.css). */
+.wd-session-subtab-meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+/* .wd-session-subtab-badge: a count Badge (ui/ui.css). */
+.wd-session-subtab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The diff layout defaults to 100vh (full-page wd). Inside the session
+   detail it sits under the top nav + header + sub-tabs, so fill the
+   remaining space instead — otherwise its bottom is clipped off-screen. */
+.wd-session-subtab-body > .wd-web-review-layout {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+  /* Pin the row to the container so the sidebar/main scroll internally
+     rather than the implicit row growing to fit their content. */
+  grid-template-rows: minmax(0, 1fr);
+}
+.wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-main {
+  height: auto;
+  min-height: 0;
+}
+/* The diff filling the window (its toolbar's Full screen; Esc leaves): over the top bar, the rail (20) and the
+   session's header and tabs — and under everything a key can open over it: the Ctrl+K assistant (40), the
+   panels (50–60), menus and dialogs (1000), toasts and the update card. */
+.wd-session-subtab-body.wd-diff-full {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: var(--bg);
+}
+/* ---- Session header strip ---------------------------------------------- */
+.wd-session-detail-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.wd-session-detail-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--hover);
+}
+.wd-session-detail-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wd-session-detail-header .wd-status-line {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-session-title {
+  margin-left: 12px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: text;
+  max-width: 42ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.wd-session-title:hover {
+  color: var(--fg);
+  text-decoration: underline dotted;
+}
+.wd-session-title-empty {
+  font-style: italic;
+  opacity: 0.6;
+}
+/* The session's name while edited (Input, compact), inside the header's h1: not the heading's weight. */
+.wd-session-title-input {
+  margin-left: 12px;
+  min-width: 32ch;
+  font-weight: 400;
+}
+
+/* A narrow window (after its base rules, so it wins). */
+@media (max-width: 720px) {
+  .wd-session-detail-header {
+    padding: 12px 12px 4px;
+    gap: 8px;
+  }
+  .wd-session-subtabs {
+    padding: 0 12px;
+    overflow-x: auto;
+  }
+  /* Session diff: stack the file tree above the diff instead of a
+     side-by-side split that leaves the diff a sliver. */
+  .wd-session-subtab-body > .wd-web-review-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-sidebar {
+    max-height: 38vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
