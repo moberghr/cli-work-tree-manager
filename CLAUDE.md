@@ -117,4 +117,5 @@ How each part of work is built, and its rules (the `§` lines), is in `.claude/r
 | Other pages | `time.md`, `jira-watch.md`, `repos-page.md`, `settings.md`, `first-run.md` |
 | Storage and moving | `state-storage.md`, `moving-to-another-computer.md` |
 | Shipping | `desktop-app.md`, `updates-and-release-notes.md`, `demo-mode.md` |
+| Web UI | `web-ui.md` (the scale, the shared pieces, the rule that a page never restyles one) |
 | Small | `tab-completions.md`, `color-forcing.md`, `work-dash.md` (removed in 2.0) |

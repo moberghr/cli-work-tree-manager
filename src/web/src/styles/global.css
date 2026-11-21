@@ -15,7 +15,7 @@ body,
 
 code,
 pre {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -315,10 +315,7 @@ pre {
   gap: 6px;
   justify-content: flex-end;
 }
-.wd-btn-danger {
-  background: var(--del-fg);
-  border-color: var(--del-fg);
-}
+/* .wd-btn-danger: ui/ui.css (Button, the danger kind). */
 
 /* PR check-status glyphs and tags. */
 .wd-web-pr-status {
@@ -371,7 +368,7 @@ pre {
   padding: 2px 12px;
 }
 .wd-web-jira-key {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   color: var(--muted);
   flex-shrink: 0;
@@ -392,20 +389,10 @@ pre {
   padding: 8px 8px 24px;
 }
 
+/* The tree's filter: Input (ui/ui.css). Where it sits: */
 .wd-web-filter {
   width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
   margin-bottom: 8px;
-  outline: none;
-}
-.wd-web-filter:focus {
-  border-color: var(--accent);
 }
 
 .wd-web-group {
@@ -524,7 +511,7 @@ pre {
   gap: 6px;
 }
 .wd-web-session-branch {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--fg);
   overflow: hidden;
@@ -719,18 +706,7 @@ pre {
   font-size: 14px;
   flex: 1;
 }
-.wd-modal-close {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  font-size: 18px;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0 6px;
-}
-.wd-modal-close:hover {
-  color: var(--fg);
-}
+/* .wd-modal-close (the ×): Button, the quiet kind (ui/ui.css). */
 .wd-modal-body {
   padding: 14px 16px;
   display: flex;
@@ -746,21 +722,10 @@ pre {
 .wd-modal-row > span {
   color: var(--muted);
 }
-.wd-modal-row input,
-.wd-modal-row select,
+/* A dialog row's fields are Input / Select / TextArea (ui/ui.css); the row stacks them full width. A text
+   box's height is the dialog's to say: */
 .wd-modal-row textarea {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  font: inherit;
-  font-size: 13px;
-  background: var(--bg);
-  color: var(--fg);
-}
-.wd-modal-row textarea {
-  resize: vertical;
   min-height: 44px;
-  line-height: 1.4;
 }
 .wd-modal-error {
   color: var(--del-fg);
@@ -790,44 +755,14 @@ pre {
   font-size: 13px;
   line-height: 1.5;
 }
-.wd-btn-primary,
-.wd-btn-secondary {
-  appearance: none;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.wd-btn-secondary {
-  background: var(--bg);
-  color: var(--fg);
-}
-.wd-btn-secondary:hover {
-  background: var(--hover);
-}
-.wd-btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-.wd-btn-primary:hover {
-  filter: brightness(1.05);
-}
-.wd-btn-primary:disabled,
-.wd-btn-secondary:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
+/* .wd-btn-primary / .wd-btn-secondary: ui/ui.css (Button). */
 
 .wd-web-diff-placeholder h2 {
   margin: 0 0 8px;
   font-size: 18px;
 }
 .wd-web-branch {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-weight: 400;
   color: var(--muted);
 }
