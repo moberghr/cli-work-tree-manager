@@ -949,6 +949,10 @@ export const fetchSessionReviewDiff = (sessionId: string): Promise<{ files: impo
 export const sendSessionReviewNotes = (sessionId: string, ids: string[]): Promise<number> =>
   reviewCall<{ sent: number }>(sessionId, '/send', { ids }).then((r) => r.sent);
 
+/** Hand a session review's recommendation to its agent, with what you decided (empty: it is asked to lay the question out). */
+export const sendSessionReviewRecommendation = (sessionId: string, decision: string): Promise<{ decided: boolean }> =>
+  reviewCall<{ decided: boolean }>(sessionId, '/recommendation', decision.trim() ? { decision: decision.trim() } : {});
+
 /** What a session's agent and the things it started hold in memory now (a listing takes a second). */
 export async function fetchSessionProcesses(sessionId: string): Promise<import('../../../core/api-types.js').SessionProcessesWire> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/processes`);

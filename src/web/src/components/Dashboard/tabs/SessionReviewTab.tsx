@@ -9,6 +9,7 @@ import {
   fetchSessionReviewDiff,
   prepareSessionReview,
   sendSessionReviewNotes,
+  sendSessionReviewRecommendation,
   type SessionSummary,
 } from '../../../api/client.js';
 import { draftsAsComments } from '../../../api/review-drafts-api.js';
@@ -388,7 +389,9 @@ export function SessionReviewTab({
                   onComment={(i) => go('comments', i)}
                   onClearDropped={() => undefined}
                   onFiles={() => go('files')}
-                  {...(archived ? {} : { noteActions })}
+                  {...(archived
+                    ? {}
+                    : { noteActions, onDecide: (decision: string) => sendSessionReviewRecommendation(id, decision).then(() => undefined) })}
                 />
               )}
               {mode === 'story' && (

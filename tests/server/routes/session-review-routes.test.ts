@@ -31,6 +31,13 @@ const answer = JSON.stringify({
   notes: [{ path: HANDLER, line: 2, body: 'A zero amount is refused silently.' }],
 });
 
+/** The same answer with a recommendation, for the tests that hand one over. */
+const answerWithAdvice = JSON.stringify({
+  ...JSON.parse(answer),
+  recommendation: { verdict: 'discuss', text: 'Decide the held-settlement case first.' },
+});
+let advised: boolean;
+
 let home: string;
 let id: string;
 let archivedId: string;
@@ -57,6 +64,7 @@ beforeEach(() => {
   events = [];
   told = [];
   changed = true;
+  advised = false;
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -74,7 +82,7 @@ function app(
         repo,
         {
           diff: () => ({ repos: [{ name: 'api', files: changed ? files : [] }], resolvedBase: 'origin/main' }),
-          agent: async () => answer,
+          agent: async () => (advised ? answerWithAdvice : answer),
         },
         also,
       ),
@@ -148,6 +156,49 @@ describe('session review routes', () => {
     expect(told).toHaveLength(1);
     // No ids: all of them.
     expect(await (await post(a, '/send')).json()).toEqual({ ok: true, sent: 1 });
+  });
+
+  it('the recommendation goes to the session’s agent with your decision; with none it is asked to lay the question out', async () => {
+    advised = true;
+    const a = app();
+    expect((await post(a, '/recommendation')).status).toBe(409); // nothing prepared
+    await post(a, '');
+    await settled();
+    expect((await state(a)).review?.recommendation?.verdict).toBe('discuss');
+    const decided = await post(a, '/recommendation', { decision: ' Keep the held settlement attached. ' });
+    expect(await decided.json()).toEqual({ ok: true, decided: true });
+    expect(told).toHaveLength(1);
+    expect(told[0].id).toBe(id);
+    expect(told[0].body).toContain('<<< Decide the held-settlement case first. >>>');
+    expect(told[0].body).toContain(
+      'My decision on it (my own words — follow them):\n Keep the held settlement attached.'.replace('\n ', '\n'),
+    );
+    expect(await (await post(a, '/recommendation')).json()).toEqual({ ok: true, decided: false });
+    expect(told[1].body).toContain('Change nothing until I answer.');
+    // Not text, or too long: refused before anything is sent. An archived or unknown session too.
+    expect((await post(a, '/recommendation', { decision: 7 })).status).toBe(400);
+    expect((await post(a, '/recommendation', { decision: 'x'.repeat(4001) })).status).toBe(400);
+    expect((await post(a, '/recommendation', {}, archivedId)).status).toBe(409);
+    expect((await post(a, '/recommendation', {}, 'nope')).status).toBe(404);
+    expect(told).toHaveLength(2);
+  });
+
+  it('a review with no recommendation has none to hand over; one that can’t be delivered says why', async () => {
+    const a = app();
+    await post(a, '');
+    await settled();
+    const none = await post(a, '/recommendation', { decision: 'x' });
+    expect(none.status).toBe(409);
+    expect(await none.json()).toEqual({ error: 'It has no recommendation to hand over.' });
+    advised = true;
+    const b = app(async () => {
+      throw new Error('posting the note failed: 500');
+    });
+    await post(b, '');
+    await settled();
+    const res = await post(b, '/recommendation', { decision: 'x' });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'posting the note failed: 500' });
   });
 
   it('a note that can’t be delivered says why', async () => {

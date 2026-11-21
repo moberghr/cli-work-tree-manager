@@ -3,7 +3,9 @@ import type { ParsedFile } from '../../core/diff/diff-parse.js';
 import type { NotifyEvent, SessionLocalReviewWire, SessionReviewCurrentWire, SessionReviewWire } from '../../core/api-types.js';
 import {
   createLocalReviews,
+  localRecommendationNote,
   localReviewNote,
+  MAX_DECISION_CHARS,
   MAX_ALSO_CHARS,
   type LocalReviewStore,
   type PreparedLocal,
@@ -20,6 +22,7 @@ import { findSession } from '../../core/sessions/web-state.js';
  *   GET  /api/sessions/:id/review/diff   the diff the kept review was made of
  *   GET  /api/sessions/:id/review/current   whether it is of the changes as they are now (reads the diff: no side effect)
  *   POST /api/sessions/:id/review/send   {ids?}: hand its notes (those ids, else all not dismissed) to the session's agent
+ *   POST /api/sessions/:id/review/recommendation {decision?}: hand its recommendation to the session's agent, with what you decided
  *   POST /api/sessions/:id/review/seen   you looked at it: out of the Inbox (a POST: a GET changes nothing)
  *   POST /api/sessions/:id/review/dismiss {id, undo?}: dismiss a note you don't agree with (undo: bring it back)
  */
@@ -135,6 +138,27 @@ export function mountSessionReviewRoutes(
     reviews.markSent(id, went);
     deps.broadcast('session-review-changed', { sessionId: id });
     return c.json({ ok: true, sent: went.length });
+  });
+
+  app.post('/api/sessions/:id/review/recommendation', async (c) => {
+    const id = c.req.param('id');
+    const session = findSession(id);
+    if (!session) return c.json({ error: 'unknown session' }, 404);
+    if (session.archivedAt) return c.json({ error: 'It is archived: restore it first.' }, 409);
+    const body = (await c.req.json().catch(() => ({}))) as { decision?: unknown };
+    if (body.decision !== undefined && typeof body.decision !== 'string') return c.json({ error: 'decision: string' }, 400);
+    if (body.decision && body.decision.length > MAX_DECISION_CHARS)
+      return c.json({ error: `decision: at most ${MAX_DECISION_CHARS} characters` }, 400);
+    const review = reviews.state(id).review;
+    if (!review) return c.json({ error: 'no review of it is prepared' }, 409);
+    const note = localRecommendationNote(review, body.decision);
+    if (!note) return c.json({ error: 'It has no recommendation to hand over.' }, 409);
+    try {
+      await deps.tell(id, note);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 502);
+    }
+    return c.json({ ok: true, decided: !!body.decision?.trim() });
   });
 
   app.post('/api/sessions/:id/review/dismiss', async (c) => {

@@ -312,6 +312,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     if (!w) return notFound(c);
     return localReviews.has(w.id) ? c.json({ files: demoReviewFiles() }) : c.json({ error: 'no review of it is prepared' }, 404);
   });
+  // The demo hands nothing to anyone: it answers as the real route does.
+  app.post('/api/sessions/:id/review/recommendation', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    if (w.archivedAt) return c.json({ error: 'It is archived: restore it first.' }, 409);
+    const review = demoLocalReview(w).review;
+    if (!review) return c.json({ error: 'no review of it is prepared' }, 409);
+    if (!review.recommendation) return c.json({ error: 'It has no recommendation to hand over.' }, 409);
+    const body = await json(c);
+    return c.json({ ok: true, decided: typeof body.decision === 'string' && !!body.decision.trim() });
+  });
   app.post('/api/sessions/:id/review/send', async (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
     if (!w) return notFound(c);

@@ -1185,3 +1185,19 @@ button.wd-comment-fold:hover,
 .wd-sidebar-comments-none .wd-comments-panel-empty {
   display: none;
 }
+
+/* A session review's recommendation: your decision on it, handed to its agent. Where it sits; the box and the
+   button are the shared pieces (ui.css). */
+.wd-review-decide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  max-width: 720px;
+}
+.wd-review-decide-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
