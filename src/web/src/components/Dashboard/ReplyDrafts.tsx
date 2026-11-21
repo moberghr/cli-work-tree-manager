@@ -7,6 +7,7 @@ import { threadCodeLines } from '../../state/pr-tab.js';
 import { discardReply, editReply, fetchReplies, postReply, sendPromptToSession } from '../../api/client.js';
 import { useSse } from '../../api/events.js';
 import { quoteForAgent } from '../../../../core/pr/review-quote.js';
+import { TextArea } from '../../ui/index.js';
 
 export interface ReplyApi {
   list: (sessionId: string) => Promise<RepliesWire>;
@@ -230,7 +231,7 @@ function WaitingThreads({
           </span>
         )}
         {n > FOLD_OVER && (
-          <button type="button" className="wd-link-button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          <button type="button" className="wd-link-button wd-link-button-muted" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
             {open ? 'Hide the threads ▴' : 'Show the threads ▾'}
           </button>
         )}
@@ -318,7 +319,7 @@ function Waiting({
         >
           {state === 'asking' ? 'Asking…' : state === 'asked' ? 'Asked — the draft will show here' : 'Ask Claude to reply'}
         </button>
-        <a className="wd-link-button" href={thread.url} target="_blank" rel="noreferrer">
+        <a className="wd-link-button wd-link-button-muted" href={thread.url} target="_blank" rel="noreferrer">
           Answer on {hostName(threadHostId(thread.threadId))} ↗
         </a>
       </div>
@@ -358,7 +359,7 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
         <span className="wd-replies-muted"> @{reply.reviewer}</span>
       </div>
       <ThreadComment body={reply.body ?? reply.excerpt} code={reply.code} where={reply.where} />
-      <textarea
+      <TextArea
         className="wd-reply-text"
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -391,7 +392,7 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
         </button>
         <button
           type="button"
-          className="wd-link-button"
+          className="wd-link-button wd-link-button-muted"
           disabled={!!busy}
           onClick={() => act('discard')}
           title="Drop the draft; nothing is posted"

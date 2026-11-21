@@ -1,6 +1,6 @@
-import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { scrollerOf } from '../utils/scroll.js';
 import { anchorFor, flattenTreeFiles, type TreeNode } from '../utils/tree.js';
+import type { MenuItem } from '../ui/index.js';
 
 /** The files a right-click in the tree acts on: the file itself, or every file under the folder (as the tree shows it). */
 export function filesUnder(node: TreeNode): Array<{ path: string; anchor: string }> {

@@ -169,7 +169,12 @@ function RunRow({ run, onOpenSession }: { run: ActivityRun; onOpenSession: (id: 
           {notes.map((n, i) => (
             <li key={i} className={`wd-activity-note wd-activity-note-${n.level}`}>
               {n.sessionId ? (
-                <button type="button" className="wd-link-button" onClick={() => onOpenSession(n.sessionId!)} title="Open this session">
+                <button
+                  type="button"
+                  className="wd-link-button wd-link-button-inherit"
+                  onClick={() => onOpenSession(n.sessionId!)}
+                  title="Open this session"
+                >
                   {n.text}
                 </button>
               ) : (
@@ -179,7 +184,7 @@ function RunRow({ run, onOpenSession }: { run: ActivityRun; onOpenSession: (id: 
           ))}
           {run.notes.length > NOTES_SHOWN && (
             <li>
-              <button type="button" className="wd-link-button wd-activity-more" onClick={() => setAll((a) => !a)}>
+              <button type="button" className="wd-link-button wd-link-button-inherit wd-activity-more" onClick={() => setAll((a) => !a)}>
                 {all ? 'Show fewer' : `Show all ${run.notes.length}`}
               </button>
             </li>

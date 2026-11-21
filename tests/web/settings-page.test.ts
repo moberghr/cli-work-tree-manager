@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { RepoSettingsWire, SettingsWire } from '../../src/core/api-types.js';
+import { allStylesheets } from './stylesheets.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -121,6 +122,19 @@ describe('the Settings page', () => {
     const editor = host.querySelector<HTMLInputElement>('#setting-editor')!;
     await act(async () => editor.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
     expect(saveSetting).not.toHaveBeenCalled();
+  });
+
+  it('a filter that matches nothing says so, inset like the rest of the page', async () => {
+    await act(async () =>
+      root.render(createElement(SettingsTab, { api: { fetchSettings: async () => wire({}), saveSetting: async () => wire({}) } })),
+    );
+    await flush();
+    await act(async () => typeInto(host.querySelector<HTMLInputElement>('.wd-settings-filter')!, 'zzz-no-such-setting'));
+    const empty = host.querySelector('.wd-settings-empty')!;
+    expect(empty.textContent).toContain('No setting matches');
+    expect(host.querySelectorAll('.wd-settings-section')).toHaveLength(0);
+    // It shares the intro's inset, so it doesn't sit against the rail.
+    expect(allStylesheets()).toMatch(/\.wd-settings-intro,\s*\.wd-settings-empty,[^{]*\{\s*padding-left: 32px;/);
   });
 });
 

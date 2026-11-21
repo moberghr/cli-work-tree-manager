@@ -31,7 +31,6 @@ import {
   displayStatus,
   isArchived,
   owedBadge,
-  owedClass,
   sessionBucket,
   waitingOnOthers,
   CONTEXT_WARN,
@@ -40,10 +39,10 @@ import {
 import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
-import { DiffStatChip, overlapTitle } from '../SessionBits.js';
+import { DiffStatChip, overlapTitle, owedBadgeClass } from '../SessionBits.js';
 import { ARCHIVED_BY_SHORT, archivedAge, archivedLine, lastActiveLine, listTime } from '../../../state/archive-view.js';
-import { RowMenu, type MenuItem } from '../RowMenu.js';
 import { KEEP_TITLE } from '../SessionRail.js';
+import { Badge, badgeClass, Input, Select, Menu, type MenuItem, Button, PageHeader, Segmented } from '../../../ui/index.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -374,129 +373,120 @@ export function SessionsTab({
           </button>
         </p>
       )}
-      <header className="wd-tab-header">
-        <h1>
-          Sessions {viewToggle}{' '}
-          <span className="wd-tab-header-muted">
-            {scope === 'archived'
-              ? `${archivedCount} archived`
-              : [
-                  counts.now ? `${counts.now} now` : '',
-                  counts.week ? `${counts.week} this week` : '',
-                  counts.older ? `${counts.older} older` : '',
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-          </span>
-        </h1>
-        <div className="wd-tab-controls">
-          {/* Live / Archived / All: one click to the archived ones (to restore one), remembered. */}
-          <span className="wd-segmented" role="group" aria-label="Which sessions">
-            {(['live', 'archived', 'all'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                className={'wd-segmented-btn' + (scope === v ? ' wd-segmented-btn-on' : '')}
-                aria-pressed={scope === v}
-                onClick={() => setScope(v)}
-                title={
-                  v === 'live'
-                    ? 'The sessions you work on'
-                    : v === 'archived'
-                      ? 'Archived sessions, to look back or restore one'
-                      : 'Live and archived together'
-                }
-              >
-                {SCOPE_LABEL[v]}
-                {v === 'archived' && showArchived && archivedCount > 0 ? ` ${archivedCount}` : ''}
-              </button>
-            ))}
-          </span>
-          <input
-            className="wd-tab-search"
-            type="search"
-            placeholder="Search branch, repo, words…"
-            aria-label="Search sessions"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setQuery('');
-            }}
-          />
-          <ViewMenu>
+      <PageHeader
+        title={<>Sessions {viewToggle}</>}
+        meta={
+          scope === 'archived'
+            ? `${archivedCount} archived`
+            : [
+                counts.now ? `${counts.now} now` : '',
+                counts.week ? `${counts.week} this week` : '',
+                counts.older ? `${counts.older} older` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+        }
+      >
+        {/* Live / Archived / All: one click to the archived ones (to restore one), remembered. */}
+        <Segmented
+          label="Which sessions"
+          value={scope}
+          onChange={setScope}
+          options={(['live', 'archived', 'all'] as const).map((v) => ({
+            value: v,
+            label: SCOPE_LABEL[v] + (v === 'archived' && showArchived && archivedCount > 0 ? ` ${archivedCount}` : ''),
+            title:
+              v === 'live'
+                ? 'The sessions you work on'
+                : v === 'archived'
+                  ? 'Archived sessions, to look back or restore one'
+                  : 'Live and archived together',
+          }))}
+        />
+        <Input
+          className="wd-tab-search"
+          type="search"
+          placeholder="Search branch, repo, words…"
+          aria-label="Search sessions"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setQuery('');
+          }}
+        />
+        <ViewMenu>
+          <label>
+            Show
+            <Select value={filter} onChange={(e) => setFilter(e.target.value as Filter)} aria-label="Status filter">
+              {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
+                <option key={f} value={f}>
+                  {FILTER_LABEL[f]}
+                </option>
+              ))}
+            </Select>
+          </label>
+          {(rail.sections.length > 0 || Object.values(rail.places).some((p) => p.pinned || p.section)) && (
             <label>
-              Show
-              <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)} aria-label="Status filter">
-                {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
-                  <option key={f} value={f}>
-                    {FILTER_LABEL[f]}
+              Rail
+              <Select value={railFilter} onChange={(e) => setRailFilter(e.target.value as RailFilter)} aria-label="Rail filter">
+                <option value="any">any</option>
+                <option value="pinned">pinned</option>
+                {rail.sections.map((sec) => (
+                  <option key={sec.id} value={`section:${sec.id}`}>
+                    {sec.name}
                   </option>
                 ))}
-              </select>
+                <option value="none">in no section</option>
+              </Select>
             </label>
-            {(rail.sections.length > 0 || Object.values(rail.places).some((p) => p.pinned || p.section)) && (
-              <label>
-                Rail
-                <select value={railFilter} onChange={(e) => setRailFilter(e.target.value as RailFilter)} aria-label="Rail filter">
-                  <option value="any">any</option>
-                  <option value="pinned">pinned</option>
-                  {rail.sections.map((sec) => (
-                    <option key={sec.id} value={`section:${sec.id}`}>
-                      {sec.name}
-                    </option>
-                  ))}
-                  <option value="none">in no section</option>
-                </select>
-              </label>
-            )}
-            {(anyColor || colorFilter !== 'any') && (
-              <label>
-                Color
-                <select
-                  value={colorFilter}
-                  onChange={(e) => setColorFilter(isRailColor(e.target.value) || e.target.value === 'none' ? e.target.value : 'any')}
-                  aria-label="Color filter"
-                >
-                  <option value="any">any</option>
-                  {RAIL_COLORS.map((c) => (
-                    <option key={c} value={c}>
-                      {RAIL_COLOR_LABEL[c].toLowerCase()}
-                    </option>
-                  ))}
-                  <option value="none">no color</option>
-                </select>
-              </label>
-            )}
-            <label>
-              Group
-              <select value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)} aria-label="Group by">
-                <option value="age">age</option>
-                <option value="project">project</option>
-                <option value="section">rail section</option>
-                <option value="none">none</option>
-              </select>
-            </label>
-            <label>
-              Sort
-              <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by">
-                <option value="recent">recent</option>
-                <option value="name">name</option>
-              </select>
-            </label>
-            <label className="wd-tab-check">
-              <input type="checkbox" checked={selecting} onChange={(e) => setSelecting(e.target.checked)} /> Select several
-            </label>
-          </ViewMenu>
-          {onCleanUp && (
-            <button type="button" className="wd-link-button" onClick={onCleanUp} title="Find worktrees that are safe to remove">
-              Clean up
-            </button>
           )}
-          <button type="button" className="wd-btn-primary" onClick={onNewWorktree}>
-            New
+          {(anyColor || colorFilter !== 'any') && (
+            <label>
+              Color
+              <Select
+                value={colorFilter}
+                onChange={(e) => setColorFilter(isRailColor(e.target.value) || e.target.value === 'none' ? e.target.value : 'any')}
+                aria-label="Color filter"
+              >
+                <option value="any">any</option>
+                {RAIL_COLORS.map((c) => (
+                  <option key={c} value={c}>
+                    {RAIL_COLOR_LABEL[c].toLowerCase()}
+                  </option>
+                ))}
+                <option value="none">no color</option>
+              </Select>
+            </label>
+          )}
+          <label>
+            Group
+            <Select value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)} aria-label="Group by">
+              <option value="age">age</option>
+              <option value="project">project</option>
+              <option value="section">rail section</option>
+              <option value="none">none</option>
+            </Select>
+          </label>
+          <label>
+            Sort
+            <Select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by">
+              <option value="recent">recent</option>
+              <option value="name">name</option>
+            </Select>
+          </label>
+          <label className="wd-tab-check">
+            <input type="checkbox" checked={selecting} onChange={(e) => setSelecting(e.target.checked)} /> Select several
+          </label>
+        </ViewMenu>
+        {onCleanUp && (
+          <button type="button" className="wd-link-button" onClick={onCleanUp} title="Find worktrees that are safe to remove">
+            Clean up
           </button>
-        </div>
-      </header>
+        )}
+        <Button variant="primary" onClick={onNewWorktree}>
+          New
+        </Button>
+      </PageHeader>
       {(selected.length > 0 || bulkBusy) && (
         <BulkBar
           selected={selected}
@@ -580,14 +570,16 @@ export function SessionsTab({
                 <h2 className="wd-session-group-header">
                   <span className="wd-session-group-name">{g.key}</span>
                   {g.isGroup && (
-                    <span className="wd-session-group-kind" title="Multi-repo group">
+                    <Badge className="wd-session-group-kind" title="Multi-repo group">
                       group
-                    </span>
+                    </Badge>
                   )}
                   {g.repos.length > 0 && (
                     <ul className="wd-session-group-repos" aria-label="Repos in this group">
                       {g.repos.map((r) => (
-                        <li key={r}>{r}</li>
+                        <li key={r} className={badgeClass('tag', 'neutral', 'wd-session-group-repo')}>
+                          {r}
+                        </li>
                       ))}
                     </ul>
                   )}
@@ -602,7 +594,7 @@ export function SessionsTab({
         )}
         <ConversationHits query={query} scope={scope} onOpen={(id) => onOpenSession(id, 'diff')} />
       </div>
-      {rowMenu && <RowMenu x={rowMenu.x} y={rowMenu.y} items={menuItems(rowMenu.s)} onClose={() => setRowMenu(null)} />}
+      {rowMenu && <Menu x={rowMenu.x} y={rowMenu.y} items={menuItems(rowMenu.s)} onClose={() => setRowMenu(null)} />}
     </div>
   );
 }
@@ -725,9 +717,9 @@ function ViewMenu({ children }: { children: React.ReactNode }) {
   }, [open]);
   return (
     <div className="wd-view-menu" ref={ref}>
-      <button type="button" className="wd-btn-secondary" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>
+      <Button aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>
         View ▾
-      </button>
+      </Button>
       {open && (
         <div className="wd-view-menu-panel" role="group" aria-label="View">
           {children}
@@ -812,7 +804,7 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
         </span>
         {/* What waits on you, beside what its Claude is doing (the rail's badge). */}
         {owed && !archived ? (
-          <span className={owedClass(owed) + ' wd-st-owed'} title={owed.title}>
+          <span className={owedBadgeClass(owed, ' wd-st-owed')} title={owed.title}>
             {owed.text}
           </span>
         ) : !archived && waitingOnOthers(s) ? (
@@ -823,32 +815,36 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
       </td>
       <td className="wd-st-session">
         <ColorMark color={color} />
-        <span className="wd-st-branch" title={named ? `${s.title} (${s.branch})` : s.branch}>
+        <span className={'wd-st-branch' + (named ? '' : ' wd-mono')} title={named ? `${s.title} (${s.branch})` : s.branch}>
           {named ? s.title : s.branch || '(base)'}
         </span>
-        {railTag && (
-          <span
-            className={'wd-st-rail' + (railTag === '📌' ? ' wd-st-rail-pin' : '')}
-            title={railTag === '📌' ? 'Pinned in the rail' : `In the rail's “${railTag}” section`}
-          >
+        {railTag === '📌' && (
+          <span className="wd-st-rail wd-st-rail-pin" title="Pinned in the rail">
             {railTag}
           </span>
         )}
+        {railTag && railTag !== '📌' && (
+          <Badge className="wd-st-rail" title={`In the rail's “${railTag}” section`}>
+            {railTag}
+          </Badge>
+        )}
         {s.keepAfterMerge && !archived && (
-          <span className="wd-st-rail wd-st-keep" title={KEEP_TITLE}>
+          <Badge dashed className="wd-st-rail wd-st-keep" title={KEEP_TITLE}>
             keep
-          </span>
+          </Badge>
         )}
         {full && (
-          <span
+          <Badge
+            tone="warn"
             className="wd-st-full"
             title={`The conversation is ${full}: start fresh for the next task (work tree … --fresh, or /clear)`}
           >
             {full}
-          </span>
+          </Badge>
         )}
         {archived && (
-          <span
+          <Badge
+            dashed
             className="wd-archived-pill"
             title={
               [
@@ -868,18 +864,18 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
             {s.archive?.worktreeRemoved
               ? ` · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
               : ''}
-          </span>
+          </Badge>
         )}
       </td>
       <td className="wd-st-col-project">
         <span className="wd-st-target">{s.target}</span>{' '}
         {s.isGroup && (
-          <span
+          <Badge
             className="wd-session-group-kind wd-session-group-kind-hint"
             title={repos.length ? `Multi-repo group: ${repos.join(', ')}` : 'Multi-repo group'}
           >
             group
-          </span>
+          </Badge>
         )}
       </td>
       <td className="wd-st-col-summary">

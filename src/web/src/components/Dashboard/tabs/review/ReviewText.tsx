@@ -1,5 +1,13 @@
 import { Fragment, type ReactNode } from 'react';
 import { changeType, diffstatBlocks, folderParts, nameParts, proseParts, splitPath } from '../../../../state/review-view.js';
+import type { FlowChange, Verdict } from '../../../../../../core/review/review-plan.js';
+import { Badge, type BadgeTone } from '../../../../ui/index.js';
+import { STATUS_TONE } from '../../../../utils/status.js';
+
+/** A flow's change as a badge's colour: new green, removed red, changed amber. */
+export const FLOW_TONE: Record<FlowChange, BadgeTone> = { added: 'ok', removed: 'danger', changed: 'warn' };
+/** A story's verdict as a badge's colour: fine green, fix first amber, needs a decision blue. */
+export const STORY_VERDICT_TONE: Record<Verdict, BadgeTone> = { ready: 'ok', 'fix-first': 'warn', discuss: 'accent' };
 
 /** The AI step's prose: plain text, what it put between backticks drawn as code. */
 export function Prose({ text }: { text: string }) {
@@ -37,9 +45,15 @@ export function FolderPath({ folder, prefix }: { folder: string; prefix?: ReactN
 export function ChangeBadge({ status, oldPath }: { status: string; oldPath?: string }) {
   const c = changeType({ status, ...(oldPath ? { oldPath } : {}) });
   return (
-    <span className={`wd-review-badge wd-review-badge-${c.type}`} title={c.label} aria-label={c.label}>
+    <Badge
+      kind="letter"
+      tone={STATUS_TONE[c.type]}
+      className={`wd-review-badge wd-review-badge-${c.type}`}
+      title={c.label}
+      aria-label={c.label}
+    >
       {c.letter}
-    </span>
+    </Badge>
   );
 }
 
@@ -78,7 +92,7 @@ export function CommentCount({ n }: { n: number }) {
   if (!n) return null;
   const words = `${n} draft comment${n === 1 ? '' : 's'}`;
   return (
-    <span className="wd-review-filecomments" title={words} aria-label={words}>
+    <Badge kind="status" tone="accent" className="wd-review-filecomments" title={words} aria-label={words}>
       <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden>
         <path
           fill="currentColor"
@@ -86,7 +100,7 @@ export function CommentCount({ n }: { n: number }) {
         />
       </svg>
       {n}
-    </span>
+    </Badge>
   );
 }
 
@@ -95,7 +109,7 @@ export function ThreadCount({ n }: { n: number }) {
   if (!n) return null;
   const words = `${n} open thread${n === 1 ? '' : 's'} already on the PR`;
   return (
-    <span className="wd-review-filethreads" title={words} aria-label={words}>
+    <Badge kind="tag" className="wd-review-filethreads" title={words} aria-label={words}>
       <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden>
         <path
           fill="none"
@@ -105,7 +119,7 @@ export function ThreadCount({ n }: { n: number }) {
         />
       </svg>
       {n}
-    </span>
+    </Badge>
   );
 }
 

@@ -109,7 +109,7 @@ export function BuildFolders({ api = httpBuildFoldersApi, pollMs = 1000 }: { api
       {st?.scannedAt && list.length === 0 && !st.scanning && <p className="wd-cleanup-hint">Nothing to clear.</p>}
       <ul className="wd-cleanup-list">
         {list.map((c) => (
-          <li key={c.sessionId} className="wd-cleanup-item">
+          <li key={c.sessionId} className="wd-cleanup-item wd-cleanup-item-nocheck">
             <span className="wd-cleanup-name">
               <span className="wd-inbox-target">{c.target}</span>
               <span className="wd-inbox-branch">{c.branch}</span>

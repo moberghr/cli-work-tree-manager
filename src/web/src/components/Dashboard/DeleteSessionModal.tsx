@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { SessionSummary } from '../../api/client.js';
 import { removeWorktree, type RemoveWorktreeOptions } from '../../api/panes.js';
 import { Modal } from '../Review/Modal.js';
+import { Button } from '../../ui/index.js';
 
 interface Props {
   session: SessionSummary;
@@ -57,20 +58,20 @@ export function DeleteSessionModal({ session, onDeleted, onClose }: Props) {
       primaryRef={cancelRef}
       actions={
         <>
-          <button type="button" ref={cancelRef} onClick={onClose} disabled={busy}>
+          {/* A raw button for its ref (Button takes none): the same class as Button's. */}
+          <Button ref={cancelRef} onClick={onClose} disabled={busy}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={() => run({ sessionOnly: true })}
             disabled={busy}
             title="Remove from the dashboard and history; leave the files on disk"
           >
             Forget session only
-          </button>
-          <button type="button" className="wd-btn-danger" onClick={() => run({ force })} disabled={busy}>
+          </Button>
+          <Button variant="danger" onClick={() => run({ force })} disabled={busy}>
             {busy ? 'Deleting…' : 'Delete worktree'}
-          </button>
+          </Button>
         </>
       }
     >

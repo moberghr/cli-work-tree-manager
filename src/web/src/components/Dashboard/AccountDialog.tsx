@@ -11,6 +11,7 @@ import {
   pendingText,
 } from '../../state/accounts.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button } from '../../ui/index.js';
 
 interface Props {
   session: SessionSummary;
@@ -108,9 +109,9 @@ export function AccountDialog({
       <form className="wd-modal" onSubmit={submit}>
         <header className="wd-modal-header">
           <h2>Claude account of {name}</h2>
-          <button type="button" className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
+          <Button variant="quiet" icon className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <p className="wd-account-note">
@@ -120,9 +121,9 @@ export function AccountDialog({
           {pending && (
             <p className="wd-account-note wd-account-pending-note" role="status">
               Waiting for its turn to end: {pendingText(pending)}.{' '}
-              <button type="button" className="wd-btn-secondary" onClick={() => void cancel()} disabled={busy}>
+              <Button onClick={() => void cancel()} disabled={busy}>
                 Cancel the switch
-              </button>
+              </Button>
             </p>
           )}
           {data === null && !loadError && <p className="wd-account-note">Loading the accounts…</p>}
@@ -174,16 +175,16 @@ export function AccountDialog({
         </div>
         <footer className="wd-modal-footer">
           {onAddAccount && data && (
-            <button type="button" className="wd-link-button wd-account-add-link" onClick={onAddAccount} disabled={busy}>
+            <Button variant="link" className="wd-account-add-link" onClick={onAddAccount} disabled={busy}>
               {hasMultipleAccounts(data) ? 'Add or log in to an account…' : 'Add another account…'}
-            </button>
+            </Button>
           )}
-          <button type="button" className="wd-btn-secondary" onClick={close} disabled={busy}>
+          <Button onClick={close} disabled={busy}>
             Cancel
-          </button>
-          <button type="submit" className="wd-btn-primary" disabled={busy || !pick || !!pending}>
+          </Button>
+          <Button variant="primary" type="submit" disabled={busy || !pick || !!pending}>
             {busy ? 'Switching…' : 'Switch'}
-          </button>
+          </Button>
         </footer>
       </form>
     </div>

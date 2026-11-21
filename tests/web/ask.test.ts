@@ -84,6 +84,17 @@ describe('ask: the page asks, never window.confirm (the macOS desktop app has no
     await expect(second).resolves.toBe(false);
   });
 
+  it('OK is the primary button, or the danger one when it throws work away (Revert, Discard, Leave)', () => {
+    act(() => void ask('Archive?'));
+    expect(button('OK').className).toContain('wd-btn-primary');
+    act(() => button('Cancel').click());
+    act(() => void ask('Revert src/a.ts back to HEAD?', { ok: 'Revert', danger: true }));
+    expect(button('Revert').className).toContain('wd-btn-danger');
+    expect(button('Revert').className).not.toContain('wd-btn-primary');
+    expect(document.activeElement).toBe(button('Revert'));
+    act(() => button('Cancel').click());
+  });
+
   it('a question left when the host goes is answered no', async () => {
     let q!: Promise<boolean>;
     act(() => void (q = ask('Leave?')));

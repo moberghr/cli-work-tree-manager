@@ -23,6 +23,7 @@ import {
   setupSources,
 } from '../../../state/accounts.js';
 import { AccountLoginPanel } from '../AccountLoginPanel.js';
+import { Button, Input, PageHeader } from '../../../ui/index.js';
 
 /** The calls the page makes (tests swap them). */
 export interface AccountsApi {
@@ -142,27 +143,20 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
 
   return (
     <div className="wd-dash-tab-pane wd-tab-accounts">
-      <header className="wd-tab-header">
-        <h1>
-          Claude accounts <span className="wd-tab-header-muted">{rows.length}</span>
-        </h1>
-        <div className="wd-tab-controls">
-          <button
-            type="button"
-            className="wd-btn-secondary"
-            onClick={() => act('restart-all', () => api.restartAll().then(setRestarted))}
-            disabled={busy !== null}
-            title="Restarts every session's Claude on its own conversation, so each reads its settings, plugins and MCP servers again: an idle one at once, a working one when its turn ends. Use it after you turn a plugin on or off, or change Claude's setup."
-          >
-            {busy === 'restart-all' ? 'Restarting…' : 'Restart all Claudes'}
-          </button>
-          {canManage && !adding && (
-            <button type="button" className="wd-btn-primary" onClick={() => setAdding(true)}>
-              Add account…
-            </button>
-          )}
-        </div>
-      </header>
+      <PageHeader title="Claude accounts" meta={rows.length}>
+        <Button
+          onClick={() => act('restart-all', () => api.restartAll().then(setRestarted))}
+          disabled={busy !== null}
+          title="Restarts every session's Claude on its own conversation, so each reads its settings, plugins and MCP servers again: an idle one at once, a working one when its turn ends. Use it after you turn a plugin on or off, or change Claude's setup."
+        >
+          {busy === 'restart-all' ? 'Restarting…' : 'Restart all Claudes'}
+        </Button>
+        {canManage && !adding && (
+          <Button variant="primary" onClick={() => setAdding(true)}>
+            Add account…
+          </Button>
+        )}
+      </PageHeader>
 
       {(restarted ?? (rowError['restart-all'] ? { text: rowError['restart-all'], error: true } : null)) && (
         <p className={'wd-start-note' + ((restarted?.error ?? !!rowError['restart-all']) ? ' wd-accounts-error' : '')} role="status">
@@ -179,7 +173,7 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
         <form className="wd-accounts-add" onSubmit={submitAdd} aria-label="Add an account">
           <label>
             <span>Name</span>
-            <input
+            <Input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -190,19 +184,19 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
           </label>
           <label>
             <span>Folder</span>
-            <input
+            <Input
               value={folder}
               onChange={(e) => setFolder(e.target.value)}
               placeholder={defaultAccountFolder(name)}
               aria-label="Account folder (optional)"
             />
           </label>
-          <button type="submit" className="wd-btn-primary" disabled={!name.trim() || !!problem || busy === 'add'}>
+          <Button type="submit" variant="primary" disabled={!name.trim() || !!problem || busy === 'add'}>
             {busy === 'add' ? 'Adding…' : 'Add and log in'}
-          </button>
-          <button type="button" className="wd-btn-secondary" onClick={() => setAdding(false)} disabled={busy === 'add'}>
+          </Button>
+          <Button onClick={() => setAdding(false)} disabled={busy === 'add'}>
             Cancel
-          </button>
+          </Button>
           {(problem || rowError.add) && (
             <span className="wd-accounts-error" role="alert">
               {problem ?? rowError.add}
@@ -232,20 +226,19 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
             </p>
           )}
           {!setup.done && setup.items.length > 0 && (
-            <button
-              type="button"
-              className="wd-btn-primary"
+            <Button
+              variant="primary"
               disabled={busy !== null}
               onClick={() =>
                 act(`setup:${setup.to}`, () => api.copySetup(setup.to, setup.from).then((r) => setSetup({ ...r, done: true })))
               }
             >
               {busy === `setup:${setup.to}` ? 'Copying…' : `Copy to ${setup.to}`}
-            </button>
+            </Button>
           )}
-          <button type="button" className="wd-btn-secondary" onClick={() => setSetup(null)} disabled={busy === `setup:${setup.to}`}>
+          <Button onClick={() => setSetup(null)} disabled={busy === `setup:${setup.to}`}>
             {setup.done || setup.items.length === 0 ? 'Close' : 'Cancel'}
-          </button>
+          </Button>
           {rowError[`setup:${setup.to}`] && (
             <span className="wd-accounts-error" role="alert">
               {rowError[`setup:${setup.to}`]}
@@ -257,9 +250,8 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
       {pending && (
         <div className="wd-repos-confirm wd-accounts-confirm" role="alertdialog" aria-label="Confirm">
           <span>{pending.text}</span>
-          <button
-            type="button"
-            className="wd-btn-danger"
+          <Button
+            variant="danger"
             onClick={() => {
               const n = pending.name;
               setPending(null);
@@ -267,10 +259,8 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
             }}
           >
             Remove anyway
-          </button>
-          <button type="button" className="wd-btn-secondary" onClick={() => setPending(null)}>
-            Cancel
-          </button>
+          </Button>
+          <Button onClick={() => setPending(null)}>Cancel</Button>
         </div>
       )}
 
@@ -291,42 +281,32 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
             <span className="wd-accounts-actions">
               {canManage && (
                 <>
-                  <button
-                    type="button"
-                    className={r.needsLogin ? 'wd-btn-primary' : 'wd-btn-secondary'}
-                    onClick={() => setLoggingIn(r.name)}
-                    disabled={busy !== null}
-                  >
+                  <Button variant={r.needsLogin ? 'primary' : 'secondary'} onClick={() => setLoggingIn(r.name)} disabled={busy !== null}>
                     {r.needsLogin ? 'Log in' : 'Log in again'}
-                  </button>
+                  </Button>
                   {r.canMakeDefault && (
-                    <button
-                      type="button"
-                      className="wd-btn-secondary"
+                    <Button
                       onClick={() => act(`default:${r.name}`, () => api.makeDefault(r.name))}
                       disabled={busy !== null}
                       title="New sessions start on this account"
                     >
                       Make default
-                    </button>
+                    </Button>
                   )}
                   {data &&
                     setupSources(data, r.name).map((from) => (
-                      <button
+                      <Button
                         key={from}
-                        type="button"
-                        className="wd-btn-secondary"
+
                         onClick={() => act(`plan:${r.name}`, () => api.setupPlan(r.name, from).then(setSetup))}
                         disabled={busy !== null}
                         title={`Shows what ${r.name} lacks of ${from}'s setup (its instructions, agents, commands, settings, MCP servers, plugins), then copies it INTO ${r.name} when you say so. Never a login.`}
                       >
                         Copy setup from {from}…
-                      </button>
+                      </Button>
                     ))}
                   {data && sessionsElsewhere(data, r.name) > 0 && (
-                    <button
-                      type="button"
-                      className="wd-btn-secondary"
+                    <Button
                       onClick={() =>
                         act(`moveall:${r.name}`, () =>
                           api.moveAll(r.name).then((x) => setMovedNote((m) => ({ ...m, [r.name]: x.summary }))),
@@ -336,18 +316,16 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
                       title={`Moves the ${sessionsElsewhere(data, r.name)} session(s) on other accounts to this one, with their conversations: an idle Claude restarts on it, a working one switches when its turn ends`}
                     >
                       {busy === `moveall:${r.name}` ? 'Moving…' : 'Move all sessions here'}
-                    </button>
+                    </Button>
                   )}
                   {r.name !== DEFAULT_ACCOUNT && (
-                    <button
-                      type="button"
-                      className="wd-btn-secondary"
+                    <Button
                       onClick={() => act(`remove:${r.name}`, () => api.remove(r.name))}
                       disabled={busy !== null || !r.canRemove}
                       title={r.canRemove ? 'work forgets it; its folder stays as it is' : `Can't remove it: ${r.removeWhy}`}
                     >
                       Remove
-                    </button>
+                    </Button>
                   )}
                 </>
               )}

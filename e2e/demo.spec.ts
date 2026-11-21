@@ -289,7 +289,7 @@ test('two sessions changing the same file are flagged, and the warning links to 
 });
 
 test('a Jira issue on Start starts a session with a first prompt, opened on its terminal', async ({ page }) => {
-  // The old Jira page's link lands on Start.
+  // The old Jira page's link still opens Issues (the address stays as it was).
   await page.goto(`${url}#/jira`);
   await expect(page).toHaveURL(/#\/jira$/);
   const jira = page.getByRole('region', { name: 'Jira issues assigned to you' });
@@ -438,11 +438,11 @@ test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session
   await expect(page.locator('.wd-archived-pill')).toBeVisible();
 });
 
-test('Jira has its own tab; Repos goes back to Start; the pages scroll when they are taller than the window', async ({ page }) => {
+test('Issues has its own tab; Repos goes back to Start; the pages scroll when they are taller than the window', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 420 });
   await page.goto(`${url}#/start`);
   await page.getByRole('tab', { name: 'Issues' }).click();
-  await expect(page).toHaveURL(/#\/jira$/);
+  await expect(page).toHaveURL(/#\/issues$/);
   await expect(page.getByRole('region', { name: 'Jira issues assigned to you' })).toBeVisible();
   await page.getByRole('tab', { name: 'Start' }).click();
   await page.getByRole('button', { name: 'Repos & groups' }).click();

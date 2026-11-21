@@ -3,6 +3,7 @@ import type { CodeFilesWire, CodeSearchWire } from '../../../../core/api-types.j
 import { fetchCodeFiles, fetchCodeSearch } from '../../api/client.js';
 import { codeEntries, filterEntries } from '../../state/code-tree.js';
 import { matchRange, searchGroups, type CodePlace, type SearchRow } from '../../state/code-search-view.js';
+import { Input } from '../../ui/index.js';
 
 /** A pause in typing before the server is asked (each keystroke would start a search). */
 const TYPING_PAUSE_MS = 180;
@@ -86,10 +87,12 @@ export function CodeSearch({ sessionId, onPick, onClose }: { sessionId: string; 
   return (
     <div className="wd-switcher-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="wd-switcher wd-code-search" role="dialog" aria-modal="true" aria-label="Search the code">
-        <input
+        <Input
+          bare
+
           ref={inputRef}
           className="wd-switcher-input"
-          type="text"
+
           role="combobox"
           aria-expanded="true"
           aria-controls={listId}

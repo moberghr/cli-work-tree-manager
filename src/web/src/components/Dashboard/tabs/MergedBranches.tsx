@@ -105,7 +105,7 @@ export function MergedBranches({ api = httpMergedBranchesApi, pollMs = 1000 }: {
       {st?.scannedAt && list.length === 0 && !st.scanning && <p className="wd-cleanup-hint">None.</p>}
       <ul className="wd-cleanup-list">
         {list.map((b) => (
-          <li key={`${b.repo}/${b.branch}`} className="wd-cleanup-item">
+          <li key={`${b.repo}/${b.branch}`} className="wd-cleanup-item wd-cleanup-item-nocheck">
             <span className="wd-cleanup-name">
               <span className="wd-inbox-target">{b.repo}</span>
               <span className="wd-inbox-branch">{b.branch}</span>

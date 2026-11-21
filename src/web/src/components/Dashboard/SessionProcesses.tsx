@@ -3,6 +3,7 @@ import type { SessionProcessWire, SessionProcessesWire } from '../../../../core/
 import { formatAge, formatBytes, processesLine } from '../../../../core/sessions/process-view.js';
 import { fetchSessionProcesses, stopSessionProcess, type SessionSummary } from '../../api/client.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button } from '../../ui/index.js';
 
 /** What a row says of itself beside its command: the agent, or how long it has run. Pure. */
 export function processNote(p: SessionProcessWire, now: number): string {
@@ -66,9 +67,9 @@ export function SessionProcesses({ session, onClose }: { session: SessionSummary
       <div className="wd-modal wd-procs">
         <header className="wd-modal-header">
           <h2>Processes of {name}</h2>
-          <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close">
+          <Button variant="quiet" icon className="wd-modal-close" onClick={onClose} aria-label="Close">
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <p className="wd-procs-summary" role="status">
@@ -87,9 +88,9 @@ export function SessionProcesses({ session, onClose }: { session: SessionSummary
                     <td className="wd-procs-note">{processNote(p, data.at)}</td>
                     <td className="wd-procs-act">
                       {!p.agent && (
-                        <button type="button" className="wd-btn-secondary" disabled={stopping !== null} onClick={() => stop(p)}>
+                        <Button disabled={stopping !== null} onClick={() => stop(p)}>
                           {stopping === p.pid ? 'Stopping…' : 'Stop'}
-                        </button>
+                        </Button>
                       )}
                     </td>
                   </tr>
@@ -102,12 +103,12 @@ export function SessionProcesses({ session, onClose }: { session: SessionSummary
           </p>
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={load} disabled={loading}>
+          <Button onClick={load} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button type="button" className="wd-btn-primary" onClick={onClose}>
+          </Button>
+          <Button variant="primary" onClick={onClose}>
             Done
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

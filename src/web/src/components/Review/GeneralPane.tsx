@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useReview } from '../../state/ReviewProvider.js';
 import { CommentItem } from './CommentItem.js';
+import { Button, TextArea } from '../../ui/index.js';
 
 /**
  * Collapsible "General review note" pane at the top of the review view.
@@ -24,7 +25,7 @@ export function GeneralPane() {
     <section className="wd-general-pane">
       <details>
         <summary>General review note (not tied to any line)</summary>
-        <textarea
+        <TextArea
           className="wd-general-input"
           placeholder="A high-level comment for Claude…"
           value={text}
@@ -37,12 +38,12 @@ export function GeneralPane() {
           }}
         />
         <div className="wd-general-pane-actions">
-          <button type="button" className="wd-btn-secondary" disabled={!text.trim()} onClick={() => submit('draft')}>
+          <Button disabled={!text.trim()} onClick={() => submit('draft')}>
             {review.comments.some((c) => c.status === 'draft') ? 'Add to review' : 'Start review'}
-          </button>
-          <button type="button" className="wd-btn-primary" disabled={!text.trim()} onClick={() => submit('published')}>
+          </Button>
+          <Button variant="primary" disabled={!text.trim()} onClick={() => submit('published')}>
             Comment (Ctrl+Enter)
-          </button>
+          </Button>
         </div>
         {general.length > 0 && (
           <div className="wd-general-pane-list">

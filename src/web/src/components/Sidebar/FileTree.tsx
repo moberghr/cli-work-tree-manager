@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { revealInScroller } from '../../utils/scroll.js';
-import { STATUS_LETTER } from '../../utils/status.js';
+import { STATUS_LETTER, STATUS_TONE } from '../../utils/status.js';
 import { anchorFor, buildTree, type TreeNode } from '../../utils/tree.js';
-import { RowMenu } from '../Dashboard/RowMenu.js';
 import { filesUnder, keepReadingPlace, viewedMenuItems } from '../../state/tree-viewed.js';
+import { Badge, Input, Menu } from '../../ui/index.js';
 
 /**
  * Build the coverage-badge tooltip. Always states the line-coverage percent;
@@ -77,7 +77,7 @@ export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors, onM
 
   return (
     <div className="wd-tree-pane">
-      <input className="wd-web-filter" type="search" placeholder="Filter files…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <Input className="wd-web-filter" type="search" placeholder="Filter files…" value={query} onChange={(e) => setQuery(e.target.value)} />
       {tree.length === 0 ? (
         // "No matches" only answers a filter: with none typed, there's simply nothing here.
         <p className="wd-web-empty-list">{q ? `No file matches “${query.trim()}”.` : 'No changes in this repo here.'}</p>
@@ -88,7 +88,7 @@ export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors, onM
           ))}
         </ul>
       )}
-      {menu && items.length > 0 && <RowMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+      {menu && items.length > 0 && <Menu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   );
 }
@@ -147,7 +147,9 @@ function TreeNodeView({
         title={node.file.path}
         onContextMenu={onMenu && ((e) => onMenu(e, node))}
       >
-        <span className={`wd-tree-status wd-status-${node.file.status}`}>{STATUS_LETTER[node.file.status]}</span>
+        <Badge kind="letter" tone={STATUS_TONE[node.file.status]} className={`wd-tree-status wd-status-${node.file.status}`}>
+          {STATUS_LETTER[node.file.status]}
+        </Badge>
         <span className="wd-tree-name">{node.name}</span>
         {stats}
         {typeof node.file.coverage === 'number' && (

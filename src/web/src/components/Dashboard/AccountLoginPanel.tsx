@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { startAccountLogin, stopAccountLogin } from '../../api/client.js';
 import { PtyView } from '../Terminal/LazyPtyView.js';
+import { Button } from '../../ui/index.js';
 
 interface Props {
   /** The account to log in to. */
@@ -47,9 +48,9 @@ export function AccountLoginPanel({ name, onClose, start = startAccountLogin, st
       <div className="wd-modal wd-account-login-panel">
         <header className="wd-modal-header">
           <h2>Log in to {name}</h2>
-          <button type="button" className="wd-modal-close" onClick={close} aria-label="Close">
+          <Button variant="quiet" icon className="wd-modal-close" onClick={close} aria-label="Close">
             ×
-          </button>
+          </Button>
         </header>
         <p className="wd-account-note">
           Claude Code on this account’s folder. Type <code>/login</code> and follow it (a browser window opens to sign in), then press Done.
@@ -69,9 +70,9 @@ export function AccountLoginPanel({ name, onClose, start = startAccountLogin, st
           )}
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-primary" onClick={close}>
+          <Button variant="primary" onClick={close}>
             Done
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

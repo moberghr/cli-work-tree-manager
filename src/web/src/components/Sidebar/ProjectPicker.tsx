@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import type { ProjectSummary } from '../../api/panes.js';
+import { Input } from '../../ui/index.js';
 
 /**
  * The New worktree dialog's project field: type to narrow the list (the
@@ -50,9 +51,8 @@ export function ProjectPicker({
 
   return (
     <div className="wd-project-picker">
-      <input
+      <Input
         ref={inputRef}
-        type="text"
         role="combobox"
         aria-expanded={open}
         aria-controls={listId}

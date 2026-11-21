@@ -1,5 +1,6 @@
 import type { DashboardRoute } from '../../state/dashboard-route.js';
 import { ThemeToggle } from '../ThemeToggle.js';
+import { Badge, Button, Tab } from '../../ui/index.js';
 
 interface Props {
   active: DashboardRoute['tab'];
@@ -102,41 +103,39 @@ export function TopNav({
       <ul className="wd-dash-tabs" role="tablist">
         {TABS.map((t) => (
           <li key={t.key}>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={current === t.key}
+            <Tab
+              active={current === t.key}
               className={'wd-dash-tab' + (current === t.key ? ' wd-dash-tab-active' : '')}
               title={`${t.label}  (press g ${t.hotkey})`}
               onClick={() => onSelect(t.key)}
             >
               {t.label}
               {t.key === 'reviews' && reviewsCount > 0 && (
-                <span className="wd-dash-tab-badge" aria-label={`${reviewsCount} ready for you`}>
+                <Badge kind="count" tone="danger" className="wd-dash-tab-badge" aria-label={`${reviewsCount} ready for you`}>
                   {reviewsCount}
-                </span>
+                </Badge>
               )}
               {t.key === 'inbox' && inboxCount > 0 && (
-                <span className="wd-dash-tab-badge" aria-label={`${inboxCount} need you`}>
+                <Badge kind="count" tone="danger" className="wd-dash-tab-badge" aria-label={`${inboxCount} need you`}>
                   {inboxCount}
-                </span>
+                </Badge>
               )}
-            </button>
+            </Tab>
           </li>
         ))}
       </ul>
       <div className="wd-dash-topnav-spacer" />
       {tasks}
       {onAssistant && (
-        <button
-          type="button"
+        <Button
+          size="sm"
           className={'wd-assistant-toggle' + (assistantOpen ? ' wd-assistant-toggle-on' : '')}
           onClick={onAssistant}
           aria-pressed={!!assistantOpen}
           title="Ask Claude about your sessions (Ctrl+K)"
         >
           Ask <kbd>Ctrl K</kbd>
-        </button>
+        </Button>
       )}
       {usage}
       {activity}

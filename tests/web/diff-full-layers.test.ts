@@ -1,15 +1,13 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { allStylesheets } from './stylesheets.js';
 
 /**
  * The full-screen diff covers the page but not what a key can open over it
  * (Ship, Fork, a row's menu, Ctrl+K, the shortcuts): one that drew under it
  * would take the keyboard unseen.
  */
-const css = ['global.css', 'dashboard.css', 'review.css']
-  .map((f) => fs.readFileSync(path.join(__dirname, '../../src/web/src/styles', f), 'utf8'))
-  .join('\n');
+// Every stylesheet: the menu is a shared piece (ui/ui.css), a session's page has its own (styles/pages/).
+const css = allStylesheets();
 const zOf = (selector: string): number => {
   const at = css.indexOf(`${selector} {`);
   expect(at, selector).toBeGreaterThanOrEqual(0);

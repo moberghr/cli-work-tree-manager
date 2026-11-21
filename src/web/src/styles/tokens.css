@@ -8,6 +8,41 @@
    index.html (before first paint, so no flash) and thereafter owned by the
    ThemeProvider. Default follows the OS (`prefers-color-scheme`); a user
    toggle overrides it and persists to localStorage (`wd:theme`). */
+/* The scale every control and page is built on (src/web/src/ui/): the sizes that were already the most used,
+   written down once. A new size is a new token here, argued for, never a number in a page's stylesheet. */
+:root {
+  /* Monospace: code, a branch's name, a time ("4m"). --mono is what rules already asked for (with fallbacks). */
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  --mono: var(--font-mono);
+  /* Text: a label on a row, most controls, body text, a row's title, a page's title. */
+  /* A badge's text (a count, a tag: "on GitHub", "#221"): the size they already were. */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 14px;
+  --text-title: 18px;
+  /* Corners: a chip, a control or row, a panel. */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  /* A control's height: on a row, anywhere else, the main one of a dialog. */
+  --control-h-sm: 24px;
+  --control-h: 28px;
+  --control-h-lg: 32px;
+  /* A tab strip's height (a session's tabs were 39 px; the top bar's tabs fill its own height). */
+  --tab-h: 40px;
+  /* A badge's height (a count, a tag, a status pill in a row). */
+  --badge-h: 16px;
+  /* Space, in steps of 4. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+}
+
 :root,
 :root[data-theme='light'] {
   color-scheme: light;
@@ -61,10 +96,12 @@
   --claude-bg: rgba(188, 140, 255, 0.12);
   --review-fg: #db61a2;
   --background-fg: #39c5cf;
-  --tag-red: #f85149;
-  --tag-orange: #f0883e;
-  --tag-yellow: #e3b341;
-  --tag-green: #3fb950;
-  --tag-blue: #58a6ff;
-  --tag-purple: #bc8cff;
+  /* Your colors for sessions, a little softer than the light theme's (about a fifth less saturated, same hue
+     and lightness): full-strength they shouted off the dark rail. */
+  --tag-red: #e5625c;
+  --tag-orange: #dc8b52;
+  --tag-yellow: #d1ac53;
+  --tag-green: #4cac5a;
+  --tag-blue: #6aa7ed;
+  --tag-purple: #be99f2;
 }

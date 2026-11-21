@@ -269,45 +269,13 @@
   border: 1px dashed currentColor;
   font-style: italic;
 }
+/* A file card's change letter: Badge, the letter kind (ui/ui.css). */
 .wd-file-badge {
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 4px;
   flex-shrink: 0;
-}
-.wd-status-added .wd-file-badge,
-.wd-file-badge.wd-status-added {
-  background: var(--status-added-bg);
-  color: var(--status-added-fg);
-}
-.wd-status-deleted .wd-file-badge,
-.wd-file-badge.wd-status-deleted {
-  background: var(--status-deleted-bg);
-  color: var(--status-deleted-fg);
-}
-.wd-status-modified .wd-file-badge,
-.wd-file-badge.wd-status-modified {
-  background: var(--status-modified-bg);
-  color: var(--status-modified-fg);
-}
-.wd-status-renamed .wd-file-badge,
-.wd-file-badge.wd-status-renamed {
-  background: var(--status-renamed-bg);
-  color: var(--status-renamed-fg);
-}
-.wd-status-binary .wd-file-badge,
-.wd-file-badge.wd-status-binary {
-  background: var(--status-binary-bg);
-  color: var(--status-binary-fg);
 }
 
 .wd-file-path {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -504,15 +472,10 @@
 .wd-diff-branch-switch-tag {
   color: var(--muted);
 }
+/* The select (Select, compact): how wide it may grow. */
 .wd-diff-branch-switch select {
   max-width: 22em;
   min-width: 0;
-  font: inherit;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 4px;
 }
 /* A turn that crossed a branch switch: its diff is the switch, not Claude's change. */
 .wd-history-switch {
@@ -725,7 +688,7 @@
   background: var(--header-bg);
   padding: 1px 5px;
   border-radius: 3px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
 }
 .wd-md-preview pre {
@@ -803,7 +766,7 @@
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -875,7 +838,7 @@
 /* git's enclosing-function hint (the only part of the old `@@` header we
    keep). Rendered monospace so a signature reads like code. */
 .wd-hunk-fn {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   opacity: 0.85;
 }
 
@@ -978,7 +941,7 @@
   z-index: 1;
 }
 .wd-fileview-path {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
   word-break: break-all;
@@ -992,7 +955,7 @@
   border-collapse: collapse;
   border: 1px solid var(--border);
   border-top: none;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
 }

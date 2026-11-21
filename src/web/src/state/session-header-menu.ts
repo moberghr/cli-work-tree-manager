@@ -1,9 +1,9 @@
 import type { DevServerState, SessionSummary } from '../api/client.js';
-import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { formatTokens } from '../utils/tokens.js';
 import { sessionKey } from './shortcuts.js';
 import { canAddRepo } from './add-repo.js';
 import { canSwitchAccount } from './accounts.js';
+import type { MenuItem } from '../ui/index.js';
 
 /**
  * The session header's ⋯ menu. The header itself shows one action (Archive,

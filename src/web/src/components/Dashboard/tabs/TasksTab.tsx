@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RowMenu } from '../RowMenu.js';
 import { createTask, deleteTask, fetchTasks, updateTask, type TaskItem } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
+import { Button, Input, Menu, PageHeader } from '../../../ui/index.js';
 
 interface Props {
   onPick: (task: TaskItem) => void;
@@ -88,25 +88,17 @@ export function TasksTab({ onPick }: Props) {
 
   return (
     <div className="wd-dash-tab-pane wd-tab-tasks">
-      <header className="wd-tab-header">
-        <h1>
-          Tasks{' '}
-          <span className="wd-tab-header-muted">
-            ({counts.open} open · {counts.done} done)
-          </span>
-        </h1>
-        <div className="wd-tab-controls">
-          <label>
-            <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> show done
-          </label>
-          <form className="wd-task-add" onSubmit={submitAdd}>
-            <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="+ Add task…" />
-            <button type="submit" className="wd-btn-primary" disabled={!draft.trim()}>
-              Add
-            </button>
-          </form>
-        </div>
-      </header>
+      <PageHeader compact title="Tasks" meta={`(${counts.open} open · ${counts.done} done)`}>
+        <label>
+          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> show done
+        </label>
+        <form className="wd-task-add" onSubmit={submitAdd}>
+          <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="+ Add task…" />
+          <Button type="submit" variant="primary" disabled={!draft.trim()}>
+            Add
+          </Button>
+        </form>
+      </PageHeader>
       {visible.length === 0 ? (
         <div className="wd-tab-empty">
           {tasks.length === 0
@@ -132,14 +124,9 @@ export function TasksTab({ onPick }: Props) {
                 onDone={() => setEditingId(null)}
                 onSave={(text) => rename(t, text)}
               />
-              <button
-                type="button"
-                className="wd-btn-secondary wd-task-action"
-                onClick={() => onPick(t)}
-                title="Create worktree (todo/<slug>)"
-              >
+              <Button className="wd-task-action" onClick={() => onPick(t)} title="Create worktree (todo/<slug>)">
                 → worktree
-              </button>
+              </Button>
               <button
                 type="button"
                 className="wd-task-action wd-task-remove"
@@ -154,7 +141,7 @@ export function TasksTab({ onPick }: Props) {
         </ul>
       )}
       {menu && (
-        <RowMenu
+        <Menu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
@@ -194,7 +181,8 @@ function TaskText({
       if (save) onSave(draft);
     };
     return (
-      <input
+      <Input
+        compact
         className="wd-task-edit"
         aria-label="Task text"
         value={draft}

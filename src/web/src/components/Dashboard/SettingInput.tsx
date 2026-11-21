@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { SettingKind } from '../../../../core/settings/settings-schema.js';
 import { listText, parseList, sameValue } from '../../state/settings-view.js';
+import { Input, Select, TextArea } from '../../ui/index.js';
 
 /**
  * One setting's input, by its kind: a switch and a choice save as they change; a number, a line of text and a list
@@ -60,7 +61,7 @@ export function SettingInput({
       break;
     case 'choice':
       input = (
-        <select
+        <Select
           id={id}
           value={typeof value === 'string' ? value : ''}
           disabled={state === 'saving'}
@@ -72,12 +73,12 @@ export function SettingInput({
               {o.label}
             </option>
           ))}
-        </select>
+        </Select>
       );
       break;
     case 'list':
       input = (
-        <textarea
+        <TextArea
           id={id}
           rows={Math.min(8, Math.max(2, draft.split('\n').length + 1))}
           value={draft}
@@ -92,7 +93,7 @@ export function SettingInput({
       break;
     default:
       input = (
-        <input
+        <Input
           id={id}
           type="text"
           inputMode={kind.type === 'number' ? 'decimal' : undefined}

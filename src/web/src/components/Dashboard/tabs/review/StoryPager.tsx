@@ -17,8 +17,9 @@ import {
   type ReviewEntry,
   type ReviewPage,
 } from '../../../../state/review-view.js';
-import { FileRow, FileSummary, Prose } from './ReviewText.js';
+import { FileRow, FileSummary, Prose, STORY_VERDICT_TONE } from './ReviewText.js';
 import { revealInScroller } from '../../../../utils/scroll.js';
+import { Badge } from '../../../../ui/index.js';
 
 const TREE_SPEC: ResizeSpec = {
   storageKey: 'work-web:review-tree-width',
@@ -242,14 +243,18 @@ export function StoryPager({
                   <p className="wd-review-story-badges">
                     <span className={`wd-review-risk wd-review-risk-${s.riskLevel}`}>risk {s.riskLevel}/5</span>
                     {s.flags.map((f) => (
-                      <span key={f} className="wd-review-flag">
+                      <Badge key={f} kind="status" tone="warn" className="wd-review-flag">
                         {FLAG_LABEL[f]}
-                      </span>
+                      </Badge>
                     ))}
                     {s.verdict && (
-                      <span className={`wd-review-story-verdict wd-review-story-verdict-${s.verdict}`}>
+                      <Badge
+                        kind="status"
+                        tone={STORY_VERDICT_TONE[s.verdict]}
+                        className={`wd-review-story-verdict wd-review-story-verdict-${s.verdict}`}
+                      >
                         {STORY_VERDICT_LABEL[s.verdict]}
-                      </span>
+                      </Badge>
                     )}
                     {s.by === 'ai' && <span className="wd-start-note"> · written by the AI step</span>}
                   </p>

@@ -32,7 +32,7 @@ export interface MenuSwatches {
 /** What a menu lists: items, and rows of swatches. */
 export type MenuEntry = MenuItem | MenuSwatches;
 
-interface RowMenuProps {
+export interface MenuProps {
   x: number;
   y: number;
   items: MenuEntry[];
@@ -44,8 +44,8 @@ interface RowMenuProps {
 }
 
 /**
- * A row's right-click menu (session rail, Tasks) at the pointer, or a
- * button's (the session header's ⋯) — kept inside the window when opened
+ * The menu (a shared piece, ui/): a row's right-click menu (session rail, Tasks, the file tree) at the
+ * pointer, or a button's (the session header's ⋯, the bulk bar's Snooze) — kept inside the window when opened
  * near an edge. ↑/↓ move (through a row of swatches one by one, ←/→ too),
  * Enter picks; closes on a pick, Esc, Tab, a click elsewhere, the window
  * losing focus or resizing.
@@ -53,7 +53,7 @@ interface RowMenuProps {
  * Focuses its first item once, on opening: the parent re-renders on every
  * background refresh, and re-running that would snap ↑/↓ back to the top.
  */
-export function RowMenu({ x, y, items, onClose, footer, anchor = 'left' }: RowMenuProps) {
+export function Menu({ x, y, items, onClose, footer, anchor = 'left' }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   // Opened near the bottom or right edge: shift it back in, once it has a size.

@@ -1,0 +1,655 @@
+/* The shared pieces of the web UI (src/web/src/ui/): one implementation of each control, on the scale in
+   tokens.css. Loaded before the page stylesheets, so a page can still place a control (margins, width) but
+   never restyles one. The class names are the ones the pages already used: markup not yet moved to the
+   components looks the same as markup that is. See .claude/references/work/web-ui.md. */
+
+/* Every control speaks the app's typeface: a button or input with no rule of its own took the browser's
+   (reported: the Reviews list and the Time tab's boxes were in another font). */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* ── Button ────────────────────────────────────────────────────────────────────────────────────────── */
+.wd-btn-primary,
+.wd-btn-danger,
+.wd-btn-secondary,
+.wd-row-action,
+.wd-topnav-btn {
+  appearance: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.wd-btn-primary:disabled,
+.wd-btn-danger:disabled,
+.wd-btn-secondary:disabled,
+.wd-row-action:disabled,
+.wd-topnav-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wd-btn-primary:focus-visible,
+.wd-btn-danger:focus-visible,
+.wd-btn-secondary:focus-visible,
+.wd-row-action:focus-visible,
+.wd-topnav-btn:focus-visible,
+.wd-link-button:focus-visible,
+.wd-segmented-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The one main action of a view. */
+.wd-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.wd-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* The one main action when it destroys something (Delete, Merge, Remove). */
+.wd-btn-danger {
+  background: var(--del-fg);
+  border-color: var(--del-fg);
+  color: #fff;
+  font-weight: 600;
+}
+.wd-btn-danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* Any other action. */
+.wd-btn-secondary {
+  background: var(--bg);
+  color: var(--fg);
+}
+.wd-btn-secondary:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+/* A main or secondary button in a toolbar: the height of a Segmented beside it. */
+.wd-btn-sm {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+}
+
+/* An action on a row (a table row, an Inbox item): smaller and quieter, so a list of them doesn't shout. */
+.wd-row-action {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.wd-row-action:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--hover);
+}
+.wd-row-action-danger:hover:not(:disabled) {
+  color: var(--del-fg);
+  border-color: var(--del-fg);
+}
+
+/* A button with no frame until it is pointed at (the top bar's Tasks). */
+.wd-topnav-btn {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: var(--text-md);
+}
+.wd-topnav-btn:hover:not(:disabled),
+.wd-topnav-btn-on {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+/* One glyph, no words (a dialog's ×): a square the height of the control, the glyph at a title's size. After the kinds, so it wins over
+   their text size. */
+.wd-btn-icon {
+  width: var(--control-h);
+  padding: 0;
+  font-size: var(--text-title);
+}
+
+/* A button that reads as a link (Review all, Clean up, Show 1 older…). A panel that wants it in its own
+   colour overrides the colour alone. */
+.wd-link-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.wd-link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.wd-link-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+/* Quiet grey (reply drafts' actions, an outline), or the text around it (a panel's list): the blue would shout there. */
+.wd-link-button-muted {
+  color: var(--muted);
+}
+.wd-link-button-muted:hover:not(:disabled) {
+  color: var(--fg);
+}
+.wd-link-button-inherit {
+  color: inherit;
+  text-align: left;
+}
+
+/* ── Segmented: a few choices of which one is on (Now / Today, Group: Repo / None, a review's modes) ─── */
+.wd-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.wd-segmented-btn {
+  appearance: none;
+  box-sizing: border-box;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 0;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  cursor: pointer;
+}
+.wd-segmented-btn + .wd-segmented-btn {
+  border-left: 1px solid var(--border);
+}
+.wd-segmented-btn:hover {
+  color: var(--fg);
+}
+.wd-segmented-btn-on {
+  background: var(--hover);
+  color: var(--fg);
+  font-weight: 600;
+}
+/* Nothing behind it (a repo with no changes in this pick): dimmed until it is the one on. */
+.wd-segmented-btn-muted:not(.wd-segmented-btn-on) {
+  opacity: 0.55;
+}
+.wd-segmented-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Input, TextArea: a text box ────────────────────────────────────────────────────────────────────── */
+.wd-input {
+  box-sizing: border-box;
+  min-height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+}
+.wd-input::placeholder {
+  color: var(--muted);
+}
+/* Focused: the border and a ring of the same colour, so it reads as clearly as a button's focus ring. */
+.wd-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.wd-input:disabled {
+  opacity: 0.6;
+}
+.wd-textarea {
+  display: block;
+  padding: var(--space-2);
+  line-height: 1.4;
+  resize: vertical;
+}
+/* One line (a summary beside buttons): a button's height until it is pulled taller. */
+.wd-textarea[rows='1'] {
+  padding-block: var(--space-1);
+}
+/* The search field across the top of a palette (Ctrl+P, code search): no frame, a line under it. */
+.wd-input-bare {
+  width: 100%;
+  min-height: var(--control-h-lg);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  font-size: var(--text-lg);
+}
+.wd-input-bare:focus {
+  border-bottom-color: var(--border);
+  box-shadow: none;
+}
+/* In a tight row (a chip row, beside row buttons). */
+.wd-input-sm {
+  min-height: var(--control-h-sm);
+}
+.wd-select {
+  padding-right: var(--space-1);
+  cursor: pointer;
+}
+.wd-select:disabled {
+  cursor: default;
+}
+
+/* ── A branch's name or a time ("4m") in a row: monospace, a touch smaller (it reads larger than the text around it). */
+.wd-mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* ── Tab: one tab of a strip that switches what is shown below it (top bar, a session's tabs) ──────────── */
+.wd-tab {
+  appearance: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tab-h);
+  padding: 0 var(--space-4);
+  margin: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-md);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 80ms ease,
+    border-color 80ms ease,
+    background 80ms ease;
+}
+.wd-tab:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+.wd-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+.wd-tab-on {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+.wd-tab-on:hover {
+  background: transparent;
+}
+
+/* ── Badge: a count, a tag, a state, a file's letter ────────────────────────────────────────────────────
+   One colour per badge (its tone, --badge-c); the kind says how it is used: filled, outlined, tinted. */
+.wd-badge {
+  --badge-c: var(--muted);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: var(--badge-h);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+  text-decoration: none;
+  color: var(--badge-c);
+}
+.wd-badge-accent {
+  --badge-c: var(--accent);
+}
+.wd-badge-ok {
+  --badge-c: var(--add-fg);
+}
+.wd-badge-warn {
+  --badge-c: var(--warn-fg);
+}
+.wd-badge-danger {
+  --badge-c: var(--del-fg);
+}
+.wd-badge-review {
+  --badge-c: var(--review-fg);
+}
+.wd-badge-merged {
+  --badge-c: var(--tag-purple);
+}
+/* A number: filled, white on its colour, never narrower than it is tall. */
+.wd-badge-count {
+  min-width: var(--badge-h);
+  padding: 0 var(--space-1);
+  background: var(--badge-c);
+  color: #fff;
+  font-weight: 600;
+}
+/* A label: outlined in a lighter shade of its colour (a neutral one in the border colour). */
+.wd-badge-tag {
+  border-color: color-mix(in srgb, var(--badge-c) 45%, transparent);
+}
+.wd-badge-tag:not(.wd-badge-accent, .wd-badge-ok, .wd-badge-warn, .wd-badge-danger, .wd-badge-review, .wd-badge-merged) {
+  border-color: var(--border);
+}
+/* A state: tinted with its colour. */
+.wd-badge-status {
+  background: color-mix(in srgb, var(--badge-c) 14%, transparent);
+  font-size: var(--text-xs);
+}
+/* A file's letter: a tinted square. */
+.wd-badge-letter {
+  min-width: var(--badge-h);
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--badge-c) 18%, transparent);
+  font-weight: 600;
+}
+/* Not the real thing yet, or no longer: a draft PR, a row kept past its PR, an archived session. */
+.wd-badge-dashed {
+  border-style: dashed;
+}
+a.wd-badge:hover {
+  filter: brightness(1.15);
+}
+
+/* ── Menu: a row's right-click menu at the pointer, or a button's (the session header's ⋯) ──────────────── */
+.wd-row-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 140px;
+  padding: var(--space-1);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.wd-row-menu-item {
+  appearance: none;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.wd-row-menu-item:hover,
+.wd-row-menu-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+/* Can't be picked right now (the version menu's Check for updates, while checking). */
+.wd-row-menu-item:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.wd-row-menu-item:disabled:hover {
+  background: transparent;
+}
+/* Deletes or can't be undone in one click. */
+.wd-row-menu-item-danger {
+  color: var(--del-fg);
+}
+/* A line above it, to set a group apart. */
+.wd-row-menu-item-separated {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+}
+/* Its shortcut, after the label. */
+.wd-row-menu-hint {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-family: inherit;
+}
+/* A muted line under the items (the session header's: how full its context is). */
+.wd-row-menu-footer {
+  white-space: nowrap;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+/* A row of swatches in place of an item (the rail's Color): rounded squares, as the marks are; the current one ringed. */
+.wd-row-menu-swatches {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+}
+.wd-row-menu-swatches-label {
+  flex: 1;
+  margin-right: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.wd-row-menu-swatch {
+  appearance: none;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--tag);
+  cursor: pointer;
+}
+.wd-row-menu-swatch:hover,
+.wd-row-menu-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.wd-row-menu-swatch-current {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 3.5px var(--fg);
+}
+/* No color: an empty square, struck through. */
+.wd-row-menu-swatch-none {
+  --tag: var(--muted);
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 0.75px),
+    var(--muted) calc(50% - 0.75px),
+    var(--muted) calc(50% + 0.75px),
+    transparent calc(50% + 0.75px)
+  );
+  box-shadow: inset 0 0 0 1px var(--muted);
+}
+.wd-row-menu-swatch-none.wd-row-menu-swatch-current {
+  box-shadow:
+    inset 0 0 0 1px var(--muted),
+    0 0 0 2px var(--bg),
+    0 0 0 3.5px var(--fg);
+}
+
+/* ── Chip: a short value you can take out (its ×), or a choice to pick (a checkbox inside) ─────────────── */
+.wd-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+label.wd-chip {
+  cursor: pointer;
+}
+.wd-chip input {
+  margin: 0;
+}
+.wd-chip-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wd-chip-bad {
+  border-color: var(--del-fg);
+  color: var(--del-fg);
+}
+/* A chip you switch (ToggleChip): a button that looks like one. */
+.wd-chip-toggle {
+  appearance: none;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.wd-chip-toggle:hover:not(.wd-chip-on) {
+  color: var(--fg);
+}
+.wd-chip-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.wd-chip-remove {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+}
+.wd-chip-remove:hover:not(:disabled) {
+  color: var(--fg);
+}
+.wd-chip-remove:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.wd-chip-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── PageHeader: a page's title, what it counts, and its controls on the right ───────────────────────── */
+.wd-tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  /* Opaque: a page that keeps it at the top while it scrolls (sticky) has nothing show through it. */
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.wd-tab-header h1 {
+  font-size: var(--text-title);
+  font-weight: 600;
+  margin: 0;
+}
+/* In a panel or a narrow column: less room, a smaller title. */
+.wd-tab-header-compact {
+  padding: var(--space-3) var(--space-4);
+}
+.wd-tab-header-compact h1 {
+  font-size: var(--text-lg);
+}
+.wd-tab-header-muted {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: var(--text-md);
+}
+/* A narrow window (the rail folds away at the same width): less room around the title. */
+@media (max-width: 720px) {
+  .wd-tab-header {
+    padding: var(--space-3) var(--space-4);
+  }
+}
+
+/* ── SectionTitle: the small capitals over a group of rows ───────────────────────────────────────────── */
+.wd-section-title {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wd-section-title-meta {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ── ListRow: a row you click, in a list (a review, a day) ───────────────────────────────────────────── */
+.wd-list-row {
+  appearance: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+.wd-list-row:hover {
+  background: var(--hover);
+}
+.wd-list-row-active {
+  background: var(--current);
+  border-color: var(--border);
+}
+.wd-list-row-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-list-row-meta {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}

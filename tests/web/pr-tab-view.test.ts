@@ -237,7 +237,10 @@ describe('the PR tab, as reviewed', () => {
       ta.dispatchEvent(new Event('input', { bubbles: true }));
     });
     const fold = container.querySelector<HTMLButtonElement>('.wd-pr-fold')!;
+    // Its glyph alone says nothing to a screen reader: its name says what a click does.
+    expect(fold.getAttribute('aria-label')).toBe('Fold this pull request');
     act(() => fold.click());
+    expect(fold.getAttribute('aria-label')).toBe('Unfold this pull request');
     act(() => fold.click());
     expect(container.querySelector<HTMLTextAreaElement>('.wd-reply-text')!.value).toBe('Fixed, and added a test.');
   });

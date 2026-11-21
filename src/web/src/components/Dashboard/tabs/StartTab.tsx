@@ -3,6 +3,7 @@ import { hostName } from '../../../../../core/hosts/commands.js';
 import type { PrInfo } from '../../../api/panes.js';
 import type { SessionSummary } from '../../../api/client.js';
 import { isArchived, prsForSession } from '../../../state/session-display.js';
+import { Button, PageHeader, ToggleChip } from '../../../ui/index.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -112,38 +113,30 @@ export function StartTab({
 
   const existing = (s: SessionSummary | undefined) =>
     s ? (
-      <button type="button" className="wd-link-button wd-start-existing" onClick={() => onOpenSession(s.id)} title="Open the session on it">
+      <Button variant="link" className="wd-start-existing" onClick={() => onOpenSession(s.id)} title="Open the session on it">
         {s.titleIsYours && s.title ? s.title : s.branch} →
-      </button>
+      </Button>
     ) : null;
 
   return (
     <div className="wd-dash-tab-pane wd-tab-start">
-      <header className="wd-tab-header">
-        <h1>Start work</h1>
-        <div className="wd-tab-controls">
-          {onManageRepos && (
-            <button type="button" className="wd-btn-secondary" onClick={onManageRepos}>
-              Repos & groups
-            </button>
-          )}
-          <button type="button" className="wd-btn-primary" onClick={onNewWorktree}>
-            New worktree
-          </button>
-        </div>
-      </header>
+      <PageHeader title="Start work">
+        {onManageRepos && <Button onClick={onManageRepos}>Repos & groups</Button>}
+        <Button variant="primary" onClick={onNewWorktree}>
+          New worktree
+        </Button>
+      </PageHeader>
 
       {counts.length > 1 && (
         <div className="wd-start-filter" role="group" aria-label="Show pull requests in">
-          <button type="button" className="wd-start-chip" aria-pressed={active.length === 0} onClick={() => choose([])}>
+          <ToggleChip className="wd-start-chip" on={active.length === 0} onClick={() => choose([])}>
             All
-          </button>
+          </ToggleChip>
           {counts.map((c) => (
-            <button
+            <ToggleChip
               key={c.repo}
-              type="button"
               className="wd-start-chip"
-              aria-pressed={active.includes(c.repo)}
+              on={active.includes(c.repo)}
               onClick={() => toggle(c.repo)}
               title={
                 active.includes(c.repo)
@@ -152,7 +145,7 @@ export function StartTab({
               }
             >
               {c.repo} <span className="wd-start-chip-count">{c.count}</span>
-            </button>
+            </ToggleChip>
           ))}
         </div>
       )}
@@ -222,9 +215,7 @@ function PrList({
               {existing(sessionForPr(pr, sessions, membersOf)) ?? (
                 <>
                   {onWork && !pr.isMine && (
-                    <button
-                      type="button"
-                      className="wd-btn-secondary"
+                    <Button
                       onClick={() => onWork(pr)}
                       disabled={pr.fork}
                       title={
@@ -234,18 +225,16 @@ function PrList({
                       }
                     >
                       Work on it
-                    </button>
+                    </Button>
                   )}
-                  <button
-                    type="button"
-                    className="wd-btn-secondary"
+                  <Button
                     onClick={() => onPick(pr)}
                     title={
                       pr.isMine ? 'Continue on it in a worktree' : 'Have Claude review it in a worktree (it changes nothing, posts nothing)'
                     }
                   >
                     {pr.isMine ? 'Start' : 'Review'}
-                  </button>
+                  </Button>
                 </>
               )}
             </span>

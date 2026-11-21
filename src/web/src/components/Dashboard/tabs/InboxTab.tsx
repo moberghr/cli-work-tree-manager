@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
-import { RowMenu } from '../RowMenu.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
 import {
   answerPermission,
@@ -21,6 +20,7 @@ import type { RailLayout } from '../../../../../core/rail/rail-layout.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank, prWantsYou, reviewWantsYou } from '../../../../../core/status/attention.js';
 import { relativeTime } from '../../../utils/time.js';
+import { Menu, PageHeader } from '../../../ui/index.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -188,17 +188,9 @@ export function InboxTab({
 
   return (
     <div className="wd-dash-tab-pane wd-tab-inbox">
-      <header className="wd-tab-header">
-        <h1>
-          Inbox{' '}
-          {waitingCount > 0 && (
-            <span className="wd-tab-header-muted">
-              {waitingCount} need{waitingCount === 1 ? 's' : ''} you
-            </span>
-          )}
-        </h1>
+      <PageHeader title="Inbox" meta={waitingCount > 0 ? `${waitingCount} need${waitingCount === 1 ? 's' : ''} you` : undefined}>
         <NotificationOffer />
-      </header>
+      </PageHeader>
       {tracked === 0 ? (
         <div className="wd-tab-empty">
           No session has reported its status yet. Status comes from Claude&apos;s hooks, which the full <code>work web</code> installs (not
@@ -415,7 +407,7 @@ export function InboxTab({
         </ul>
       )}
       {snoozeMenu && (
-        <RowMenu
+        <Menu
           x={snoozeMenu.x}
           y={snoozeMenu.y}
           onClose={() => setSnoozeMenu(null)}

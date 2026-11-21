@@ -4,6 +4,7 @@ import { addRepoToSession, fetchProjects } from '../../api/panes.js';
 import type { AddRepoWire } from '../../../../core/api-types.js';
 import { addableRepos, headerRepos } from '../../state/add-repo.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button, Input, Select } from '../../ui/index.js';
 
 interface Props {
   session: SessionSummary;
@@ -86,9 +87,9 @@ export function AddRepoDialog({ session, onAdded, onClose }: Props) {
       <form className="wd-modal" onSubmit={submit}>
         <header className="wd-modal-header">
           <h2>Add a repo to {name}</h2>
-          <button type="button" className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
+          <Button variant="quiet" icon className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <p className="wd-add-repo-note">
@@ -109,18 +110,17 @@ export function AddRepoDialog({ session, onAdded, onClose }: Props) {
             <>
               <label className="wd-modal-row">
                 <span>Repo</span>
-                <select ref={first} value={pick} onChange={(e) => setPick(e.target.value)} disabled={busy}>
+                <Select ref={first} value={pick} onChange={(e) => setPick(e.target.value)} disabled={busy}>
                   {repos.map((r) => (
                     <option key={r} value={r}>
                       {r}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label className="wd-modal-row">
                 <span>Base branch (optional)</span>
-                <input
-                  type="text"
+                <Input
                   value={base}
                   onChange={(e) => setBase(e.target.value)}
                   placeholder="When the branch is new: the repo's own checkout's branch"
@@ -141,12 +141,12 @@ export function AddRepoDialog({ session, onAdded, onClose }: Props) {
           )}
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={close} disabled={busy}>
+          <Button onClick={close} disabled={busy}>
             Cancel
-          </button>
-          <button type="submit" className="wd-btn-primary" disabled={busy || !pick}>
+          </Button>
+          <Button variant="primary" type="submit" disabled={busy || !pick}>
             {busy ? 'Adding…' : 'Add'}
-          </button>
+          </Button>
         </footer>
       </form>
     </div>

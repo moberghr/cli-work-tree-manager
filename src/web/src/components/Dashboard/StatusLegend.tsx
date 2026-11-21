@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusIcon } from './StatusIcon.js';
 import { DISPLAY_LABEL, DISPLAY_MEANING, LEGEND_KINDS } from '../../state/session-display.js';
+import { owedBadgeClass, prChipClass } from './SessionBits.js';
 
 /**
  * "What do the colours mean?" — a "?" beside the sessions list that opens
@@ -70,18 +71,19 @@ export function StatusLegend() {
             </li>
             <li>
               On the right, what waits on <i>you</i>, whatever its Claude is doing:{' '}
-              <span className="wd-rail-slot-owed wd-rail-slot-owed-turn">review</span> it finished a turn you haven't looked at ·{' '}
-              <span className="wd-rail-slot-owed">1 reply</span> a reply to post · <span className="wd-rail-slot-owed">2 threads</span>{' '}
-              review threads with no answer · <span className="wd-rail-slot-owed">merge</span> its PR is ready to merge ·{' '}
-              <span className="wd-rail-slot-owed">CI</span> checks failing · <span className="wd-rail-slot-owed">conflict</span> a merge
-              conflict
+              <span className={owedBadgeClass({ kind: 'turn' })}>review</span> it finished a turn you haven't looked at ·{' '}
+              <span className={owedBadgeClass({ kind: 'reply' })}>1 reply</span> a reply to post ·{' '}
+              <span className={owedBadgeClass({ kind: 'reply' })}>2 threads</span> review threads with no answer ·{' '}
+              <span className={owedBadgeClass({ kind: 'reply' })}>merge</span> its PR is ready to merge ·{' '}
+              <span className={owedBadgeClass({ kind: 'reply' })}>CI</span> checks failing ·{' '}
+              <span className={owedBadgeClass({ kind: 'reply' })}>conflict</span> a merge conflict
             </li>
             <li>
               Otherwise: <span className="wd-rail-slot-needs">4m</span> waiting that long for you ·{' '}
               <span className="wd-rail-slot-waiting">in review</span> its PR waits on reviewers or checks
             </li>
             <li>
-              <span className="wd-pr-chip">#212</span> an open pull request (click to open it)
+              <span className={prChipClass(null)}>#212</span> an open pull request (click to open it)
             </li>
             <li>
               <span className="wd-legend-overlap">⚠</span> another session changes the same files

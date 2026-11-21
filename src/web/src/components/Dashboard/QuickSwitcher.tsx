@@ -6,6 +6,7 @@ import { StatusIcon } from './StatusIcon.js';
 import { ColorMark } from './ColorMark.js';
 import { modalOpen } from '../../state/modal-open.js';
 import type { RailLayout } from '../../../../core/rail/rail-layout.js';
+import { Input } from '../../ui/index.js';
 
 /**
  * Ctrl+P: type a few letters of a session's name, branch or repo and press
@@ -39,10 +40,12 @@ export function QuickSwitcher({
   return (
     <div className="wd-switcher-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose(false)}>
       <div className="wd-switcher" role="dialog" aria-modal="true" aria-label="Go to a session">
-        <input
+        <Input
+          bare
+
           ref={inputRef}
           className="wd-switcher-input"
-          type="text"
+
           role="combobox"
           aria-expanded="true"
           aria-controls={listId}

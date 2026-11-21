@@ -1,0 +1,41 @@
+/* The Issues page (JiraTab). Its own stylesheet, loaded after dashboard.css (main.tsx): one page's rules can't change another's.
+   Its controls are the shared pieces (ui/ui.css): this places them. Its list rows are Start's (wd-start-*, start.css). */
+
+/* The Jira watch: its switch, and what it did with an issue. */
+.wd-jira-watch-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wd-jira-watch {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.wd-jira-watch-started {
+  color: var(--add-fg);
+}
+.wd-jira-watch-started .wd-link-button {
+  margin-left: 6px;
+}
+.wd-jira-watch-ask {
+  color: var(--warn-fg);
+  cursor: default;
+}
+.wd-jira-watch-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+/* Its pick (Select, compact) and buttons (Button, small): ui/ui.css. How wide the pick may grow: */
+.wd-jira-watch-actions select {
+  max-width: 140px;
+}
+.wd-jira-watch-error {
+  display: block;
+  color: var(--del-fg);
+  margin-top: 2px;
+}

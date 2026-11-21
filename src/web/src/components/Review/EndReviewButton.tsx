@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { selectDrafts, selectPublishedCount, useReview } from '../../state/ReviewProvider.js';
 import { Modal } from './Modal.js';
+import { Button } from '../../ui/index.js';
 
 export function EndReviewButton() {
   const review = useReview();
@@ -33,12 +34,9 @@ export function EndReviewButton() {
           onClose={() => setModalOpen(false)}
           actions={
             <>
-              <button type="button" onClick={() => setModalOpen(false)}>
-                Cancel
-              </button>
+              <Button onClick={() => setModalOpen(false)}>Cancel</Button>
               {draftCount > 0 && (
-                <button
-                  type="button"
+                <Button
                   onClick={async () => {
                     setBusy('submitting');
                     try {
@@ -54,11 +52,11 @@ export function EndReviewButton() {
                   }}
                 >
                   Submit pending then end
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
-                className="wd-btn-primary"
+              <Button
+                variant="primary"
+
                 onClick={async () => {
                   setBusy('ending');
                   try {
@@ -70,7 +68,7 @@ export function EndReviewButton() {
                 }}
               >
                 {draftCount > 0 ? 'End anyway (discard drafts)' : 'End review'}
-              </button>
+              </Button>
             </>
           }
         >

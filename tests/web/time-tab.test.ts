@@ -482,7 +482,7 @@ describe('the Time tab: the Month view', () => {
         act(navigate);
         await flush();
         expect(question).toHaveBeenLastCalledWith(
-          expect.objectContaining({ text: 'Leave this day without saving your changes?', ok: 'Leave' }),
+          expect.objectContaining({ text: 'Leave this day without saving your changes?', ok: 'Leave', danger: true }),
         );
         expect(location()).toEqual(before);
         act(() => answer(false));

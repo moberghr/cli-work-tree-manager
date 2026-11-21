@@ -22,6 +22,7 @@ import { DiffRepo } from './DiffRepo.js';
 import { DiffUpdateChip } from './DiffUpdateChip.js';
 import { DiffModeToggle } from './DiffModeToggle.js';
 import { HistoryPicker } from './HistoryPicker.js';
+import { Button, Segmented, buttonClass } from '../../ui/index.js';
 import { FileTree } from '../Sidebar/FileTree.js';
 import { anchorFor } from '../../utils/tree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
@@ -440,33 +441,30 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     <div className="wd-web-difftoolbar wd-dash-difftoolbar" role="toolbar" aria-label="Diff">
       <div className="wd-dash-difftoolbar-pick">
         {isGroup && (
-          <div className="wd-web-diff-scope wd-diff-repo-switch" role="tablist" aria-label="Repo">
-            {repoSwitch(sessionRepoNames(session.paths), diff?.repos).map((r) => {
-              const on = r.name === (activeRepo?.name ?? activeRepoName);
-              return (
-                <button
-                  key={r.name}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  className={
-                    'wd-web-diff-scope-btn' + (on ? ' wd-web-diff-scope-btn-active' : '') + (r.files === 0 ? ' wd-diff-repo-empty' : '')
-                  }
-                  onClick={() => switchRepo(r.name)}
-                  title={
-                    r.files === null
-                      ? `${r.name}: not in this pick (a commit is one repo's) — shows its branch`
-                      : r.files === 0
-                        ? `${r.name}: no changes here`
-                        : `${r.name}: ${r.files} file${r.files === 1 ? '' : 's'} +${r.added} −${r.deleted}`
-                  }
-                >
+          <Segmented
+            kind="tabs"
+            className="wd-web-diff-scope wd-diff-repo-switch"
+            label="Repo"
+            value={activeRepo?.name ?? activeRepoName}
+            onChange={switchRepo}
+            options={repoSwitch(sessionRepoNames(session.paths), diff?.repos).map((r) => ({
+              value: r.name,
+              label: (
+                <>
                   {r.name}
                   {r.files !== null && <span className="wd-web-tab-count"> {r.files}</span>}
-                </button>
-              );
-            })}
-          </div>
+                </>
+              ),
+              muted: r.files === 0,
+              className: r.files === 0 ? 'wd-diff-repo-empty' : undefined,
+              title:
+                r.files === null
+                  ? `${r.name}: not in this pick (a commit is one repo's) — shows its branch`
+                  : r.files === 0
+                    ? `${r.name}: no changes here`
+                    : `${r.name}: ${r.files} file${r.files === 1 ? '' : 's'} +${r.added} −${r.deleted}`,
+            }))}
+          />
         )}
         {groups.length > 0 && (
           <BranchSwitch
@@ -482,34 +480,24 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
             }}
           />
         )}
-        <div className="wd-web-diff-scope" role="tablist" aria-label="Diff scope">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={shown.kind === 'scope' && shown.base === 'uncommitted'}
-            className={
-              'wd-web-diff-scope-btn' + (shown.kind === 'scope' && shown.base === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')
-            }
-            onClick={() => setSelection(UNCOMMITTED)}
-            title="What isn't committed yet (git diff HEAD)"
-          >
-            Uncommitted
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={shown.kind === 'scope' && shown.base === 'branch'}
-            className={'wd-web-diff-scope-btn' + (shown.kind === 'scope' && shown.base === 'branch' ? ' wd-web-diff-scope-btn-active' : '')}
-            onClick={() => setSelection(SINCE_BRANCH)}
-            title={
-              session.baseBranch
+        <Segmented
+          kind="tabs"
+          className="wd-web-diff-scope"
+          label="Diff scope"
+          // A commit or turn picked in Changes: neither scope is on.
+          value={shown.kind === 'scope' ? shown.base : null}
+          onChange={(base) => setSelection(base === 'uncommitted' ? UNCOMMITTED : SINCE_BRANCH)}
+          options={[
+            { value: 'uncommitted', label: 'Uncommitted', title: "What isn't committed yet (git diff HEAD)" },
+            {
+              value: 'branch',
+              label: 'Since branch',
+              title: session.baseBranch
                 ? `Everything since this branch left ${session.baseBranch}: its commits and what isn't committed`
-                : "Everything since this branch left its parent (found by itself): its commits and what isn't committed"
-            }
-          >
-            Since branch
-          </button>
-        </div>
+                : "Everything since this branch left its parent (found by itself): its commits and what isn't committed",
+            },
+          ]}
+        />
         <HistoryPicker
           // A Shift+click span starts at the last click in this session and this repo's list, never another's.
           key={`${session.id}:${isGroup ? activeRepoName : ''}`}
@@ -564,7 +552,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
         <DiffModeToggle />
         {pageUrl && (
           <a
-            className="wd-btn-secondary wd-diff-open-page"
+            className={buttonClass('secondary', { size: 'sm', className: 'wd-diff-open-page' })}
             href={pageUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -574,15 +562,15 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
           </a>
         )}
         {onFullScreen && (
-          <button
-            type="button"
-            className="wd-btn-secondary wd-diff-fullscreen"
+          <Button
+            size="sm"
+            className="wd-diff-fullscreen"
             aria-pressed={fullScreen}
             onClick={() => onFullScreen(!fullScreen)}
             title={fullScreen ? 'Back to the session (Esc)' : 'Fill the window with the diff'}
           >
             {fullScreen ? 'Exit full screen' : 'Full screen'}
-          </button>
+          </Button>
         )}
       </div>
       <div

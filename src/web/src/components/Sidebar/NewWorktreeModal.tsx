@@ -9,6 +9,7 @@ import { fetchAccounts } from '../../api/client.js';
 import { accountLabel, accountName } from '../../state/accounts.js';
 import type { AccountsWire } from '../../../../core/api-types.js';
 import { parsePrRef, workOnPrPrompt, type PrToStart } from '../../../../core/pr/pr-ref.js';
+import { Button, Input, Select, TextArea } from '../../ui/index.js';
 
 interface Props {
   /** Pre-fill the modal (e.g. when opened from a PR or Jira issue). */
@@ -307,9 +308,9 @@ export function NewWorktreeModal({
       <form className="wd-modal" onSubmit={submit} ref={formRef}>
         <header className="wd-modal-header">
           <h2>{title}</h2>
-          <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close">
+          <Button variant="quiet" icon className="wd-modal-close" onClick={onClose} aria-label="Close">
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <label className="wd-modal-row">
@@ -325,9 +326,9 @@ export function NewWorktreeModal({
             />
           </label>
           {onManageRepos && (
-            <button type="button" className="wd-link-button wd-modal-aside" onClick={onManageRepos}>
+            <Button variant="link" className="wd-modal-aside" onClick={onManageRepos}>
               Not in the list? Repos & groups…
-            </button>
+            </Button>
           )}
           {fromPr && fromPr.alias === target && fromPr.branch === branch ? (
             <p className="wd-modal-pr" role="status">
@@ -338,9 +339,8 @@ export function NewWorktreeModal({
             <label className="wd-modal-row">
               <span>Pull request: its link, or # in the project above</span>
               <span className="wd-modal-pr-row">
-                <input
+                <Input
                   autoFocus
-                  type="text"
                   value={prRef}
                   onChange={(e) => setPrRef(e.target.value)}
                   onKeyDown={(e) => {
@@ -352,9 +352,9 @@ export function NewWorktreeModal({
                   placeholder="A pull request link, or #123"
                   disabled={submitting || prLooking}
                 />
-                <button type="button" className="wd-btn-secondary" onClick={lookUpPr} disabled={submitting || prLooking || !prRef.trim()}>
+                <Button onClick={lookUpPr} disabled={submitting || prLooking || !prRef.trim()}>
                   {prLooking ? 'Looking…' : 'Use it'}
-                </button>
+                </Button>
               </span>
               {prError && (
                 <span className="wd-modal-error" role="alert">
@@ -363,13 +363,13 @@ export function NewWorktreeModal({
               )}
             </label>
           ) : (
-            <button type="button" className="wd-link-button wd-modal-aside" onClick={() => setPrOpen(true)} disabled={submitting}>
+            <Button variant="link" className="wd-modal-aside" onClick={() => setPrOpen(true)} disabled={submitting}>
               Start from a pull request…
-            </button>
+            </Button>
           )}
           <label className="wd-modal-row">
             <span>What should Claude do?</span>
-            <textarea
+            <TextArea
               ref={(el) => {
                 promptRef.current = el;
                 if (initial?.target) firstFocusRef.current = el;
@@ -392,8 +392,7 @@ export function NewWorktreeModal({
           <label className="wd-modal-row">
             <span>Branch</span>
             {/* Empty until you type: the suggestion is only its placeholder (nothing to delete to name your own). */}
-            <input
-              type="text"
+            <Input
               name="branch"
               value={branchTyped ?? ''}
               onChange={onBranchChange((b) => setBranchTyped(b === '' ? null : b))}
@@ -406,15 +405,14 @@ export function NewWorktreeModal({
               {note.text}
             </p>
           )}
-          <button type="button" className="wd-link-button wd-modal-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
+          <Button variant="link" className="wd-modal-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
             {more ? '▾' : '▸'} {more ? 'More options: name, base branch' : moreLabel(name, base, otherAccount)}
-          </button>
+          </Button>
           {more && (
             <>
               <label className="wd-modal-row">
                 <span>Name (optional)</span>
-                <input
-                  type="text"
+                <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="shown instead of the branch, e.g. PDF generation speed"
@@ -425,18 +423,18 @@ export function NewWorktreeModal({
               {accounts && (
                 <label className="wd-modal-row">
                   <span>Claude account</span>
-                  <select value={account} onChange={(e) => setAccount(e.target.value)} disabled={submitting}>
+                  <Select value={account} onChange={(e) => setAccount(e.target.value)} disabled={submitting}>
                     {accounts.accounts.map((a) => (
                       <option key={a.name} value={a.name} disabled={a.loggedIn === false}>
                         {accountName(a)}
                         {a.loggedIn === false ? ' — not logged in' : ''}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   {onAddAccount && (
-                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                    <Button variant="link" onClick={onAddAccount} disabled={submitting}>
                       Add account…
-                    </button>
+                    </Button>
                   )}
                 </label>
               )}
@@ -445,16 +443,15 @@ export function NewWorktreeModal({
                   <span>Claude account</span>
                   <span>
                     one login (~/.claude) ·{' '}
-                    <button type="button" className="wd-link-button" onClick={onAddAccount} disabled={submitting}>
+                    <Button variant="link" onClick={onAddAccount} disabled={submitting}>
                       Add another account…
-                    </button>
+                    </Button>
                   </span>
                 </p>
               )}
               <label className="wd-modal-row">
                 <span>Base branch (optional)</span>
-                <input
-                  type="text"
+                <Input
                   value={base}
                   onChange={(e) => setBase(e.target.value)}
                   placeholder="leave blank to use the default"
@@ -472,23 +469,24 @@ export function NewWorktreeModal({
           )}
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={onClose} disabled={submitting}>
+          <Button onClick={onClose} disabled={submitting}>
             Cancel
-          </button>
+          </Button>
           {createdNoStart ? (
-            <button type="button" className="wd-btn-primary" onClick={() => onCreated(createdNoStart.id)}>
+            <Button variant="primary" onClick={() => onCreated(createdNoStart.id)}>
               Open session
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              variant="primary"
               type="submit"
-              className="wd-btn-primary"
+
               // Only a project is needed: an empty branch opens a repo as it is,
               // and submit explains the cases that do need one (a group, a base).
               disabled={submitting || !target.trim() || !!note?.blocks}
             >
               {submitting ? 'Creating…' : prompt.trim() ? 'Create and start' : 'Create'}
-            </button>
+            </Button>
           )}
         </footer>
       </form>
