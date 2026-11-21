@@ -575,3 +575,64 @@ export function reviewTabMeta(r: { status: string; seen?: boolean } | null | und
 export function reviewsWaiting(list: ReadonlyArray<{ status: string; submitted?: true }>): number {
   return list.filter((r) => r.status === 'ready' && !r.submitted).length;
 }
+
+/** What a review page knows of where its review stands. */
+export interface FreshnessInput {
+  /** The review's status: `running` while it is being prepared. */
+  status: string;
+  /** When that status began (ISO): while running, when preparing started. */
+  at?: string;
+  /** When the review shown was prepared (ISO); absent: none has been yet. */
+  preparedAt?: string;
+  /** Why the last try failed. */
+  why?: string | null;
+}
+
+export type Freshness = { kind: 'preparing'; text: string } | { kind: 'failed'; text: string } | { kind: 'ready'; text: string } | null;
+
+/** "2 min ago" for a line, or nothing when the time is unknown. */
+function ago(iso: string | undefined, now: number): string {
+  if (!iso) return '';
+  const ms = now - Date.parse(iso);
+  if (!Number.isFinite(ms)) return '';
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+/**
+ * Where a review stands, in a line above it (reported: after Prepare again nothing said whether it was running,
+ * done, or still the old one). Being prepared: since when, and whether what is below is the previous one (and from
+ * when) or nothing yet. Failed with a previous one kept: why, and that the previous one is below. Ready: when it was
+ * prepared. Anything else (waiting, queued, failed with nothing to show): null — the page's own line says it. Pure.
+ */
+export function reviewFreshness(r: FreshnessInput, now: number = Date.now()): Freshness {
+  const before = ago(r.preparedAt, now);
+  if (r.status === 'running') {
+    const since = ago(r.at, now);
+    const started = since ? `started ${since}` : 'started';
+    return {
+      kind: 'preparing',
+      text: r.preparedAt
+        ? `Preparing a new review — ${started}. Below is the previous one${before ? `, prepared ${before}` : ''}; it is replaced when the new one is ready.`
+        : `Preparing the review — ${started}. It shows here when it’s ready, usually in a few minutes.`,
+    };
+  }
+  if (r.status === 'failed' && r.preparedAt) {
+    return {
+      kind: 'failed',
+      text: `Preparing it again failed${ago(r.at, now) ? ` ${ago(r.at, now)}` : ''}${r.why ? `: ${r.why}` : ''}. Below is the previous one${before ? `, prepared ${before}` : ''}.`,
+    };
+  }
+  if (r.status === 'ready' && r.preparedAt) return { kind: 'ready', text: `Prepared ${before || 'just now'}` };
+  return null;
+}
+
+/** Whether a review page shows a review's content: ready, or a previous one kept while a new one is prepared or failed. Pure. */
+export function showsReview(r: FreshnessInput): boolean {
+  return r.status === 'ready' || ((r.status === 'running' || r.status === 'failed') && !!r.preparedAt);
+}

@@ -2,7 +2,7 @@ import type { PrReviewWire } from '../api-types.js';
 import type { StoredLocalReview } from './local-review.js';
 import { asData } from '../time/fence.js';
 import { describeReview } from './review-build.js';
-import { NOTE_LEVEL_LABEL } from './review-plan.js';
+import { NOTE_LEVEL_LABEL, VERDICT_LABEL } from './review-plan.js';
 
 /**
  * The Reviews tab's reviews as text, for `work review` (a terminal, another session's agent, the Ctrl+K assistant):
@@ -76,4 +76,23 @@ export function sessionReviewText(kept: StoredLocalReview): string {
       ? [`${gone.size} note${gone.size === 1 ? '' : 's'} the user dismissed ${gone.size === 1 ? 'is' : 'are'} not listed.`]
       : []),
   ].join('\n');
+}
+
+/**
+ * What the notification of a review you asked for says (reported: after Prepare again nothing said it was done).
+ * Ready: its recommendation when it has one, its stories and draft comments. Failed: why. Pure.
+ */
+export function reviewNotifyText(
+  repo: string,
+  number: number,
+  r: { ok: true; review: Pick<PrReviewWire, 'recommendation' | 'stories' | 'drafts' | 'title'> } | { ok: false; error: string },
+): { title: string; body: string } {
+  if (!r.ok) return { title: `${repo} #${number}: review failed`, body: r.error };
+  const notes = r.review.drafts.filter((d) => d.state === 'draft').length;
+  const parts = [
+    r.review.recommendation ? VERDICT_LABEL[r.review.recommendation.verdict] : '',
+    `${r.review.stories.length} ${r.review.stories.length === 1 ? 'story' : 'stories'}`,
+    `${notes} draft comment${notes === 1 ? '' : 's'}`,
+  ].filter(Boolean);
+  return { title: `${repo} #${number}: review ready`, body: `${r.review.title.slice(0, 80)} — ${parts.join(' · ')}` };
 }

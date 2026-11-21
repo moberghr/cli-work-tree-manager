@@ -1,3 +1,4 @@
+import type { ReviewNotifyEvent } from '../../../core/api-types.js';
 import { useCallback, useEffect, useState } from 'react';
 import type { NotifyEvent, PresenceReport } from '../api/client.js';
 
@@ -104,6 +105,26 @@ export function showNotify(
   n.onclick = () => {
     window.focus();
     open(ev.sessionId, ev.kind);
+    n.close();
+  };
+  return n;
+}
+
+/**
+ * A PR review you asked for is done (or failed): said as a session's news is, unless you're looking at that review
+ * now. A click opens it.
+ */
+export function showReviewNotify(
+  ev: ReviewNotifyEvent,
+  shown: { repo: string; number: number } | null,
+  open: (repo: string, number: number) => void,
+): Notification | null {
+  if (!canNotify()) return null;
+  if (looking() && shown?.repo === ev.repo && shown.number === ev.number) return null;
+  const n = new Notification(ev.title, { body: ev.body, tag: `work-review-${ev.repo}-${ev.number}` });
+  n.onclick = () => {
+    window.focus();
+    open(ev.repo, ev.number);
     n.close();
   };
   return n;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reviewListLines, reviewText, sessionReviewText } from '../../../src/core/review/review-text.js';
+import { reviewListLines, reviewNotifyText, reviewText, sessionReviewText } from '../../../src/core/review/review-text.js';
 import { demoReview } from '../../../src/server/demo/demo-reviews.js';
 
 /** `work review`: the Reviews tab's reviews as text. */
@@ -152,5 +152,27 @@ describe('sessionReviewText: a session’s own review, for its agent (reported: 
     expect(text).toContain(`- [${notes[1].id}]`);
     expect(text).toContain(`Already handed to this session's agent: [${notes[1].id}].`);
     expect(text).toContain('1 note the user dismissed is not listed.');
+  });
+});
+
+describe('reviewNotifyText: what a review you asked for says when it is done', () => {
+  it('ready: its title, its recommendation when it has one, its stories and draft comments', () => {
+    const r = review();
+    const drafts = r.drafts.filter((d) => d.state === 'draft').length;
+    const told = reviewNotifyText('api', 231, { ok: true, review: { ...r, recommendation: { verdict: 'fix-first', text: 'x' } } });
+    expect(told.title).toBe('api #231: review ready');
+    expect(told.body).toBe(`${r.title} — Fix first · ${r.stories.length} stories · ${drafts} draft comment${drafts === 1 ? '' : 's'}`);
+    const plain = reviewNotifyText('api', 231, {
+      ok: true,
+      review: { ...r, recommendation: undefined, stories: [r.stories[0]], drafts: [] },
+    });
+    expect(plain.body).toBe(`${r.title} — 1 story · 0 draft comments`);
+  });
+
+  it('failed: why', () => {
+    expect(reviewNotifyText('api', 231, { ok: false, error: '#231 isn’t an open pull request of api' })).toEqual({
+      title: 'api #231: review failed',
+      body: '#231 isn’t an open pull request of api',
+    });
   });
 });

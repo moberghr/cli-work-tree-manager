@@ -60,6 +60,27 @@ describe('review routes', () => {
     expect(runNow.mock.calls.map((c) => c[2])).toEqual(['the migration', undefined]);
   });
 
+  it('Prepare it now / again tells you when it is done, or that it failed (a notification); nothing else does', async () => {
+    const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
+    const { req, broadcast } = setup({}, rows);
+    expect((await req('POST', '/api/reviews/api/231')).status).toBe(200);
+    const told = broadcast.mock.calls.filter((c) => c[0] === 'review-notify').map((c) => c[1] as Record<string, unknown>);
+    expect(told).toEqual([
+      { repo: 'api', number: 231, title: 'api #231: review ready', body: expect.stringContaining(rows.get('api#231')!.title) },
+    ]);
+    expect((await req('POST', '/api/reviews/api/999')).status).toBe(409);
+    expect(broadcast.mock.calls.filter((c) => c[0] === 'review-notify').at(-1)?.[1]).toEqual({
+      repo: 'api',
+      number: 999,
+      title: 'api #999: review failed',
+      body: 'not open',
+    });
+    // Reading a review, or its discussion, tells nothing.
+    const before = broadcast.mock.calls.filter((c) => c[0] === 'review-notify').length;
+    await req('GET', '/api/reviews/api/231');
+    expect(broadcast.mock.calls.filter((c) => c[0] === 'review-notify')).toHaveLength(before);
+  });
+
   it('POST …/discussion reads the discussion again (the queue says when): told only when it changed; an unknown PR is 404', async () => {
     const rows = new Map<string, PrReviewWire>([['api#231', demoReview(new Date('2026-11-02T10:00:00Z'))]]);
     const refreshDiscussion = vi.fn(async (repo: string, n: number) => {

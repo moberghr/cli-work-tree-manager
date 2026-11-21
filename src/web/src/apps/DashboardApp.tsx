@@ -1,3 +1,4 @@
+import type { ReviewNotifyEvent } from '../../../core/api-types.js';
 import { setKeepAfterMerge } from '../api/client.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
@@ -33,7 +34,7 @@ import {
   snoozeSession,
   unsnoozeSession,
 } from '../api/client.js';
-import { showNotify, usePresence } from '../hooks/use-presence.js';
+import { showNotify, showReviewNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
 import { compareInbox, needsAttention, prWantsYou, waitsOnYou, wantsYou } from '../../../core/status/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
@@ -198,6 +199,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [timeMonth, setTimeMonth] = useState<string | null>(null);
   // The Reviews tab's PR on screen: told to the Ctrl+K assistant with the view.
   const [reviewShown, setReviewShown] = useState<{ repo: string; number: number } | null>(null);
+  /** The review on screen, for a notification handler set up once (it reads the latest). */
+  const reviewShownRef = useRef(reviewShown);
+  reviewShownRef.current = reviewShown;
   // The session rail folded on the Reviews tab (per browser): a review wants the room.
   const [reviewsRailFolded, setReviewsRailFolded] = useState(readRailFolded);
   const toggleReviewsRail = useCallback(
@@ -417,6 +421,10 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       'host-health': (data) => setHostHealth(data as HostHealth),
       'sessions-changed': () => setRefreshKey((n) => n + 1),
       'comments-changed': () => setRefreshKey((n) => n + 1),
+      'review-notify': (data) =>
+        showReviewNotify(data as ReviewNotifyEvent, reviewShownRef.current, (repo, number) =>
+          navigate({ tab: 'reviews', sessionId: null, sessionSubTab: 'term', review: { repo, number, mode: 'overview', at: 0 } }),
+        ),
       notify: (data) =>
         showNotify(data as NotifyEvent, notifyTarget.current.sessionId, (id, kind) =>
           // Its terminal, as every way into a session (a finished turn too: where you pick it up); its Review tab

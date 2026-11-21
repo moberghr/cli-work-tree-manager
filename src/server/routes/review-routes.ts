@@ -1,3 +1,5 @@
+import type { ReviewNotifyEvent } from '../../core/api-types.js';
+import { reviewNotifyText } from '../../core/review/review-text.js';
 import { MAX_ALSO_CHARS } from '../../core/review/local-review.js';
 import type { Hono } from 'hono';
 import type { ParsedFile } from '../../core/diff/diff-parse.js';
@@ -96,6 +98,8 @@ export function mountReviewRoutes(app: Hono, deps: ReviewRouteDeps): void {
     if (body.also && body.also.length > MAX_ALSO_CHARS) return c.json({ error: `also: at most ${MAX_ALSO_CHARS} characters` }, 400);
     const r = await deps.runNow(repo, n, body.also?.trim() || undefined);
     changed(repo, n);
+    // Your click: you're told when it's done (a sweep's reviews aren't: there are many, and nobody asked).
+    deps.broadcast('review-notify', { repo, number: n, ...reviewNotifyText(repo, n, r) } satisfies ReviewNotifyEvent);
     return r.ok ? c.json(r.review) : c.json({ error: r.error }, 409);
   });
 

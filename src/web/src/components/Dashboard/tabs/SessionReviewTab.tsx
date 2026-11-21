@@ -23,6 +23,7 @@ import { sessionReviewPagePath } from '../../../state/session-review-page.js';
 import { toggled } from '../../../state/review-prefs.js';
 import { Input, Segmented, Select } from '../../../ui/index.js';
 import { ReviewOverview } from './review/ReviewOverview.js';
+import { ReviewFreshness } from './review/ReviewFreshness.js';
 import { StoryPager } from './review/StoryPager.js';
 import { CommentWalk } from './review/CommentWalk.js';
 import { FilesView } from './review/FilesView.js';
@@ -338,6 +339,12 @@ export function SessionReviewTab({
             </button>
           </p>
         )}
+        <ReviewFreshness
+          status={data.status}
+          {...(data.at ? { at: data.at } : {})}
+          {...(r ? { preparedAt: r.preparedAt ?? r.at } : {})}
+          why={data.error ?? null}
+        />
         {moved && !running && (
           <p className="wd-start-note wd-session-review-moved" role="status">
             The changes have moved since this was prepared: a note may be about code that is different now. <strong>Prepare again</strong>{' '}
@@ -377,7 +384,7 @@ export function SessionReviewTab({
       {r && (
         <ReviewProvider key={`${signature}:${removed.size}`} api={api}>
           <HostThreadsProvider value={hostThreads}>
-            <div className="wd-review-mode-body">
+            <div className={`wd-review-mode-body${running ? ' wd-review-stale' : ''}`} inert={running}>
               {mode === 'overview' && (
                 <ReviewOverview
                   review={r}

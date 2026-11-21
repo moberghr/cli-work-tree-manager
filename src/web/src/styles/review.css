@@ -1201,3 +1201,53 @@ button.wd-comment-fold:hover,
   gap: var(--space-3);
   flex-wrap: wrap;
 }
+
+/* Where a review stands (ReviewFreshness): being prepared, or its new try failed, above the previous one. */
+.wd-review-freshness {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-md);
+}
+.wd-review-freshness-preparing {
+  border-color: var(--accent);
+  background: var(--current);
+}
+.wd-review-freshness-failed {
+  border-color: var(--warn-fg);
+  color: var(--warn-fg);
+}
+.wd-review-freshness-new {
+  border-color: var(--add-fg);
+  color: var(--add-fg);
+}
+.wd-review-freshness-when {
+  margin: var(--space-1) 0 0;
+}
+.wd-review-freshness-spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wd-review-spin 0.9s linear infinite;
+}
+@keyframes wd-review-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wd-review-freshness-spinner {
+    animation: none;
+  }
+}
+/* The previous review, shown while a new one is prepared: dimmed, and nothing in it can be acted on (inert). */
+.wd-review-stale {
+  opacity: 0.55;
+}

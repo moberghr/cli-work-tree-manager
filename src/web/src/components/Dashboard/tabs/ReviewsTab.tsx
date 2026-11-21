@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, ListRow, PageHeader, SectionTitle, Segmented, Select, TextArea } from '../../../ui/index.js';
+import { Button, Input, ListRow, PageHeader, SectionTitle, Segmented, Select, TextArea, Badge } from '../../../ui/index.js';
 import type { PrReviewWire, ReviewEvent, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../../../../core/api-types.js';
 import type { ParsedFile } from '../../../../../core/diff/diff-parse.js';
 import { hostName } from '../../../../../core/hosts/commands.js';
@@ -20,6 +20,8 @@ import { isStaleRunning, nothingToSubmit, shownDoubt, submitBlocked } from '../.
 import { reviewDraftsApi } from '../../../api/review-drafts-api.js';
 import { useSse } from '../../../api/events.js';
 import { timeAgo } from '../../../utils/time.js';
+import { ReviewFreshness } from './review/ReviewFreshness.js';
+import { isNewReview, markSeen, newReviews, readSeen, seedSeen, writeSeen, type ReviewsSeen } from '../../../state/reviews-seen.js';
 import { ReviewProvider } from '../../../state/ReviewProvider.js';
 import { ResizeDivider, useResizableSize, type ResizeSpec } from '../../Layout/ResizeDivider.js';
 import {
@@ -30,6 +32,7 @@ import {
   notPreparedLine,
   pendingDrafts,
   reviewPages,
+  showsReview,
 } from '../../../state/review-view.js';
 import type { ReviewRoute } from '../../../state/dashboard-route.js';
 import { reviewActionFor } from '../../../state/shortcuts.js';
@@ -130,6 +133,24 @@ export function ReviewsTab({ route, onRoute, railFolded, onToggleRail, onShown, 
   useEffect(load, [load]);
   useSse('/events', { events: { 'reviews-changed': load } });
   const groups = useMemo(() => groupReviews(list?.reviews ?? [], group), [list, group]);
+  // "new": ready since you last opened it (per browser). The first list seeds it: nothing is new to begin with.
+  const [seen, setSeen] = useState<ReviewsSeen | null>(() => readSeen());
+  useEffect(() => {
+    if (!list || seen) return;
+    const first = seedSeen(list.reviews);
+    setSeen(first);
+    writeSeen(first);
+  }, [list, seen]);
+  const marks = useMemo(() => (list && seen ? newReviews(list.reviews, seen) : new Set<string>()), [list, seen]);
+  // Opened (or became ready while open): seen as it is now.
+  const openRow = selected && list ? list.reviews.find((x) => x.repo === selected.repo && x.number === selected.number) : undefined;
+  useEffect(() => {
+    if (!openRow || openRow.status !== 'ready' || !seen) return;
+    const next = markSeen(seen, openRow);
+    if (next === seen) return;
+    setSeen(next);
+    writeSeen(next);
+  }, [openRow, seen]);
   const shownPr = selected ? { repo: selected.repo, number: selected.number } : null;
   useEffect(() => onShown?.(shownPr), [shownPr?.repo, shownPr?.number, onShown]); // eslint-disable-line react-hooks/exhaustive-deps -- by value: a new object each render
   const pickGroup = (g: 'repo' | 'none') => {
@@ -198,6 +219,11 @@ export function ReviewsTab({ route, onRoute, railFolded, onToggleRail, onShown, 
                         title={`${g.repo ? '' : `${r.repo} `}#${r.number} · ${r.title}`}
                         meta={
                           <>
+                            {isNewReview(marks, r) && (
+                              <Badge kind="status" tone="accent" className="wd-reviews-new" title="Prepared since you last opened it">
+                                new
+                              </Badge>
+                            )}{' '}
                             <span className={`wd-reviews-status wd-reviews-status-${r.status}`}>{STATUS_LABEL[r.status]}</span> @{r.author}{' '}
                             · +{r.size.added} −{r.size.deleted}
                             {r.status === 'ready' && ` · ${r.stories} stor${r.stories === 1 ? 'y' : 'ies'}`}
@@ -375,7 +401,10 @@ function ReviewView({
       writeMarks(marksKey('looked', r), next);
       return next;
     });
-  const ready = r.status === 'ready';
+  // A review being prepared again, or whose new try failed, still shows the previous one — dimmed, and nothing in
+  // it can be acted on until the new one is ready (its comments go out at the commit they were read at).
+  const ready = showsReview(r);
+  const stale = r.status !== 'ready';
   const modes = [
     ['overview', 'Overview', 'o'],
     ['story', `Stories (${pages.filter((p) => p.story).length})`, 's'],
@@ -468,6 +497,7 @@ function ReviewView({
             )}
           </div>
         </div>
+        <ReviewFreshness status={r.status} at={r.at} {...(r.preparedAt ? { preparedAt: r.preparedAt } : {})} why={r.why} />
         {doubt && (
           <div className="wd-review-in-doubt" role="alert">
             <p className="wd-review-warn">
@@ -520,7 +550,7 @@ function ReviewView({
       {ready && (
         <ReviewProvider key={draftsKey} api={api}>
           <HostThreadsProvider value={hostThreads}>
-            <div className="wd-review-mode-body">
+            <div className={`wd-review-mode-body${stale ? ' wd-review-stale' : ''}`} inert={stale}>
               {mode === 'overview' && (
                 <ReviewOverview
                   review={r}

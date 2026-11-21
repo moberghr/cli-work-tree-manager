@@ -1089,6 +1089,14 @@ export interface NotifyEvent {
   body?: string;
 }
 
+/** `review-notify` (SSE): a PR review you asked for (Prepare it now / again) is done, or failed. Click: that review. */
+export interface ReviewNotifyEvent {
+  repo: string;
+  number: number;
+  title: string;
+  body: string;
+}
+
 /** GET /api/sessions/:id/dev — the worktree's port and dev server. */
 export interface DevServerState {
   port: number | null;
