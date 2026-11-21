@@ -130,4 +130,22 @@ describe('createSingleWorktree', () => {
     expect(sha('HEAD', wt)).toBe(sha('origin/main'));
     expect(sha('HEAD', wt)).not.toBe(stale);
   });
+
+  const upstreamOf = (branch: string) => git(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`], repo);
+
+  it('--base from origin: the new branch has no upstream (it would push to main)', () => {
+    git(['checkout', '-q', '-b', 'other'], repo);
+    commitIn(upstream, 'up.txt', 'main moves on');
+    const wt = path.join(home, 'worktrees', 'feat-notrack');
+    expect(createSingleWorktree(repo, wt, 'feat/notrack', config(), 'main')).toBe(true);
+    expect(sha('HEAD', wt)).toBe(sha('origin/main'));
+    expect(upstreamOf('feat/notrack').exitCode).not.toBe(0);
+  });
+
+  it("a new branch when the main checkout can't be pulled: started from origin, with no upstream", () => {
+    git(['branch', '--unset-upstream'], repo); // `git pull` fails: no upstream
+    const wt = path.join(home, 'worktrees', 'feat-fallback');
+    expect(createSingleWorktree(repo, wt, 'feat/fallback', config())).toBe(true);
+    expect(upstreamOf('feat/fallback').exitCode).not.toBe(0);
+  });
 });
