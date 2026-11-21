@@ -12,6 +12,7 @@ import './styles/pages/accounts.css';
 import './styles/pages/settings.css';
 import './styles/pages/welcome.css';
 import './styles/pages/start.css';
+import './styles/pages/issues.css';
 import './styles/pages/today.css';
 import './styles/pages/inbox.css';
 import './styles/pages/sessions.css';

@@ -2,7 +2,7 @@
 
 **Why.** The page was "Jira" and everything about an issue talked to Jira directly. Issues can come from elsewhere (GitHub Issues #86, Azure DevOps work items #87), so the page is **Issues** and Jira is one connector behind a contract (#85). The Jira watch itself is in `jira-watch.md`.
 
-**The tab** is `issues` (`DashboardTab`; `g j` still opens it; the old `#/jira` link lands on it, `OLD_TAB`). It is still `JiraTab.tsx` — Jira is the only source — and says where its list is from ("… assigned to you · from Jira"). The Settings section is **Issues** (the rules below, the watch's daily cap, the Jira worklog settings).
+**The tab** is `issues` (`DashboardTab`; `g j` still opens it; the old `#/jira` link lands on it, `OLD_TAB`). It is still `JiraTab.tsx` — Jira is the only source — and says where its list is from ("… assigned to you · from Jira"). The Settings section is **Issues** (the rules below, the watch's daily cap, the Jira worklog settings). Its header is a `PageHeader` and its buttons and picks are the shared pieces (`web-ui.md`); its rows are Start's (`styles/pages/start.css`), the watch's own rules are in `styles/pages/issues.css`.
 
 **Which project an issue starts in** (asked for: a Jira project can be on several boards and span repos, and a GitHub issue's repo can be part of a group, so neither "its board" nor "its repo" is the answer by itself). You say it once, in Settings → Issues → **Issues start in** (`issues.rules`, a list), a rule a line:
 

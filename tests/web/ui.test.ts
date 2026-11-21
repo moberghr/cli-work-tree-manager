@@ -488,4 +488,11 @@ describe('one implementation of each control', () => {
     expect(main.indexOf("'./ui/ui.css'")).toBeGreaterThan(main.indexOf("'./styles/global.css'"));
     expect(main.indexOf("'./ui/ui.css'")).toBeLessThan(main.indexOf("'./styles/dashboard.css'"));
   });
+
+  it('every page’s stylesheet is loaded, after dashboard.css (one main.tsx forgot would do nothing)', () => {
+    const main = read('main.tsx');
+    const pages = PAGE_STYLESHEETS.filter((f) => f.startsWith('styles/pages/'));
+    expect(pages).toContain('styles/pages/issues.css');
+    for (const f of pages) expect(main.indexOf(`'./${f}'`), f).toBeGreaterThan(main.indexOf("'./styles/dashboard.css'"));
+  });
 });
