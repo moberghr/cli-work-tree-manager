@@ -23,7 +23,8 @@ function isWindow(v: unknown): v is UsageWindow {
     typeof v.label === 'string' &&
     typeof v.usedPercent === 'number' &&
     (v.resetsAt === null || typeof v.resetsAt === 'string') &&
-    (v.reset === undefined || v.reset === true)
+    (v.reset === undefined || v.reset === true) &&
+    (v.asked === undefined || v.asked === true)
   );
 }
 
@@ -51,8 +52,18 @@ function keepHigher(stored: UsageWindow[], fresh: UsageWindow[]): UsageWindow[] 
   });
 }
 
-/** Keep a reading. Writes only when it changed (or the stored time is over a minute old); returns whether it wrote. Never throws. */
-export function recordReading(agent: string, account: string, windows: UsageWindow[], now = Date.now()): boolean {
+/**
+ * Keep a reading. Writes only when it changed (or the stored time is over a minute old); returns whether it wrote. Never throws.
+ * `full`: the reading is the agent's whole answer when asked (every window it has, `asked` ones included), so it replaces
+ * the stored one; otherwise (a status line) the stored `asked` windows it doesn't carry are kept.
+ */
+export function recordReading(
+  agent: string,
+  account: string,
+  windows: UsageWindow[],
+  now = Date.now(),
+  opts: { full?: boolean } = {},
+): boolean {
   if (windows.length === 0) return false;
   try {
     const file = fileFor(agent, account);
@@ -62,7 +73,8 @@ export function recordReading(agent: string, account: string, windows: UsageWind
     } catch {
       /* nothing stored yet */
     }
-    const kept = stored ? keepHigher(stored.windows, windows) : windows;
+    const carried = stored && !opts.full ? stored.windows.filter((w) => w.asked && !windows.some((f) => f.id === w.id)) : [];
+    const kept = [...(stored ? keepHigher(stored.windows, windows) : windows), ...carried];
     if (stored && JSON.stringify(stored.windows) === JSON.stringify(kept) && now - Date.parse(stored.at) < REFRESH_MS) return false;
     fs.mkdirSync(usageDir(), { recursive: true });
     atomicWriteFile(file, JSON.stringify({ at: new Date(now).toISOString(), windows: kept }));

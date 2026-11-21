@@ -8,6 +8,9 @@ vi.mock('../../src/core/agents/index.js', async (orig) => {
   const real = await orig<typeof import('../../src/core/agents/index.js')>();
   return { ...real, knownAgents: () => fake.agents ?? real.knownAgents() };
 });
+// The real ask would start `claude`: what it is asked is recorded instead.
+const ask = vi.hoisted(() => ({ calls: 0 }));
+vi.mock('../../src/core/agents/claude/usage-ask.js', () => ({ askClaudeUsage: async () => (ask.calls++, []) }));
 import { usageCommand, usageLines } from '../../src/commands/usage.js';
 import { recordReading } from '../../src/core/usage/usage-store.js';
 import type { UsageWire } from '../../src/core/api-types.js';
@@ -38,6 +41,20 @@ describe('work usage', () => {
       accounts: [{ account: 'default', windows: [{ id: 'seven_day', usedPercent: 18 }] }],
     });
     expect(w.tokens.week).toEqual({ input: 0, cached: 0, output: 0 });
+  });
+
+  it("asks the agents for what their status line doesn't carry before printing", async () => {
+    const before = ask.calls;
+    await run({ json: true });
+    expect(ask.calls).toBe(before + 1);
+  });
+
+  it("prints a model's own weekly window by its name", async () => {
+    recordReading('claude', 'default', [
+      { id: 'seven_day_model_fable', label: 'Weekly Fable limit', usedPercent: 5, resetsAt: '2999-01-01T09:00:00.000Z', asked: true },
+    ]);
+    await run({});
+    expect(out).toMatch(/Weekly Fable limit\s+5%/);
   });
 
   it('prints a table; with no reading it says how one is recorded', async () => {

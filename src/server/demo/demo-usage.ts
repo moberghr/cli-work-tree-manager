@@ -1,6 +1,7 @@
 import type { UsageWire } from '../../core/api-types.js';
 
-/** The demo's usage meter: Claude's default account at 42 % of its 5-hour limit and 18 % of the weekly one, its second
+/** The demo's usage meter: Claude's default account at 42 % of its 5-hour limit, 18 % of the weekly one and 11 % of
+ *  Fable's own weekly window (asked of Claude Code, usage-ask.ts), its second
  *  account (demo-accounts.ts) at a few percent, and a few made-up token counts. */
 export function demoUsage(now = Date.now()): UsageWire {
   // The weekly limit resets next Monday at 09:00, local time.
@@ -20,6 +21,7 @@ export function demoUsage(now = Date.now()): UsageWire {
             windows: [
               { id: 'five_hour', label: '5-hour limit', usedPercent: 42, resetsAt: new Date(now + 2 * 3_600_000).toISOString() },
               { id: 'seven_day', label: 'Weekly limit', usedPercent: 18, resetsAt: monday.toISOString() },
+              { id: 'seven_day_model_fable', label: 'Weekly Fable limit', usedPercent: 11, resetsAt: monday.toISOString(), asked: true },
             ],
           },
           // The second login (demo-accounts.ts): little used this week, read a while ago.

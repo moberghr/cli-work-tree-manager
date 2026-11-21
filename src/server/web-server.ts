@@ -47,7 +47,7 @@ import { mountDiffPageRoutes } from './routes/diff-page-routes.js';
 import { mountSetupRoutes } from './routes/setup-routes.js';
 import { mountAppUpdateRoutes } from './routes/app-update-routes.js';
 import { wireUsage } from './routes/usage-routes.js';
-import { buildUsage, realUsageDeps } from '../core/usage/usage-source.js';
+import { buildUsage, realUsageDeps, refreshUsage } from '../core/usage/usage-source.js';
 import { createUpdates, desktopUpdatePath, lookForUpdates } from '../core/updates/update-source.js';
 import { mountRepoRoutes } from './routes/repo-routes.js';
 import { mountSettingsRoutes } from './routes/settings-routes.js';
@@ -79,7 +79,7 @@ import { onArchived } from '../core/archive/session-archive.js';
 import { isRestoring, onArchivingChange } from '../core/archive/archiving.js';
 import { defaultArchiveDeps, archiveMergedSession } from '../core/archive/session-archive-deps.js';
 import { agentsBySession, summarizeAgents } from '../core/sessions/live-agents.js';
-import { liveAgents, activityRoots } from '../core/agents/index.js';
+import { liveAgents, activityRoots, knownAgents } from '../core/agents/index.js';
 import { branchCheckedOut, shadowedSessions } from '../core/worktree/shared-folders.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
 import { DiffStatCache, wantsDiffStat } from '../core/diff/diff-stat.js';
@@ -1211,7 +1211,11 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const onDesktopUpdate = () => broadcast('updates-changed', { ts: Date.now() });
   if (jobs) fs.watchFile(desktopFile, { interval: 3000 }, onDesktopUpdate); // the installed app's: not the dev server's business
   // Agent usage (core/usage/): plan limits the status-line hook recorded, and token counts. Reads only, so every mode serves it.
-  const usageWatcher = wireUsage(app, { broadcast, build: () => buildUsage(realUsageDeps()) });
+  const usageWatcher = wireUsage(app, {
+    broadcast,
+    build: () => buildUsage(realUsageDeps()),
+    refresh: () => refreshUsage(knownAgents()),
+  });
   // How the PTY host is doing (host-health.ts), and its Restart (the banner's button). Not the dev server's restart: it
   // never starts a host (the installed work owns it).
   mountPtyHostRoutes(app, {

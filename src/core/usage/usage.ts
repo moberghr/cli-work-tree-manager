@@ -8,6 +8,11 @@ export interface UsageWindow {
   resetsAt: string | null;
   /** Set when the reset time has passed since the reading: the percent is shown as 0. */
   reset?: true;
+  /**
+   * Only asking the agent gives it (Claude Code's `get_usage`: a model's own weekly window, as Fable's), not its status
+   * line: a status-line reading keeps it as last asked rather than dropping it (usage-store.ts).
+   */
+  asked?: true;
 }
 
 /** One account's last reading of an agent's plan limits (each config folder an agent runs with is an account). */

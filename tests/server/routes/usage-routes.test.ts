@@ -169,6 +169,36 @@ describe('watchUsage', () => {
 });
 
 describe('wireUsage (what work web mounts)', () => {
+  it('starts the agents’ ask on each GET without waiting for it, and a failed one still answers', async () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-wire-'));
+    let refreshes = 0;
+    let release: () => void = () => {};
+    const app = new Hono();
+    watcher = wireUsage(app, {
+      broadcast: () => {},
+      build: async () => wire,
+      refresh: () => (refreshes++, new Promise<void>((r) => (release = r))),
+      dir: path.join(home, 'usage'),
+    });
+    expect((await app.request('/api/usage')).status).toBe(200); // the ask is still running
+    expect(refreshes).toBe(1);
+    release();
+    const failing = new Hono();
+    const rep = collectingReporter();
+    watcher.stop();
+    watcher = wireUsage(failing, {
+      broadcast: () => {},
+      build: async () => wire,
+      refresh: () => Promise.reject(new Error('boom')),
+      dir: path.join(home, 'usage'),
+    });
+    await withReporter(rep, async () => {
+      expect((await failing.request('/api/usage')).status).toBe(200);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(rep.entries.some((e) => /refresh failed: boom/.test(e.text))).toBe(true);
+  });
+
   let home: string;
   let watcher: { stop(): void } | null = null;
   afterEach(() => {

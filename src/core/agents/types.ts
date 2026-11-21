@@ -284,6 +284,11 @@ export interface AgentUsageSource {
   setup?(o: { enabled: boolean; lean: boolean }): Promise<string>;
   /** `work usage --restore`: give the agent's own setting back now. */
   restore?(): Promise<{ ok: boolean; message: string }>;
+  /**
+   * Ask the agent for what its readings can't carry (Claude: a model's own weekly window, as Fable's, `usage-ask.ts`)
+   * and record it; throttled by the agent, so it may be called on every request. Never throws.
+   */
+  refresh?(): Promise<void>;
 }
 
 /** One of an agent's accounts (Claude: a config folder with its own login). */

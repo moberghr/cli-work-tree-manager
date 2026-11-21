@@ -11,6 +11,10 @@ import type { UnwrapOutcome } from './statusline.js';
 type Installer = typeof import('./statusline.js');
 let installer: Installer | undefined;
 const loadInstaller = async (): Promise<Installer> => (installer ??= await import('./statusline.js'));
+// The same for asking Claude Code (usage-ask.ts): only work web and `work usage` ask.
+type Asker = typeof import('./usage-ask.js');
+let asker: Asker | undefined;
+const loadAsker = async (): Promise<Asker> => (asker ??= await import('./usage-ask.js'));
 
 /** What `work usage --restore` says it did for Claude (`saved`: where the copy of the user's line is, when it isn't ~/.work/statusline.json). */
 export function restoreMessage(o: UnwrapOutcome, saved = '~/.work/statusline.json'): string {
@@ -48,6 +52,10 @@ function namedReadings(): UsageAccount[] {
  */
 export const claudeUsage: AgentUsageSource = {
   read: namedReadings,
+  // A model's own weekly window (Fable's) is in no status line: asked of Claude Code, at most every 5 minutes an account.
+  async refresh() {
+    await (await loadAsker()).askClaudeUsage();
+  },
   async setup() {
     const done = await (await loadInstaller()).unwrapAllStatusLines();
     const restored = done.filter((d) => d.outcome === 'restored').map((d) => d.account);

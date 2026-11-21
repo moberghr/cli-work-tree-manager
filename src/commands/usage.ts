@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { buildUsage, realUsageDeps } from '../core/usage/usage-source.js';
+import { buildUsage, realUsageDeps, refreshUsage } from '../core/usage/usage-source.js';
 import { formatTokens, resetPhrase } from '../core/usage/usage.js';
 import type { TokenTotals, UsageWire } from '../core/api-types.js';
 import { knownAgents } from '../core/agents/index.js';
@@ -24,7 +24,7 @@ export function usageLines(w: UsageWire, now = Date.now()): string[] {
       if (a.accounts.length > 1) lines.push(chalk.gray(`  account ${acc.account}${acc.isDefault ? ' (default)' : ''}`));
       for (const win of acc.windows) {
         const pct = `${Math.round(win.usedPercent)}%`;
-        lines.push(`  ${win.label.padEnd(14)} ${pct.padStart(4)}  ${chalk.gray(resetPhrase(win.resetsAt, now))}`);
+        lines.push(`  ${win.label.padEnd(18)} ${pct.padStart(4)}  ${chalk.gray(resetPhrase(win.resetsAt, now))}`);
       }
     }
   }
@@ -64,6 +64,7 @@ export const usageCommand: CommandModule = {
       if (done.some((d) => !d.ok)) process.exitCode = 1;
       return;
     }
+    await refreshUsage(knownAgents());
     const wire = await buildUsage(realUsageDeps());
     if (argv.json) {
       console.log(JSON.stringify(wire, null, 2));

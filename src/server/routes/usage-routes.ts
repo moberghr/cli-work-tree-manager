@@ -7,8 +7,9 @@ import type { UsageWire } from '../../core/api-types.js';
 
 /**
  * GET /api/usage (core/usage/): each agent's plan limits as its hooks last
- * recorded them, and the tokens its sessions used. A read: nothing is
- * fetched or started. The readings change in ~/.work/usage (the status-line
+ * recorded them, and the tokens its sessions used. It may start the agents'
+ * own usage ask (`refresh`: Claude's `get_usage`, throttled to one per account
+ * every 5 minutes, which records a reading and changes nothing else). The readings change in ~/.work/usage (the status-line
  * hook writes them from any `work` process), so watchUsage turns a change
  * there into a `usage-changed` event.
  */
@@ -119,12 +120,22 @@ export function wireUsage(
   opts: {
     broadcast: (event: string, data: unknown) => void;
     build: () => Promise<UsageWire>;
+    /** Asks the agents for what their readings can't carry (throttled by them); started on each GET, not waited for: its answer is a reading, so the watch announces it. */
+    refresh?: () => Promise<void>;
     ttlMs?: number;
     dir?: string;
     throttleMs?: number;
   },
 ): FsWatcher {
   const cache = createUsageCache(opts.build, opts.ttlMs);
-  mountUsageRoutes(app, { broadcast: opts.broadcast, build: () => cache.get() });
+  const refresh = opts.refresh;
+  mountUsageRoutes(app, {
+    broadcast: opts.broadcast,
+    build: () => {
+      if (refresh)
+        void refresh().catch((e: unknown) => report('warn', `[usage] refresh failed: ${e instanceof Error ? e.message : String(e)}`));
+      return cache.get();
+    },
+  });
   return watchUsage({ broadcast: opts.broadcast, onChange: () => cache.invalidate(), dir: opts.dir, throttleMs: opts.throttleMs });
 }

@@ -7,7 +7,7 @@ import type { UsageWindow } from '../../usage/usage.js';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const clampPercent = (n: number) => Math.round(Math.min(100, Math.max(0, n)) * 10) / 10;
+export const clampPercent = (n: number) => Math.round(Math.min(100, Math.max(0, n)) * 10) / 10;
 
 /** Epoch seconds below 1e12, milliseconds above; a string is parsed as a date. */
 function resetIso(v: unknown): string | null {
@@ -20,7 +20,7 @@ function resetIso(v: unknown): string | null {
 
 const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-function labelOf(key: string): string {
+export function labelOf(key: string): string {
   if (key === 'five_hour') return '5-hour limit';
   if (key === 'seven_day') return 'Weekly limit';
   const named = /^seven_day_(.+)$/.exec(key);

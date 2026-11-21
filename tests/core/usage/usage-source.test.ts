@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildUsage, usageSessions, weekStartDay, type UsageDeps } from '../../../src/core/usage/usage-source.js';
+import { buildUsage, refreshUsage, usageSessions, weekStartDay, type UsageDeps } from '../../../src/core/usage/usage-source.js';
 import { dayKey } from '../../../src/core/conversations/work-time-view.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -119,5 +119,21 @@ describe('usageSessions (the sessions realUsageDeps reads)', () => {
     const lastWrite: Record<string, number> = { recent: NOW - DAY, old: NOW - 8 * DAY, archived: NOW, edge: NOW - 7 * DAY };
     const got = usageSessions([recent, old, archived, edge], (s) => lastWrite[s.branch]!, NOW);
     expect(got.map((s) => s.branch)).toEqual(['recent', 'edge']);
+  });
+});
+
+describe('refreshUsage', () => {
+  it('asks every agent that can, and one that fails stops neither the rest nor the caller', async () => {
+    const asked: string[] = [];
+    await expect(
+      refreshUsage([
+        { id: 'a', usage: { refresh: async () => void asked.push('a') } },
+        { id: 'b', usage: { refresh: () => Promise.reject(new Error('boom')) } },
+        { id: 'c', usage: {} },
+        { id: 'd' },
+        { id: 'e', usage: { refresh: async () => void asked.push('e') } },
+      ]),
+    ).resolves.toBeUndefined();
+    expect(asked).toEqual(['a', 'e']);
   });
 });

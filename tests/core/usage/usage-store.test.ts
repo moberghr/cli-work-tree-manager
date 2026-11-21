@@ -100,4 +100,34 @@ describe('recordReading / readReadings', () => {
   it('is empty when the folder does not exist', () => {
     expect(readReadings('claude')).toEqual([]);
   });
+
+  const fable: UsageWindow = {
+    id: 'seven_day_model_fable',
+    label: 'Weekly Fable limit',
+    usedPercent: 9,
+    resetsAt: '2027-01-18T09:00:00.000Z',
+    asked: true,
+  };
+
+  it("a status-line reading keeps the asked windows it doesn't carry; one it carries is its own", () => {
+    recordReading('claude', 'default', [...windows(40), fable], T0, { full: true });
+    recordReading('claude', 'default', windows(45), T0 + 120_000);
+    expect(readReadings('claude')[0]!.windows).toEqual([...windows(45), fable]);
+    const plain = { ...fable, usedPercent: 12 };
+    delete (plain as { asked?: true }).asked;
+    recordReading('claude', 'default', [...windows(45), plain], T0 + 240_000);
+    expect(readReadings('claude')[0]!.windows).toEqual([...windows(45), plain]);
+  });
+
+  it('a full reading replaces the asked windows too', () => {
+    recordReading('claude', 'default', [...windows(40), fable], T0, { full: true });
+    recordReading('claude', 'default', windows(40), T0 + 120_000, { full: true });
+    expect(readReadings('claude')[0]!.windows).toEqual(windows(40));
+  });
+
+  it('a stored window whose `asked` is not true is no reading', () => {
+    fs.mkdirSync(usageDir(), { recursive: true });
+    fs.writeFileSync(path.join(usageDir(), 'claude-default.json'), JSON.stringify({ at: 'x', windows: [{ ...fable, asked: 'yes' }] }));
+    expect(readReadings('claude')).toEqual([]);
+  });
 });
