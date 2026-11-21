@@ -23,7 +23,8 @@ export function summaryPrompt(rec: ArchiveRecord): string {
     'name the feature or bug, the main changes, and anything left open. No preamble, no lists, no markdown.',
     '',
     `Branch: ${rec.branch} (${rec.target})`,
-    rec.summary.jiraKey ? `Jira: ${rec.summary.jiraKey}` : '',
+    // An archive from before issues had a name of their own kept it as `jiraKey`.
+    issueOf(rec.summary) ? `Issue: ${issueOf(rec.summary)}` : '',
     prs ? `Pull requests: ${prs}` : '',
     '',
     `The developer's requests (${rec.summary.promptCount} in all; first and latest shown):`,
@@ -54,4 +55,10 @@ export function clipToSentence(text: string, max = MAX_SUMMARY_CHARS): string {
   if (end >= max / 2) return head.slice(0, end + 1);
   const space = head.lastIndexOf(' ');
   return `${head.slice(0, space > 0 ? space : max).trimEnd()}…`;
+}
+
+/** An archive's issue key: today's field, or the one archives from before carry. */
+function issueOf(summary: { issueKey?: string | null }): string | null {
+  const old = (summary as { jiraKey?: unknown }).jiraKey;
+  return summary.issueKey ?? (typeof old === 'string' && old ? old : null);
 }

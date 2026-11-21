@@ -30,7 +30,7 @@ function archive(id: string, ageDays: number, text = 'rotate the encryption keys
       promptCount: 1,
       lastSummary: 'Done.',
       prs: [{ repo: 'api', number: 7, url: 'u', state: 'MERGED' }],
-      jiraKey: 'PAY-1',
+      issueKey: 'PAY-1',
     },
   };
   fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify(rec));
@@ -92,7 +92,7 @@ describe('archive summary', () => {
     const rec = readArchive('x', root)!;
     const p = summaryPrompt(rec);
     expect(p).toContain('Branch: fix/x (api)');
-    expect(p).toContain('Jira: PAY-1');
+    expect(p).toContain('Issue: PAY-1');
     expect(p).toContain('#7 (api, merged)');
     expect(p).toContain('- Rotate the terminal encryption keys');
     expect(p).toContain('How the last turn ended: Done.');

@@ -605,7 +605,9 @@ export interface SessionWire {
    *  can be added to it (POST …/repos). Absent from a server before this. */
   folder?: boolean;
   baseBranch?: string;
-  jiraKey?: string;
+  issueKey?: string;
+  /** The issue it was started from, whatever connector it is from (a Jira key is one: `{ source: 'jira', key }`). Absent: none, or an older server. */
+  issue?: import('./issues/issue-source.js').IssueRef;
   createdAt: string;
   lastAccessedAt: string;
   draftCount: number;
@@ -1916,6 +1918,10 @@ export interface ReviewSummaryWire {
   /** You submitted a review of it as it is prepared now (absent: not yet). */
   submitted?: true;
 }
+
+/** GET /api/issues — your issues from every connector (core/issues/issue-source.ts), and whether each could be asked. */
+export type IssueWire = import('./issues/issue-source.js').Issue;
+export type IssuesWire = import('./issues/issue-source.js').IssuesList;
 
 /** GET /api/reviews */
 export interface ReviewsWire {

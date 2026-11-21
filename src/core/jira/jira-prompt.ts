@@ -17,11 +17,11 @@ export const branchFor = (issue: Pick<PromptIssue, 'key'>): string => `feat/${is
 
 /**
  * A session is the issue's when it carries its key, or sits on its branch
- * (`work tree api feat/PAY-12` without --jira-key): the Jira watch skips
+ * (`work tree api feat/PAY-12` without --issue-key): the Jira watch skips
  * such an issue, and Start links to that session instead of offering Start.
  */
-export function sessionIsForIssue(s: { branch: string; jiraKey?: string }, issue: Pick<PromptIssue, 'key'>): boolean {
-  return s.jiraKey === issue.key || s.branch === branchFor(issue);
+export function sessionIsForIssue(s: { branch: string; issueKey?: string }, issue: Pick<PromptIssue, 'key'>): boolean {
+  return s.issueKey === issue.key || s.branch === branchFor(issue);
 }
 
 export function jiraPrompt(issue: PromptIssue, opts: { automatic?: boolean } = {}): string {

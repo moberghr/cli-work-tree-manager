@@ -1,3 +1,4 @@
+import { splitIssueId } from '../issues/issue-source.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from '../platform/config.js';
@@ -44,16 +45,39 @@ function valid(s: unknown): s is WorktreeSession {
   return !!x && typeof x.target === 'string' && typeof x.branch === 'string' && Array.isArray(x.paths);
 }
 
+/**
+ * A row as it is read: one written before issues had a name of their own carries `jiraKey`, which is its issue's
+ * key, Jira's. Read as that, with no migration of the table (an older work still reads its own field); the row is
+ * written in today's shape the next time it is saved.
+ */
+function upgraded(s: WorktreeSession): WorktreeSession {
+  const old = s as WorktreeSession & { jiraKey?: unknown };
+  if (old.jiraKey === undefined) return s;
+  const { jiraKey, ...rest } = old;
+  return typeof jiraKey === 'string' && jiraKey && !rest.issueKey ? { ...rest, issueKey: jiraKey, issueSource: 'jira' } : rest;
+}
+
+/** Record the issue a session is started from: its key, and its system when the text names one (`jira:PAY-12`). */
+function setIssue(s: WorktreeSession, issueKey: string | undefined): void {
+  if (!issueKey?.trim()) return;
+  const { source, key } = splitIssueId(issueKey);
+  s.issueKey = key;
+  if (source) s.issueSource = source;
+  // Another key than it had, with no system said: the old system no longer describes it.
+  else if (s.issueSource && s.issueSource !== 'jira') delete s.issueSource;
+}
+
 function rows(d: Db): WorktreeSession[] {
   return (d.prepare('SELECT data FROM sessions ORDER BY rowid').all() as Array<{ data: string }>)
     .map((r) => json.parse(r.data))
-    .filter(valid);
+    .filter(valid)
+    .map(upgraded);
 }
 
 function getRow(d: Db, target: string, branch: string): WorktreeSession | undefined {
   const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(sessionIdFor({ target, branch })) as { data: string } | undefined;
   const s = r ? json.parse(r.data) : null;
-  return valid(s) ? s : undefined;
+  return valid(s) ? upgraded(s) : undefined;
 }
 
 function putRow(d: Db, s: WorktreeSession): void {
@@ -209,7 +233,7 @@ export async function upsertSession(
   isGroup: boolean,
   branch: string,
   paths: string[],
-  jiraKey?: string,
+  issueKey?: string,
   baseBranch?: string,
   port?: number,
   /** The repo alias of each of `paths` (WorktreeSession.repos); omitted keeps what the row has. */
@@ -225,7 +249,7 @@ export async function upsertSession(
       setOwnRepos(existing, paths, repos);
       existing.lastAccessedAt = now;
       delete existing.archivedAt; // coming back to it un-archives it
-      if (jiraKey) existing.jiraKey = jiraKey;
+      setIssue(existing, issueKey);
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (port !== undefined) existing.port = port;
       putRow(d, existing);
@@ -239,7 +263,7 @@ export async function upsertSession(
         lastAccessedAt: now,
         ...recordAgent(account),
       };
-      if (jiraKey) session.jiraKey = jiraKey;
+      setIssue(session, issueKey);
       if (baseBranch) session.baseBranch = baseBranch;
       if (port !== undefined) session.port = port;
       if (repos) session.repos = [...repos];
@@ -271,7 +295,7 @@ export async function upsertSessionWithPort(
   branch: string,
   paths: string[],
   config: Pick<WorkConfig, 'portRange'>,
-  jiraKey?: string,
+  issueKey?: string,
   baseBranch?: string,
   baseBranches?: Record<string, string>,
   /** What the session owns: the repo alias of each of `paths` (WorktreeSession.repos) and how
@@ -290,7 +314,7 @@ export async function upsertSessionWithPort(
       setOwnRepos(existing, paths, repos);
       existing.lastAccessedAt = now;
       delete existing.archivedAt; // coming back to it un-archives it
-      if (jiraKey) existing.jiraKey = jiraKey;
+      setIssue(existing, issueKey);
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (hasPerRepo && !existing.baseBranches) existing.baseBranches = baseBranches;
       if (existing.port === undefined && port !== undefined) existing.port = port;
@@ -299,7 +323,7 @@ export async function upsertSessionWithPort(
       return existing.port;
     }
     const session: WorktreeSession = { target, isGroup, branch, paths, createdAt: now, lastAccessedAt: now, ...recordAgent(account) };
-    if (jiraKey) session.jiraKey = jiraKey;
+    setIssue(session, issueKey);
     if (baseBranch) session.baseBranch = baseBranch;
     if (hasPerRepo) session.baseBranches = baseBranches;
     if (port !== undefined) session.port = port;

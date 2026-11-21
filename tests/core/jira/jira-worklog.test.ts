@@ -118,7 +118,7 @@ describe('the routes', () => {
       paths: [wt],
       createdAt: new Date().toISOString(),
       lastAccessedAt: new Date().toISOString(),
-      jiraKey: 'PAY-7',
+      issueKey: 'PAY-7',
     };
     saveHistory([s]);
     saveConfig(config({ site: 'acme.atlassian.net', email: 'me@acme.hr', token: 'secret-token' }));

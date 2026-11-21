@@ -56,6 +56,17 @@ describe('Jira watch routes', () => {
     expect(await (await req('GET', '/api/jira/watch')).json()).toMatchObject({ settings: { enabled: false, since: null } });
   });
 
+  it('the same routes under the page’s name now (/api/issues/watch…), one state behind both', async () => {
+    expect((await req('PUT', '/api/issues/watch', { enabled: true })).status).toBe(200);
+    expect(await (await req('GET', '/api/jira/watch')).json()).toMatchObject({ settings: { enabled: true } });
+    expect(await (await req('GET', '/api/issues/watch')).json()).toMatchObject({ settings: { enabled: true }, decisions: [] });
+    saveDecision({ key: 'APP-2', summary: 'x', url: 'u', at: new Date().toISOString(), action: 'suggested', reason: 'r' });
+    expect((await req('POST', '/api/issues/watch/APP-2/start', { target: 'not-a-project' })).status).toBe(400);
+    expect((await req('POST', '/api/issues/watch/APP-2/dismiss')).status).toBe(200);
+    expect(readDecision('APP-2')).toMatchObject({ action: 'dismissed' });
+    expect((await req('POST', '/api/issues/watch/APP-404/dismiss')).status).toBe(404);
+  });
+
   it('turning it on takes all your issues as there (not the 50 the Jira tab lists): an older one is never "new"', async () => {
     jira.issues = Array.from({ length: 80 }, (_, i) => ({
       key: `APP-${i + 1}`,

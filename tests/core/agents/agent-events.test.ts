@@ -363,7 +363,7 @@ describe('instructions file, restore (agents/)', () => {
       worktreeRemoved: true,
       keptBecause: null,
       transcripts: [{ file: 'c.jsonl', projectDir: 'p' }],
-      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], issueKey: null },
     });
     // The session's agent is opencode: nowhere to put it back (the archive keeps it).
     fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify(config('opencode')));

@@ -15,4 +15,5 @@ Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`:
 - `useBundledConpty` — Windows: terminals start on node-pty's bundled ConPTY instead of Windows' own (see PTY host)
 - `aiCommand` / `aiCommandFlags` — the agent new sessions run (Claude Code by default); `internalAgent` — the one that writes work's summaries; `assistantAgent` — the one the Ctrl+K assistant runs (both `claude` by default; see Agents)
 
+- `issues.rules` (a list): which project an issue starts in, a rule a line (`jira:PAY -> api`, `github:acme/web -> shop`); `issues.md`.
 - `reviews.focus` (a list) and `reviews.focusFor` (`{ "<repo alias>": [ … ] }`): what the Reviews AI step is told to pay attention to, for every review and for a repo's (see reviews.md, "What reviews pay attention to"). Your words are instructions to it, so they live in work's config, not in the repo.

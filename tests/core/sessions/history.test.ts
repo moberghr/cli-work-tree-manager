@@ -56,6 +56,42 @@ describe('loadHistory', () => {
     expect(loadHistory()).toEqual(sessions);
   });
 
+  it('a session from before issues had a name of their own: its jiraKey is read as its issue’s key, Jira’s (no migration)', () => {
+    const historyDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(historyDir, { recursive: true });
+    const old = {
+      target: 'api',
+      isGroup: false,
+      branch: 'feat/PAY-12',
+      paths: ['/tmp/wt/api/feat-PAY-12'],
+      createdAt: '2025-01-01T00:00:00.000Z',
+      lastAccessedAt: '2025-01-01T00:00:00.000Z',
+      jiraKey: 'PAY-12',
+    };
+    fs.writeFileSync(path.join(historyDir, 'history.json'), JSON.stringify([old, { ...old, branch: 'feat/none', jiraKey: undefined }]));
+    const [withKey, without] = loadHistory();
+    expect(withKey).toMatchObject({ issueKey: 'PAY-12', issueSource: 'jira' });
+    expect(withKey).not.toHaveProperty('jiraKey');
+    expect(without).not.toHaveProperty('issueKey');
+    expect(without).not.toHaveProperty('issueSource');
+  });
+
+  it('a session records its issue’s key, and its system when the text says it (work’s own key); a bare key is the default system’s', async () => {
+    await upsertSession('api', false, 'feat/a', ['/tmp/a'], 'PAY-12');
+    expect(findSession(loadHistory(), 'api', 'feat/a')).toMatchObject({ issueKey: 'PAY-12' });
+    expect(findSession(loadHistory(), 'api', 'feat/a')).not.toHaveProperty('issueSource');
+    await upsertSession('api', false, 'feat/b', ['/tmp/b'], 'github:acme/web#12');
+    expect(findSession(loadHistory(), 'api', 'feat/b')).toMatchObject({ issueKey: 'acme/web#12', issueSource: 'github' });
+    // Coming back with another key and no system: the old system no longer describes it.
+    await upsertSession('api', false, 'feat/b', ['/tmp/b'], 'PAY-13');
+    const again = findSession(loadHistory(), 'api', 'feat/b')!;
+    expect(again.issueKey).toBe('PAY-13');
+    expect(again).not.toHaveProperty('issueSource');
+    // Coming back with none keeps what it had.
+    await upsertSession('api', false, 'feat/a', ['/tmp/a']);
+    expect(findSession(loadHistory(), 'api', 'feat/a')?.issueKey).toBe('PAY-12');
+  });
+
   it('returns empty array for invalid JSON', () => {
     const historyDir = path.join(tmpDir, '.work');
     fs.mkdirSync(historyDir, { recursive: true });

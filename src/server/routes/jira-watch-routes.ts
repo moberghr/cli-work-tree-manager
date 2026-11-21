@@ -1,3 +1,4 @@
+import { placeJira } from '../../core/issues/jira-placed.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
@@ -26,6 +27,8 @@ import type { JiraWatchState } from '../../core/api-types.js';
 /**
  * The Jira watch's switch and decisions, for the Jira tab, and its sweep
  * (jira-watch.ts has the policy):
+ *
+ * Each also under /api/issues/watch… (the page's name now); /api/jira/watch… stays for an app from before it.
  *
  *   GET  /api/jira/watch              — on/off, recent decisions, the projects to start in
  *   PUT  /api/jira/watch              — {enabled}: turn it on (what's assigned now is the baseline) or off
@@ -90,7 +93,7 @@ export function mountJiraWatchRoutes(
     const config = loadConfig();
     if (!config) throw new Error('no work config');
     const made = await (opts.create ?? createInProcess)(
-      { target, branch, jiraKey: issue.key, name: `${issue.key} ${issue.summary}`.slice(0, 120) },
+      { target, branch, issueKey: issue.key, name: `${issue.key} ${issue.summary}`.slice(0, 120) },
       config,
     );
     if (!made.ok) throw new Error(made.error || `could not create ${branch} in ${target}`);
@@ -117,6 +120,7 @@ export function mountJiraWatchRoutes(
           detail: fetchIssueDetail,
           targets: () => watchTargets(),
           sessions: () => loadHistory(),
+          place: (issue, detail) => placeJira(issue, detail, loadConfig()),
           ask: (prompt) => runInternal(prompt, 90_000),
           start: (target, branch, issue) => start(target, branch, issue, true),
           note: (text, level, sessionId) => run?.note(text, { level, ...(sessionId ? { sessionId } : {}) }),
@@ -153,7 +157,10 @@ export function mountJiraWatchRoutes(
     schedule?.next(Date.now() + EVERY_MS);
   }
 
-  app.get('/api/jira/watch', (c) => {
+  // Under both names: the page is Issues; an app from before it still asks /api/jira/watch.
+  const at = (tail = '') => [`/api/issues/watch${tail}`, `/api/jira/watch${tail}`] as const;
+
+  app.on('GET', [...at()], (c) => {
     const body: JiraWatchState = {
       settings: readSettings(),
       decisions: listDecisions()
@@ -166,7 +173,7 @@ export function mountJiraWatchRoutes(
     return c.json(body);
   });
 
-  app.put('/api/jira/watch', async (c) => {
+  app.on('PUT', [...at()], async (c) => {
     const body = (await c.req.json().catch(() => null)) as { enabled?: unknown } | null;
     if (typeof body?.enabled !== 'boolean') return c.json({ error: 'enabled (true/false) required' }, 400);
     let current: JiraIssue[] = [];
@@ -191,8 +198,8 @@ export function mountJiraWatchRoutes(
     return c.json({ settings });
   });
 
-  app.post('/api/jira/watch/:key/start', async (c) => {
-    const key = c.req.param('key');
+  app.on('POST', [...at('/:key/start')], async (c) => {
+    const key = c.req.param('key') ?? '';
     const body = (await c.req.json().catch(() => null)) as { target?: unknown } | null;
     const target = typeof body?.target === 'string' ? body.target : '';
     if (!watchTargets().some((t) => t.name === target)) return c.json({ error: 'unknown project' }, 400);
@@ -222,8 +229,8 @@ export function mountJiraWatchRoutes(
     }
   });
 
-  app.post('/api/jira/watch/:key/dismiss', (c) => {
-    const d = readDecision(c.req.param('key'));
+  app.on('POST', [...at('/:key/dismiss')], (c) => {
+    const d = readDecision(c.req.param('key') ?? '');
     if (!d) return c.json({ error: 'no such issue' }, 404);
     saveDecision({ ...d, action: 'dismissed', at: new Date().toISOString(), reason: 'you said not this one' });
     opts.broadcast('jira-watch-changed', { ts: Date.now() });

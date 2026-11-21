@@ -97,7 +97,7 @@ export function sessionMatches(s: SessionSummary, query: string): boolean {
     ...s.paths,
     s.title ?? '',
     s.attention?.summary ?? '',
-    s.jiraKey ?? '',
+    s.issueKey ?? '',
     s.archive?.lastSummary ?? '',
     ...(s.archive?.prompts ?? []),
   ]

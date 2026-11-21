@@ -137,10 +137,10 @@ export interface Choice {
 }
 
 /** Earlier issues of a Jira project and where they were worked: from sessions' Jira keys and branch names. */
-export function projectHistory(sessions: Array<{ target: string; branch: string; jiraKey?: string }>): Map<string, Map<string, number>> {
+export function projectHistory(sessions: Array<{ target: string; branch: string; issueKey?: string }>): Map<string, Map<string, number>> {
   const out = new Map<string, Map<string, number>>();
   for (const s of sessions) {
-    const key = s.jiraKey ?? /\b([A-Za-z][A-Za-z0-9]+)-\d+\b/.exec(s.branch)?.[0];
+    const key = s.issueKey ?? /\b([A-Za-z][A-Za-z0-9]+)-\d+\b/.exec(s.branch)?.[0];
     const project = key ? key.split('-')[0].toUpperCase() : null;
     if (!project) continue;
     const m = out.get(project) ?? new Map<string, number>();
@@ -215,7 +215,15 @@ export interface WatchDeps {
   detail: (key: string) => Promise<JiraIssueDetail | null>;
   targets: () => WatchTarget[];
   /** The sessions there are (to skip an issue that has one, and for history). */
-  sessions: () => Array<{ target: string; branch: string; jiraKey?: string }>;
+  sessions: () => Array<{ target: string; branch: string; issueKey?: string }>;
+  /**
+   * Where your issue rules put it (`issues.rules`, issue-place.ts): a project to start in, a reason they don't
+   * settle it (several named, or one that isn't yours), or null (no rule is about it: the model is asked).
+   */
+  place?: (
+    issue: JiraIssue,
+    detail: JiraIssueDetail | null,
+  ) => { target: string; reason: string; auto: boolean } | { target: null; reason: string } | null;
   /** Ask the model (internal Claude); null: no answer. */
   ask: (prompt: string) => Promise<string | null>;
   /** Create the worktree and start its Claude with the issue's prompt; returns the session id. */
@@ -263,7 +271,21 @@ export async function sweepJira(deps: WatchDeps): Promise<{ started: number; sug
       continue;
     }
     const detail = await deps.detail(issue.key);
-    const choice = parseChoice(await deps.ask(choicePrompt(issue, detail, targets, history)), targets);
+    // Your rules first: they are your word on it, so it starts there with no guess. Rules that don't settle it
+    // (several projects, one that isn't yours) leave it to you, said why — the model is not asked to pick between them.
+    const placed = deps.place?.(issue, detail) ?? null;
+    // § Started by itself ONLY where a rule of yours says (auto) (asked for: nothing starts unless you set it).
+    // A rule that only says where, and the model's answer for an issue no rule is about — however sure — are
+    // suggestions: the project is filled in, the Start is yours.
+    const guess = placed ? null : parseChoice(await deps.ask(choicePrompt(issue, detail, targets, history)), targets);
+    const choice: Choice = placed
+      ? { target: placed.target, confident: placed.target !== null && placed.auto, reason: placed.reason }
+      : { target: guess!.target, confident: false, reason: guess!.reason };
+    const why = placed
+      ? placed.target === null
+        ? 'your rules don’t settle where it belongs'
+        : 'its rule doesn’t say (auto)'
+      : 'no rule of yours is about it';
     if (!choice.confident || !choice.target) {
       saveDecision({
         ...base,
@@ -273,7 +295,7 @@ export async function sweepJira(deps: WatchDeps): Promise<{ started: number; sug
         reason: choice.reason,
       });
       deps.note?.(
-        `${issue.key}: not sure where it belongs${choice.target ? ` (maybe ${choice.target})` : ''} — start it from the Jira tab. ${choice.reason}`,
+        `${issue.key}: not started by itself (${why})${choice.target ? `; it would go in ${choice.target}` : ''} — start it from the Issues tab. ${choice.reason}`,
         'info',
       );
       out.suggested++;

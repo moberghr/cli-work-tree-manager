@@ -99,7 +99,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   cleanup: 'Clean up',
   sessions: 'Sessions',
   start: 'Start',
-  jira: 'Jira',
+  issues: 'Issues',
   reviews: 'Reviews',
   time: 'Time',
   repos: 'Repos',
@@ -181,7 +181,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     target?: string;
     branch?: string;
     base?: string;
-    jiraKey?: string;
+    issueKey?: string;
     prompt?: string;
   } | null>(null);
 
@@ -660,7 +660,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           a: 'accounts',
           ',': 'settings',
           c: 'cleanup',
-          j: 'jira',
+          j: 'issues',
           h: 'time',
           v: 'reviews',
           // The old chord for the PRs page: they're on Start.
@@ -948,11 +948,19 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           />
         );
         break;
-      case 'jira':
+      case 'issues':
         body = (
           <JiraTab
             sessions={sessions}
-            onPickIssue={(issue) => openNew({ branch: `feat/${issue.key}`, jiraKey: issue.key, prompt: jiraPrompt(issue) })}
+            onPickIssue={(issue) =>
+              openNew({
+                // Where your issue rules start it (Settings → Issues), when they say.
+                ...(issue.startsIn ? { target: issue.startsIn } : {}),
+                branch: `feat/${issue.key}`,
+                issueKey: issue.key,
+                prompt: jiraPrompt(issue),
+              })
+            }
             onOpenSession={(id) => openSession(id)}
           />
         );

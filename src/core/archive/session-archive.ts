@@ -85,7 +85,7 @@ export interface ArchiveRecord {
     promptCount: number;
     lastSummary: string | null;
     prs: ArchivedPr[];
-    jiraKey: string | null;
+    issueKey: string | null;
     /** What was done and why, in a few sentences (written after archiving). */
     written?: string | null;
   };
@@ -395,7 +395,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
       promptCount: all.length,
       lastSummary: deps.lastSummary?.(id) ?? null,
       prs: deps.prs?.(id) ?? [],
-      jiraKey: s.jiraKey ?? null,
+      issueKey: s.issueKey ?? null,
     },
     ...(Object.keys(tips).length ? { tips } : {}),
     ...(Object.keys(heads).length ? { heads } : {}),

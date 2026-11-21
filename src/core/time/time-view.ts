@@ -58,8 +58,8 @@ export function timeSettings(cfg: (Partial<TimeSettings> & { projects?: string[]
 }
 
 /** A session's ticket: its Jira key, else one in its branch, else in its name. */
-export function sessionTicket(s: { jiraKey?: string; branch: string; title?: string }, projects?: ReadonlySet<string>): string | null {
-  return s.jiraKey ?? issueKeys(s.branch, projects)[0] ?? (s.title ? (issueKeys(s.title, projects)[0] ?? null) : null);
+export function sessionTicket(s: { issueKey?: string; branch: string; title?: string }, projects?: ReadonlySet<string>): string | null {
+  return s.issueKey ?? issueKeys(s.branch, projects)[0] ?? (s.title ? (issueKeys(s.title, projects)[0] ?? null) : null);
 }
 
 /** A local `YYYY-MM-DD` — the work-time reader's own day key, so a day's minutes are found under it. */

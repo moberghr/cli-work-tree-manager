@@ -27,6 +27,8 @@ export interface WorkConfig {
   ignoredRepos?: string[];
   /** The Jira watch (jira-watch.ts; turned on and off in the Jira tab): at most this many automatic starts a day (default 5). */
   jiraWatch?: { maxPerDay?: number };
+  /** Where issues start (core/issues/issue-place.ts): your rules, a line each (`jira:PAY -> api`). */
+  issues?: { rules?: string[] };
   /** The Time tab's rules (core/time/allocate.ts, defaults in DEFAULT_TIME_SETTINGS), and the Jira
    *  projects whose keys count in commit subjects (default: the projects of your sessions' keys). */
   time?: Partial<import('../time/allocate.js').TimeSettings> & {
@@ -411,6 +413,10 @@ export function loadConfig(): WorkConfig | null {
       hostEnv: Array.isArray(parsed.hostEnv)
         ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
         : undefined,
+      issues:
+        parsed.issues && typeof parsed.issues === 'object' && Array.isArray(parsed.issues.rules)
+          ? { rules: (parsed.issues.rules as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim()) }
+          : undefined,
       // The Settings page writes it (reported: it saved and nothing read it).
       jiraWatch:
         parsed.jiraWatch && typeof parsed.jiraWatch === 'object' && typeof parsed.jiraWatch.maxPerDay === 'number'

@@ -26,7 +26,7 @@ function deps(over: Partial<TimeDeps> = {}): TimeDeps & { titles: ReturnType<typ
   return {
     sessions: () => [
       session({ branch: 'feat/APP-3850-pos-key' }),
-      session({ branch: 'fix/thing', jiraKey: 'APP-3900' }),
+      session({ branch: 'fix/thing', issueKey: 'APP-3900' }),
       session({ branch: 'chore/deps' }),
       session({ branch: 'feat/idle' }),
     ],
@@ -45,7 +45,7 @@ function deps(over: Partial<TimeDeps> = {}): TimeDeps & { titles: ReturnType<typ
 
 describe('the pure view (time-view.ts)', () => {
   it("a session's ticket: its Jira key, else from the branch, else from its name", () => {
-    expect(sessionTicket({ branch: 'feat/APP-1-x', jiraKey: 'APP-9' })).toBe('APP-9');
+    expect(sessionTicket({ branch: 'feat/APP-1-x', issueKey: 'APP-9' })).toBe('APP-9');
     expect(sessionTicket({ branch: 'feat/APP-1-x' })).toBe('APP-1');
     expect(sessionTicket({ branch: 'main', title: 'APP-2 fix' })).toBe('APP-2');
     expect(sessionTicket({ branch: 'main' })).toBeNull();
@@ -295,7 +295,7 @@ describe('building a day (time-days.ts, state.db)', () => {
     // Within reach, but one session is gone from history: its minutes stay, the others are read again.
     await buildDay('2026-10-05', deps());
     const fewer = deps({
-      sessions: () => [session({ branch: 'feat/APP-3850-pos-key' }), session({ branch: 'fix/thing', jiraKey: 'APP-3900' })],
+      sessions: () => [session({ branch: 'feat/APP-3850-pos-key' }), session({ branch: 'fix/thing', issueKey: 'APP-3900' })],
     });
     const rec = await buildDay('2026-10-05', fewer);
     expect(rec.evidence.sessions.map((s) => s.minutes).sort((a, b) => a - b)).toEqual([6, 12, 30]);

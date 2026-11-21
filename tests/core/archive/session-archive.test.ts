@@ -44,7 +44,7 @@ beforeEach(() => {
     paths: [wt],
     createdAt: '2026-09-01T00:00:00Z',
     lastAccessedAt: '2026-09-01T00:00:00Z',
-    jiraKey: 'PAY-12',
+    issueKey: 'PAY-12',
   } as WorktreeSession;
   const pdir = path.join(projects, encodeProjectDir(wt));
   fs.mkdirSync(pdir, { recursive: true });
@@ -136,7 +136,7 @@ describe('archiveSession', () => {
     expect(rec.summary).toMatchObject({
       promptCount: 2,
       lastSummary: 'Keys rotated; tests pass.',
-      jiraKey: 'PAY-12',
+      issueKey: 'PAY-12',
       prs: [{ number: 7, state: 'MERGED' }],
     });
     expect(fs.readFileSync(path.join(root, sessionIdFor(session), 'transcripts', 'conv-1.jsonl'), 'utf8')).toBe(

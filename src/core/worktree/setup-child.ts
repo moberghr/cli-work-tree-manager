@@ -25,7 +25,7 @@ export interface CreateRequest {
   /** Empty: the repo's own checkout, on the branch it has (`work tree <repo>`). */
   branch?: string;
   base?: BaseSpec;
-  jiraKey?: string;
+  issueKey?: string;
   name?: string;
   /** A new session's repos instead of its group's config (a fork of a session folder: the parent's own). */
   repos?: string[];
@@ -92,7 +92,7 @@ export function childArgs(req: CreateRequest): string[] {
     ...(req.branch ? [req.branch] : []),
     '--setup-only',
     ...baseArgs(req.base),
-    ...(req.jiraKey ? [`--jira-key=${req.jiraKey}`] : []),
+    ...(req.issueKey ? [`--issue-key=${req.issueKey}`] : []),
     ...(req.name?.trim() ? [`--name=${req.name.trim()}`] : []),
     ...(req.repos?.length ? [`--repos=${req.repos.join(',')}`] : []),
     ...(req.account ? [`--account=${req.account}`] : []),
@@ -272,7 +272,7 @@ export const createInProcess: CreateWorktree = async (req, config) => {
   if (invalid) return { ok: false, error: invalid };
   // No branch, or the one the repo's own folder is on (it can't be checked out twice): that folder.
   if (!req.branch || ((!req.base || isEmptyBaseSpec(req.base)) && ownsBranch(req.target, req.branch, config))) {
-    const opened = await openBaseCheckout(req.target, config, { jiraKey: req.jiraKey, name: req.name, account: req.account });
+    const opened = await openBaseCheckout(req.target, config, { issueKey: req.issueKey, name: req.name, account: req.account });
     return opened.ok
       ? { ok: true, branch: opened.branch, launchDir: opened.repoPath, paths: [opened.repoPath] }
       : { ok: false, error: opened.error };
@@ -280,7 +280,7 @@ export const createInProcess: CreateWorktree = async (req, config) => {
   // Keep what core reports, so a failure says why.
   const reports = collectingReporter();
   const created = await withReporter(reports, () =>
-    setupWorktree(req.target, req.branch!, config, req.base, req.jiraKey, {
+    setupWorktree(req.target, req.branch!, config, req.base, req.issueKey, {
       name: req.name,
       ...(req.account ? { account: req.account } : {}),
       ...(req.repos?.length ? { repos: req.repos } : {}),

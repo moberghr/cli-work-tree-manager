@@ -49,7 +49,7 @@ afterEach(() => {
 
 describe('worklogLine', () => {
   it("the latest day's work with the Jira key, rounded up to a quarter hour — never a lifetime total", () => {
-    expect(worklogLine({ jiraKey: 'PAY-12', title: 'Retry payments', branch: 'feat/x' }, time)).toEqual({
+    expect(worklogLine({ issueKey: 'PAY-12', title: 'Retry payments', branch: 'feat/x' }, time)).toEqual({
       text: 'PAY-12 1h — Retry payments',
       day: today,
     });
@@ -69,7 +69,7 @@ describe('WorkTimeChip', () => {
   it('shows the total, explains it, and copies the worklog line on click', async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ jiraKey: 'PAY-12' }) })));
+    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ issueKey: 'PAY-12' }) })));
     const chip = container.querySelector<HTMLButtonElement>('.wd-work-time')!;
     expect(chip.textContent).toBe('⏱ 1h 35m');
     expect(chip.title).toContain('over 7 prompts');
@@ -131,7 +131,7 @@ describe('Log to Jira', () => {
   it('only when set up and the session has a Jira issue; logs the latest day; says what it did', async () => {
     api.fetchWorklog.mockResolvedValue({ configured: true, issueKey: 'PAY-12', logged: {} });
     api.logWorklog.mockResolvedValue({ ok: true, logged: 3600, total: 3600, text: '1h logged on PAY-12 for today' });
-    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ jiraKey: 'PAY-12' }) })));
+    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ issueKey: 'PAY-12' }) })));
     const btn = [...container.querySelectorAll('button')].find((b) => b.textContent === '→ PAY-12')!;
     await act(async () => btn.click());
     expect(api.logWorklog).toHaveBeenCalledWith('s1', today);
@@ -140,7 +140,7 @@ describe('Log to Jira', () => {
   });
 
   it('not set up: no button', async () => {
-    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ jiraKey: 'PAY-12' }) })));
+    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ issueKey: 'PAY-12' }) })));
     expect([...container.querySelectorAll('button')].some((b) => b.textContent?.startsWith('→'))).toBe(false);
   });
 });

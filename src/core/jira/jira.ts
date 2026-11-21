@@ -10,6 +10,8 @@ export interface JiraIssue {
   issuetype: string;
   priority: string;
   url: string;
+  /** The project your issue rules start it in (`issues.rules`), when they say: Start opens with it filled in. */
+  startsIn?: string;
 }
 
 function execAsync(cmd: string, args: string[], timeout: number): Promise<string> {

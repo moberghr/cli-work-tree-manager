@@ -148,7 +148,7 @@ describe('making it again goes wrong, or the branch moved (reviewed)', () => {
         worktreeRemoved: true,
         keptBecause: null,
         transcripts: [],
-        summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+        summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], issueKey: null },
         tips: { api: tipThen },
       }),
     );

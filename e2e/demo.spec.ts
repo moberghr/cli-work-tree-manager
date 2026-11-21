@@ -441,7 +441,7 @@ test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session
 test('Jira has its own tab; Repos goes back to Start; the pages scroll when they are taller than the window', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 420 });
   await page.goto(`${url}#/start`);
-  await page.getByRole('tab', { name: 'Jira' }).click();
+  await page.getByRole('tab', { name: 'Issues' }).click();
   await expect(page).toHaveURL(/#\/jira$/);
   await expect(page.getByRole('region', { name: 'Jira issues assigned to you' })).toBeVisible();
   await page.getByRole('tab', { name: 'Start' }).click();

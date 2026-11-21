@@ -524,11 +524,11 @@ export async function setupWorktree(
   branchName: string,
   config: WorkConfig,
   base?: string | BaseSpec,
-  jiraKey?: string,
+  issueKey?: string,
   opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
   const spec = toBaseSpec(base);
-  debug('setupWorktree', { targetName, branchName, spec, jiraKey, opts });
+  debug('setupWorktree', { targetName, branchName, spec, issueKey, opts });
   const target = resolveProjectTarget(targetName, config);
   if (!target) {
     debug('setupWorktree: target not found', targetName);
@@ -573,8 +573,8 @@ export async function setupWorktree(
   if (checkoutFor) opts = { ...opts, checkoutFor };
 
   const result = asFolder
-    ? await setupGroupWorktree(sessionTarget, repoAliases, branchName, config, spec, jiraKey, opts)
-    : await setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
+    ? await setupGroupWorktree(sessionTarget, repoAliases, branchName, config, spec, issueKey, opts)
+    : await setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, issueKey, opts);
   // Coming back to an archived session: put its conversation back where
   // Claude looks for it (only files that aren't there), so it continues.
   if (result) {
@@ -723,7 +723,7 @@ async function setupGroupWorktree(
   branchName: string,
   config: WorkConfig,
   spec: BaseSpec,
-  jiraKey?: string,
+  issueKey?: string,
   opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
   // `<root>/<branch>-<id6>/` for a new one with `sessionFolders` on, else `<root>/<group>/<branch>/`; an existing one where it is.
@@ -916,7 +916,7 @@ async function setupGroupWorktree(
     branchName,
     owns ? [...allPaths, ...gone.map((r) => r.path)] : allPaths,
     config,
-    jiraKey,
+    issueKey,
     representativeBase,
     baseBranches,
     {
@@ -946,7 +946,7 @@ async function setupSingleWorktree(
   workTreeDirName: string,
   config: WorkConfig,
   spec: BaseSpec,
-  jiraKey?: string,
+  issueKey?: string,
   opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
   const repoPath = config.repos[targetName];
@@ -1003,7 +1003,7 @@ async function setupSingleWorktree(
     branchName,
     [workTreePath],
     config,
-    jiraKey,
+    issueKey,
     base,
     base ? { [workTreePath]: base } : undefined,
     { ...(isNew ? { repos: [targetName] } : {}), account: opts.account },
@@ -1168,7 +1168,7 @@ export type BaseCheckoutResult = { ok: true; repoPath: string; branch: string; d
 export async function openBaseCheckout(
   targetName: string,
   config: WorkConfig,
-  opts: { pull?: boolean; jiraKey?: string; name?: string; account?: string } = {},
+  opts: { pull?: boolean; issueKey?: string; name?: string; account?: string } = {},
 ): Promise<BaseCheckoutResult> {
   const accountRefused = accountRefusal(opts.account, config);
   if (accountRefused) return { ok: false, error: accountRefused };
@@ -1181,7 +1181,7 @@ export async function openBaseCheckout(
   const branch = getCurrentBranch(repoPath) ?? '(detached)';
   // Detached HEAD has no upstream to pull from — skip rather than warn.
   if (opts.pull !== false && branch && branch !== '(detached)') pullLatestForBranch(repoPath, branch);
-  await upsertSession(targetName, false, branch, [repoPath], opts.jiraKey, undefined, undefined, undefined, opts.account);
+  await upsertSession(targetName, false, branch, [repoPath], opts.issueKey, undefined, undefined, undefined, opts.account);
   if (opts.name?.trim()) await setSessionTitle(targetName, branch, opts.name);
   const dropped = await forgetOtherBaseCheckoutEntries(targetName, branch, repoPath);
   return { ok: true, repoPath, branch, dropped };
