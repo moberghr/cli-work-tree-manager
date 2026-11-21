@@ -51,6 +51,8 @@ export function mountSettingsRoutes(app: Hono, opts: { broadcast: (event: string
       const out = await src.writeRepo(c.req.param('alias'), b.key, b.value);
       opts.broadcast('settings-changed', { ts: Date.now() });
       opts.broadcast('repos-changed', { ts: Date.now() });
+      // A repo's colour is its sessions' colour where they have none of their own.
+      if (b.key === 'color') opts.broadcast('rail-changed', { ts: Date.now() });
       return c.json(out satisfies RepoSettingsWire);
     } catch (err) {
       return refused(c, err);

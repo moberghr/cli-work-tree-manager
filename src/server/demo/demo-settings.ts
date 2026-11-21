@@ -29,6 +29,7 @@ export function createDemoSettings(repoPathOf: (alias: string) => string | null)
         devCommand: 'npm run dev',
         reviews: 'all',
         reviewFocus: ['A refund never exceeds what was paid'],
+        color: 'blue',
       },
     ],
   ]);
@@ -41,7 +42,7 @@ export function createDemoSettings(repoPathOf: (alias: string) => string | null)
       path: p,
       origin: `https://github.com/acme/${alias}`,
       host: alias === 'payments' ? 'Azure DevOps' : 'GitHub',
-      ...(repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null }),
+      ...(repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null, color: null }),
     };
   };
   return {
@@ -58,10 +59,11 @@ export function createDemoSettings(repoPathOf: (alias: string) => string | null)
     readRepo,
     async writeRepo(alias, key, value) {
       readRepo(alias); // 404 for one that isn't a repo
-      if (!['requiredChecks', 'devCommand', 'reviews', 'reviewFocus'].includes(key)) throw new SettingsError(`no repo setting ${key}`, 404);
+      if (!['requiredChecks', 'devCommand', 'reviews', 'reviewFocus', 'color'].includes(key))
+        throw new SettingsError(`no repo setting ${key}`, 404);
       const r = checkRepoSetting(key as RepoSettingKey, value);
       if (!r.ok) throw new SettingsError(r.error);
-      const now = repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null };
+      const now = repos.get(alias) ?? { requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null, color: null };
       repos.set(alias, { ...now, [key]: r.value });
       return readRepo(alias);
     },
@@ -101,6 +103,7 @@ export function mountDemoSettings(app: Hono, broadcast: (event: string, data: un
       const out = await src.writeRepo(c.req.param('alias'), b.key, b.value);
       broadcast('settings-changed', { ts: Date.now() });
       broadcast('repos-changed', { ts: Date.now() });
+      if (b.key === 'color') broadcast('rail-changed', { ts: Date.now() });
       return c.json(out);
     } catch (err) {
       return refused(c, err);

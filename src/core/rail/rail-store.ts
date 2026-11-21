@@ -1,9 +1,11 @@
+import { loadConfig } from '../platform/config.js';
 import { json, tx, withDb, type Db } from '../platform/db.js';
 import {
   applyPlacePatch,
   applySectionOp,
   asRailPlace,
   cleanSections,
+  projectColorsOf,
   type PlacePatch,
   type RailLayout,
   type RailPlace,
@@ -30,7 +32,8 @@ export function readRailLayout(): RailLayout {
       const p = asRailPlace(json.parse(r.data));
       if (p) places[r.session_id] = p;
     }
-    return { sections: readSections(d), places };
+    const projectColors = projectColorsOf(loadConfig()?.colors);
+    return { sections: readSections(d), places, ...(Object.keys(projectColors).length ? { projectColors } : {}) };
   });
 }
 

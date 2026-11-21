@@ -1,3 +1,4 @@
+import { sessionColor } from '../../../../core/rail/rail-layout.js';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '../../api/client.js';
 import { displayStatus } from '../../state/session-display.js';
@@ -88,7 +89,7 @@ export function QuickSwitcher({
               onMouseEnter={() => setActive(i)}
             >
               <StatusIcon kind={displayStatus(s)} />
-              <ColorMark color={layout?.places[s.id]?.color} />
+              <ColorMark color={sessionColor(layout, s)} />
               <span className="wd-switcher-name">{switcherLabel(s)}</span>
               <span className="wd-switcher-sub">
                 {s.target}

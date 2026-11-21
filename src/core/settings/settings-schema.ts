@@ -582,6 +582,8 @@ export interface RepoSettingsValues {
   reviews: ReviewMode | null;
   /** What reviews of it pay attention to, besides every review's list (`reviews.focusFor[alias]`); null: nothing more. */
   reviewFocus: string[] | null;
+  /** Its sessions' colour unless one has its own (`colors[alias]`); null: none. */
+  color: RailColor | null;
 }
 
 export type RepoSettingKey = keyof RepoSettingsValues;
@@ -592,6 +594,7 @@ export const REPO_SETTING_PATH: Record<RepoSettingKey, string> = {
   devCommand: 'devCommands',
   reviews: 'reviews.projects',
   reviewFocus: 'reviews.focusFor',
+  color: 'colors',
 };
 
 /** A repo setting's value to write, checked; `null`: take it out. Pure. */
@@ -603,6 +606,7 @@ export function checkRepoSetting(key: RepoSettingKey, raw: unknown): { ok: true;
     return (r.value as string[]).length ? r : { ok: true, value: null };
   }
   if (key === 'devCommand') return checkSetting({ ...SETTINGS[0], kind: { type: 'text' } }, raw);
+  if (key === 'color') return isRailColor(raw) ? { ok: true, value: raw } : { ok: false, error: RAIL_COLORS.join(', ') };
   return raw === 'all' || raw === 'asked' || raw === 'off' ? { ok: true, value: raw } : { ok: false, error: 'all, asked or off' };
 }
 
@@ -616,11 +620,14 @@ export function repoSettingsOf(raw: unknown, alias: string): RepoSettingsValues 
   const dev = map(REPO_SETTING_PATH.devCommand)[alias];
   const review = map(REPO_SETTING_PATH.reviews)[alias];
   const focus = map(REPO_SETTING_PATH.reviewFocus)[alias];
+  const color = map(REPO_SETTING_PATH.color)[alias];
   return {
     requiredChecks: Array.isArray(checks) ? checks.filter((c): c is string => typeof c === 'string') : null,
     devCommand: typeof dev === 'string' && dev ? dev : null,
     reviews: review === 'all' || review === 'asked' || review === 'off' ? review : null,
     reviewFocus:
       Array.isArray(focus) && focus.some((c) => typeof c === 'string') ? focus.filter((c): c is string => typeof c === 'string') : null,
+    color: isRailColor(color) ? color : null,
   };
 }
+import { isRailColor, RAIL_COLORS, type RailColor } from '../rail/rail-layout.js';

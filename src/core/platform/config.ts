@@ -1,3 +1,4 @@
+import { projectColorsOf } from '../rail/rail-layout.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { atomicWriteFile } from './fs-safe.js';
@@ -126,6 +127,8 @@ export interface WorkConfig {
    * worktree's $PORT (e.g. `{ "web": "npm run dev -- --port $PORT" }`).
    */
   devCommands?: Record<string, string>;
+  /** A project's colour (a repo alias or a group's name → red, orange, yellow, green, blue or purple): its sessions' colour in the rail and the lists unless one has its own (rail-layout.ts sessionColor). */
+  colors?: Record<string, import('../rail/rail-layout.js').RailColor>;
   /**
    * Stop a session's Claude in the PTY host after this many minutes idle with
    * no window attached; opening the session resumes its conversation. Frees
@@ -350,6 +353,7 @@ export function loadConfig(): WorkConfig | null {
       launchViaHost: typeof parsed.launchViaHost === 'boolean' ? parsed.launchViaHost : undefined,
       sessionFolders: typeof parsed.sessionFolders === 'boolean' ? parsed.sessionFolders : undefined,
       devCommands: validateDevCommands(parsed.devCommands),
+      colors: Object.keys(projectColorsOf(parsed.colors)).length ? projectColorsOf(parsed.colors) : undefined,
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,

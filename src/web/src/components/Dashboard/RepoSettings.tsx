@@ -3,6 +3,7 @@ import type { RepoSettingsWire } from '../../../../core/api-types.js';
 import { fetchRepoSettings, saveRepoSetting } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
 import { SettingInput } from './SettingInput.js';
+import { RAIL_COLOR_LABEL, RAIL_COLORS } from '../../../../core/rail/rail-layout.js';
 
 /** One array for every render: a new `[]` each time made the input reset what you were typing (its value changed). */
 const NO_CHECKS: string[] = [];
@@ -77,6 +78,24 @@ export function RepoSettings({
               <span className="wd-web-muted">
                 {data.requiredChecks?.length ? `Now: ${data.requiredChecks.join(', ')}.` : 'Now: none listed — every check counts.'}
               </span>
+            </p>
+          </div>
+
+          <div className="wd-setting">
+            <label className="wd-setting-label" htmlFor={`repo-${alias}-color`}>
+              Colour
+            </label>
+            <div className="wd-setting-control">
+              <SettingInput
+                id={`repo-${alias}-color`}
+                kind={{ type: 'choice', options: RAIL_COLORS.map((c) => ({ value: c, label: RAIL_COLOR_LABEL[c] })) }}
+                value={data.color}
+                onSave={save('color')}
+              />
+            </div>
+            <p className="wd-setting-help">
+              Its sessions&apos; colour in the rail, the Sessions table, the Inbox and Ctrl+P, to tell projects apart. A session you colour
+              yourself (right-click it in the rail) keeps its own; No color there brings this one back. Not set (—): no colour.
             </p>
           </div>
 

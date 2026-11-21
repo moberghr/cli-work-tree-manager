@@ -9,6 +9,7 @@ import {
   type RailGroup,
   type RailLayout,
   type SectionOp,
+  sessionColor,
 } from '../../../../core/rail/rail-layout.js';
 import { newSectionId, railMenuItems, tagClass } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
@@ -307,7 +308,7 @@ export function SessionRail({
     const prs = prsFor?.(s) ?? [];
     const summary = s.attention?.summary;
     // Your color for it: a bar down the row's edge (its own spot, so never read as a status), one block with its neighbours of that color.
-    const color = layout.places[s.id]?.color;
+    const color = sessionColor(layout, s);
     const colored = color ? ` wd-dash-rail-colored ${tagClass(color)}` : '';
     if (onRename && renamingId === s.id) {
       return (

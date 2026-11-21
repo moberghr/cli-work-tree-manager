@@ -148,6 +148,7 @@ describe("a repo's settings", () => {
     devCommand: null,
     reviews: null,
     reviewFocus: null,
+    color: null,
     ...over,
   });
 
@@ -166,5 +167,29 @@ describe("a repo's settings", () => {
     await flush();
     expect(saveRepoSetting).toHaveBeenCalledWith('straumur-backend', 'requiredChecks', ['Test', 'Warning Check']);
     expect(host.textContent).toContain('Now: Test, Warning Check.');
+  });
+
+  it('a colour for its sessions: the six to pick from, saved as picked, and back to none', async () => {
+    let now = repo();
+    const saveRepoSetting = vi.fn(async (_alias: string, key: string, value: unknown) => (now = repo({ [key]: value })));
+    await act(async () =>
+      root.render(createElement(RepoSettings, { alias: 'straumur-backend', api: { fetchRepoSettings: async () => now, saveRepoSetting } })),
+    );
+    await flush();
+    const select = host.querySelector<HTMLSelectElement>('#repo-straumur-backend-color')!;
+    expect([...select.options].map((o) => o.textContent)).toEqual(['—', 'Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple']);
+    expect(select.value).toBe('');
+    await act(async () => {
+      select.value = 'blue';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(saveRepoSetting).toHaveBeenCalledWith('straumur-backend', 'color', 'blue');
+    await act(async () => {
+      select.value = '';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(saveRepoSetting).toHaveBeenLastCalledWith('straumur-backend', 'color', null);
   });
 });

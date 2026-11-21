@@ -1964,6 +1964,8 @@ export interface RepoSettingsWire {
   reviews: 'all' | 'asked' | 'off' | null;
   /** What reviews of this repo pay attention to, besides what every review does (`reviews.focusFor[alias]`); null: nothing more. */
   reviewFocus: string[] | null;
+  /** Its sessions' colour unless one has its own (`colors[alias]`); null: none. */
+  color: import('./rail/rail-layout.js').RailColor | null;
 }
 
 /** One process of a session: its agent, something the agent started, or something running from its folder. */

@@ -106,8 +106,9 @@ describe('the settings schema (pure)', () => {
       devCommand: 'npm run dev',
       reviews: 'off',
       reviewFocus: ['A migration has a way back'],
+      color: null,
     });
-    expect(repoSettingsOf(raw, 'web')).toEqual({ requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null });
+    expect(repoSettingsOf(raw, 'web')).toEqual({ requiredChecks: null, devCommand: null, reviews: null, reviewFocus: null, color: null });
     // What a repo's reviews pay attention to: a list, an empty one is none.
     expect(checkRepoSetting('reviewFocus', ['Card data is never logged'])).toEqual({ ok: true, value: ['Card data is never logged'] });
     expect(checkRepoSetting('reviewFocus', [' '])).toEqual({ ok: true, value: null });

@@ -45,6 +45,8 @@ export interface RailLayout {
   sections: RailSection[];
   /** By session id; a session without one is in no section and not pinned. */
   places: Record<string, RailPlace>;
+  /** A project's colour (a repo alias or a group's name → colour; config `colors`): its sessions' colour unless one has its own. */
+  projectColors?: Record<string, RailColor>;
 }
 
 export const EMPTY_RAIL_LAYOUT: RailLayout = { sections: [], places: {} };
@@ -218,4 +220,21 @@ export function applySectionOp(
 /** A short random id for a new section (ids only need to be unique among yours). */
 export function newSectionId(): string {
   return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * The colour a session shows: its own (you coloured it), else its project's (asked for: a default colour per repo, to
+ * tell projects apart). None: no colour. Pure.
+ */
+export function sessionColor(
+  layout: Pick<RailLayout, 'places' | 'projectColors'> | null | undefined,
+  s: { id: string; target: string },
+): RailColor | undefined {
+  return layout?.places[s.id]?.color ?? layout?.projectColors?.[s.target];
+}
+
+/** A config's `colors` as project colours: only names with one of the six. Pure. */
+export function projectColorsOf(raw: unknown): Record<string, RailColor> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter((e): e is [string, RailColor] => isRailColor(e[1])));
 }

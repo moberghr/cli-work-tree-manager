@@ -732,7 +732,21 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // The rail's pins, sections and colors, in memory, by the real rules (rail-layout.ts).
   let rail: RailLayout = { sections: [], places: {} };
   const railChanged = () => broadcast({ event: 'rail-changed', data: { ts: Date.now() } });
-  app.get('/api/rail', (c) => c.json(rail));
+  // Its settings (made here so the rail can read a repo's colour; mounted with the other settings below).
+  const demoSettings = createDemoSettings(
+    (alias) => scenario.repos.inventory().repos.find((r) => r.alias === alias && r.status !== 'new')?.path ?? null,
+  );
+  /** The rail as it is answered: with each repo's colour, as work web's (rail-store.ts readRailLayout). */
+  const railView = (): RailLayout => {
+    const projectColors: NonNullable<RailLayout['projectColors']> = {};
+    for (const r of scenario.repos.inventory().repos) {
+      if (r.status === 'new' || !r.alias) continue;
+      const color = demoSettings.readRepo(r.alias).color;
+      if (color) projectColors[r.alias] = color;
+    }
+    return { ...rail, ...(Object.keys(projectColors).length ? { projectColors } : {}) };
+  };
+  app.get('/api/rail', (c) => c.json(railView()));
   app.post('/api/rail/sections', async (c) => {
     const op = cleanSectionOp(await json(c));
     if (!op) return c.json({ error: 'expected {op: add|rename|move|remove, id, name?, by?}' }, 400);
@@ -747,7 +761,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     }
     rail = { sections, places };
     railChanged();
-    return c.json(rail);
+    return c.json(railView());
   });
   app.put('/api/sessions/:id/rail', async (c) => {
     const id = c.req.param('id');
@@ -761,7 +775,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     else delete places[id];
     rail = { ...rail, places };
     railChanged();
-    return c.json(rail);
+    return c.json(railView());
   });
 
   // Driving a session from outside (session-control-routes.ts): a message is a published comment, as for real.
@@ -1016,11 +1030,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
   app.delete('/api/groups/:name', (c) => repoAnswer(c, () => repoModel.deleteGroup(c.req.param('name'), c.req.query('force') === '1')));
   // Settings: work's and each repo's, a pretend config.json in memory, by the real rules (demo-settings.ts).
-  mountDemoSettings(
-    app,
-    (event, data) => broadcast({ event, data }),
-    createDemoSettings((alias) => repoModel.inventory().repos.find((r) => r.alias === alias && r.status !== 'new')?.path ?? null),
-  );
+  mountDemoSettings(app, (event, data) => broadcast({ event, data }), demoSettings);
   // Updates: the demo is current, with two releases' notes to read.
   const demoNotes: ReleaseNote[] = [
     {

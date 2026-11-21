@@ -8,6 +8,7 @@ import {
   type RailColor,
   type RailGroup,
   type RailLayout,
+  sessionColor,
 } from '../../../../../core/rail/rail-layout.js';
 import { ColorMark } from '../ColorMark.js';
 import { BulkBar, type BulkActions } from './BulkBar.js';
@@ -195,7 +196,7 @@ export function SessionsTab({
   const [railFilter, setRailFilter] = useState<RailFilter>('any');
   const [colorFilter, setColorFilter] = useState<ColorFilter>('any');
   const rail = layout ?? EMPTY_RAIL_LAYOUT;
-  const colorOf = useCallback((s: SessionSummary) => rail.places[s.id]?.color, [rail]);
+  const colorOf = useCallback((s: SessionSummary) => sessionColor(rail, s), [rail]);
   // The colors in use, for the filter (offered once there is one).
   const anyColor = Object.values(rail.places).some((p) => !!p.color);
   // Its group in the rail, by the rail's own rule (pinned wins; a removed section is none).

@@ -1,3 +1,4 @@
+import { sessionColor } from '../../../../../core/rail/rail-layout.js';
 import { useMemo, useState } from 'react';
 import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
@@ -236,7 +237,7 @@ export function InboxTab({
                     >
                       <StatusIcon kind={kind} />
                       <span className="wd-inbox-name">
-                        <ColorMark color={layout?.places[s.id]?.color} />
+                        <ColorMark color={sessionColor(layout, s)} />
                         <span className="wd-inbox-branch">{s.titleIsYours && s.title ? s.title : s.branch}</span>
                         <span className="wd-inbox-target">{s.target}</span>
                       </span>
