@@ -3,6 +3,7 @@ import { formatWorked } from '../../../../../core/conversations/work-time-view.j
 import type { DigestResponse, DigestSession } from '../../../api/client.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { STATE_LABEL, WINDOW_LABEL, digestMarkdown, totals, windowStart, type DigestWindow } from '../../../state/digest.js';
+import { Badge, Select, Button, PageHeader } from '../../../ui/index.js';
 
 interface Props {
   onOpenSession: (id: string, sub: SessionSubTab) => void;
@@ -95,34 +96,31 @@ export function TodayTab({ onOpenSession, load = fetchDigest, copy = clipboardCo
   const t = data ? totals(data) : null;
   return (
     <div className="wd-dash-tab-pane wd-tab-today">
-      <header className="wd-tab-header">
-        <h1>
-          {viewToggle ? <>Sessions {viewToggle} </> : <>{WINDOW_LABEL[win]} </>}
-          {t && (
-            <span className="wd-tab-header-muted">
-              ({t.sessions} session{t.sessions === 1 ? '' : 's'} · {t.prompts} prompt{t.prompts === 1 ? '' : 's'} · {t.turns} turn
-              {t.turns === 1 ? '' : 's'}
-              {t.merged ? ` · ${t.merged} merged` : ''}
-              {t.workedMs ? ` · ~${formatWorked(t.workedMs)} of Claude work` : ''})
-            </span>
-          )}
-        </h1>
-        <div className="wd-tab-controls">
-          <select value={win} onChange={(e) => setWin(e.target.value as DigestWindow)} aria-label="Time window">
-            {(Object.keys(WINDOW_LABEL) as DigestWindow[]).map((w) => (
-              <option key={w} value={w}>
-                {WINDOW_LABEL[w]}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="wd-btn-secondary" onClick={refresh} disabled={loading} title="Refresh">
-            {loading ? 'Loading…' : '⟳'}
-          </button>
-          <button type="button" className="wd-btn-secondary" onClick={onCopy} disabled={!data || data.sessions.length === 0}>
-            {copied === 'ok' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy as Markdown'}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title={viewToggle ? <>Sessions {viewToggle}</> : WINDOW_LABEL[win]}
+        meta={
+          t
+            ? `(${t.sessions} session${t.sessions === 1 ? '' : 's'} · ${t.prompts} prompt${t.prompts === 1 ? '' : 's'} · ${t.turns} turn${t.turns === 1 ? '' : 's'}` +
+              (t.merged ? ` · ${t.merged} merged` : '') +
+              (t.workedMs ? ` · ~${formatWorked(t.workedMs)} of Claude work` : '') +
+              ')'
+            : undefined
+        }
+      >
+        <Select compact value={win} onChange={(e) => setWin(e.target.value as DigestWindow)} aria-label="Time window">
+          {(Object.keys(WINDOW_LABEL) as DigestWindow[]).map((w) => (
+            <option key={w} value={w}>
+              {WINDOW_LABEL[w]}
+            </option>
+          ))}
+        </Select>
+        <Button onClick={refresh} disabled={loading} title="Refresh">
+          {loading ? 'Loading…' : '⟳'}
+        </Button>
+        <Button onClick={onCopy} disabled={!data || data.sessions.length === 0}>
+          {copied === 'ok' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy as Markdown'}
+        </Button>
+      </PageHeader>
       {error && !data ? (
         <div className="wd-tab-error">{error}</div>
       ) : !data ? (
@@ -182,7 +180,11 @@ function DigestCard({ s, since, onOpen }: { s: DigestSession; since: string; onO
               </a>
             );
           })}
-          {s.archivedAt && <span className="wd-archived-pill">archived</span>}
+          {s.archivedAt && (
+            <Badge dashed className="wd-archived-pill">
+              archived
+            </Badge>
+          )}
         </span>
       </header>
       {s.prompts.length > 0 && (

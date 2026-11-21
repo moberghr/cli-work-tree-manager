@@ -94,7 +94,7 @@ export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPr
   return (
     <div className="wd-prompts" ref={root}>
       {open && (
-        <ul className="wd-prompts-menu" role="menu">
+        <ul className="wd-row-menu wd-prompts-menu" role="menu">
           {list === null ? (
             <li className="wd-prompts-empty">Loading…</li>
           ) : list.length === 0 ? (
@@ -102,7 +102,7 @@ export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPr
           ) : (
             list.map((p) => (
               <li key={p.label} role="none">
-                <button type="button" role="menuitem" className="wd-prompts-item" onClick={() => pick(p)} title={p.prompt}>
+                <button type="button" role="menuitem" className="wd-row-menu-item wd-prompts-item" onClick={() => pick(p)} title={p.prompt}>
                   {p.label}
                 </button>
               </li>

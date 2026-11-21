@@ -12,7 +12,6 @@ import { outdatedNames } from '../state/agent-restart-view.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
 import { useMarkArchiving } from '../api/archive-pending.js';
-import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
 import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
@@ -92,6 +91,7 @@ import {
 } from '../state/dashboard-route.js';
 import { readRailFolded, writeRailFolded } from '../state/review-prefs.js';
 import { dashboardDialogOpen, modalOpen as aModalIsOpen } from '../state/modal-open.js';
+import { Menu, type MenuItem } from '../ui/index.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
   inbox: 'Inbox',
@@ -1114,7 +1114,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         />
       )}
       {whatsNew && <WhatsNew focus={whatsNew.focus} onClose={closeWhatsNew} />}
-      {keyMenu && <RowMenu x={keyMenu.x} y={keyMenu.y} anchor="right" items={keyMenu.items} onClose={() => setKeyMenu(null)} />}
+      {keyMenu && <Menu x={keyMenu.x} y={keyMenu.y} anchor="right" items={keyMenu.items} onClose={() => setKeyMenu(null)} />}
       {blocking && (
         <BlockedByDialog
           session={blocking}

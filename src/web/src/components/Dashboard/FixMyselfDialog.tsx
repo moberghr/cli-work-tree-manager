@@ -3,6 +3,7 @@ import type { PrReviewWire, ReviewFixResultWire } from '../../../../core/api-typ
 import { fixReviewMyself } from '../../api/panes.js';
 import { pendingDrafts } from '../../state/review-view.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button } from '../../ui/index.js';
 
 interface Props {
   review: PrReviewWire;
@@ -59,9 +60,9 @@ export function FixMyselfDialog({ review, onDone, onClose }: Props) {
       <form className="wd-modal" onSubmit={submit}>
         <header className="wd-modal-header">
           <h2>Fix it myself</h2>
-          <button type="button" className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
+          <Button variant="quiet" icon className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <p className="wd-add-repo-note">
@@ -94,12 +95,12 @@ export function FixMyselfDialog({ review, onDone, onClose }: Props) {
           )}
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={close} disabled={busy}>
+          <Button onClick={close} disabled={busy}>
             Cancel
-          </button>
-          <button type="submit" className="wd-btn-primary" disabled={busy || !picked.length}>
+          </Button>
+          <Button variant="primary" type="submit" disabled={busy || !picked.length}>
             {busy ? 'Opening…' : `Fix ${picked.length} myself`}
-          </button>
+          </Button>
         </footer>
       </form>
     </div>

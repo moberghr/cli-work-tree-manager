@@ -5,6 +5,7 @@ import { fetchSettings, saveSetting } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
 import { defaultText, settingSections, shownValue } from '../../../state/settings-view.js';
 import { SettingInput } from '../SettingInput.js';
+import { Button, Input, PageHeader } from '../../../ui/index.js';
 
 /**
  * Settings (`#/settings`, `g ,`): work's settings from config.json, by section (settings-schema.ts), each saved as you
@@ -39,24 +40,21 @@ export function SettingsTab({
   const sections = settingSections(filter);
   return (
     <div className="wd-dash-tab-pane wd-tab-settings">
-      <header className="wd-tab-header">
-        <h1>Settings</h1>
-        <div className="wd-tab-controls">
-          <input
-            type="search"
-            className="wd-settings-filter"
-            placeholder="Find a setting"
-            aria-label="Find a setting"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        </div>
-      </header>
+      <PageHeader title="Settings">
+        <Input
+          type="search"
+          className="wd-settings-filter"
+          placeholder="Find a setting"
+          aria-label="Find a setting"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </PageHeader>
       <p className="wd-settings-intro">
         Saved to <code>{data.configPath}</code> as you change them. A repo&apos;s own settings — which checks count, its dev command, its
         reviews — are on the <a href="#/repos">Repos page</a> (Settings… on its row).
       </p>
-      {sections.length === 0 && <p className="wd-web-muted">No setting matches “{filter}”.</p>}
+      {sections.length === 0 && <p className="wd-web-muted wd-settings-empty">No setting matches “{filter}”.</p>}
       {sections.map(({ section, fields }) => (
         <section key={section} className="wd-settings-section" aria-label={section}>
           <h2>{section}</h2>
@@ -78,14 +76,13 @@ export function SettingsTab({
                     onSave={save(f.path)}
                   />
                   {set && !f.required && (
-                    <button
-                      type="button"
-                      className="wd-link-button"
+                    <Button
+                      variant="link"
                       title={def ? `Back to the default: ${def}` : 'Take it out of config.json'}
                       onClick={() => void save(f.path)(null).catch((e: Error) => setError(e.message))}
                     >
                       Reset
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <p className="wd-setting-help">

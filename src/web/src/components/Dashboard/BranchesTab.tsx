@@ -3,7 +3,7 @@ import { fetchSessionHistory, type CheckpointEntry, type SessionCommit, type Ses
 import { useSse } from '../../api/events.js';
 import { branchTabRows, branchTitle, branchUnpushed, type BranchTabRow } from '../../state/branches.js';
 import { stagePhrase } from '../../../../core/pr/pr-stage.js';
-import { toneClass } from './SessionBits.js';
+import { prChipClass } from './SessionBits.js';
 import { timeAgo } from '../../utils/time.js';
 
 /**
@@ -84,7 +84,7 @@ function BranchRow({ row, onShow }: { row: BranchTabRow; onShow: () => void }) {
         {row.note && <span className={'wd-branches-tab-note' + (branchUnpushed(b) ? ' wd-branch-unpushed' : '')}>{row.note}</span>}
         {b.pr && (
           <a
-            className={`wd-pr-chip wd-pr-stage${toneClass(b.pr.kind)}`}
+            className={prChipClass(b.pr.kind)}
             href={b.pr.url}
             target="_blank"
             rel="noreferrer"

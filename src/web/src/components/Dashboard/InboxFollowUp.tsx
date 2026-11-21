@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchLastReply, sendPromptToSession, type SessionSummary } from '../../api/client.js';
 import { agentName } from '../../state/session-display.js';
 import { Markdown } from '../Markdown.js';
+import { TextArea } from '../../ui/index.js';
 
 interface Props {
   session: SessionSummary;
@@ -72,7 +73,7 @@ export function InboxFollowUp({ session, onSent, onClose, load = fetchLastReply,
           <p className="wd-start-note">{agentName(session)} hasn’t replied in this session yet.</p>
         )}
       </div>
-      <textarea
+      <TextArea
         ref={box}
         className="wd-inbox-followup-box"
         rows={2}

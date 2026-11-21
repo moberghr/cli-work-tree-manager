@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { behindText } from './BehindChip.js';
-import { RowMenu, type MenuItem } from './RowMenu.js';
 import {
   EMPTY_RAIL_LAYOUT,
   MAX_SECTION_NAME,
@@ -14,13 +13,12 @@ import {
 import { newSectionId, railMenuItems, tagClass } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
-import { otherBranchText, RailPrPills } from './SessionBits.js';
+import { otherBranchText, owedBadgeClass, RailPrPills } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
 import {
   DISPLAY_LABEL,
   displayStatus,
   owedBadge,
-  owedClass,
   railGroups,
   waitingOnOthers,
   railSessions,
@@ -34,6 +32,7 @@ import { lastActiveAt } from '../../state/session-display.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { accountLabel, pendingLabel } from '../../state/accounts.js';
 import { snoozeLabel } from '../../../../core/rail/snooze.js';
+import { Badge, Input, Menu, type MenuItem } from '../../ui/index.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -103,17 +102,18 @@ export function railDetails(s: SessionSummary, now = new Date()): string {
  * when its PR waits on others, else when it was last used.
  */
 function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string; title?: string } {
+  // A time ("4m") is set in monospace (.wd-mono): it lines up row under row.
   if (kind === 'archiving') return { text: 'archiving…', cls: 'wd-rail-slot-archiving' };
   if (kind === 'restoring') return { text: 'restoring…', cls: 'wd-rail-slot-archiving' };
   if (s.snoozed) return { text: 'snoozed', cls: 'wd-rail-slot-snoozed' };
   const owed = owedBadge(s);
-  if (owed) return { text: owed.text, cls: owedClass(owed), title: owed.title };
+  if (owed) return { text: owed.text, cls: owedBadgeClass(owed), title: owed.title };
   const since = s.attention?.since ?? s.lastAccessedAt;
-  if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs' };
-  if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
-  if (kind === 'background') return { text: relativeTime(since), cls: 'wd-rail-slot-background' };
+  if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs wd-mono' };
+  if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working wd-mono' };
+  if (kind === 'background') return { text: relativeTime(since), cls: 'wd-rail-slot-background wd-mono' };
   if (waitingOnOthers(s)) return { text: 'in review', cls: 'wd-rail-slot-waiting', title: s.prStage?.text };
-  return { text: relativeTime(lastActiveAt(s)), cls: '' };
+  return { text: relativeTime(lastActiveAt(s)), cls: 'wd-mono' };
 }
 
 /**
@@ -381,9 +381,12 @@ export function SessionRail({
           <StatusIcon kind={kind} labelled muted={!!s.snoozed} />
           <span className="wd-dash-rail-lines">
             <span className="wd-dash-rail-line">
-              <span className="wd-dash-rail-name">{label}</span>
+              <span className={'wd-dash-rail-name' + (named ? '' : ' wd-mono')}>{label}</span>
               {color && <span className="wd-visually-hidden">Color: {RAIL_COLOR_LABEL[color]}</span>}
-              <span className={'wd-dash-rail-slot ' + slot.cls} title={slot.title}>
+              <span
+                className={slot.cls.includes('wd-badge') ? slot.cls + ' wd-dash-rail-slot-pill' : 'wd-dash-rail-slot ' + slot.cls}
+                title={slot.title}
+              >
                 {slot.text}
               </span>
             </span>
@@ -397,9 +400,9 @@ export function SessionRail({
               </span>
               {/* Kept once its PR merges (its menu's Keep after its PR merges): said on the row, beside the PRs it is about. */}
               {s.keepAfterMerge && (
-                <span className="wd-rail-keep" title={KEEP_TITLE}>
+                <Badge dashed className="wd-rail-keep" title={KEEP_TITLE}>
                   keep
-                </span>
+                </Badge>
               )}
               <RailPrPills session={s} prs={prs} />
             </span>
@@ -414,7 +417,7 @@ export function SessionRail({
     <aside className="wd-dash-rail" role="navigation" aria-label="Sessions">
       <header className="wd-dash-rail-header">
         {anySessions && (
-          <input
+          <Input
             ref={searchRef}
             className="wd-dash-rail-search"
             type="search"
@@ -546,7 +549,7 @@ export function SessionRail({
         </ul>
       )}
       {menu && (
-        <RowMenu
+        <Menu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
@@ -566,7 +569,7 @@ export function SessionRail({
         />
       )}
       {sectionMenu && (
-        <RowMenu
+        <Menu
           x={sectionMenu.x}
           y={sectionMenu.y}
           onClose={() => setSectionMenu(null)}
@@ -635,7 +638,8 @@ function SectionNameInput({
   };
   return (
     <div className="wd-dash-rail-group wd-dash-rail-group-naming">
-      <input
+      <Input
+        compact
         className="wd-dash-rail-rename"
         autoFocus
         value={draft}
@@ -688,7 +692,8 @@ function RenameRow({
     <div className="wd-dash-rail-item wd-dash-rail-item-renaming">
       {dot}
       <span className="wd-dash-rail-lines">
-        <input
+        <Input
+          compact
           className="wd-dash-rail-rename"
           autoFocus
           value={draft}

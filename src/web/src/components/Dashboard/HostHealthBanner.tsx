@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { hostHealthText, hostNeedsRestart, type HostHealth } from '../../../../core/pty/host-health.js';
 import { restartPtyHost } from '../../api/client.js';
+import { Button } from '../../ui/index.js';
 
 /**
  * Says so when the PTY host — the process every Claude runs in — is slow, has
@@ -30,9 +31,9 @@ export function HostHealthBanner({ health, restart = restartPtyHost }: { health:
       {health && hostNeedsRestart(health) && !said && (
         <>
           {' '}
-          <button type="button" className="wd-btn-secondary" disabled={busy} onClick={doRestart}>
+          <Button size="sm" disabled={busy} onClick={doRestart}>
             {busy ? 'Restarting…' : 'Restart it'}
-          </button>
+          </Button>
         </>
       )}
     </div>

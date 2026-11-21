@@ -13,6 +13,7 @@ import {
 } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
 import { RepoSettings } from '../RepoSettings.js';
+import { Button, Chip, Input, PageHeader, Segmented, Select } from '../../../ui/index.js';
 
 type Filter = 'new' | 'enrolled' | 'ignored' | 'all';
 
@@ -67,8 +68,11 @@ export function ReposTab({
   api = httpRepos,
   onBack,
   settingsFor,
+  compact,
 }: {
   api?: ReposApi;
+  /** Inside a step of the first run: its header smaller (PageHeader compact). */
+  compact?: boolean;
   /** Back to Start (the page it's reached from). */ onBack?: () => void;
   /** The repo whose settings are open (`#/repos/<alias>`), shown above the list. */
   settingsFor?: string;
@@ -134,65 +138,56 @@ export function ReposTab({
 
   return (
     <div className="wd-dash-tab-pane wd-tab-repos">
-      <header className="wd-tab-header">
-        <h1>
-          {onBack && (
-            <button type="button" className="wd-link-button wd-tab-back" onClick={onBack} title="Back to Start">
-              ← Start
-            </button>
-          )}
-          Repos{' '}
-          <span className="wd-tab-header-muted">
-            {counts.enrolled} enrolled · {counts.new} new · {counts.ignored} ignored
-          </span>
-        </h1>
-        <div className="wd-tab-controls">
-          <input
-            className="wd-tab-search"
-            type="search"
-            placeholder="Search folder, alias, origin…"
-            aria-label="Search repos"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <span className="wd-segmented" role="group" aria-label="Show">
-            {(['new', 'enrolled', 'ignored', 'all'] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                className={'wd-segmented-btn' + (shownFilter === f ? ' wd-segmented-btn-on' : '')}
-                aria-pressed={shownFilter === f}
-                onClick={() => setFilter(f)}
-              >
-                {f === 'new'
-                  ? `New ${counts.new}`
-                  : f === 'enrolled'
-                    ? `Enrolled ${counts.enrolled}`
-                    : f === 'ignored'
-                      ? `Ignored ${counts.ignored}`
-                      : 'All'}
-              </button>
-            ))}
-          </span>
-        </div>
-      </header>
+      <PageHeader
+        compact={compact}
+        title={
+          <>
+            {onBack && (
+              <Button variant="link" className="wd-tab-back" onClick={onBack} title="Back to Start">
+                ← Start
+              </Button>
+            )}
+            Repos
+          </>
+        }
+        meta={`${counts.enrolled} enrolled · ${counts.new} new · ${counts.ignored} ignored`}
+      >
+        <Input
+          className="wd-tab-search"
+          type="search"
+          placeholder="Search folder, alias, origin…"
+          aria-label="Search repos"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <Segmented
+          label="Show"
+          value={shownFilter}
+          onChange={setFilter}
+          options={[
+            { value: 'new', label: `New ${counts.new}` },
+            { value: 'enrolled', label: `Enrolled ${counts.enrolled}` },
+            { value: 'ignored', label: `Ignored ${counts.ignored}` },
+            { value: 'all', label: 'All' },
+          ]}
+        />
+      </PageHeader>
       {settingsFor && <RepoSettings key={settingsFor} alias={settingsFor} />}
 
       <section className="wd-repos-roots">
         <span className="wd-tab-header-muted">Scanned:</span>
         {data.roots.map((r) => (
-          <span key={r} className="wd-repos-root">
+          <Chip
+            key={r}
+            className="wd-repos-root"
+            remove={{
+              label: `Stop scanning ${r}`,
+              title: 'Stop scanning this folder',
+              onClick: () => act(`root:${r}`, () => api.scanRoot(r, false)),
+            }}
+          >
             {r}
-            <button
-              type="button"
-              className="wd-link-button"
-              aria-label={`Stop scanning ${r}`}
-              title="Stop scanning this folder"
-              onClick={() => act(`root:${r}`, () => api.scanRoot(r, false))}
-            >
-              ×
-            </button>
-          </span>
+          </Chip>
         ))}
         <form
           className="wd-repos-root-add"
@@ -202,7 +197,8 @@ export function ReposTab({
             act('root:new', () => api.scanRoot(newRoot.trim(), true).then(() => setNewRoot('')));
           }}
         >
-          <input
+          <Input
+            compact
             value={newRoot}
             onChange={(e) => setNewRoot(e.target.value)}
             placeholder="Add a folder to scan"
@@ -218,12 +214,10 @@ export function ReposTab({
       {pending && (
         <div className="wd-repos-confirm" role="alertdialog" aria-label="Confirm">
           <span>{pending.text}</span>
-          <button type="button" className="wd-btn-danger" onClick={() => act(pending.key, pending.force)}>
+          <Button variant="danger" onClick={() => act(pending.key, pending.force)}>
             Do it anyway
-          </button>
-          <button type="button" className="wd-btn-secondary" onClick={() => setPending(null)}>
-            Cancel
-          </button>
+          </Button>
+          <Button onClick={() => setPending(null)}>Cancel</Button>
         </div>
       )}
 
@@ -246,7 +240,8 @@ export function ReposTab({
                 <span className="wd-repos-origin">{r.origin ?? ''}</span>
                 <span className="wd-repos-state">
                   {r.status === 'new' ? (
-                    <input
+                    <Input
+                      compact
                       className="wd-repos-alias"
                       value={alias}
                       aria-label={`Alias for ${r.folder}`}
@@ -258,9 +253,9 @@ export function ReposTab({
                     <>
                       <span className="wd-repos-alias-name">{r.alias}</span>
                       {r.groups.map((g) => (
-                        <span key={g} className="wd-repos-chip" title="In this group">
+                        <Chip key={g} className="wd-repos-chip" title="In this group">
                           {g}
-                        </span>
+                        </Chip>
                       ))}
                       {r.sessions > 0 && (
                         <span className="wd-tab-header-muted">
@@ -386,26 +381,26 @@ function Groups({
               </span>
               <span className="wd-repos-members">
                 {g.members.map((m) => (
-                  <span key={m} className={'wd-repos-chip' + (g.missing.includes(m) ? ' wd-repos-chip-bad' : '')}>
-                    {m}
-                    <button
-                      type="button"
-                      className="wd-link-button"
-                      aria-label={`Take ${m} out of ${g.name}`}
-                      disabled={busy === `group:${g.name}`}
-                      onClick={() =>
+                  <Chip
+                    key={m}
+                    className={'wd-repos-chip' + (g.missing.includes(m) ? ' wd-repos-chip-bad' : '')}
+                    bad={g.missing.includes(m)}
+                    remove={{
+                      label: `Take ${m} out of ${g.name}`,
+                      disabled: busy === `group:${g.name}`,
+                      onClick: () =>
                         change(
                           g,
                           g.members.filter((x) => x !== m),
-                        )
-                      }
-                    >
-                      ×
-                    </button>
-                  </span>
+                        ),
+                    }}
+                  >
+                    {m}
+                  </Chip>
                 ))}
                 {others.length > 0 && (
-                  <select
+                  <Select
+                    compact
                     aria-label={`Add a repo to ${g.name}`}
                     value=""
                     disabled={busy === `group:${g.name}`}
@@ -417,7 +412,7 @@ function Groups({
                         {a}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </span>
               <span className="wd-repos-actions">
@@ -457,17 +452,17 @@ function Groups({
           );
         }}
       >
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New group name" aria-label="New group name" />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="New group name" aria-label="New group name" />
         <span className="wd-repos-pick" role="group" aria-label="Repos in the new group">
           {enrolled.map((a) => (
-            <label key={a} className={'wd-repos-chip' + (picked.includes(a) ? ' wd-repos-chip-on' : '')}>
+            <Chip as="label" key={a} className={'wd-repos-chip' + (picked.includes(a) ? ' wd-repos-chip-on' : '')} on={picked.includes(a)}>
               <input
                 type="checkbox"
                 checked={picked.includes(a)}
                 onChange={(e) => setPicked((p) => (e.target.checked ? [...p, a] : p.filter((x) => x !== a)))}
               />
               {a}
-            </label>
+            </Chip>
           ))}
         </span>
         <button

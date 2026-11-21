@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReleaseNote } from '../../../../core/api-types.js';
 import { fetchReleaseNotes } from '../../api/panes.js';
 import { Markdown } from '../Markdown.js';
+import { Button } from '../../ui/index.js';
 
 const date = (iso: string) => {
   const t = Date.parse(iso);
@@ -51,9 +52,9 @@ export function WhatsNew({
       <div className="wd-modal wd-whats-new" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <header className="wd-modal-header">
           <h2>{focus ? `What's new in work ${focus}` : "What's new"}</h2>
-          <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close" autoFocus>
+          <Button variant="quiet" icon className="wd-modal-close" onClick={onClose} aria-label="Close" autoFocus>
             ×
-          </button>
+          </Button>
         </header>
         <div
           ref={listRef}

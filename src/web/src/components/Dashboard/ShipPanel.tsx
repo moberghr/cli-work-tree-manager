@@ -10,6 +10,7 @@ import {
   type ShipResult,
 } from '../../api/client.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button, Select } from '../../ui/index.js';
 import { otherBranchFact } from '../../../../core/sessions/branch-view.js';
 
 interface Props {
@@ -171,9 +172,9 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
           <h2>
             Ship {session.target} · {session.branch}
           </h2>
-          <button type="button" className="wd-modal-close" onClick={onClose} disabled={!!busy} aria-label="Close">
+          <Button variant="quiet" icon className="wd-modal-close" onClick={onClose} disabled={!!busy} aria-label="Close">
             ×
-          </button>
+          </Button>
         </div>
         <div className={'wd-modal-body' + (busy || loading ? ' wd-ship-dim' : '')}>
           {loading && !pre && (
@@ -243,45 +244,42 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
                   : `${avail!.active.length - toMerge.length} other repositor${avail!.active.length - toMerge.length === 1 ? 'y stays' : 'ies stay'} open — the session stays until everything is done.`}
               </p>
               <div className="wd-ship-confirm-actions">
-                <button type="button" className="wd-btn-secondary" onClick={() => setConfirming(false)} disabled={disabled}>
+                <Button onClick={() => setConfirming(false)} disabled={disabled}>
                   Cancel
-                </button>
-                <button type="button" className="wd-btn-danger" onClick={() => run('merge')} disabled={disabled}>
+                </Button>
+                <Button variant="danger" onClick={() => run('merge')} disabled={disabled}>
                   Confirm merge
-                </button>
+                </Button>
               </div>
             </div>
           )}
         </div>
         <div className="wd-modal-footer wd-ship-footer">
-          <button type="button" ref={cancelRef} className="wd-btn-secondary" onClick={onClose} disabled={!!busy}>
+          {/* A raw button for its ref (Button takes none): the same class as Button's. */}
+          <Button ref={cancelRef} onClick={onClose} disabled={!!busy}>
             Close
-          </button>
-          <button
-            type="button"
-            className="wd-btn-secondary"
+          </Button>
+          <Button
             disabled={disabled || !avail?.canPush}
             onClick={() => run('push')}
             title="Publish the branch (git push, setting upstream if needed)"
           >
             Push
-          </button>
+          </Button>
           <span className="wd-ship-group">
             <label className="wd-ship-inline">
               <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} disabled={disabled} /> draft
             </label>
-            <button
-              type="button"
-              className="wd-btn-secondary"
+            <Button
               disabled={disabled || !avail?.canCreatePr}
               onClick={() => run('create-pr')}
               title="Push if needed, then open a pull request"
             >
               Create PR
-            </button>
+            </Button>
           </span>
           <span className="wd-ship-group">
-            <select
+            <Select
               aria-label="Merge method"
               value={method}
               onChange={(e) => setMethod(e.target.value as MergeMethod)}
@@ -290,16 +288,16 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
               <option value="squash">squash</option>
               <option value="merge">merge commit</option>
               <option value="rebase">rebase</option>
-            </select>
-            <button
-              type="button"
-              className="wd-btn-primary"
+            </Select>
+            <Button
+              variant="primary"
+
               disabled={disabled || toMerge.length === 0 || confirming}
               onClick={() => setConfirming(true)}
               title={multi ? 'Merge the selected repositories — asks for confirmation' : 'Merge the open PR — asks for confirmation'}
             >
               {multi && toMerge.length > 0 ? `Merge ${toMerge.length}…` : 'Merge…'}
-            </button>
+            </Button>
           </span>
         </div>
       </div>

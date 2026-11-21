@@ -4,6 +4,7 @@ import { askClaudeToFixCi, fetchSessionCi, sendPromptToSession, type SessionCi, 
 import type { PrInfo } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
 import { stagePhrase, stageTone } from '../../../../core/pr/pr-stage.js';
+import { prTone } from './SessionBits.js';
 import { promptsForSession } from '../../../../core/sessions/saved-prompts.js';
 import { orderedSections, prName, prSections, type PrSection } from '../../state/pr-tab.js';
 import { isArchived } from '../../state/session-display.js';
@@ -11,6 +12,7 @@ import { askableThreads, askToReplyAllPrompt, ReplyList, useAskedThreads, useRep
 import { fetchPrompts } from './PromptsMenu.js';
 import { timeAgo } from '../../utils/time.js';
 import type { OpenReviewThread, PrReply } from '../../../../core/api-types.js';
+import { Badge } from '../../ui/index.js';
 
 const POLL_MS = 60_000;
 
@@ -198,7 +200,13 @@ function PrSectionView({
   return (
     <section className={'wd-pr-section' + (wants ? ' wd-pr-section-wants' : '')} aria-label={`Pull request ${prName(s, isGroup)}`}>
       <div className="wd-pr-section-head">
-        <button type="button" className="wd-pr-fold" aria-expanded={unfolded} onClick={() => setChosen(!unfolded)}>
+        <button
+          type="button"
+          className="wd-pr-fold"
+          aria-expanded={unfolded}
+          aria-label={unfolded ? 'Fold this pull request' : 'Unfold this pull request'}
+          onClick={() => setChosen(!unfolded)}
+        >
           {unfolded ? '▾' : '▸'}
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
@@ -223,11 +231,19 @@ function PrSectionView({
             by @{s.author}
           </span>
         )}
-        <span className={`wd-prtab-stage wd-prtab-stage-${stageTone(s.kind)}`}>
+        <Badge
+          tone={prTone(s.kind)}
+          dashed={stageTone(s.kind) === 'draft'}
+          className={`wd-prtab-stage wd-prtab-stage-${stageTone(s.kind)}`}
+        >
           {stagePhrase(s.kind)}
           {s.state === 'MERGED' && s.mergedAt ? ` ${timeAgo(s.mergedAt)}` : ''}
-        </span>
-        {wants > 0 && <span className="wd-session-subtab-badge">{wants}</span>}
+        </Badge>
+        {wants > 0 && (
+          <Badge kind="count" className="wd-session-subtab-badge">
+            {wants}
+          </Badge>
+        )}
         <a className="wd-pr-link" href={s.url} target="_blank" rel="noopener noreferrer" title={`Open it on ${hostName(s.host)}`}>
           ↗
         </a>

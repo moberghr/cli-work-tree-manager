@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchNote, saveNote, sendPromptToSession, type SessionSummary } from '../../api/client.js';
+import { TextArea } from '../../ui/index.js';
 
 /** How long typing must pause before the note is saved. */
 const SAVE_AFTER_MS = 700;
@@ -87,7 +88,7 @@ export function SessionNotes({ session, onClose }: { session: SessionSummary; on
             : '';
   return (
     <section className="wd-notes" aria-label="Your notes on this session">
-      <textarea
+      <TextArea
         className="wd-notes-text"
         value={text ?? ''}
         disabled={text === null}

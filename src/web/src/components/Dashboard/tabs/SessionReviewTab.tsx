@@ -20,6 +20,7 @@ import { HostThreadsProvider } from '../../../state/HostThreads.js';
 import { commentWalk, reviewPages } from '../../../state/review-view.js';
 import { sessionReviewPagePath } from '../../../state/session-review-page.js';
 import { toggled } from '../../../state/review-prefs.js';
+import { Input, Segmented, Select } from '../../../ui/index.js';
 import { ReviewOverview } from './review/ReviewOverview.js';
 import { StoryPager } from './review/StoryPager.js';
 import { CommentWalk } from './review/CommentWalk.js';
@@ -260,7 +261,7 @@ export function SessionReviewTab({
           </p>
           <div className="wd-review-actions">
             {data.repos.length > 1 && (
-              <select
+              <Select
                 aria-label="Repo to review"
                 value={data.repo ?? ''}
                 disabled={running}
@@ -273,7 +274,7 @@ export function SessionReviewTab({
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             {r && walk.length > 0 && !archived && (
               <button
@@ -298,8 +299,7 @@ export function SessionReviewTab({
               </a>
             )}
             {!archived && (
-              <input
-                type="text"
+              <Input
                 className="wd-session-review-also"
                 aria-label="For this review, also pay attention to"
                 placeholder="For this review, also pay attention to…"
@@ -355,19 +355,14 @@ export function SessionReviewTab({
           </p>
         )}
         {r && (
-          <div className="wd-review-modes" role="tablist" aria-label="Read the review">
-            {modes.map(([m, label]) => (
-              <button
-                key={m}
-                type="button"
-                role="tab"
-                aria-selected={mode === m}
-                className={mode === m ? 'wd-seg wd-seg-on' : 'wd-seg'}
-                onClick={() => go(m, m === 'story' ? storyIndex : m === 'comments' ? commentIndex : 0)}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="wd-review-modes">
+            <Segmented
+              kind="tabs"
+              label="Read the review"
+              value={mode}
+              onChange={(m) => go(m, m === 'story' ? storyIndex : m === 'comments' ? commentIndex : 0)}
+              options={modes.map(([m, label]) => ({ value: m, label }))}
+            />
           </div>
         )}
       </header>

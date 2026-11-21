@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 import { sessionMenuItems, type SessionMenuActions } from '../../src/web/src/state/session-menu.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
-import { RowMenu } from '../../src/web/src/components/Dashboard/RowMenu.js';
+import { Menu } from '../../src/web/src/ui/index.js';
 import { Toast, useToast } from '../../src/web/src/components/Dashboard/Toast.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -138,11 +138,11 @@ describe('the rail menu', () => {
   });
 });
 
-describe('RowMenu', () => {
+describe('Menu', () => {
   it('↓/↑ move between items, wrapping', () => {
     act(() =>
       root.render(
-        createElement(RowMenu, {
+        createElement(Menu, {
           x: 0,
           y: 0,
           onClose: () => {},
@@ -167,11 +167,11 @@ describe('RowMenu', () => {
       { label: 'One', run: () => {} },
       { label: 'Two', run: () => {} },
     ];
-    act(() => root.render(createElement(RowMenu, { x: 0, y: 0, onClose: () => onClose(), items })));
+    act(() => root.render(createElement(Menu, { x: 0, y: 0, onClose: () => onClose(), items })));
     act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' })));
     const two = [...container.querySelectorAll<HTMLButtonElement>('button')][1];
     expect(document.activeElement).toBe(two);
-    act(() => root.render(createElement(RowMenu, { x: 0, y: 0, onClose: () => onClose(), items: [...items] }))); // new closure, new items
+    act(() => root.render(createElement(Menu, { x: 0, y: 0, onClose: () => onClose(), items: [...items] }))); // new closure, new items
     expect(document.activeElement).toBe([...container.querySelectorAll<HTMLButtonElement>('button')][1]);
     act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true })));
     expect(onClose).toHaveBeenCalled();
@@ -211,7 +211,7 @@ describe('RowMenu', () => {
     });
     act(() =>
       root.render(
-        createElement(RowMenu, {
+        createElement(Menu, {
           x: window.innerWidth - 10,
           y: window.innerHeight - 10,
           onClose: () => {},

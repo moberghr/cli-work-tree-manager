@@ -3,6 +3,7 @@ import type { CleanupAction, CleanupCandidate, CleanupState } from '../../../api
 import { relativeTime } from '../../../utils/time.js';
 import { BuildFolders, type BuildFoldersApi } from './BuildFolders.js';
 import { MergedBranches, type MergedBranchesApi } from './MergedBranches.js';
+import { Button, PageHeader, Select } from '../../../ui/index.js';
 
 interface Props {
   onOpenSession: (id: string) => void;
@@ -167,27 +168,23 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
 
   return (
     <div className="wd-dash-tab-pane wd-tab-cleanup">
-      <header className="wd-tab-header">
-        <h1>
-          Clean up{' '}
-          {st && !busy && (
-            <span className="wd-tab-header-muted">
-              ({candidates.length} worktree{candidates.length === 1 ? '' : 's'} to look at
-              {st.finishedAt ? `, checked ${relativeTime(st.finishedAt)}` : ''})
-            </span>
-          )}
-        </h1>
-        <div className="wd-tab-controls">
-          {busy && (
-            <span className="wd-cleanup-progress" role="status">
-              {busyText(st!)}
-            </span>
-          )}
-          <button type="button" className="wd-btn-secondary" disabled={busy} onClick={() => void load(api.scan())}>
-            {st?.finishedAt ? 'Check again' : 'Check'}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title="Clean up"
+        meta={
+          st && !busy
+            ? `(${candidates.length} worktree${candidates.length === 1 ? '' : 's'} to look at${st.finishedAt ? `, checked ${relativeTime(st.finishedAt)}` : ''})`
+            : undefined
+        }
+      >
+        {busy && (
+          <span className="wd-cleanup-progress" role="status">
+            {busyText(st!)}
+          </span>
+        )}
+        <Button disabled={busy} onClick={() => void load(api.scan())}>
+          {st?.finishedAt ? 'Check again' : 'Check'}
+        </Button>
+      </PageHeader>
 
       {error && <div className="wd-tab-error">{error}</div>}
       {st?.error && <div className="wd-tab-error">The last run failed: {st.error}</div>}
@@ -226,12 +223,12 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
             <section key={sec.key} className={`wd-cleanup-section wd-cleanup-${sec.key}`}>
               <h2 className="wd-inbox-section-title" title={sec.hint}>
                 {sec.title} <span className="wd-tab-header-muted">({list.length})</span>
-                <button type="button" className="wd-row-action" onClick={() => setAll(list, true)}>
+                <Button variant="row" onClick={() => setAll(list, true)}>
                   Select all
-                </button>
-                <button type="button" className="wd-row-action" onClick={() => setAll(list, false)}>
+                </Button>
+                <Button variant="row" onClick={() => setAll(list, false)}>
                   None
-                </button>
+                </Button>
               </h2>
               <p className="wd-cleanup-hint">{sec.hint}</p>
               <ul className="wd-cleanup-list">
@@ -259,7 +256,8 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
                       </span>
                       <span className="wd-cleanup-when">{relativeTime(c.lastActive)}</span>
                       {allowed.length > 1 ? (
-                        <select
+                        <Select
+                          compact
                           value={action ?? allowed[0]}
                           disabled={!action || busy}
                           onChange={(e) => setChosen((p) => ({ ...p, [c.sessionId]: e.target.value as CleanupAction }))}
@@ -270,7 +268,7 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
                               {ACTION_LABEL[a]}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       ) : (
                         <span className="wd-cleanup-action">{allowed[0] ? ACTION_LABEL[allowed[0]] : c.archivedAt ? 'archived' : ''}</span>
                       )}
@@ -292,12 +290,12 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
             {selected.length} selected: {summary}
           </span>
           {confirming && <span className="wd-cleanup-confirm-hint">Each is checked again before anything happens.</span>}
-          <button type="button" className="wd-row-action" onClick={() => setConfirming(false)} disabled={!confirming}>
+          <Button variant="row" onClick={() => setConfirming(false)} disabled={!confirming}>
             Cancel
-          </button>
-          <button type="button" className={confirming ? 'wd-btn-danger' : 'wd-btn-primary'} disabled={busy} onClick={apply}>
+          </Button>
+          <Button variant={confirming ? 'danger' : 'primary'} disabled={busy} onClick={apply}>
             {confirming ? `Confirm: ${summary}` : 'Apply'}
-          </button>
+          </Button>
         </footer>
       )}
     </div>

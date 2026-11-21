@@ -89,7 +89,7 @@ export function ShownFilePane({ session, shown, onClose, onOpenCode, load = fetc
             <ul>
               {outline.map((h, n) => (
                 <li key={n} className={`wd-shown-outline-${Math.min(h.level, 3)}`}>
-                  <button type="button" className="wd-link-button" onClick={() => jump(n)} title={h.text}>
+                  <button type="button" className="wd-link-button wd-link-button-muted" onClick={() => jump(n)} title={h.text}>
                     {h.text}
                   </button>
                 </li>

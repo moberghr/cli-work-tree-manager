@@ -1,9 +1,9 @@
 import type { SessionSummary } from '../api/client.js';
 import type { SnoozeFor } from '../../../core/rail/snooze.js';
-import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { sessionKey } from './shortcuts.js';
 import { canAddRepo } from './add-repo.js';
 import { canSwitchAccount } from './accounts.js';
+import type { MenuItem } from '../ui/index.js';
 
 /**
  * A session's right-click menu, after Rename (which the rail adds itself):

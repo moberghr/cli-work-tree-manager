@@ -15,6 +15,7 @@ import { useSse } from '../../../api/events.js';
 import { isArchived } from '../../../state/session-display.js';
 import { sessionIsForIssue } from '../../../../../core/jira/jira-prompt.js';
 import { timeAgo } from '../../../utils/time.js';
+import { Button, PageHeader, Select } from '../../../ui/index.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -96,16 +97,14 @@ export function JiraTab({ sessions, onPickIssue, onOpenSession, loadJira = fetch
   }, [issues]);
   const existing = (s: SessionSummary | undefined) =>
     s ? (
-      <button type="button" className="wd-link-button wd-start-existing" onClick={() => onOpenSession(s.id)} title="Open the session on it">
+      <Button variant="link" className="wd-start-existing" onClick={() => onOpenSession(s.id)} title="Open the session on it">
         {s.titleIsYours && s.title ? s.title : s.branch} →
-      </button>
+      </Button>
     ) : null;
 
   return (
     <div className="wd-dash-tab-pane wd-tab-jira">
-      <header className="wd-tab-header">
-        <h1>Jira {issues !== null && !jiraNote && <span className="wd-tab-header-muted">{ordered.length} assigned to you</span>}</h1>
-      </header>
+      <PageHeader title="Jira" meta={issues !== null && !jiraNote ? `${ordered.length} assigned to you` : undefined} />
 
       <section className="wd-start-section" aria-label="Jira issues assigned to you">
         {jiraNote && <p className="wd-start-note">{jiraNote}</p>}
@@ -124,11 +123,7 @@ export function JiraTab({ sessions, onPickIssue, onOpenSession, loadJira = fetch
                 </span>
                 <span className="wd-start-state">{i.status}</span>
                 <span className="wd-start-action">
-                  {existing(sessionForIssue(i, sessions)) ?? (
-                    <button type="button" className="wd-btn-secondary" onClick={() => onPickIssue(i)}>
-                      Start
-                    </button>
-                  )}
+                  {existing(sessionForIssue(i, sessions)) ?? <Button onClick={() => onPickIssue(i)}>Start</Button>}
                 </span>
                 {decision && (
                   <WatchDecision
@@ -201,9 +196,9 @@ function WatchDecision({
       <span className="wd-jira-watch wd-jira-watch-started" title={d.reason}>
         ▶ started by itself in {d.target}
         {d.sessionId && onOpenSession && (
-          <button type="button" className="wd-link-button" onClick={() => onOpenSession(d.sessionId!)}>
+          <Button variant="link" onClick={() => onOpenSession(d.sessionId!)}>
             open
-          </button>
+          </Button>
         )}
       </span>
     );
@@ -217,30 +212,19 @@ function WatchDecision({
             : `? not sure where it belongs${d.target ? ` — maybe ${d.target}` : ''}`}
         </span>
         <span className="wd-jira-watch-actions">
-          <select value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy} aria-label={`Project for ${d.key}`}>
+          <Select compact value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy} aria-label={`Project for ${d.key}`}>
             {targets.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
-          </select>
-          <button
-            type="button"
-            className="wd-btn-primary"
-            disabled={busy || !target}
-            onClick={() => run(() => startJiraIssue(d.key, target))}
-          >
+          </Select>
+          <Button variant="primary" size="sm" disabled={busy || !target} onClick={() => run(() => startJiraIssue(d.key, target))}>
             {busy ? 'Starting…' : `Start in ${target || '…'}`}
-          </button>
-          <button
-            type="button"
-            className="wd-btn-secondary"
-            disabled={busy}
-            onClick={() => run(() => dismissJiraIssue(d.key))}
-            title="Not this one"
-          >
+          </Button>
+          <Button size="sm" disabled={busy} onClick={() => run(() => dismissJiraIssue(d.key))} title="Not this one">
             Dismiss
-          </button>
+          </Button>
         </span>
         {error && <span className="wd-jira-watch-error">{error}</span>}
       </div>

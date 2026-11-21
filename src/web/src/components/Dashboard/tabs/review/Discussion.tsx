@@ -4,6 +4,7 @@ import { discussionCounts } from '../../../../../../core/review/review-discussio
 import { timeAgo } from '../../../../utils/time.js';
 import { mdGist } from '../../../../state/review-view.js';
 import { HostThread } from '../../../Review/HostThread.js';
+import { Badge } from '../../../../ui/index.js';
 
 /** Where a thread is, as a list beside the diff says it: "Rounding.cs (was line 3)". */
 export function threadWhere(t: PrDiscussionThreadWire): string {
@@ -96,9 +97,13 @@ export function AlreadyDiscussed({
         <ul className="wd-review-discussed-list">
           {verdicts.map((r, i) => (
             <li key={`r${i}`}>
-              <span className={`wd-host-verdict wd-host-verdict-${r.state}`}>
+              <Badge
+                kind="tag"
+                tone={r.state === 'approved' ? 'ok' : r.state === 'changes-requested' ? 'danger' : 'neutral'}
+                className={`wd-host-verdict wd-host-verdict-${r.state}`}
+              >
                 {r.state === 'changes-requested' ? 'changes requested' : r.state}
-              </span>{' '}
+              </Badge>{' '}
               <strong>@{r.author}</strong>
               {r.body.trim() && <span className="wd-review-gist"> {mdGist(r.body, 160)}</span>}{' '}
               {r.at && <span className="wd-start-note">{timeAgo(r.at)}</span>}{' '}
@@ -113,7 +118,10 @@ export function AlreadyDiscussed({
             .sort((a, b) => b.at.localeCompare(a.at))
             .map((x, i) => (
               <li key={`c${i}`}>
-                <span className="wd-host-verdict wd-host-verdict-comment">comment</span> <strong>@{x.author}</strong>
+                <Badge kind="tag" className="wd-host-verdict wd-host-verdict-comment">
+                  comment
+                </Badge>{' '}
+                <strong>@{x.author}</strong>
                 <span className="wd-review-gist"> {mdGist(x.body, 160)}</span>{' '}
                 {x.at && <span className="wd-start-note">{timeAgo(x.at)}</span>}{' '}
                 {x.url && (

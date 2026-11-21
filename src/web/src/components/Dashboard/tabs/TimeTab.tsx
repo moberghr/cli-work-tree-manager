@@ -16,6 +16,7 @@ import { addMonths, monthRange } from '../../../../../core/time/time-month.js';
 import { dayKey } from '../../../../../core/conversations/work-time-view.js';
 import { dayLabel, hoursText, monthLabel, monthOf, readTimeView, statusText, writeTimeView } from '../../../state/time-month.js';
 import { TimeMonth } from './TimeMonth.js';
+import { Button, Input, PageHeader, SectionTitle, Segmented, buttonClass } from '../../../ui/index.js';
 
 export { dayLabel, hoursText, statusText };
 
@@ -149,7 +150,7 @@ export function TimeTab({
 
   const dirty = !!day && !sameRows(rows, day.entries);
   // Unsaved rows would be lost: ask first.
-  const mayLeave = async () => !dirty || ask('Leave this day without saving your changes?', { ok: 'Leave' });
+  const mayLeave = async () => !dirty || ask('Leave this day without saving your changes?', { ok: 'Leave', danger: true });
   const goMonth = async (n: number) => {
     if (!(await mayLeave())) return;
     setMonth((m) => addMonths(m, n));
@@ -163,38 +164,37 @@ export function TimeTab({
 
   return (
     <div className="wd-dash-tab-pane wd-tab-time">
-      <header className="wd-tab-header">
-        <h1>Time</h1>
+      <PageHeader title="Time">
         {days && (
           <p className="wd-time-rules">
             {hoursText(days.settings.dayHours)} a day · Claude time ×{days.settings.multiplier} · {hoursText(days.settings.stepHours)} steps
             {days.settings.gapTicket ? ` · the rest to ${days.settings.gapTicket}` : ''}
           </p>
         )}
-      </header>
+      </PageHeader>
       <GraphLine />
       <div className="wd-time-nav">
-        <button type="button" className="wd-btn-secondary" aria-label="Previous month" onClick={() => goMonth(-1)}>
+        <Button size="sm" aria-label="Previous month" onClick={() => goMonth(-1)}>
           ‹
-        </button>
+        </Button>
         <span className="wd-time-month-name">{monthLabel(month)}</span>
-        <button type="button" className="wd-btn-secondary" aria-label="Next month" disabled={month >= thisMonth} onClick={() => goMonth(1)}>
+        <Button size="sm" aria-label="Next month" disabled={month >= thisMonth} onClick={() => goMonth(1)}>
           ›
-        </button>
-        <div className="wd-time-views" role="group" aria-label="View">
-          <button type="button" aria-pressed={view === 'days'} onClick={() => setView('days')}>
-            Days
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === 'month'}
-            onClick={async () => {
-              if (await mayLeave()) setView('month');
-            }}
-          >
-            Month
-          </button>
-        </div>
+        </Button>
+        <Segmented
+          className="wd-time-views"
+          label="View"
+          value={view}
+          onChange={(v) => {
+            // Leaving the day for the month asks first when it has unsaved changes.
+            if (v === 'days') return setView(v);
+            void mayLeave().then((ok) => ok && setView(v));
+          }}
+          options={[
+            { value: 'days', label: 'Days' },
+            { value: 'month', label: 'Month' },
+          ]}
+        />
       </div>
       {days && !days.settings.gapTicket && (
         <p className="wd-time-hint">
@@ -289,7 +289,8 @@ export function TimeTab({
                 {rows.map((r, i) => (
                   <tr key={i}>
                     <td>
-                      <input
+                      <Input
+                        compact
                         className="wd-time-key"
                         value={r.key}
                         aria-label="Ticket"
@@ -318,7 +319,8 @@ export function TimeTab({
                       )}
                     </td>
                     <td className="wd-time-num">
-                      <input
+                      <Input
+                        compact
                         type="number"
                         className="wd-time-hours"
                         aria-label={`Hours on ${r.key}`}
@@ -369,7 +371,9 @@ export function TimeTab({
             <div className="wd-time-actions">
               <button
                 type="button"
-                className="wd-btn-primary"
+                // The next step is the main button: Save while there are changes, Post once saved (two of them, one
+                // always disabled, read as two blues).
+                className={buttonClass(dirty ? 'primary' : 'secondary')}
                 disabled={busy || !dirty}
                 onClick={() => act(saveTimeDay(day.day, { entries: rows }))}
               >
@@ -392,7 +396,7 @@ export function TimeTab({
               )}
               <button
                 type="button"
-                className="wd-btn-primary"
+                className={buttonClass(dirty ? 'secondary' : 'primary')}
                 disabled={busy || dirty || !day.posting?.ready || (!day.entries.length && !day.posted) || day.status === 'posted'}
                 onClick={post}
                 title={
@@ -458,7 +462,7 @@ function Evidence({ day, onOpenSession }: { day: TimeDayWire; onOpenSession: (id
   );
   return (
     <div className="wd-time-evidence">
-      <h3>Why</h3>
+      <SectionTitle as="h3">Why</SectionTitle>
       {ev.sessions.length > 0 && (
         <ul aria-label="Sessions">
           {ev.sessions.map((s) => (

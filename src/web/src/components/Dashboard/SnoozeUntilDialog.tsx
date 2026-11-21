@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_SNOOZE_MS, parseWhen } from '../../../../core/rail/snooze.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button, Input } from '../../ui/index.js';
 
 /** What the typed time means, in words ("Fri 3 Oct, 14:00"), or why it isn't one. */
 export function whenPreview(text: string, now = new Date()): { at: Date | null; text: string } {
@@ -58,32 +59,24 @@ export function SnoozeUntilDialog({
       >
         <header className="wd-modal-header">
           <h2>Snooze {count > 1 ? `${count} sessions ` : ''}until…</h2>
-          <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close">
+          <Button variant="quiet" icon className="wd-modal-close" onClick={onClose} aria-label="Close">
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <label className="wd-modal-row">
             <span>When</span>
-            <input
-              ref={inputRef}
-              type="text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              aria-describedby="wd-snooze-until-preview"
-            />
+            <Input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} aria-describedby="wd-snooze-until-preview" />
           </label>
           <p id="wd-snooze-until-preview" className={'wd-snooze-until-preview' + (preview.at ? '' : ' wd-tab-error')} role="status">
             {preview.at ? `Until ${preview.text}` : preview.text}
           </p>
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="wd-btn-primary" disabled={!preview.at}>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!preview.at}>
             Snooze
-          </button>
+          </Button>
         </footer>
       </form>
     </div>

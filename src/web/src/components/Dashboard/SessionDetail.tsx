@@ -42,7 +42,6 @@ import { BranchesTab } from './BranchesTab.js';
 import { branchesChip } from '../../state/branches.js';
 import { PrTab } from './PrTab.js';
 import { prNeedsLine, prTabButton } from '../../state/pr-tab.js';
-import { RowMenu } from './RowMenu.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/LazyPtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
@@ -52,6 +51,7 @@ import { restartNote } from '../../state/agent-restart-view.js';
 import { markdownHtml, writeRich } from '../../state/rich-copy.js';
 import { ARCHIVED_BY_SHORT, archivedLine } from '../../state/archive-view.js';
 import { headerRepos } from '../../state/add-repo.js';
+import { Badge, Input, Tab, Menu } from '../../ui/index.js';
 
 interface Props {
   session: SessionSummary;
@@ -440,9 +440,9 @@ function SessionHeader({
           </span>
         )}
         {archived && (
-          <span className="wd-archived-pill" title={archivedLine(session)}>
+          <Badge dashed className="wd-archived-pill" title={archivedLine(session)}>
             archived{session.archive?.by ? ` · ${ARCHIVED_BY_SHORT[session.archive.by]}` : ''}
-          </span>
+          </Badge>
         )}
         <div className="wd-session-actions">
           {note && (
@@ -490,7 +490,7 @@ function SessionHeader({
           </button>
         </div>
       </header>
-      {menu && <RowMenu x={menu.x} y={menu.y} anchor="right" items={items} footer={contextFooter(session)} onClose={() => setMenu(null)} />}
+      {menu && <Menu x={menu.x} y={menu.y} anchor="right" items={items} footer={contextFooter(session)} onClose={() => setMenu(null)} />}
       {/* Only what wants a look: empty (CSS :empty) for most sessions, so the header is one row and the tabs. */}
       <div className="wd-session-strip">
         <AwayLink session={session} catchUp={catchUp} />
@@ -549,7 +549,8 @@ export function SessionTitle({ session, autoEdit = false }: { session: SessionSu
   };
   if (editing) {
     return (
-      <input
+      <Input
+        compact
         className="wd-session-title-input"
         autoFocus
         value={draft}
@@ -635,20 +636,18 @@ interface SubTabBtnProps {
 
 function SubTabButton({ label, active, onClick, meta, badge, badgeTitle }: SubTabBtnProps) {
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      className={'wd-session-subtab' + (active ? ' wd-session-subtab-active' : '')}
-      onClick={onClick}
-    >
+    <Tab active={active} className={'wd-session-subtab' + (active ? ' wd-session-subtab-active' : '')} onClick={onClick}>
       {label}
       {meta && <span className="wd-session-subtab-meta">· {meta}</span>}
       {badge ? (
-        <span className="wd-session-subtab-badge" title={badgeTitle ? badgeTitle(badge) : `${badge} comment${badge === 1 ? '' : 's'}`}>
+        <Badge
+          kind="count"
+          className="wd-session-subtab-badge"
+          title={badgeTitle ? badgeTitle(badge) : `${badge} comment${badge === 1 ? '' : 's'}`}
+        >
           {badge}
-        </span>
+        </Badge>
       ) : null}
-    </button>
+    </Tab>
   );
 }

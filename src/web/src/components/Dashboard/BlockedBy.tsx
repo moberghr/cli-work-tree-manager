@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { addBlocker, removeBlocker, type SessionSummary } from '../../api/client.js';
 import { prUrl } from '../../../../core/rail/blocks.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button, Input, Select } from '../../ui/index.js';
 
 /**
  * In the session strip: what this session waits on (core/session-blocks.ts) —
@@ -109,9 +110,9 @@ export function BlockedByDialog({
       >
         <header className="wd-modal-header">
           <h2>{session.title && session.titleIsYours ? session.title : session.branch} is waiting on…</h2>
-          <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close" disabled={busy}>
+          <Button variant="quiet" icon className="wd-modal-close" onClick={onClose} aria-label="Close" disabled={busy}>
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <p className="wd-fork-note">
@@ -120,18 +121,18 @@ export function BlockedByDialog({
           </p>
           <label className="wd-modal-row">
             <span>Another session</span>
-            <select ref={first} value={pick} onChange={(e) => setPick(e.target.value)} disabled={busy}>
+            <Select ref={first} value={pick} onChange={(e) => setPick(e.target.value)} disabled={busy}>
               <option value="">—</option>
               {others.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.target} · {s.title && s.titleIsYours ? `${s.title} (${s.branch})` : s.branch}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="wd-modal-row">
             <span>…or a pull request</span>
-            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="A pull request link" disabled={busy} />
+            <Input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="A pull request link" disabled={busy} />
           </label>
           {url.trim() && !pr && <p className="wd-modal-error">Not a pull request link of a git host work knows.</p>}
           {error && (
@@ -141,12 +142,12 @@ export function BlockedByDialog({
           )}
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={onClose} disabled={busy}>
+          <Button onClick={onClose} disabled={busy}>
             Cancel
-          </button>
-          <button type="submit" className="wd-btn-primary" disabled={!ready || busy}>
+          </Button>
+          <Button variant="primary" type="submit" disabled={!ready || busy}>
             {busy ? 'Saving…' : 'Wait on it'}
-          </button>
+          </Button>
         </footer>
       </form>
     </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Input, ListRow, PageHeader, SectionTitle, Segmented, Select, TextArea } from '../../../ui/index.js';
 import type { PrReviewWire, ReviewEvent, ReviewMode, ReviewSettingsWire, ReviewsWire } from '../../../../../core/api-types.js';
 import type { ParsedFile } from '../../../../../core/diff/diff-parse.js';
 import { hostName } from '../../../../../core/hosts/commands.js';
@@ -150,76 +151,77 @@ export function ReviewsTab({ route, onRoute, railFolded, onToggleRail, onShown, 
     >
       {showList && (
         <aside className="wd-reviews-list" aria-label="Pull requests to review">
-          <div className="wd-reviews-head">
-            <h2 className="wd-start-title">Reviews</h2>
-            <button type="button" className="wd-link-button" onClick={() => setShowSettings((v) => !v)}>
+          <PageHeader
+            compact={!!selected}
+            title="Reviews"
+            meta={list ? `${list.today} prepared today${list.maxPerDay !== null ? ` of ${list.maxPerDay}` : ''}` : undefined}
+          >
+            <span className="wd-reviews-grouping">
+              Group
+              <Segmented
+                label="Group the reviews"
+                value={group}
+                onChange={pickGroup}
+                options={[
+                  { value: 'repo', label: 'Repo' },
+                  { value: 'none', label: 'None' },
+                ]}
+              />
+            </span>
+            <Button variant="link" onClick={() => setShowSettings((v) => !v)}>
               {showSettings ? 'Close settings' : 'Which PRs…'}
-            </button>
+            </Button>
+          </PageHeader>
+          <div className="wd-reviews-list-body">
+            {error && <p className="wd-modal-error">{error}</p>}
+            {!error && list === null && <p className="wd-start-note">Loading…</p>}
+            {list && list.reviews.length === 0 && (
+              <p className="wd-start-note">No reviews yet: open pull requests of your repos are prepared here in the background.</p>
+            )}
+            {groups.map((g) => (
+              <section key={g.repo ?? 'all'} className="wd-reviews-group">
+                {g.repo && (
+                  <SectionTitle
+                    as="h3"
+                    className="wd-reviews-group-head"
+                    meta={`· ${g.reviews.length}${g.host ? ` · ${hostName(g.host)}` : ''}`}
+                  >
+                    {g.repo}
+                  </SectionTitle>
+                )}
+                <ul>
+                  {g.reviews.map((r) => (
+                    <li key={`${r.repo}#${r.number}`}>
+                      <ListRow
+                        className="wd-reviews-row"
+                        active={selected?.repo === r.repo && selected.number === r.number}
+                        title={`${g.repo ? '' : `${r.repo} `}#${r.number} · ${r.title}`}
+                        meta={
+                          <>
+                            <span className={`wd-reviews-status wd-reviews-status-${r.status}`}>{STATUS_LABEL[r.status]}</span> @{r.author}{' '}
+                            · +{r.size.added} −{r.size.deleted}
+                            {r.status === 'ready' && ` · ${r.stories} stor${r.stories === 1 ? 'y' : 'ies'}`}
+                            {r.flags > 0 && ` · ${r.flags} flag${r.flags === 1 ? '' : 's'}`}
+                            {r.gaps > 0 && ` · ${r.gaps} untested`} · {timeAgo(r.at)}
+                          </>
+                        }
+                        onClick={() => {
+                          go({
+                            repo: r.repo,
+                            number: r.number,
+                            mode: 'overview',
+                            at: 0,
+                          });
+                          setShowSettings(false);
+                          setListOpen(false);
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
           </div>
-          <div className="wd-reviews-grouping" role="group" aria-label="Group the reviews">
-            Group:{' '}
-            <button type="button" className={group === 'repo' ? 'wd-seg wd-seg-on' : 'wd-seg'} onClick={() => pickGroup('repo')}>
-              Repo
-            </button>
-            <button type="button" className={group === 'none' ? 'wd-seg wd-seg-on' : 'wd-seg'} onClick={() => pickGroup('none')}>
-              None
-            </button>
-          </div>
-          {list && (
-            <p className="wd-start-note">
-              {list.today} prepared today
-              {list.maxPerDay !== null ? ` of ${list.maxPerDay}` : ''}
-            </p>
-          )}
-          {error && <p className="wd-modal-error">{error}</p>}
-          {!error && list === null && <p className="wd-start-note">Loading…</p>}
-          {list && list.reviews.length === 0 && (
-            <p className="wd-start-note">No reviews yet: open pull requests of your repos are prepared here in the background.</p>
-          )}
-          {groups.map((g) => (
-            <section key={g.repo ?? 'all'} className="wd-reviews-group">
-              {g.repo && (
-                <h3 className="wd-reviews-group-head">
-                  {g.repo}{' '}
-                  <span className="wd-start-note">
-                    · {g.reviews.length}
-                    {g.host ? ` · ${hostName(g.host)}` : ''}
-                  </span>
-                </h3>
-              )}
-              <ul>
-                {g.reviews.map((r) => (
-                  <li key={`${r.repo}#${r.number}`}>
-                    <button
-                      type="button"
-                      className={`wd-reviews-row${selected?.repo === r.repo && selected.number === r.number ? ' wd-reviews-row-active' : ''}`}
-                      onClick={() => {
-                        go({
-                          repo: r.repo,
-                          number: r.number,
-                          mode: 'overview',
-                          at: 0,
-                        });
-                        setShowSettings(false);
-                        setListOpen(false);
-                      }}
-                    >
-                      <span className="wd-reviews-row-title">
-                        {g.repo ? '' : `${r.repo} `}#{r.number} · {r.title}
-                      </span>
-                      <span className="wd-reviews-row-meta">
-                        <span className={`wd-reviews-status wd-reviews-status-${r.status}`}>{STATUS_LABEL[r.status]}</span> @{r.author} · +
-                        {r.size.added} −{r.size.deleted}
-                        {r.status === 'ready' && ` · ${r.stories} stor${r.stories === 1 ? 'y' : 'ies'}`}
-                        {r.flags > 0 && ` · ${r.flags} flag${r.flags === 1 ? '' : 's'}`}
-                        {r.gaps > 0 && ` · ${r.gaps} untested`} · {timeAgo(r.at)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
         </aside>
       )}
       {showList && selected && <ResizeDivider layoutRef={layoutRef} size={listWidth} onCommit={setListWidth} spec={LIST_SPEC} />}
@@ -443,8 +445,7 @@ function ReviewView({
             )}
           </p>
           <div className="wd-review-actions">
-            <input
-              type="text"
+            <Input
               className="wd-session-review-also"
               aria-label="For this review, also pay attention to"
               placeholder="For this review, also pay attention to…"
@@ -502,20 +503,14 @@ function ReviewView({
           </p>
         ))}
         {ready && (
-          <div className="wd-review-modes" role="tablist" aria-label="Read the review">
-            {modes.map(([m, label, key]) => (
-              <button
-                key={m}
-                type="button"
-                role="tab"
-                aria-selected={mode === m}
-                className={mode === m ? 'wd-seg wd-seg-on' : 'wd-seg'}
-                onClick={() => goMode(m, m === 'story' && route.mode === 'story' ? storyAt : 0)}
-                title={`${label} — key ${key}`}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="wd-review-modes">
+            <Segmented
+              kind="tabs"
+              label="Read the review"
+              value={mode}
+              onChange={(m) => goMode(m, m === 'story' && route.mode === 'story' ? storyAt : 0)}
+              options={modes.map(([m, label, key]) => ({ value: m, label, title: `${label} — key ${key}` }))}
+            />
             <span className="wd-start-note wd-review-keys">[ ] previous / next</span>
           </div>
         )}
@@ -641,7 +636,7 @@ function SubmitBar({
       <span>
         {drafts.length} comment{drafts.length === 1 ? '' : 's'} on the diff
       </span>
-      <textarea
+      <TextArea
         value={body}
         onChange={(e) => setBody(e.target.value)}
         rows={1}
@@ -698,8 +693,8 @@ function ReviewSettings() {
   }, []);
   const set = (project: string, mode: ReviewMode) => saveReviewMode(project, mode).then(setS, (e: Error) => setError(e.message));
   return (
-    <section className="wd-review-section" aria-label="Which PRs are reviewed">
-      <h3>Which pull requests get a review prepared</h3>
+    <section className="wd-review-section wd-review-settings-panel" aria-label="Which PRs are reviewed">
+      <h2 className="wd-review-settings-title">Which pull requests get a review prepared</h2>
       <p className="wd-start-note">
         Every open PR of a project by default (never your own, never drafts); only those asking for your review; or none. A repo&apos;s own
         setting wins over its group&apos;s. Each review is an AI run on your plan
@@ -716,7 +711,7 @@ function ReviewSettings() {
                 {p.name} <span className="wd-start-note">{p.kind}</span>
               </td>
               <td>
-                <select
+                <Select
                   value={p.mode}
                   onChange={(e) => void set(p.name, e.target.value as ReviewMode)}
                   aria-label={`Reviews for ${p.name}`}
@@ -724,7 +719,7 @@ function ReviewSettings() {
                   <option value="all">every open PR</option>
                   <option value="asked">only those asking me</option>
                   <option value="off">none</option>
-                </select>
+                </Select>
                 {p.from === 'group' && <span className="wd-start-note"> (from the group {p.group})</span>}
                 {p.from === 'default' && <span className="wd-start-note"> (the default)</span>}
               </td>

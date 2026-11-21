@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { shortcutGroups } from '../../state/shortcuts.js';
+import { Button } from '../../ui/index.js';
 
 /**
  * `?`: every keyboard shortcut, by where it works (state/shortcuts.ts). A
@@ -24,9 +25,9 @@ export function ShortcutsHelp({ onClose }: { onClose: () => void }) {
     <div ref={ref} className="wd-shortcuts" role="dialog" data-popover aria-label="Keyboard shortcuts">
       <header className="wd-shortcuts-head">
         <h2>Keyboard shortcuts</h2>
-        <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close">
+        <Button variant="quiet" icon className="wd-modal-close" onClick={onClose} aria-label="Close">
           ×
-        </button>
+        </Button>
       </header>
       <p className="wd-shortcuts-note">Not while typing in a field or a terminal, nor with a dialog open.</p>
       <div className="wd-shortcuts-groups">

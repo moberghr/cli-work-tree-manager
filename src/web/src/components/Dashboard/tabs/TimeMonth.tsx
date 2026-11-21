@@ -12,6 +12,7 @@ import {
   type MonthPostResult,
 } from '../../../state/time-month.js';
 import { useBackdropClose } from '../../../hooks/use-backdrop-close.js';
+import { Button, Input, SectionTitle } from '../../../ui/index.js';
 
 /**
  * The Time tab's Month view: the month up to today as tickets × days, and
@@ -252,7 +253,8 @@ export function TimeMonth({
                         title={h ? `${t.key} on ${dayLabel(d.day)}: ${d.why?.[t.key] || `${hoursText(h)}`}` : undefined}
                       >
                         {here ? (
-                          <input
+                          <Input
+                            compact
                             className="wd-time-grid-input"
                             aria-label={`Hours on ${t.key}, ${dayLabel(d.day)}`}
                             autoFocus
@@ -328,7 +330,7 @@ export function TimeMonth({
 
       {leftOut.length > 0 && (
         <div className="wd-time-month-out">
-          <h3>Not posted with the month</h3>
+          <SectionTitle as="h3">Not posted with the month</SectionTitle>
           <ul>
             {leftOut.map((l) => (
               <li key={l.day}>
@@ -354,9 +356,9 @@ export function TimeMonth({
               <h2>
                 Post {plan.days.length} day{plan.days.length === 1 ? '' : 's'} to Tempo?
               </h2>
-              <button type="button" className="wd-modal-close" onClick={() => setConfirming(false)} aria-label="Close">
+              <Button variant="quiet" icon className="wd-modal-close" onClick={() => setConfirming(false)} aria-label="Close">
                 ×
-              </button>
+              </Button>
             </header>
             <div className="wd-modal-body">
               <p className="wd-time-note">

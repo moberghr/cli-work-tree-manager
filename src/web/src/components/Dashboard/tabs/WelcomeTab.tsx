@@ -4,6 +4,7 @@ import { fetchSetup, saveSetupFolders } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
 import { blockingTools } from '../../../state/setup.js';
 import { ReposTab, type ReposApi } from './ReposTab.js';
+import { Input, Button, PageHeader } from '../../../ui/index.js';
 
 interface Props {
   onNewWorktree: () => void;
@@ -60,9 +61,7 @@ export function WelcomeTab({ onNewWorktree, onDone, load = fetchSetup, save = sa
 
   return (
     <div className="wd-dash-tab-pane wd-tab-welcome">
-      <header className="wd-tab-header">
-        <h1>Welcome to work</h1>
-      </header>
+      <PageHeader title="Welcome to work" />
       <p className="wd-welcome-intro">
         Each piece of work gets its own git worktree and its own Claude, and this dashboard shows them all: which one needs you, what each
         changed, its pull request. Three things to set up, then start.
@@ -72,24 +71,19 @@ export function WelcomeTab({ onNewWorktree, onDone, load = fetchSetup, save = sa
         <h2 className="wd-start-title">1 · Folders {setup.configured && !changed && <span className="wd-welcome-ok">✓</span>}</h2>
         <label className="wd-welcome-field">
           <span>Your repos are in</span>
-          <input value={reposFolder} onChange={(e) => setReposFolder(e.target.value)} placeholder="C:\Users\you\source\repos" />
+          <Input value={reposFolder} onChange={(e) => setReposFolder(e.target.value)} placeholder="C:\Users\you\source\repos" />
         </label>
         <label className="wd-welcome-field">
           <span>Worktrees go in</span>
-          <input value={worktreesRoot} onChange={(e) => setWorktreesRoot(e.target.value)} />
+          <Input value={worktreesRoot} onChange={(e) => setWorktreesRoot(e.target.value)} />
         </label>
         <p className="wd-start-note">
           One folder per piece of work goes here (a repo&apos;s folder, then the branch). It is made if it isn&apos;t there.
         </p>
         {(changed || !setup.configured) && (
-          <button
-            type="button"
-            className="wd-btn-primary"
-            disabled={saving || !reposFolder.trim() || !worktreesRoot.trim()}
-            onClick={saveFolders}
-          >
+          <Button variant="primary" disabled={saving || !reposFolder.trim() || !worktreesRoot.trim()} onClick={saveFolders}>
             {saving ? 'Saving…' : setup.configured ? 'Save folders' : 'Use these folders'}
-          </button>
+          </Button>
         )}
         {error && (
           <p className="wd-repos-error" role="alert">
@@ -102,7 +96,7 @@ export function WelcomeTab({ onNewWorktree, onDone, load = fetchSetup, save = sa
         <section className="wd-welcome-step" aria-label="Your repos">
           <h2 className="wd-start-title">2 · Your repos {setup.repos > 0 && <span className="wd-welcome-ok">✓ {setup.repos}</span>}</h2>
           <p className="wd-start-note">Add the ones you work on. The rest can stay: Ignore hides them from this list.</p>
-          <ReposTab api={reposApi} />
+          <ReposTab api={reposApi} compact />
         </section>
       )}
 
@@ -137,18 +131,15 @@ export function WelcomeTab({ onNewWorktree, onDone, load = fetchSetup, save = sa
       <section className="wd-welcome-step" aria-label="Start">
         <h2 className="wd-start-title">{setup.configured ? 4 : 3} · Start</h2>
         <div className="wd-welcome-start">
-          <button
-            type="button"
-            className="wd-btn-primary"
+          <Button
+            variant="primary"
             disabled={setup.repos === 0 || blocking.length > 0}
             title={setup.repos === 0 ? 'Add a repo first' : blocking.length ? `Needs ${blocking.join(' and ')}` : undefined}
             onClick={onNewWorktree}
           >
             New worktree
-          </button>
-          <button type="button" className="wd-btn-secondary" onClick={onDone}>
-            Go to Start
-          </button>
+          </Button>
+          <Button onClick={onDone}>Go to Start</Button>
         </div>
         <p className="wd-start-note">
           Coming from another computer? There, run <code>work move export &lt;folder&gt;</code>; here, stop work web and run{' '}

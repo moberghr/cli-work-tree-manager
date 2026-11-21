@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { forkSession, type SessionSummary } from '../../api/client.js';
 import { onBranchChange } from '../../utils/branch-input.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
+import { Button, Input, TextArea } from '../../ui/index.js';
 
 interface Props {
   session: SessionSummary;
@@ -74,9 +75,9 @@ export function ForkSessionModal({ session, sessions, onForked, onClose }: Props
       <form className="wd-modal" onSubmit={submit}>
         <header className="wd-modal-header">
           <h2>Fork {session.title && session.titleIsYours ? session.title : session.branch}</h2>
-          <button type="button" className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
+          <Button variant="quiet" icon className="wd-modal-close" onClick={close} aria-label="Close" disabled={busy}>
             ×
-          </button>
+          </Button>
         </header>
         <div className="wd-modal-body">
           <p className="wd-fork-note">
@@ -87,12 +88,11 @@ export function ForkSessionModal({ session, sessions, onForked, onClose }: Props
           </p>
           <label className="wd-modal-row">
             <span>New branch</span>
-            <input ref={branchRef} type="text" value={branch} onChange={onBranchChange(setBranch)} disabled={busy} required />
+            <Input ref={branchRef} value={branch} onChange={onBranchChange(setBranch)} disabled={busy} required />
           </label>
           <label className="wd-modal-row">
             <span>Name (optional)</span>
-            <input
-              type="text"
+            <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="shown instead of the branch, e.g. Try the queue approach"
@@ -102,7 +102,7 @@ export function ForkSessionModal({ session, sessions, onForked, onClose }: Props
           </label>
           <label className="wd-modal-row">
             <span>What to try (optional)</span>
-            <textarea
+            <TextArea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Empty: it reads the summary and waits for you"
@@ -122,12 +122,12 @@ export function ForkSessionModal({ session, sessions, onForked, onClose }: Props
           )}
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={close} disabled={busy}>
+          <Button onClick={close} disabled={busy}>
             Cancel
-          </button>
-          <button type="submit" className="wd-btn-primary" disabled={busy || !branch.trim()}>
+          </Button>
+          <Button variant="primary" type="submit" disabled={busy || !branch.trim()}>
             {busy ? 'Forking…' : 'Fork'}
-          </button>
+          </Button>
         </footer>
       </form>
     </div>

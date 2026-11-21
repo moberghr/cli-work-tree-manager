@@ -1,7 +1,8 @@
 import type { SessionSummary } from '../../api/client.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { PrInfo } from '../../api/panes.js';
-import { DISPLAY_LABEL, displayStatus, formatDiffStat, agentName } from '../../state/session-display.js';
+import { DISPLAY_LABEL, displayStatus, formatDiffStat, agentName, owedClass } from '../../state/session-display.js';
+import { badgeClass, type BadgeTone } from '../../ui/index.js';
 import { relativeTime } from '../../utils/time.js';
 import { DEFAULT_ACCOUNT, pendingText } from '../../state/accounts.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
@@ -12,6 +13,26 @@ import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../
  * the Sessions table, the Inbox and the session header so they all say
  * the same thing the same way.
  */
+
+/** A PR pill's tone: green once it can merge, red when it can't, purple once merged, grey otherwise. */
+export const prTone = (kind: PrStageKind): BadgeTone => {
+  const t = stageTone(kind);
+  return t === 'good' ? 'ok' : t === 'bad' ? 'danger' : t === 'merged' ? 'merged' : 'neutral';
+};
+
+/** A PR pill's classes: the shared tag, its tone, and the page's classes (`wd-pr-chip`, its stage) tests find it by. */
+export const prChipClass = (kind: PrStageKind | null, extra = '') =>
+  badgeClass(
+    'tag',
+    kind ? prTone(kind) : 'neutral',
+    'wd-pr-chip' + (kind ? ' wd-pr-stage' + toneClass(kind) : '') + extra,
+    // A draft: dashed, so it doesn't read as an open PR.
+    (kind !== null && stageTone(kind) === 'draft') || extra.includes('wd-pr-chip-draft'),
+  );
+
+/** What waits on you (owedBadge) as a pill: a finished turn in the app's blue, the rest in the review colour. */
+export const owedBadgeClass = (owed: { kind: string }, extra = '') =>
+  badgeClass('status', owed.kind === 'turn' ? 'accent' : 'review', owedClass(owed) + extra);
 
 /** A PR pill's class for its stage. */
 export const toneClass = (kind: PrStageKind) => {
@@ -44,7 +65,7 @@ export function PrStageChip({ session, prs = [] }: { session: SessionSummary; pr
       {st.prs.map((p) => (
         <a
           key={`${p.repo}#${p.number}`}
-          className={`wd-pr-chip wd-pr-stage${toneClass(p.kind)}`}
+          className={prChipClass(p.kind)}
           href={p.url}
           target="_blank"
           rel="noreferrer"
@@ -72,6 +93,7 @@ export function RailPrPills({ session, prs }: { session: SessionSummary; prs: Pr
       url: p.url,
       label: `#${p.number}`,
       cls: toneClass(p.kind),
+      tone: prTone(p.kind),
       title: `${p.repo} #${p.number} · ${stagePhrase(p.kind)}`,
     })),
     ...prsBeyondStage(session.prStage, prs).map((p) => ({
@@ -79,6 +101,7 @@ export function RailPrPills({ session, prs }: { session: SessionSummary; prs: Pr
       url: p.url,
       label: `#${p.number}`,
       cls: p.isDraft ? ' wd-pr-chip-draft' : '',
+      tone: 'neutral' as BadgeTone,
       title: `${p.repoAlias} #${p.number} · ${p.isDraft ? 'draft' : 'open'}`,
     })),
   ];
@@ -88,7 +111,7 @@ export function RailPrPills({ session, prs }: { session: SessionSummary; prs: Pr
       {pills.map((p) => (
         <span
           key={p.key}
-          className={'wd-pr-chip wd-pr-chip-open' + p.cls}
+          className={badgeClass('tag', p.tone, 'wd-pr-chip wd-pr-chip-open' + p.cls)}
           role="link"
           tabIndex={-1}
           title={`${p.title}\nClick to open it`}
@@ -113,7 +136,7 @@ export function PrChips({ prs, link = false }: { prs: PrInfo[]; link?: boolean }
         // not shown here; failing CI has its own strip on the session.
         const label = `#${p.number}`;
         const title = `${p.repoAlias} #${p.number} — ${p.isDraft ? 'draft' : 'open'}: ${p.title}`;
-        const cls = `wd-pr-chip${p.isDraft ? ' wd-pr-chip-draft' : ''}`;
+        const cls = prChipClass(null, p.isDraft ? ' wd-pr-chip-draft' : '');
         return link ? (
           <a
             key={`${p.repoAlias}#${p.number}`}
@@ -349,7 +372,7 @@ export function OtherBranchChip({ session }: { session: SessionSummary }) {
   if (!text) return null;
   return (
     <span
-      className="wd-other-branch"
+      className={badgeClass('tag', 'warn', 'wd-other-branch')}
       title={
         (session.onOtherBranch ?? []).some((o) => o.noGit)
           ? `Its folder has no git left in it: removing the worktree stopped halfway (a file in use). work tree ${session.target} ${session.branch} makes it again, with the files that were left.`
@@ -420,7 +443,7 @@ export function BranchesLine({ session, onShow }: { session: SessionSummary; onS
             {note && <span className="wd-branch-note"> {note}</span>}
             {b.pr && (
               <a
-                className={`wd-pr-chip wd-pr-stage${toneClass(b.pr.kind)}`}
+                className={prChipClass(b.pr.kind)}
                 href={b.pr.url}
                 target="_blank"
                 rel="noreferrer"

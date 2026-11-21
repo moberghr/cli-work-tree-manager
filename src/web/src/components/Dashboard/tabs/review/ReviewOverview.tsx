@@ -24,7 +24,8 @@ import {
   pointsLabel,
 } from '../../../../state/review-view.js';
 import { DroppedDrafts } from './DroppedDrafts.js';
-import { FileRow, FileWhere, Prose } from './ReviewText.js';
+import { FileRow, FileWhere, FLOW_TONE, Prose, STORY_VERDICT_TONE } from './ReviewText.js';
+import { Badge } from '../../../../ui/index.js';
 
 /**
  * A review's overview — where it opens: what the PR does in short, the draft
@@ -139,7 +140,9 @@ export function ReviewOverview({
           {r.flows.map((f, i) => (
             <details key={i} className="wd-review-flow" open={r.flows!.length <= 2}>
               <summary>
-                <span className={`wd-review-flow-change wd-review-flow-${f.change}`}>{FLOW_CHANGE_LABEL[f.change]}</span>{' '}
+                <Badge kind="status" tone={FLOW_TONE[f.change]} className={`wd-review-flow-change wd-review-flow-${f.change}`}>
+                  {FLOW_CHANGE_LABEL[f.change]}
+                </Badge>{' '}
                 <Prose text={f.title} />
               </summary>
               <ol>
@@ -213,14 +216,19 @@ export function ReviewOverview({
                     <span className="wd-review-card-meta">
                       <span className={`wd-review-risk wd-review-risk-${c.riskLevel}`}>risk {c.riskLevel}/5</span>
                       {c.verdict && (
-                        <span className={`wd-review-story-verdict wd-review-story-verdict-${c.verdict}`} title={c.verdictWhy}>
+                        <Badge
+                          kind="status"
+                          tone={STORY_VERDICT_TONE[c.verdict]}
+                          className={`wd-review-story-verdict wd-review-story-verdict-${c.verdict}`}
+                          title={c.verdictWhy}
+                        >
                           {STORY_VERDICT_LABEL[c.verdict]}
-                        </span>
+                        </Badge>
                       )}
                       {c.flags.map((f) => (
-                        <span key={f} className="wd-review-flag">
+                        <Badge key={f} kind="status" tone="warn" className="wd-review-flag">
                           {FLAG_LABEL[f]}
-                        </span>
+                        </Badge>
                       ))}
                     </span>
                     <span className="wd-review-card-facts">

@@ -1,6 +1,6 @@
 import type { SessionSummary } from '../api/client.js';
 import { RAIL_COLOR_LABEL, RAIL_COLORS, type PlacePatch, type RailColor, type RailLayout } from '../../../core/rail/rail-layout.js';
-import type { MenuEntry, MenuItem, MenuSwatches } from '../components/Dashboard/RowMenu.js';
+import type { MenuEntry, MenuItem, MenuSwatches } from '../ui/index.js';
 
 /** The class that gives an element a rail color (`--tag`, read by the bar, the square and the swatch). */
 export function tagClass(color: RailColor): string {
