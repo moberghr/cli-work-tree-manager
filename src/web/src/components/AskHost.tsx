@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { answer, attachAskHost, type Question } from '../state/ask.js';
+import { Button } from '../ui/index.js';
 
 /**
  * Shows `ask`'s questions (state/ask.ts) as an in-page dialog: Enter / OK says yes,
@@ -40,12 +41,10 @@ export function AskHost() {
           </p>
         </div>
         <footer className="wd-modal-footer">
-          <button type="button" className="wd-btn-secondary" onClick={() => answer(false)}>
-            Cancel
-          </button>
-          <button type="button" ref={okRef} className="wd-btn-primary" onClick={() => answer(true)}>
+          <Button onClick={() => answer(false)}>Cancel</Button>
+          <Button variant={question.danger ? 'danger' : 'primary'} ref={okRef} onClick={() => answer(true)}>
             {question.ok ?? 'OK'}
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

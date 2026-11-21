@@ -15,6 +15,7 @@ import {
 import { relativeTime } from '../../utils/time.js';
 import type { SessionBranchSpan, SessionBranchWire } from '../../api/client.js';
 import { branchNote } from '../../state/branches.js';
+import { Button } from '../../ui/index.js';
 
 interface Props {
   /** Oldest first (historyItems); shown newest first. */
@@ -143,8 +144,8 @@ export function HistoryPicker({
 
   return (
     <div ref={rootRef} className="wd-history" data-popover>
-      <button
-        type="button"
+      <Button
+        size="sm"
         className="wd-history-btn"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -156,7 +157,7 @@ export function HistoryPicker({
         <span className="wd-checkpoint-caret" aria-hidden="true">
           ▾
         </span>
-      </button>
+      </Button>
       {open && (
         <div className="wd-checkpoint-pop wd-history-pop" role="listbox" aria-label="Commits and turns">
           <div className="wd-checkpoint-pop-header">

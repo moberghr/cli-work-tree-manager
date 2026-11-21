@@ -3,6 +3,7 @@ import { useReview, selectReplies } from '../../state/ReviewProvider.js';
 import type { Comment } from '../../api/client.js';
 import { Markdown } from '../Markdown.js';
 import { Composer } from './Composer.js';
+import { Badge } from '../../ui/index.js';
 
 interface Props {
   comment: Comment;
@@ -89,9 +90,9 @@ export function CommentItem({ comment, currentLineContent }: Props) {
       </span>
     ),
     comment.status === 'draft' && (
-      <span key="draft" className="wd-draft-badge">
+      <Badge key="draft" kind="count" tone="warn" className="wd-draft-badge">
         Pending
-      </span>
+      </Badge>
     ),
     isResolved && (
       <span key="resolved" className="wd-comment-resolved-tag">

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { selectDrafts, useReview } from '../../state/ReviewProvider.js';
 import { Modal } from './Modal.js';
 import { ask } from '../../state/ask.js';
+import { Button, TextArea } from '../../ui/index.js';
 
 export function PendingPill() {
   const review = useReview();
@@ -27,22 +28,18 @@ export function PendingPill() {
           onClose={() => setModalOpen(false)}
           actions={
             <>
-              <button
-                type="button"
+              <Button
                 onClick={async () => {
-                  if (!(await ask(`Discard all ${drafts.length} pending comment(s)?`, { ok: 'Discard' }))) return;
+                  if (!(await ask(`Discard all ${drafts.length} pending comment(s)?`, { ok: 'Discard', danger: true }))) return;
                   await review.discardReview();
                   setModalOpen(false);
                 }}
               >
                 Discard drafts
-              </button>
-              <button type="button" onClick={() => setModalOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="wd-btn-primary"
+              </Button>
+              <Button onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                variant="primary"
                 onClick={async () => {
                   try {
                     await review.submitReview(summary);
@@ -54,7 +51,7 @@ export function PendingPill() {
                 }}
               >
                 Submit review
-              </button>
+              </Button>
             </>
           }
         >
@@ -62,7 +59,7 @@ export function PendingPill() {
             Sending {drafts.length} pending comment{drafts.length === 1 ? '' : 's'}. Add a summary if you like, then click Submit to send
             everything to Claude.
           </p>
-          <textarea
+          <TextArea
             className="wd-submit-summary"
             placeholder="Optional summary…"
             value={summary}

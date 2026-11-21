@@ -11,6 +11,8 @@ export interface Question {
   text: string;
   /** The OK button's label (default "OK"). */
   ok?: string;
+  /** OK throws work away (Revert, Discard, Leave without saving): it is the danger button, not the primary one. */
+  danger?: boolean;
 }
 
 interface Pending extends Question {
@@ -22,10 +24,10 @@ type Listener = (current: Question | null) => void;
 const queue: Pending[] = [];
 let host: Listener | null = null;
 
-export function ask(text: string, opts: { ok?: string } = {}): Promise<boolean> {
+export function ask(text: string, opts: { ok?: string; danger?: boolean } = {}): Promise<boolean> {
   if (!host) return Promise.resolve(typeof window !== 'undefined' && window.confirm(text));
   return new Promise((resolve) => {
-    queue.push({ text, ok: opts.ok, answer: resolve });
+    queue.push({ text, ok: opts.ok, danger: opts.danger, answer: resolve });
     if (queue.length === 1) host?.(queue[0]);
   });
 }

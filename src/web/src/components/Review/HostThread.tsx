@@ -3,6 +3,7 @@ import { hostName } from '../../../../core/hosts/commands.js';
 import { relativeTime } from '../../utils/time.js';
 import { mdGist } from '../../state/review-view.js';
 import { Markdown } from '../Markdown.js';
+import { Badge } from '../../ui/index.js';
 
 /** "MEMBER" → "member": how the host relates someone to the repo, quietly. */
 const association = (a?: string) => (a && a !== 'NONE' ? a.toLowerCase().replace(/_/g, ' ') : '');
@@ -13,7 +14,11 @@ function HostComment({ c }: { c: PrDiscussionCommentWire }) {
     <div className="wd-host-comment">
       <div className="wd-host-comment-head">
         <strong>@{c.author}</strong>
-        {rel && <span className="wd-host-assoc">{rel}</span>}
+        {rel && (
+          <Badge kind="tag" className="wd-host-assoc">
+            {rel}
+          </Badge>
+        )}
         {c.at && (
           <span className="wd-start-note" title={c.at}>
             {relativeTime(c.at)} ago
@@ -35,13 +40,15 @@ export function HostThread({ thread: t, host, where }: { thread: PrDiscussionThr
   const first = t.comments[0];
   const state = (
     <span className="wd-host-thread-state">
-      <span className="wd-host-badge">on {name}</span>
+      <Badge kind="tag" className="wd-host-badge">
+        on {name}
+      </Badge>
       {where && <span className="wd-host-where">{where}</span>}
       <span className={t.resolved ? 'wd-host-resolved' : 'wd-host-open'}>{t.resolved ? 'resolved' : 'open'}</span>
       {t.outdated && (
-        <span className="wd-host-outdated" title="The code moved on under it since: its line may be gone">
+        <Badge kind="status" tone="warn" className="wd-host-outdated" title="The code moved on under it since: its line may be gone">
           outdated
-        </span>
+        </Badge>
       )}
       <span className="wd-start-note">
         {t.comments.length} comment{t.comments.length === 1 ? '' : 's'}

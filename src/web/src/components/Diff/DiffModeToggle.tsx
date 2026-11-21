@@ -1,4 +1,5 @@
 import { useDiffModeControls } from '../../state/DiffModeProvider.js';
+import { Segmented } from '../../ui/index.js';
 
 /**
  * Split | Unified segmented toggle, GitHub's "Split / Unified" control.
@@ -11,25 +12,15 @@ export function DiffModeToggle() {
   if (!ctrl) return null;
   const { mode, setMode } = ctrl;
   return (
-    <div className="wd-diff-mode" role="group" aria-label="Diff layout">
-      <button
-        type="button"
-        aria-pressed={mode === 'split'}
-        className={'wd-diff-mode-btn' + (mode === 'split' ? ' wd-diff-mode-btn-active' : '')}
-        onClick={() => setMode('split')}
-        title="Side-by-side layout"
-      >
-        Split
-      </button>
-      <button
-        type="button"
-        aria-pressed={mode === 'unified'}
-        className={'wd-diff-mode-btn' + (mode === 'unified' ? ' wd-diff-mode-btn-active' : '')}
-        onClick={() => setMode('unified')}
-        title="Unified (inline) layout"
-      >
-        Unified
-      </button>
-    </div>
+    <Segmented
+      className="wd-diff-mode"
+      label="Diff layout"
+      value={mode}
+      onChange={setMode}
+      options={[
+        { value: 'split', label: 'Split', title: 'Side-by-side layout', className: 'wd-diff-mode-btn' },
+        { value: 'unified', label: 'Unified', title: 'Unified (inline) layout', className: 'wd-diff-mode-btn' },
+      ]}
+    />
   );
 }

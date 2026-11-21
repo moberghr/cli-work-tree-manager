@@ -6,6 +6,7 @@ import { useSse } from '../../api/events.js';
 import { codeEntries, codeKey, codeSidebar, entryOf, foldersOf, indexFolders, openFolders, type CodeEntry } from '../../state/code-tree.js';
 import type { CodePlace } from '../../state/code-search-view.js';
 import { highlightBlock, resolveHighlightLang } from '../../utils/highlight.js';
+import { Input } from '../../ui/index.js';
 
 /** Highlighted up to this many lines; plain past it (a generated file shouldn't stall the page). */
 const HIGHLIGHT_MAX_LINES = 8000;
@@ -230,7 +231,7 @@ export function CodeView({
             <kbd>Ctrl+T</kbd>
           </button>
         )}
-        <input
+        <Input
           className="wd-code-filter"
           type="search"
           placeholder={listing ? `Find a file (${entries.length.toLocaleString()})…` : 'Find a file…'}

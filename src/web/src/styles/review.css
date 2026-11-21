@@ -168,71 +168,11 @@
   font-weight: 600;
   word-break: break-all;
 }
-/* Diff-scope segmented toggle (Uncommitted | Since branch). Same shape
-   as GitHub's "viewed" / "split" controls — small, low-contrast until
-   active. */
-.wd-web-diff-scope {
-  display: inline-flex;
-  margin-top: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.wd-web-diff-scope-btn {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  padding: 3px 10px;
-  font: inherit;
-  font-size: 11px;
-  color: var(--muted);
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-}
-.wd-web-diff-scope-btn:last-child {
-  border-right: 0;
-}
-.wd-web-diff-scope-btn:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
-.wd-web-diff-scope-btn-active {
-  background: var(--current);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* Split | Unified layout toggle. Same segmented-control styling as the
-   diff-scope toggle above (GitHub's "Split / Unified"). */
+/* Diff scope (Uncommitted | Since branch) and Split | Unified: Segmented (ui/ui.css). Where they sit in the
+   standalone page's sidebar; the toolbar takes the margin off. */
+.wd-web-diff-scope,
 .wd-diff-mode {
-  display: inline-flex;
   margin-top: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.wd-diff-mode-btn {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  padding: 3px 10px;
-  font: inherit;
-  font-size: 11px;
-  color: var(--muted);
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-}
-.wd-diff-mode-btn:last-child {
-  border-right: 0;
-}
-.wd-diff-mode-btn:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
-.wd-diff-mode-btn-active {
-  background: var(--current);
-  color: var(--accent);
-  font-weight: 600;
 }
 /* In the sticky toolbar the toggle loses its sidebar top-margin. */
 .wd-web-difftoolbar-controls .wd-diff-mode {
@@ -337,7 +277,7 @@
 }
 /* Shipped version — a quiet monospace tag at the head of the controls. */
 .wd-web-version {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
@@ -480,36 +420,9 @@
   background: var(--current);
   font-weight: 600;
 }
+/* A tree row's change letter: Badge, the letter kind (ui/ui.css). */
 .wd-tree-status {
-  width: 16px;
-  height: 16px;
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 3px;
-}
-.wd-tree-status.wd-status-added {
-  background: var(--status-added-bg);
-  color: var(--status-added-fg);
-}
-.wd-tree-status.wd-status-deleted {
-  background: var(--status-deleted-bg);
-  color: var(--status-deleted-fg);
-}
-.wd-tree-status.wd-status-modified {
-  background: var(--status-modified-bg);
-  color: var(--status-modified-fg);
-}
-.wd-tree-status.wd-status-renamed {
-  background: var(--status-renamed-bg);
-  color: var(--status-renamed-fg);
-}
-.wd-tree-status.wd-status-binary {
-  background: var(--status-binary-bg);
-  color: var(--status-binary-fg);
 }
 .wd-tree-name {
   overflow: hidden;
@@ -558,7 +471,7 @@
   background: var(--hover);
 }
 .wd-comments-panel-loc {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--hunk-fg);
   margin-bottom: 2px;
@@ -636,48 +549,17 @@
 .wd-general-pane summary:hover {
   color: var(--fg);
 }
-.wd-general-pane textarea {
+/* The note's box (TextArea) and its buttons (Button): ui/ui.css. Where they sit: */
+.wd-general-pane .wd-general-input {
   width: 100%;
   min-height: 60px;
   margin-top: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  resize: vertical;
-  box-sizing: border-box;
 }
 .wd-general-pane-actions {
   display: flex;
   gap: 6px;
   margin-top: 8px;
   justify-content: flex-end;
-}
-.wd-general-pane-actions button {
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--sidebar-bg);
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 11px;
-  font-family: inherit;
-}
-.wd-general-pane-actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.wd-general-pane-actions button.wd-btn-secondary {
-  background: var(--sidebar-bg);
-  color: var(--fg);
-}
-.wd-general-pane-actions button.wd-btn-primary {
-  background: var(--hunk-fg);
-  color: #fff;
-  border-color: var(--hunk-fg);
 }
 .wd-general-pane-list {
   margin-top: 8px;
@@ -734,7 +616,7 @@
   background: var(--ln-bg);
   padding: 1px 4px;
   border-radius: 3px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 90%;
 }
 .wd-comment-body pre {
@@ -817,15 +699,7 @@
   background: var(--status-modified-bg);
   padding-left: 8px;
 }
-.wd-draft-badge {
-  display: inline-block;
-  background: var(--status-modified-fg);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 999px;
-}
+/* .wd-draft-badge ("Pending"): Badge, filled amber (ui/ui.css). */
 
 /* Reply · Resolve … Delete: small outlined buttons; Delete keeps to the right, quiet until hovered. */
 .wd-comment-actions {
@@ -963,21 +837,7 @@ button.wd-comment-fold:hover,
   text-decoration: none;
 }
 
-/* Whole-file (GitHub-style) comments. */
-.wd-file-comment-btn {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  padding: 2px 8px;
-}
-.wd-file-comment-btn:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
+/* Whole-file (GitHub-style) comments. Its button: Button, the row kind (ui/ui.css). */
 .wd-file-comments {
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
@@ -999,48 +859,16 @@ button.wd-comment-fold:hover,
   color: var(--muted);
   margin-bottom: 4px;
 }
+/* Its box (TextArea) and buttons (Button): ui/ui.css. Where they sit: */
 .wd-comment-form textarea {
   width: 100%;
   min-height: 60px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  padding: 6px 8px;
-  font-family: inherit;
-  font-size: 12px;
-  resize: vertical;
-  box-sizing: border-box;
 }
 .wd-comment-form-actions {
   display: flex;
   gap: 6px;
   margin-top: 8px;
   justify-content: flex-end;
-}
-.wd-comment-form button {
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--sidebar-bg);
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 11px;
-  font-family: inherit;
-}
-.wd-comment-form button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.wd-comment-form button.wd-btn-secondary {
-  background: var(--sidebar-bg);
-  color: var(--fg);
-  border-color: var(--border);
-}
-.wd-comment-form button.wd-btn-primary {
-  background: var(--hunk-fg);
-  color: #fff;
-  border-color: var(--hunk-fg);
 }
 
 /* Floating buttons. */
@@ -1124,37 +952,11 @@ button.wd-comment-fold:hover,
 .wd-modal > :has(+ .wd-modal-actions) {
   margin-bottom: 14px;
 }
-/* Every dialog button, except the ones that read as links (.wd-link-button). */
-.wd-modal button:not(.wd-link-button) {
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--sidebar-bg);
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
-}
-.wd-modal button.wd-btn-primary {
-  background: var(--hunk-fg);
-  color: #fff;
-  border-color: var(--hunk-fg);
-}
-.wd-modal button:hover {
-  filter: brightness(1.05);
-}
-.wd-modal button.wd-btn-danger {
-  background: var(--del-fg);
-  color: #fff;
-  border-color: var(--del-fg);
-}
-.wd-modal button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
+/* A dialog's buttons are Button (ui/ui.css), as anywhere else: no look of their own here. (They had one, with
+   the main button in another blue, --hunk-fg.) */
 /* Delete-session modal. */
 .wd-modal code {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--fg);
 }
@@ -1172,18 +974,10 @@ button.wd-comment-fold:hover,
 .wd-modal p.wd-delete-error {
   color: var(--del-fg);
 }
+/* The review's summary (TextArea): where it sits and how tall it starts. */
 .wd-submit-summary {
   width: 100%;
   min-height: 80px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  resize: vertical;
-  box-sizing: border-box;
   margin-top: 4px;
 }
 
@@ -1203,12 +997,7 @@ button.wd-comment-fold:hover,
   margin: 6px 0 0;
   font-size: 12px;
 }
-.wd-web-diff-scope-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* Revert on file / hunk headers (session Uncommitted diff only). */
+/* Revert on file / hunk headers (session Uncommitted diff only). The button: Button, a row's, danger. */
 .wd-revert {
   display: inline-flex;
   align-items: center;
@@ -1218,22 +1007,6 @@ button.wd-comment-fold:hover,
 .wd-hunk-context .wd-revert {
   float: right;
   margin-left: 12px;
-}
-.wd-revert-btn {
-  font: inherit;
-  font-size: 12px;
-  padding: 1px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border, #d0d7de);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  opacity: 0.7;
-}
-.wd-revert-btn:hover:not(:disabled) {
-  opacity: 1;
-  border-color: var(--del-fg, #cf222e);
-  color: var(--del-fg, #cf222e);
 }
 .wd-revert-btn:disabled {
   cursor: progress;
@@ -1251,6 +1024,13 @@ button.wd-comment-fold:hover,
   position: relative;
   flex-shrink: 0;
   justify-content: flex-start;
+  /* Too narrow for one line: the controls go to a second one rather than the middle being cut ("3 fil"). One
+     line, as before, whenever it fits. */
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--topbar-h, 40px);
+  row-gap: var(--space-1);
+  padding-block: var(--space-1);
 }
 .wd-dash-difftoolbar-pick {
   display: flex;
@@ -1261,15 +1041,14 @@ button.wd-comment-fold:hover,
 .wd-dash-difftoolbar-pick .wd-web-diff-scope {
   margin-top: 0;
 }
-/* A group's repos: always there, in the session's order; one with nothing in this pick is dimmed. */
-.wd-diff-repo-switch .wd-diff-repo-empty:not(.wd-web-diff-scope-btn-active) {
-  opacity: 0.55;
-}
+/* A group's repos: always there, in the session's order; one with nothing in this pick is dimmed (Segmented's
+   `muted`). */
 .wd-diff-repo-switch .wd-web-tab-count {
   font-variant-numeric: tabular-nums;
 }
+/* Its own width counts (not a zero basis), so a toolbar too narrow wraps instead of squeezing it. */
 .wd-dash-difftoolbar .wd-web-difftoolbar-info {
-  flex: 1;
+  flex: 1 1 auto;
   align-items: center;
 }
 .wd-dash-difftoolbar .wd-web-difftoolbar-count .wd-add,
@@ -1333,22 +1112,9 @@ button.wd-comment-fold:hover,
 .wd-history {
   position: relative;
 }
+/* The button: Button, a toolbar's (ui/ui.css). How wide it may grow: */
 .wd-history-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   max-width: 340px;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.wd-history-btn:hover {
-  background: var(--hover);
 }
 .wd-history-btn-tag {
   color: var(--muted);
@@ -1396,7 +1162,7 @@ button.wd-comment-fold:hover,
   font-size: 11px;
 }
 .wd-history-row-commit .wd-history-tag {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
 }
 .wd-history-row-uncommitted .wd-history-tag {
   color: var(--fg);

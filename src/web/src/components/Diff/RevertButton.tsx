@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRevertOptional } from '../../state/RevertProvider.js';
 import { ask } from '../../state/ask.js';
+import { Button } from '../../ui/index.js';
 
 interface Props {
   repo: string;
@@ -19,8 +20,9 @@ export function RevertButton({ repo, path, lines }: Props) {
   const what = lines ? `lines ${lines.start}–${lines.end} of ${path}` : path;
   return (
     <span className="wd-revert">
-      <button
-        type="button"
+      <Button
+        variant="row"
+        danger
         className="wd-revert-btn"
         disabled={busy}
         aria-label={lines ? `Revert hunk: ${path} lines ${lines.start}–${lines.end}` : `Revert file: ${path}`}
@@ -32,7 +34,7 @@ export function RevertButton({ repo, path, lines }: Props) {
               `Revert ${what} back to HEAD?
 
 This discards the uncommitted change; Claude is told not to reintroduce it.`,
-              { ok: 'Revert' },
+              { ok: 'Revert', danger: true },
             ))
           )
             return;
@@ -48,7 +50,7 @@ This discards the uncommitted change; Claude is told not to reintroduce it.`,
         }}
       >
         {busy ? 'Reverting…' : lines ? '↶ Revert' : '↶ Revert file'}
-      </button>
+      </Button>
       {error && (
         <span className="wd-revert-error" role="alert">
           {error}

@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { resolveHighlightLang } from '../../utils/highlight.js';
-import { STATUS_LETTER } from '../../utils/status.js';
+import { STATUS_LETTER, STATUS_TONE } from '../../utils/status.js';
 import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
 import { GapRegion } from './GapRegion.js';
@@ -17,6 +17,7 @@ import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentItem } from '../Review/CommentItem.js';
 import { Composer } from '../Review/Composer.js';
 import { RevertButton } from './RevertButton.js';
+import { Badge, Button } from '../../ui/index.js';
 
 type FileViewMode = 'diff' | 'preview' | 'split';
 
@@ -196,7 +197,9 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, f
             ▸
           </span>
         </button>
-        <span className={`wd-file-badge wd-status-${file.status}`}>{STATUS_LETTER[file.status]}</span>
+        <Badge kind="letter" tone={STATUS_TONE[file.status]} className={`wd-file-badge wd-status-${file.status}`}>
+          {STATUS_LETTER[file.status]}
+        </Badge>
         <span className="wd-file-path">{renamed ?? file.path}</span>
         {(file.added || file.deleted) && (
           <span className="wd-file-stats">
@@ -249,8 +252,8 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, f
           </a>
         )}
         {fileCommentsOn && (
-          <button
-            type="button"
+          <Button
+            variant="row"
             className="wd-file-comment-btn"
             title="Comment on the whole file"
             onClick={() =>
@@ -264,7 +267,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, f
             }
           >
             💬 Comment on file
-          </button>
+          </Button>
         )}
         {onToggleViewed && (
           <label className="wd-viewed-label" title="Mark this file as reviewed and collapse it">

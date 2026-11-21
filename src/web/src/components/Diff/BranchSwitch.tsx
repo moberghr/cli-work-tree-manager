@@ -1,6 +1,7 @@
 import type { SessionBranchWire } from '../../api/client.js';
 import { branchNote } from '../../state/branches.js';
 import type { BranchGroup } from '../../state/diff-history.js';
+import { Select } from '../../ui/index.js';
 
 /**
  * The Diff toolbar's branch switch, for a repo the session worked on more than one branch of: the branch checked
@@ -36,14 +37,14 @@ export function BranchSwitch({
   return (
     <label className="wd-diff-branch-switch" title="The branches this session worked on in this repo: each one's whole change">
       <span className="wd-diff-branch-switch-tag">Branch</span>
-      <select value={shownBranch ?? ''} onChange={(e) => onPick(e.target.value || null)} aria-label="Branch">
+      <Select compact value={shownBranch ?? ''} onChange={(e) => onPick(e.target.value || null)} aria-label="Branch">
         <option value="">{current ? `${current} (checked out)` : 'Checked out'}</option>
         {groups.map((g) => (
           <option key={g.branch} value={g.branch}>
             {label(g.branch)}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   );
 }

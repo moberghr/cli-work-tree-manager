@@ -18,6 +18,7 @@ import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
 import { DiffBusyChip } from '../components/Diff/DiffBusyChip.js';
 import { DiffUpdateChip } from '../components/Diff/DiffUpdateChip.js';
 import { DiffModeToggle } from '../components/Diff/DiffModeToggle.js';
+import { Segmented } from '../ui/index.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
 import { VERSION } from '../version.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
@@ -470,26 +471,18 @@ export function ReviewApp({ context, scopeHash }: Props) {
         <ThemeToggle />
         <DiffModeToggle />
         {hasBranchTab && (
-          <div className="wd-web-diff-scope" role="tablist" aria-label="Diff scope">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={!rangeActive && diffBase === 'uncommitted'}
-              className={'wd-web-diff-scope-btn' + (!rangeActive && diffBase === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')}
-              onClick={() => selectBase('uncommitted')}
-            >
-              Uncommitted
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={!rangeActive && diffBase === 'branch'}
-              className={'wd-web-diff-scope-btn' + (!rangeActive && diffBase === 'branch' ? ' wd-web-diff-scope-btn-active' : '')}
-              onClick={() => selectBase('branch')}
-            >
-              Since branch
-            </button>
-          </div>
+          <Segmented
+            kind="tabs"
+            className="wd-web-diff-scope"
+            label="Diff scope"
+            // A checkpoint range picked: neither scope is on.
+            value={rangeActive ? null : diffBase}
+            onChange={selectBase}
+            options={[
+              { value: 'uncommitted', label: 'Uncommitted' },
+              { value: 'branch', label: 'Since branch' },
+            ]}
+          />
         )}
         {/* Range picker lives in the toolbar so it's pinned with everything
            else. Outside the empty/non-empty fork — a chip pick that produces
