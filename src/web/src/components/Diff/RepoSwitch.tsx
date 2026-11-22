@@ -2,7 +2,9 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Ref 
 import { Button, Input, Segmented } from '../../ui/index.js';
 import {
   repoMenuSections,
+  repoFilePath,
   repoMoreButton,
+  REPO_LIST_PATHS,
   repoPills,
   type RepoMoreButton,
   type RepoMoreWidths,
@@ -337,7 +339,17 @@ function RepoMenu({
                       <span className="wd-diff-repo-row-mark" aria-hidden="true">
                         {r.name === active ? '✓' : ''}
                       </span>
-                      <span className="wd-checkpoint-pop-label">{r.name}</span>
+                      <span className="wd-diff-repo-row-text">
+                        <span className="wd-checkpoint-pop-label">{r.name}</span>
+                        {(r.paths ?? []).slice(0, REPO_LIST_PATHS).map((path) => (
+                          <span key={path} className="wd-diff-repo-row-path" title={repoFilePath(r.name, path)}>
+                            {repoFilePath(r.name, path)}
+                          </span>
+                        ))}
+                        {(r.paths?.length ?? 0) > REPO_LIST_PATHS && (
+                          <span className="wd-diff-repo-row-path">+{(r.paths?.length ?? 0) - REPO_LIST_PATHS} more</span>
+                        )}
+                      </span>
                       {r.files !== null && r.files > 0 && (
                         <span className="wd-diff-repo-row-stats">
                           {r.files} file{r.files === 1 ? '' : 's'}{' '}

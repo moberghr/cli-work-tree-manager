@@ -30,6 +30,16 @@ export interface RepoSwitchItem {
   files: number | null;
   added: number;
   deleted: number;
+  /** Its changed files' paths inside the repo, in the diff's order (the list names each as repo/path). */
+  paths?: string[];
+}
+
+/** How many of a repo's files the switch's list names before "+N more". */
+export const REPO_LIST_PATHS = 3;
+
+/** A changed file as the list shows it: the repo, then the path in it. */
+export function repoFilePath(repo: string, path: string): string {
+  return `${repo}/${path}`;
 }
 
 /** A session's repos by their folder's name (what the diff calls them), in the session's own order. */
@@ -49,7 +59,7 @@ export function sessionRepoNames(paths: readonly string[]): string[] {
  */
 export function repoSwitch(
   names: readonly string[],
-  repos: readonly { name: string; files: readonly { added: number; deleted: number }[] }[] | undefined,
+  repos: readonly { name: string; files: readonly { path?: string; added: number; deleted: number }[] }[] | undefined,
 ): RepoSwitchItem[] {
   return names.map((name) => {
     const r = repos?.find((x) => x.name === name);
@@ -58,6 +68,7 @@ export function repoSwitch(
       files: r ? r.files.length : null,
       added: r ? r.files.reduce((s, f) => s + f.added, 0) : 0,
       deleted: r ? r.files.reduce((s, f) => s + f.deleted, 0) : 0,
+      ...(r ? { paths: r.files.flatMap((f) => (f.path ? [f.path] : [])) } : {}),
     };
   });
 }
@@ -139,7 +150,11 @@ export interface RepoMenuSection {
  */
 export function repoMenuSections(items: readonly RepoSwitchItem[], query: string): RepoMenuSection[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const found = items.filter((r) => words.every((w) => r.name.toLowerCase().includes(w)));
+  // A word finds a repo by its name or by a changed file's path in it.
+  const found = items.filter((r) => {
+    const hay = [r.name, ...(r.paths ?? []).map((p) => repoFilePath(r.name, p))].join('\n').toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
   const sections = [
     { title: 'Changed', repos: found.filter((r) => r.files !== null && r.files > 0) },
     { title: 'No changes', repos: found.filter((r) => r.files === 0) },

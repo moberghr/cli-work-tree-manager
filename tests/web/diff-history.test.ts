@@ -18,6 +18,7 @@ import {
   emptyDiffMessage,
   orderRepoTabs,
   preferredRepo,
+  repoFilePath,
   repoMenuSections,
   repoMoreButton,
   repoPills,
@@ -243,9 +244,23 @@ describe("the Diff toolbar's repo switch", () => {
     const f = (added: number, deleted: number) => ({ added, deleted });
     expect(repoSwitch(['backend', 'frontend'], [{ name: 'frontend', files: [f(3, 1), f(2, 0)] }])).toEqual([
       { name: 'backend', files: null, added: 0, deleted: 0 }, // not in this pick (a commit of frontend)
-      { name: 'frontend', files: 2, added: 5, deleted: 1 },
+      { name: 'frontend', files: 2, added: 5, deleted: 1, paths: [] },
     ]);
     expect(repoSwitch(['a', 'b'], undefined).map((r) => r.files)).toEqual([null, null]); // still loading
+  });
+
+  it("carries each changed file's path, named as repo/path, and a search finds a repo by one", () => {
+    const items = repoSwitch(
+      ['billing', 'catalog'],
+      [
+        { name: 'billing', files: [{ path: 'src/rate-limit.ts', added: 4, deleted: 0 }] },
+        { name: 'catalog', files: [{ path: 'src/search/index.ts', added: 1, deleted: 1 }] },
+      ],
+    );
+    expect(items[0].paths).toEqual(['src/rate-limit.ts']);
+    expect(repoFilePath('billing', 'src/rate-limit.ts')).toBe('billing/src/rate-limit.ts');
+    expect(repoMenuSections(items, 'search/index').flatMap((s) => s.repos.map((r) => r.name))).toEqual(['catalog']);
+    expect(repoMenuSections(items, 'billing/src').flatMap((s) => s.repos.map((r) => r.name))).toEqual(['billing']);
   });
 });
 
