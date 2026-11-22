@@ -3,7 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
-import { createUsageCache, mountUsageRoutes, watchUsage, wireUsage } from '../../../src/server/routes/usage-routes.js';
+import {
+  REFRESH_AFTER_START_MS,
+  createUsageCache,
+  mountUsageRoutes,
+  watchUsage,
+  wireUsage,
+} from '../../../src/server/routes/usage-routes.js';
 import { collectingReporter, withReporter } from '../../../src/core/platform/report.js';
 import type { UsageWire } from '../../../src/core/api-types.js';
 import type { UsageAccount } from '../../../src/core/usage/usage.js';
@@ -169,6 +175,27 @@ describe('watchUsage', () => {
 });
 
 describe('wireUsage (what work web mounts)', () => {
+  it('asks nothing in the first minute after start, then asks on a GET', async () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-wire-'));
+    let clock = 1_000_000;
+    let refreshes = 0;
+    const app = new Hono();
+    watcher = wireUsage(app, {
+      broadcast: () => {},
+      build: async () => wire,
+      refresh: async () => void refreshes++,
+      now: () => clock,
+      dir: path.join(home, 'usage'),
+    });
+    await app.request('/api/usage');
+    clock += REFRESH_AFTER_START_MS - 1;
+    await app.request('/api/usage');
+    expect(refreshes).toBe(0);
+    clock += 1;
+    await app.request('/api/usage');
+    expect(refreshes).toBe(1);
+  });
+
   it('starts the agents’ ask on each GET without waiting for it, and a failed one still answers', async () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-wire-'));
     let refreshes = 0;
@@ -178,6 +205,7 @@ describe('wireUsage (what work web mounts)', () => {
       broadcast: () => {},
       build: async () => wire,
       refresh: () => (refreshes++, new Promise<void>((r) => (release = r))),
+      refreshAfterMs: 0,
       dir: path.join(home, 'usage'),
     });
     expect((await app.request('/api/usage')).status).toBe(200); // the ask is still running
@@ -190,6 +218,7 @@ describe('wireUsage (what work web mounts)', () => {
       broadcast: () => {},
       build: async () => wire,
       refresh: () => Promise.reject(new Error('boom')),
+      refreshAfterMs: 0,
       dir: path.join(home, 'usage'),
     });
     await withReporter(rep, async () => {

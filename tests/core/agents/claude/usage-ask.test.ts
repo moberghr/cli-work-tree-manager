@@ -152,6 +152,19 @@ describe('askClaudeUsage', () => {
     expect(asked).toHaveLength(3); // `default` again
   });
 
+  it('asks the accounts one at a time, never two Claude Codes at once', async () => {
+    let running = 0;
+    let most = 0;
+    const slow: UsageAskRun = async () => {
+      most = Math.max(most, ++running);
+      await new Promise((r) => setTimeout(r, 10));
+      running--;
+      return stdout();
+    };
+    expect((await askClaudeUsage({ now: T0, run: slow, accounts, loggedIn: () => true })).sort()).toEqual(['default', 'work']);
+    expect(most).toBe(1);
+  });
+
   it('a run that fails or gives no answer records nothing and throws nothing', async () => {
     await expect(
       askClaudeUsage({ now: T0, run: () => Promise.reject(new Error('claude not found on PATH')), accounts, loggedIn: () => true }),

@@ -115,6 +115,9 @@ export function watchUsage(opts: {
  * What work web wires: GET /api/usage over one shared build, and the readings folder's watch, which drops that build
  * (a new reading is never hidden behind the cache) and broadcasts `usage-changed`. The watcher's stop is the caller's.
  */
+/** How long after work web's start the agents are first asked (see `refreshAfterMs`). */
+export const REFRESH_AFTER_START_MS = 60_000;
+
 export function wireUsage(
   app: Hono,
   opts: {
@@ -122,6 +125,9 @@ export function wireUsage(
     build: () => Promise<UsageWire>;
     /** Asks the agents for what their readings can't carry (throttled by them); started on each GET, not waited for: its answer is a reading, so the watch announces it. */
     refresh?: () => Promise<void>;
+    /** No refresh before the server has run this long: its start already restores sessions, each a Claude Code starting. */
+    refreshAfterMs?: number;
+    now?: () => number;
     ttlMs?: number;
     dir?: string;
     throttleMs?: number;
@@ -129,10 +135,12 @@ export function wireUsage(
 ): FsWatcher {
   const cache = createUsageCache(opts.build, opts.ttlMs);
   const refresh = opts.refresh;
+  const now = opts.now ?? Date.now;
+  const refreshFrom = now() + (opts.refreshAfterMs ?? REFRESH_AFTER_START_MS);
   mountUsageRoutes(app, {
     broadcast: opts.broadcast,
     build: () => {
-      if (refresh)
+      if (refresh && now() >= refreshFrom)
         void refresh().catch((e: unknown) => report('warn', `[usage] refresh failed: ${e instanceof Error ? e.message : String(e)}`));
       return cache.get();
     },

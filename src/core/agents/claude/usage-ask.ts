@@ -176,22 +176,23 @@ export async function askClaudeUsage(
   }
   const due = accounts.filter((a) => loggedIn(a.dir) !== false && now - (lastAsked.get(a.name) ?? -Infinity) >= ASK_EVERY_MS);
   for (const a of due) lastAsked.set(a.name, now);
-  const done = await Promise.all(
-    due.map(async (a) => {
-      try {
-        const windows = parseUsageAnswer(await run(askEnv(a.name)));
-        if (!windows || windows.length === 0) {
-          debugLog('INFO', `[usage] ${a.name}: Claude Code gave no usage answer (get_usage)`);
-          return null;
-        }
-        // Kept under the key the status-line hook uses for this folder (~/.claude: `default`).
-        recordReading('claude', accountOf(a.dir), windows, now, { full: true });
-        return a.name;
-      } catch (e) {
-        debugLog('WARN', `[usage] ${a.name}: asking Claude Code for usage failed: ${e instanceof Error ? e.message : String(e)}`);
-        return null;
+  // One account at a time: each ask starts a Claude Code, and several at once weigh on a busy machine.
+  const done: Array<string | null> = [];
+  for (const a of due) {
+    try {
+      const windows = parseUsageAnswer(await run(askEnv(a.name)));
+      if (!windows || windows.length === 0) {
+        debugLog('INFO', `[usage] ${a.name}: Claude Code gave no usage answer (get_usage)`);
+        done.push(null);
+        continue;
       }
-    }),
-  );
+      // Kept under the key the status-line hook uses for this folder (~/.claude: `default`).
+      recordReading('claude', accountOf(a.dir), windows, now, { full: true });
+      done.push(a.name);
+    } catch (e) {
+      debugLog('WARN', `[usage] ${a.name}: asking Claude Code for usage failed: ${e instanceof Error ? e.message : String(e)}`);
+      done.push(null);
+    }
+  }
   return done.filter((n): n is string => n !== null);
 }
