@@ -1032,6 +1032,7 @@ button.wd-comment-fold:hover,
   row-gap: var(--space-1);
   padding-block: var(--space-1);
 }
+/* Never squeezed (its pieces would spill over the rest of the line): the repo switch sizes itself to the room left. */
 .wd-dash-difftoolbar-pick {
   display: flex;
   align-items: center;
@@ -1041,9 +1042,108 @@ button.wd-comment-fold:hover,
 .wd-dash-difftoolbar-pick .wd-web-diff-scope {
   margin-top: 0;
 }
-/* A group's repos: always there, in the session's order; one with nothing in this pick is dimmed (Segmented's
-   `muted`). */
-.wd-diff-repo-switch .wd-web-tab-count {
+/* A group's repos: a Segmented tab each while they fit, in the session's order; else the changed ones and "+N ▾" for
+   the rest. Placement only: the pills are Segmented's, the "+N ▾" a small Button, the search an Input. */
+.wd-diff-repo-switch-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.wd-diff-repo-switch .wd-segmented-btn {
+  white-space: nowrap;
+}
+.wd-diff-repo-switch .wd-web-tab-count,
+.wd-diff-repo-measure .wd-web-tab-count {
+  font-variant-numeric: tabular-nums;
+}
+/* Every repo as a pill, out of sight and taking no room: what each would need. */
+.wd-diff-repo-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+.wd-diff-repo-measure-row {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: max-content;
+}
+.wd-diff-repo-measure .wd-segmented-btn {
+  white-space: nowrap;
+}
+.wd-diff-repo-more {
+  position: relative;
+  display: flex;
+}
+.wd-diff-repo-more-btn {
+  gap: var(--space-1);
+  max-width: 160px;
+  white-space: nowrap;
+}
+/* No pill for the repo on screen (no room): the button says it is the one on, as the active pill would. */
+.wd-diff-repo-more-btn.wd-diff-repo-more-current {
+  font-weight: 600;
+}
+.wd-diff-repo-more-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+/* Some repos in the list have changes. */
+.wd-diff-repo-more-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.wd-diff-repo-more-btn .wd-checkpoint-caret {
+  flex-shrink: 0;
+}
+.wd-web-difftoolbar .wd-diff-repo-pop {
+  left: 0;
+  right: auto;
+  top: calc(100% + var(--space-1));
+  width: 320px;
+}
+.wd-diff-repo-pop .wd-checkpoint-pop-header {
+  padding: var(--space-1) 0;
+}
+.wd-diff-repo-row {
+  align-items: center;
+}
+/* The row Enter picks is the highlighted one (the mouse moves it too), never a second one under a resting pointer. */
+.wd-diff-repo-pop .wd-diff-repo-row:hover {
+  background: none;
+}
+.wd-diff-repo-pop .wd-diff-repo-row-cursor,
+.wd-diff-repo-pop .wd-diff-repo-row-cursor:hover {
+  background: var(--hover);
+}
+.wd-diff-repo-row-on {
+  font-weight: 600;
+}
+.wd-diff-repo-row-quiet:not(.wd-diff-repo-row-on) .wd-checkpoint-pop-label {
+  color: var(--muted);
+}
+.wd-diff-repo-row-mark {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+.wd-diff-repo-row-stats {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: normal;
   font-variant-numeric: tabular-nums;
 }
 /* Its own width counts (not a zero basis), so a toolbar too narrow wraps instead of squeezing it. */

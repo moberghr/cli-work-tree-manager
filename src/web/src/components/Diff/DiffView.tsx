@@ -23,6 +23,7 @@ import { DiffUpdateChip } from './DiffUpdateChip.js';
 import { DiffModeToggle } from './DiffModeToggle.js';
 import { HistoryPicker } from './HistoryPicker.js';
 import { Button, Segmented, buttonClass } from '../../ui/index.js';
+import { RepoSwitch } from './RepoSwitch.js';
 import { FileTree } from '../Sidebar/FileTree.js';
 import { anchorFor } from '../../utils/tree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
@@ -441,29 +442,10 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     <div className="wd-web-difftoolbar wd-dash-difftoolbar" role="toolbar" aria-label="Diff">
       <div className="wd-dash-difftoolbar-pick">
         {isGroup && (
-          <Segmented
-            kind="tabs"
-            className="wd-web-diff-scope wd-diff-repo-switch"
-            label="Repo"
-            value={activeRepo?.name ?? activeRepoName}
-            onChange={switchRepo}
-            options={repoSwitch(sessionRepoNames(session.paths), diff?.repos).map((r) => ({
-              value: r.name,
-              label: (
-                <>
-                  {r.name}
-                  {r.files !== null && <span className="wd-web-tab-count"> {r.files}</span>}
-                </>
-              ),
-              muted: r.files === 0,
-              className: r.files === 0 ? 'wd-diff-repo-empty' : undefined,
-              title:
-                r.files === null
-                  ? `${r.name}: not in this pick (a commit is one repo's) — shows its branch`
-                  : r.files === 0
-                    ? `${r.name}: no changes here`
-                    : `${r.name}: ${r.files} file${r.files === 1 ? '' : 's'} +${r.added} −${r.deleted}`,
-            }))}
+          <RepoSwitch
+            items={repoSwitch(sessionRepoNames(session.paths), diff?.repos)}
+            active={activeRepo?.name ?? activeRepoName}
+            onPick={switchRepo}
           />
         )}
         {groups.length > 0 && (
