@@ -101,6 +101,22 @@ describe('runStatusLineHook', () => {
     expect(logged.some((l) => l.includes('saved status line unreadable'))).toBe(true);
   });
 
+  it("with work's line chosen (config claudeStatusLine), draws it and runs nothing of the user's; still records", async () => {
+    setOriginal('echo mine');
+    const config = path.join(os.homedir(), '.work', 'config.json');
+    fs.mkdirSync(path.dirname(config), { recursive: true });
+    fs.writeFileSync(config, JSON.stringify({ claudeStatusLine: 'work', claudeAccounts: { admin: path.join(os.tmpdir(), 'adm') } }));
+    const out = await run(JSON.stringify({ ...JSON.parse(input), model: { display_name: 'Opus' } }), {
+      CLAUDE_CONFIG_DIR: path.join(os.tmpdir(), 'adm'),
+    });
+    expect(out.replace(/\x1b\[[0-9;]*m/g, '')).toMatch(/^Opus admin \S/);
+    expect(out).not.toContain('mine');
+    expect(readReadings('claude')).toHaveLength(1);
+    // "own": the user's line, as before.
+    fs.writeFileSync(config, JSON.stringify({ claudeStatusLine: 'own' }));
+    expect(await run(input)).toBe('mine\n');
+  });
+
   it('records nothing for bad JSON, but still runs the original', async () => {
     setOriginal('cat');
     expect(await run('not json')).toBe('not json');

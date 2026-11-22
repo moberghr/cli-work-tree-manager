@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { ShortcutsHelp } from '../components/Dashboard/ShortcutsHelp.js';
 import { UpdateStrip } from '../components/Dashboard/UpdateStrip.js';
+import { StatusLineAsk } from '../components/Dashboard/StatusLineAsk.js';
 import { WhatsNew } from '../components/Dashboard/WhatsNew.js';
 import { useUpdates } from '../hooks/use-updates.js';
 import { useOutdatedAgents } from '../hooks/use-outdated-agents.js';
 import { useTaskbar } from '../hooks/use-taskbar.js';
 import { AgentsRestartCard } from '../components/Dashboard/AgentsRestartCard.js';
-import { outdatedNames } from '../state/agent-restart-view.js';
+import { outdatedNames, outdatedText } from '../state/agent-restart-view.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
 import { useMarkArchiving } from '../api/archive-pending.js';
@@ -1129,6 +1130,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           note={outdatedAgents.note}
         />
       )}
+      {/* Asked once, when that corner is free. */}
+      {!updates?.available && !outdatedText(outdatedAgents.agents) && !outdatedAgents.note && <StatusLineAsk />}
       {whatsNew && <WhatsNew focus={whatsNew.focus} onClose={closeWhatsNew} />}
       {keyMenu && <Menu x={keyMenu.x} y={keyMenu.y} anchor="right" items={keyMenu.items} onClose={() => setKeyMenu(null)} />}
       {blocking && (

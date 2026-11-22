@@ -289,6 +289,11 @@ export interface AgentUsageSource {
    * and record it; throttled by the agent, so it may be called on every request. Never throws.
    */
   refresh?(): Promise<void>;
+  /**
+   * Whether the user has a status line of their own for this agent (Claude: one in any account's settings that isn't
+   * work's). The dashboard asks about work's own line only when they don't: theirs stays theirs.
+   */
+  ownStatusLine?(): boolean;
 }
 
 /** One of an agent's accounts (Claude: a config folder with its own login). */

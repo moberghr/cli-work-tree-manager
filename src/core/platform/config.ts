@@ -53,6 +53,8 @@ export interface WorkConfig {
   claudeAccounts?: Record<string, string>;
   /** The account new sessions and work's own Claude runs use: `default` or a key of `claudeAccounts`. */
   claudeAccount?: string;
+  /** The status line under the Claudes work starts: `work`'s own (work-line.ts) or the user's (`own`); unset: never asked, the user's. */
+  claudeStatusLine?: 'work' | 'own';
   /** The agent that writes work's own summaries — checkpoint names, catch-up, archive summaries, the Jira watch's choice (default `claude`; one without one-shot runs writes none). */
   internalAgent?: string;
   /** The agent the Ctrl+K assistant runs (an adapter's id; Claude Code by default). */
@@ -375,6 +377,7 @@ export function loadConfig(): WorkConfig | null {
       usage: parsed.usage && typeof parsed.usage === 'object' ? { statusLine: parsed.usage.statusLine !== false } : undefined,
       claudeAccounts: stringRecord(parsed.claudeAccounts),
       claudeAccount: typeof parsed.claudeAccount === 'string' ? parsed.claudeAccount : undefined,
+      claudeStatusLine: parsed.claudeStatusLine === 'work' || parsed.claudeStatusLine === 'own' ? parsed.claudeStatusLine : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
       reviews:

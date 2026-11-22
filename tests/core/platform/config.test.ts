@@ -83,6 +83,19 @@ describe('loadConfig', () => {
     expect(loadConfig()?.launchViaHost).toBeUndefined();
   });
 
+  it('loads claudeStatusLine only as work or own', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (claudeStatusLine: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', claudeStatusLine }));
+    write('work');
+    expect(loadConfig()?.claudeStatusLine).toBe('work');
+    write('own');
+    expect(loadConfig()?.claudeStatusLine).toBe('own');
+    write('fancy');
+    expect(loadConfig()?.claudeStatusLine).toBeUndefined();
+  });
+
   it('loads usage.statusLine: off only for false, on for anything else in a usage object', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });

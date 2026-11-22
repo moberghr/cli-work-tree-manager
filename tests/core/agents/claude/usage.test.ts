@@ -31,6 +31,26 @@ describe("Claude's usage source", () => {
     fs.writeFileSync(savedFile(), JSON.stringify({ original: { type: 'command', command: 'echo mine' } }));
   };
 
+  it("ownStatusLine: a line in the account's settings; none, or no settings, is no", () => {
+    expect(claudeUsage.ownStatusLine!()).toBe(false);
+    writeSettings({ model: 'opus' });
+    expect(claudeUsage.ownStatusLine!()).toBe(false);
+    writeSettings({ statusLine: { type: 'command', command: 'echo mine' } });
+    expect(claudeUsage.ownStatusLine!()).toBe(true);
+  });
+
+  it('ownStatusLine: a line in another account counts too', () => {
+    const other = path.join(os.homedir(), '.claude-admin');
+    fs.mkdirSync(other, { recursive: true });
+    fs.writeFileSync(path.join(other, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'echo admin' } }));
+    fs.mkdirSync(path.join(os.homedir(), '.work'), { recursive: true });
+    fs.writeFileSync(
+      path.join(os.homedir(), '.work', 'config.json'),
+      JSON.stringify({ worktreesRoot: path.join(os.homedir(), 'worktrees'), claudeAccounts: { admin: other } }),
+    );
+    expect(claudeUsage.ownStatusLine!()).toBe(true);
+  });
+
   it('setup gives back a status line an older work web wrapped; settings with none of it are left alone', async () => {
     writeSettings({ statusLine: { type: 'command', command: 'echo mine' } });
     expect(await claudeUsage.setup!({ enabled: true, lean: false })).toBe("status line: nothing of work's in your settings");

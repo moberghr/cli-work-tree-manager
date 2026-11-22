@@ -74,6 +74,17 @@ describe('work’s hooks ride with the Claudes work starts, never the user’s s
     expect(claudeSessionSettings({ statusLine: false, invocation })).not.toHaveProperty('statusLine');
   });
 
+  it("the file has work's line when the limits' reading is on, or when work's own line is chosen", async () => {
+    const { writeSessionSettings } = await import('../../../src/core/agents/claude/session-settings.js');
+    const has = (config: object) => {
+      fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify({ worktreesRoot: tmp, ...config }));
+      return 'statusLine' in (JSON.parse(fs.readFileSync(writeSessionSettings(), 'utf-8')) as object);
+    };
+    expect(has({})).toBe(true);
+    expect(has({ usage: { statusLine: false } })).toBe(false);
+    expect(has({ usage: { statusLine: false }, claudeStatusLine: 'work' })).toBe(true);
+  });
+
   it('a session’s Claude starts with `--settings <work’s file>` first, once (a restore entry from before is brought up to date), the file written', async () => {
     const { claudeAgent } = await import('../../../src/core/agents/claude/adapter.js');
     const { sessionToolFor } = await import('../../../src/core/agents/index.js');

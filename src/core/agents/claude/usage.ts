@@ -1,7 +1,7 @@
 import { readReadings } from '../../usage/usage-store.js';
 import { claudeAccounts } from './accounts.js';
 import { accountOf } from './rate-limits.js';
-import { savedPath } from './statusline-run.js';
+import { savedPath, userStatusLine } from './statusline-run.js';
 import type { UsageAccount } from '../../usage/usage.js';
 import type { AgentUsageSource } from '../types.js';
 import type { UnwrapOutcome } from './statusline.js';
@@ -56,6 +56,8 @@ export const claudeUsage: AgentUsageSource = {
   async refresh() {
     await (await loadAsker()).askClaudeUsage();
   },
+  // A line in any account's own settings (an older work web's wrap counts as the line it saved).
+  ownStatusLine: () => claudeAccounts().some((a) => userStatusLine({ configDir: a.dir }) !== null),
   async setup() {
     const done = await (await loadInstaller()).unwrapAllStatusLines();
     const restored = done.filter((d) => d.outcome === 'restored').map((d) => d.account);

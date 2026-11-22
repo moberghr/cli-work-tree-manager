@@ -42,7 +42,9 @@ export function claudeSessionSettings(o: { statusLine: boolean; invocation?: Wor
 /** Write the file when it differs from what's there (a spawn mustn't rewrite it for nothing); its path. */
 export function writeSessionSettings(o: { statusLine?: boolean; invocation?: WorkInvocationDeps } = {}): string {
   const file = sessionSettingsPath();
-  const statusLine = o.statusLine ?? loadConfig()?.usage?.statusLine !== false;
+  const config = loadConfig();
+  // work's own line, when chosen, needs the hook even with the limits' reading turned off.
+  const statusLine = o.statusLine ?? (config?.usage?.statusLine !== false || config?.claudeStatusLine === 'work');
   const text = JSON.stringify(claudeSessionSettings({ statusLine, invocation: o.invocation }), null, 2) + '\n';
   let now: string | null = null;
   try {

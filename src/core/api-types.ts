@@ -1956,6 +1956,8 @@ export interface ReviewSettingsWire {
  *  `SETTINGS`; the rest are their defaults). Nothing else of config.json is in it. */
 export interface SettingsWire {
   values: Record<string, unknown>;
+  /** The user has a status line of their own (an agent's settings): the dashboard doesn't ask about work's (`StatusLineAsk`). */
+  ownStatusLine?: boolean;
   /** Where config.json is, for what isn't on the page. */
   configPath: string;
 }

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildUsage, refreshUsage, usageSessions, weekStartDay, type UsageDeps } from '../../../src/core/usage/usage-source.js';
+import {
+  anyOwnStatusLine,
+  buildUsage,
+  refreshUsage,
+  usageSessions,
+  weekStartDay,
+  type UsageDeps,
+} from '../../../src/core/usage/usage-source.js';
 import { dayKey } from '../../../src/core/conversations/work-time-view.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -135,5 +142,30 @@ describe('refreshUsage', () => {
       ]),
     ).resolves.toBeUndefined();
     expect(asked).toEqual(['a', 'e']);
+  });
+});
+
+describe('anyOwnStatusLine', () => {
+  it('yes when any agent says so; one that throws or cannot tell is no', () => {
+    expect(anyOwnStatusLine([{ id: 'a' }, { id: 'b', usage: {} }])).toBe(false);
+    expect(
+      anyOwnStatusLine([
+        {
+          id: 'a',
+          usage: {
+            ownStatusLine: () => {
+              throw new Error('unreadable');
+            },
+          },
+        },
+        { id: 'b', usage: { ownStatusLine: () => false } },
+      ]),
+    ).toBe(false);
+    expect(
+      anyOwnStatusLine([
+        { id: 'a', usage: { ownStatusLine: () => false } },
+        { id: 'b', usage: { ownStatusLine: () => true } },
+      ]),
+    ).toBe(true);
   });
 });

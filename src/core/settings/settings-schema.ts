@@ -187,6 +187,21 @@ export const SETTINGS: readonly SettingField[] = [
     kind: { type: 'list', placeholder: 'JAVA_HOME', pattern: SETTING_PATTERNS.envName, patternError: "isn't a variable's name" },
     default: [],
   },
+  {
+    path: 'claudeStatusLine',
+    section: 'Agents & terminals',
+    label: 'Status line under each Claude',
+    help: "work's: the model and how full its context is, the account, the folder and the branch, drawn by work with nothing started. Yours: the one in your Claude settings, run as before. Your settings are never changed.",
+    kind: {
+      type: 'choice',
+      options: [
+        { value: 'own', label: 'Yours (from your Claude settings)' },
+        { value: 'work', label: "work's" },
+      ],
+    },
+    default: 'own',
+    when: 'at the next refresh (on the Claudes work starts)',
+  },
   bool(
     'useBundledConpty',
     'Agents & terminals',

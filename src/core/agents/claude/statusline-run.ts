@@ -124,6 +124,12 @@ export function shellFor(
   return { file: exists(standard) ? standard : 'bash', args };
 }
 
+/**
+ * How long the user's own line may take. A shell script that starts `jq` and `git` was measured at 3.6 s on a busy
+ * Windows machine (each program start up to a second, 2026-11-22): at 5 s the line went blank while it was busy.
+ */
+export const USER_LINE_TIMEOUT_MS = 10_000;
+
 const OUTPUT_CAP = 64 * 1024;
 /** After the command exits, how long what it printed may still be on its way: its stdout can stay open past its exit. */
 const EXIT_GRACE_MS = 100;
@@ -176,7 +182,7 @@ export function runStatusLineCommand(cmd: string, stdin: string, o: { timeoutMs?
       timer = setTimeout(() => {
         if (c.pid) killCommand(c.pid);
         finish(false);
-      }, o.timeoutMs ?? 5000);
+      }, o.timeoutMs ?? USER_LINE_TIMEOUT_MS);
       c.on('error', () => finish(false));
       c.stdout?.on('data', (d: Buffer) => {
         if (outBytes >= OUTPUT_CAP) return;

@@ -3,6 +3,7 @@ import { recordReading } from '../../usage/usage-store.js';
 import { debugLog } from '../../platform/logger.js';
 import { accountOf, parseClaudeRateLimits } from './rate-limits.js';
 import { NESTED_ENV, runStatusLineCommand, userStatusLine } from './statusline-run.js';
+import { readLineConfig, workStatusLine } from './work-line.js';
 
 /** More than any status-line input: the rest is not read. */
 const INPUT_CAP = 1_000_000;
@@ -13,7 +14,7 @@ const INPUT_CAP = 1_000_000;
  * It is Claude's screen, so nothing else is ever written — not even an error (those go to the debug log).
  */
 export async function runStatusLineHook(
-  o: { stdin?: NodeJS.ReadableStream; stdout?: NodeJS.WritableStream; env?: NodeJS.ProcessEnv } = {},
+  o: { stdin?: NodeJS.ReadableStream; stdout?: NodeJS.WritableStream; env?: NodeJS.ProcessEnv; configFile?: string } = {},
 ): Promise<void> {
   const stdin = o.stdin ?? process.stdin;
   const stdout = o.stdout ?? process.stdout;
@@ -48,6 +49,12 @@ export async function runStatusLineHook(
     }
     // Run by the user's own command (it calls work's hook itself): running it again would never end.
     if (env[NESTED_ENV]) return;
+    // work's own line, when chosen over the user's: drawn here, nothing started.
+    const line = readLineConfig(o.configFile);
+    if (line.choice === 'work') {
+      stdout.write(workStatusLine(input, { configDir: env.CLAUDE_CONFIG_DIR, accounts: line.accounts }));
+      return;
+    }
     const ws = input?.workspace as { current_dir?: unknown; project_dir?: unknown } | undefined;
     const dir = [input?.cwd, ws?.current_dir].find((d): d is string => typeof d === 'string' && fs.existsSync(d));
     const projectDir = [ws?.project_dir, dir].find((d): d is string => typeof d === 'string' && d.length > 0);

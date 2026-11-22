@@ -7,3 +7,8 @@ export interface SettingsSource {
   readRepo(alias: string): RepoSettingsWire;
   writeRepo(alias: string, key: string, value: unknown): Promise<RepoSettingsWire>;
 }
+
+/** `source`, its reads saying whether the user has a status line of their own (`SettingsWire.ownStatusLine`). */
+export function withOwnStatusLine(source: SettingsSource, own: () => boolean): SettingsSource {
+  return { ...source, read: () => ({ ...source.read(), ownStatusLine: own() }) };
+}
