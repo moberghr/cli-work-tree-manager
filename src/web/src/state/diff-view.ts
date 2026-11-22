@@ -73,36 +73,39 @@ export interface RepoPills {
   more: boolean;
 }
 
+/** The list's button as wide as it is when it counts the rest ("+12 ▾") and when it names the repo on screen, its gap included. */
+export interface RepoMoreWidths {
+  count: number;
+  named: number;
+}
+
 /**
  * Which of a group's repos are pills in the Diff toolbar, given the room the rest of the line leaves them: every repo,
- * in the session's order, when they all fit (a group of a few looks as it always did); else the ones with changes in
- * this pick, in the session's order, as many as fit beside the list's button (`moreWidth`, its gap included), and the
- * one on screen, the last ones taken giving way to it — unless even it doesn't fit (the button then names it).
+ * in the session's order, when they all fit (a group of a few looks as it always did); else the one on screen when it
+ * fits beside the list's button, then the ones with changes in this pick, in the session's order, each that still fits
+ * (one too wide is skipped, not the end). With no room for the one on screen, the button names it, and the others fit
+ * beside a button that wide.
  */
 export function repoPills(
   items: readonly RepoSwitchItem[],
   active: string | null,
   room: number,
   widthOf: (name: string) => number,
-  moreWidth: number,
+  more: RepoMoreWidths,
 ): RepoPills {
   const total = items.reduce((s, r) => s + widthOf(r.name), 0);
   if (total <= room) return { pills: [...items], more: false };
-  const left = room - moreWidth;
-  const taken: RepoSwitchItem[] = [];
-  let used = 0;
-  for (const r of items.filter((x) => (x.files ?? 0) > 0)) {
-    if (used + widthOf(r.name) > left) break;
-    taken.push(r);
-    used += widthOf(r.name);
-  }
   const current = items.find((r) => r.name === active);
-  if (current && !taken.includes(current)) {
-    // Make room for the one on screen by letting go of the last ones taken; then back in the session's order.
-    while (taken.length > 0 && used + widthOf(current.name) > left) used -= widthOf(taken.pop()!.name);
-    if (used + widthOf(current.name) <= left) taken.push(current);
-    taken.sort((a, b) => items.indexOf(a) - items.indexOf(b));
+  const pinned = current && widthOf(current.name) <= room - more.count ? current : undefined;
+  let left = room - (current && !pinned ? more.named : more.count) - (pinned ? widthOf(pinned.name) : 0);
+  const taken = pinned ? [pinned] : [];
+  for (const r of items) {
+    // The one on screen is never taken here: pinned already, or named by the button the room was budgeted for.
+    if (r === current || (r.files ?? 0) === 0 || widthOf(r.name) > left) continue;
+    taken.push(r);
+    left -= widthOf(r.name);
   }
+  taken.sort((a, b) => items.indexOf(a) - items.indexOf(b));
   return { pills: taken, more: true };
 }
 

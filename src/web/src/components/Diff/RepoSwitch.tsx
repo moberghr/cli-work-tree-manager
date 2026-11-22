@@ -1,6 +1,13 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { Button, Input, Segmented } from '../../ui/index.js';
-import { repoMenuSections, repoMoreButton, repoPills, type RepoMoreButton, type RepoSwitchItem } from '../../state/diff-view.js';
+import {
+  repoMenuSections,
+  repoMoreButton,
+  repoPills,
+  type RepoMoreButton,
+  type RepoMoreWidths,
+  type RepoSwitchItem,
+} from '../../state/diff-view.js';
 
 interface Props {
   /** Every repo of the session, in its order (repoSwitch). */
@@ -10,11 +17,11 @@ interface Props {
   onPick: (name: string) => void;
 }
 
-/** What the line leaves the switch, each pill's width, and the list button's (its gap included). */
+/** What the line leaves the switch, each pill's width, and the list button's, counting or naming the repo on screen (its gap included). */
 interface Measure {
   room: number;
   widths: Record<string, number>;
-  more: number;
+  more: RepoMoreWidths;
 }
 
 /** The pills' segmented border (1px a side), and a pixel spare for rounding. */
@@ -46,27 +53,44 @@ export function RepoSwitch({ items, active, onPick }: Props) {
     if (!box) return;
     const widths: Record<string, number> = {};
     for (const el of box.querySelectorAll<HTMLElement>('[data-repo]')) widths[el.dataset.repo!] = el.getBoundingClientRect().width;
-    const moreBtn = box.querySelector<HTMLElement>('[data-more]');
+    const gap = px(getComputedStyle(wrap).columnGap);
+    const widthOf = (sel: string) => (box.querySelector<HTMLElement>(sel)?.getBoundingClientRect().width ?? 0) + gap;
     const next: Measure = {
       room: roomFor(wrap, toolbar) - GROUP_BORDER - SLACK,
       widths,
-      more: (moreBtn?.getBoundingClientRect().width ?? 0) + px(getComputedStyle(wrap).columnGap),
+      more: { count: widthOf('[data-more]'), named: widthOf('[data-more-named]') },
     };
     setMeasure((prev) => (prev && sameMeasure(prev, next) ? prev : next));
   };
   const remeasureRef = useRef(remeasure);
   remeasureRef.current = remeasure;
-  // After every render: the rest of the line (what's shown, the picker's label, the update chip) moves with the diff.
+  // When what is measured can change: the repos and the one on screen (the pills' text, the button's name).
   useLayoutEffect(() => {
     remeasureRef.current();
-  });
+  }, [items, active, canMeasure]);
   useEffect(() => {
     if (!canMeasure) return;
     const toolbar = wrapRef.current?.closest<HTMLElement>('[role="toolbar"]');
     const ro = new ResizeObserver(() => remeasureRef.current());
-    if (toolbar) ro.observe(toolbar);
+    // The rest of the line (what's shown, the picker's label, the update chip) moves with the diff: when one of them
+    // resizes, or comes or goes.
+    const watchKids = () => {
+      if (toolbar) for (const k of Array.from(toolbar.children)) ro.observe(k); // observing one twice is a no-op
+    };
+    watchKids();
+    const mo = new MutationObserver(() => {
+      watchKids();
+      remeasureRef.current();
+    });
+    if (toolbar) {
+      ro.observe(toolbar);
+      mo.observe(toolbar, { childList: true });
+    }
     if (measureRef.current) ro.observe(measureRef.current); // the names' widths, once the font is in
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, [canMeasure]);
 
   const fit = measure ? repoPills(items, active, measure.room, (n) => measure.widths[n] ?? 0, measure.more) : { pills: items, more: false };
@@ -102,6 +126,7 @@ export function RepoSwitch({ items, active, onPick }: Props) {
               ))}
             </span>
             <MoreButtonBody button={{ label: `+${items.length}`, current: false, hidden: items.length, hiddenChanged: 1 }} data-more />
+            <MoreButtonBody button={{ label: active ?? '', current: true, hidden: items.length, hiddenChanged: 1 }} data-more-named />
           </div>
         </div>
       )}
@@ -139,6 +164,7 @@ function MoreButtonBody({
   title?: string;
   buttonRef?: Ref<HTMLButtonElement>;
   'data-more'?: boolean;
+  'data-more-named'?: boolean;
 }) {
   return (
     <Button
@@ -209,13 +235,19 @@ function RepoMenu({
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
+    // Inlined rather than calling `close`: that one is a new function each render, these are stable.
+    const shut = (refocus: boolean) => {
+      setOpen(false);
+      setQuery('');
+      if (refocus) buttonRef.current?.focus();
+    };
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) close(false);
+      if (!rootRef.current?.contains(e.target as Node)) shut(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault(); // used: closing this, not leaving full screen as well
-      close(true);
+      shut(true);
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -381,7 +413,8 @@ function sameMeasure(a: Measure, b: Measure): boolean {
   const keys = Object.keys(b.widths);
   return (
     close(a.room, b.room) &&
-    close(a.more, b.more) &&
+    close(a.more.count, b.more.count) &&
+    close(a.more.named, b.more.named) &&
     keys.length === Object.keys(a.widths).length &&
     keys.every((k) => a.widths[k] !== undefined && close(a.widths[k], b.widths[k]))
   );
