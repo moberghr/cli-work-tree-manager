@@ -473,3 +473,37 @@ describe('ScreenMirror on ConPTY (windowsPty)', () => {
     }
   });
 });
+
+describe('ScreenMirror in-band status (stream-status.ts): what the parser hands it', () => {
+  const BEL = '\x07';
+  const ST = `${ESC}\\`;
+
+  it('OSC 7501 and OSC 9;4 with either terminator, split anywhere across writes', async () => {
+    const m = mirror(80, 24);
+    const report = `${ESC}]7501;state=blocked:app=codex:kind=permission${ST}`;
+    for (const piece of [report.slice(0, 3), report.slice(3, 20), report.slice(20, -1), report.slice(-1)]) await write(m, piece);
+    expect(m.streamSignal()?.program).toMatchObject({ state: 'blocked', kind: 'permission', app: 'codex' });
+
+    const other = mirror(80, 24);
+    await write(other, `text ${ESC}]9;4;1;`);
+    await write(other, `55${BEL} more text`);
+    expect(other.streamSignal()?.progress).toMatchObject({ state: 1, percent: 55 });
+    await write(other, `${ESC}]9;4;0;${ST}`);
+    expect(other.streamSignal()).toBeNull();
+  });
+
+  it('leaves the screen alone and ignores a bad payload or an iTerm2 notification', async () => {
+    const m = mirror(20, 3);
+    await write(m, `a${ESC}]7501;state=nonsense${BEL}b${ESC}]9;Build done${BEL}c${ESC}]7501;?${ST}`);
+    expect(m.screenText().split('\n')[0]).toBe('abc');
+    expect(m.streamSignal()).toBeNull();
+  });
+
+  it('RIS forgets it; DECSTR and the alternate screen do not', async () => {
+    const m = mirror(80, 24);
+    await write(m, `${ESC}]7501;state=working:app=opencode${ST}${CSI}!p${CSI}?1049h`);
+    expect(m.streamSignal()?.program?.state).toBe('working');
+    await write(m, `${ESC}c`);
+    expect(m.streamSignal()).toBeNull();
+  });
+});

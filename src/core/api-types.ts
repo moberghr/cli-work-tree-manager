@@ -68,6 +68,8 @@ export interface SessionAttention extends AttentionLike {
   updatedAt: string;
   /** A "working" that went quiet for 15 min, shown as idle. */
   stale: boolean;
+  /** How far along, 0..100, when its agent says so in its terminal (OSC 7501 `progress`, an OSC 9;4 bar: output-status.ts). */
+  progress?: number;
   /** needs_input on a permission prompt: what it wants to run. */
   request?: PermissionRequest;
   /** Working because a background agent its turn started is still at it: its turn ended, its prompt is free. `what`:

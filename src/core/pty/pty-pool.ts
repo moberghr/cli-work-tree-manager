@@ -39,7 +39,7 @@ let client: PtyHostClient | null = null;
 let live = new Set<string>();
 /** The pids of those PTYs' processes (the Claudes the app runs). */
 let livePids = new Set<number>();
-/** Each live PTY's tool and last output (for output-status.ts). */
+/** Each live PTY's tool, last output and what it says about itself (for output-status.ts). */
 let outputs = new Map<string, PtyOutput & { pid: number }>();
 let refreshTimer: NodeJS.Timeout | null = null;
 /** The heartbeat (host-health.ts): each list request is one. */
@@ -105,7 +105,12 @@ async function refresh(): Promise<void> {
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
     livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
     outputs = new Map(
-      ptys.filter((p) => !p.exited).map((p) => [p.id, { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt, pid: p.pid }]),
+      ptys
+        .filter((p) => !p.exited)
+        .map((p) => [
+          p.id,
+          { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt, pid: p.pid, ...(p.signal ? { signal: p.signal } : {}) },
+        ]),
     );
   } catch (err) {
     // Host went away (or was restarted on a new port) — rediscover next tick.

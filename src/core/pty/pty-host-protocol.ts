@@ -4,6 +4,7 @@ import { getConfigDir } from '../platform/config.js';
 import type { AiToolSpec } from '../platform/ai-launcher.js';
 import { isEnvDelta, type EnvDelta } from '../platform/env-delta.js';
 import type { WindowsPty } from './terminal-size.js';
+import type { StreamSignal } from './stream-status.js';
 
 /**
  * Wire contract between the PTY host (`work pty-host`, the long-lived
@@ -135,6 +136,9 @@ export interface PtyInfo {
   lastOutputAt?: string;
   /** The tool's binary (`claude`, `opencode`…). Additive, like clients. */
   tool?: string;
+  /** What its agent says about itself in its output: OSC 7501 program status, else OSC 9;4 progress (stream-status.ts).
+   *  Absent when it says nothing, and from a host from before. Additive, like clients. */
+  signal?: StreamSignal;
 }
 
 /** Client → host frames on the attach WebSocket (text, JSON). Host →

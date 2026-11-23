@@ -4,6 +4,7 @@ import xtermUnicode11 from '@xterm/addon-unicode11';
 import { REPLAY_SCROLLBACK } from './scrollback.js';
 import type { TerminalColors } from './terminal-colors.js';
 import type { WindowsPty } from './terminal-size.js';
+import { StreamStatus, type StreamSignal } from './stream-status.js';
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
@@ -122,11 +123,15 @@ export interface MirrorAnswers {
  * the sequence; a sequence split across writes reaches them whole) and written after the addon's output, so a
  * fresh terminal written the snapshot ends in the same state. Uses Unicode 11 widths, as the browser does. In output
  * that arrived with no client attached, it answers the agent's queries too (`answerQueries`, terminal-rendering.md).
+ * It also keeps what the agent says about itself in-band — OSC 9;4 progress, OSC 7501 program status (`streamSignal`,
+ * stream-status.ts) — for a status where no hook reports one.
  */
 export class ScreenMirror {
   readonly terminal: HeadlessTerminal;
   private readonly serializer = new SerializeAddon();
   private st: MirrorState = freshState();
+  /** OSC 9;4 and OSC 7501, as the agent last said them (stream-status.ts). */
+  private readonly stream = new StreamStatus();
   private answers: MirrorAnswers | null = null;
   /** The chunk being parsed is one the mirror answers the queries in (set and cleared by the write queue's callbacks). */
   private answering = false;
@@ -225,6 +230,11 @@ export class ScreenMirror {
     this.st.normal.scrollRegion = null;
     this.st.alternate.scrollRegion = null;
     this.terminal.resize(cols, rows);
+  }
+
+  /** What the agent last said about itself in its output (OSC 7501, else OSC 9;4), as far as it is parsed; null: nothing. */
+  streamSignal(): StreamSignal | null {
+    return this.stream.signal();
   }
 
   /** A copy of the tracked state (tests, diagnostics). */
@@ -428,6 +438,16 @@ export class ScreenMirror {
     // RIS: everything, but what xterm.js 6 keeps through it: the title, DECSET 12 (an option to it) and a hidden cursor.
     p.registerEscHandler({ final: 'c' }, () => {
       this.st = { ...freshState(this.st.title), cursorBlink: this.st.cursorBlink, cursorHidden: this.st.cursorHidden };
+      this.stream.reset(); // the spec: a full reset removes every record
+      return false;
+    });
+    // In-band status (stream-status.ts). xterm itself does nothing with either; false leaves them to any other handler.
+    p.registerOscHandler(9, (data) => {
+      this.stream.osc9(data);
+      return false;
+    });
+    p.registerOscHandler(7501, (data) => {
+      this.stream.osc7501(data);
       return false;
     });
     for (const [i, slot] of CHARSET_SLOTS.entries())

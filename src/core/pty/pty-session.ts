@@ -13,6 +13,7 @@ import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
 import { ScreenMirror, type HeadlessTerminal, type SnapshotOptions } from './screen-mirror.js';
+import type { StreamSignal } from './stream-status.js';
 import { windowsPtyFor, type WindowsPty } from './terminal-size.js';
 import { SyncScanner, cutAtFrameEnds } from './sync-output.js';
 import type { TerminalColors } from './terminal-colors.js';
@@ -501,6 +502,11 @@ export class PtySession {
    *  What the dashboard checks before answering a prompt by keystroke. */
   screenText(): string {
     return this.mirror.screenText();
+  }
+
+  /** What the agent last said about itself in its output: OSC 7501 program status, else OSC 9;4 progress (stream-status.ts). */
+  streamSignal(): StreamSignal | null {
+    return this.mirror.streamSignal();
   }
 
   setOutputHandler(handler?: (data: string) => void) {

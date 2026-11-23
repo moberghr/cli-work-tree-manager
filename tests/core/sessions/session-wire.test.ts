@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 
 // The folder's own signals, as readSessionMeta would find them: Claude wrote
-// a moment ago (so "active"), no hook status.
+// a moment ago (so "active"), no hook status (unless a test sets `hooked.attention`).
+const hooked = vi.hoisted(() => ({ attention: null as null | Record<string, unknown> }));
 vi.mock('../../../src/core/sessions/session-meta.js', () => ({
   readSessionMeta: () => ({
     draftCount: 0,
@@ -12,7 +13,7 @@ vi.mock('../../../src/core/sessions/session-meta.js', () => ({
     pendingForClaudeCount: 0,
     lastActivity: 1_700_000_000_000,
     activityState: 'stale',
-    attention: null,
+    attention: hooked.attention,
   }),
 }));
 vi.mock('../../../src/core/conversations/context-usage.js', () => ({ readContextUsage: () => null }));
@@ -116,6 +117,21 @@ describe('sessionWire', () => {
     expect(sessionWire(s, { outputStatusFor: () => working }).attention).toMatchObject({ state: 'working', seen: true });
     expect(sessionWire({ ...s, archivedAt: '2026-09-02T00:00:00Z' }, { outputStatusFor: () => working }).attention).toBeNull();
     expect(sessionWire(s, { shadowed: () => true, outputStatusFor: () => working }).attention).toBeNull();
+  });
+
+  it('hooks beat what its terminal says (OSC 7501), which beats the output guess', () => {
+    const now = Date.now();
+    const signal = { program: { id: '', state: 'blocked' as const, kind: 'permission' as const, since: new Date(now).toISOString() } };
+    const said = statusFromOutput({ tool: 'codex', lastOutputAt: new Date(now).toISOString(), startedAt: '', signal }, now);
+    expect(said).toMatchObject({ state: 'needs_input', seen: false }); // over the guess, which says "working" (it just printed)
+    expect(sessionWire(s, { outputStatusFor: () => said }).attention).toMatchObject({ state: 'needs_input' });
+    const hook = { state: 'idle', seen: true, since: '2026-11-23T10:00:00.000Z', updatedAt: '2026-11-23T10:00:00.000Z', stale: false };
+    hooked.attention = hook;
+    try {
+      expect(sessionWire(s, { outputStatusFor: () => said }).attention).toEqual(hook);
+    } finally {
+      hooked.attention = null;
+    }
   });
 
   it('stopped at its agent’s question before any turn (no hook says so): it needs you, with what it asks — never an archived or shadowed one', () => {

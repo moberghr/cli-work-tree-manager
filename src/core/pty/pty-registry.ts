@@ -15,6 +15,7 @@ import { TerminalColors } from './terminal-colors.js';
 import type { ReplyPart } from './terminal-replies.js';
 import { OutputPacer, realTimers, type PacerTimers, type PtyFlow } from './output-pacer.js';
 import type { SnapshotOptions } from './screen-mirror.js';
+import type { StreamSignal } from './stream-status.js';
 import { MIN_ROWS, validGrid, type Grid, type WindowsPty } from './terminal-size.js';
 
 const REPLAY_MAX = 256 * 1024;
@@ -65,6 +66,8 @@ export interface PtyLike {
   serializeSettled?(opts?: SnapshotOptions): Promise<string>;
   /** Visible screen as plain text (PtySession.screenText). */
   screenText?(): string;
+  /** What its agent says about itself in its output (PtySession.streamSignal). Optional: a fake says nothing. */
+  streamSignal?(): StreamSignal | null;
   /** Its screen's copy answers the agent's queries in output arriving while `now()` says so (PtySession.answerQueries).
    *  Optional: a fake has no screen to answer from. */
   answerQueries?(now: () => boolean, colors: Pick<TerminalColors, 'reply'>): void;
@@ -928,6 +931,7 @@ export class PtyRegistry {
   }
 
   private info(e: Entry): PtyInfo {
+    const signal = e.pty.exited ? null : (e.pty.streamSignal?.() ?? null);
     return {
       id: e.id,
       cwd: e.spec.cwd,
@@ -940,6 +944,7 @@ export class PtyRegistry {
       clients: e.subscribers.size,
       lastOutputAt: new Date(e.lastOutputAt).toISOString(),
       tool: e.spec.tool.cmd,
+      ...(signal ? { signal } : {}),
     };
   }
 

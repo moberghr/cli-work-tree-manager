@@ -12,6 +12,7 @@ import {
 } from '../../../src/core/pty/pty-registry.js';
 import { COALESCE_MS, FRAME_HOLD_MS } from '../../../src/core/pty/output-pacer.js';
 import { BSU, ESU } from '../../../src/core/pty/sync-output.js';
+import type { StreamSignal } from '../../../src/core/pty/stream-status.js';
 import { buildAiLaunchArgs, getAiTool, type AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 import { isPersistedPty, keepEnv } from '../../../src/core/pty/pty-host-protocol.js';
 import { withReporter } from '../../../src/core/platform/report.js';
@@ -138,6 +139,26 @@ describe('PtyRegistry', () => {
     one?.detach();
     two?.detach();
     expect(reg.get('a')?.clients).toBe(0);
+  });
+
+  it('reports what its agent says about itself in its output (stream-status.ts): none, then its signal, none once it exited', () => {
+    let said: StreamSignal | null = null;
+    const reg = new PtyRegistry({
+      spawner: (spec) => {
+        const pty = Object.assign(new FakePty(), { streamSignal: () => said });
+        spawned.push({ spec, pty });
+        return pty;
+      },
+      hasConversation: () => false,
+      sessionsPath,
+      cwdExists: () => true,
+    });
+    reg.spawn('a', { cwd: '/x', tool: { ...tool, cmd: 'codex' } });
+    expect(reg.get('a')).not.toHaveProperty('signal');
+    said = { program: { id: '', state: 'blocked', kind: 'permission', app: 'codex', since: '2026-11-23T10:00:00.000Z' } };
+    expect(reg.get('a')?.signal).toEqual(said);
+    spawned[0].pty.exited = true;
+    expect(reg.get('a')).not.toHaveProperty('signal');
   });
 
   it('persists live sessions and restores them on the next start', async () => {

@@ -413,3 +413,52 @@ Hermes does the same (`web/src/lib/xterm-webgl-release.ts`). VS Code (`src/vs/wo
 Left open:
 
 - **Not seen:** Safari/WebKit, Windows (ANGLE on D3D11, WARP), a real GPU reset (only `WEBGL_lose_context`), or a real web font arriving.
+
+## Status from the stream
+
+An agent with no hooks got its status from a guess: working while it printed in the last 10 s (`output-status.ts`). Two sequences in its own output say it outright, and the mirror's parser already sees every byte. So the mirror keeps them (`core/pty/stream-status.ts`, `StreamStatus`), the host reports them on each PTY (`PtyInfo.signal`, additive: a host from before sends none and the guess stays), and the status reads them before the guess (`statusFromSignal`). The precedence and the mapping are in attention-inbox.md, "A tool with no hooks".
+
+**The sequences, as read from their sources.**
+
+- **OSC 9 ; 4 ; state ; percent** (ConEmu's progress, Windows Terminal's taskbar): 0 remove, 1 a percent, 2 error, 3 indeterminate, 4 paused.
+- **OSC 7501 ; key=value:key=value** (the Program Status Protocol, rev 0.4, superlogical.com/rex/docs/build/program-status): `state` is idle, working, blocked, done or error, or `clear` (removes the record at `id` and those beneath it). With it: `id` (`a/b` paths, up to 8 segments, 128 bytes; none is the root record), `kind` (permission, question, auth: with blocked only), `progress` (0..100: with working or blocked only), `app`, and `title` / `msg` in base64. Either terminator. `OSC 7501 ; ?` is a probe, answered `OSC 7501 ; ?`.
+- **Codex** (`codex-rs/tui/src/terminal_program_status.rs`): `ESC ] 7501 ; state=<s>:app=codex[:kind=<k>] ESC \`, and `state=clear` at exit, at ^Z and before handing the terminal to another program. It sends it whenever stdout is a terminal (not on a VTE older than 0.54), without probing. `done` follows a finished turn and becomes `idle` at your next key, paste or click (`acknowledge_program_status`, `app.rs`); `error` follows a failed one. No OSC 9;4.
+- **opencode** (`packages/tui/src/context/program-status.ts`, through `@opentui/core`'s `setProgramStatus`, which doesn't probe): a root record (blocked, working or idle, summarising its sessions) and one child record per pending session (`id` = the session's, with `title` and `msg`); the root is cleared on exit.
+- **Claude Code** (2.1.330, its bundle read): OSC 7501 with `app=claude-code`, `id`, `kind`, `progress`, `title`, `msg` — but only once the terminal answered its `OSC 7501 ; ?` probe (`programStatus` is off until then). OSC 9;4;3 (indeterminate) and 9;4;0 only where it decides the terminal shows them: ConEmu, Ghostty ≥ 1.2.0, iTerm2 ≥ 3.6.6 by `TERM_PROGRAM_VERSION`, never with `WT_SESSION`. Claude reports through hooks anyway, so its stream is not read (`statusFromOutput` returns nothing for `claude`).
+
+**Parsing** follows xterm.js's own addons, rule for rule, so the mirror reads what a terminal on xterm.js would:
+
+- **9;4** as `@xterm/addon-progress` (0.2.0): only `4;…`; more than three fields is nothing; a missing percent is 0, one over 100 is 100; a state past 4, or a percent that isn't digits where one counts, is nothing; error and paused keep the last percent when given 0, indeterminate always keeps it. Windows Terminal (`AdaptDispatch::DoConEmuAction`) differs at the edges: `9;4` alone clears, and fields past the third are ignored.
+- **7501** as `@xterm/addon-program-status` (`ProgramStatusParser.ts`): pairs split on `:`, the last of a key wins; a pair without `=`, an unknown key, or a value outside `[A-Za-z0-9_.,+/=-]` is skipped; the report is discarded for a payload over 4087 bytes, an unknown key over 16 bytes, a malformed `id`, an `app` over 32 bytes, or a `title` / `msg` over its limit, not canonical base64, not UTF-8, or with a control character. A missing or unknown state is nothing.
+
+Neither addon is a dependency. Each is a handler and a page of parsing; the program-status one is beta only (0.2.0-beta.x); both expect a browser terminal (addon-progress builds its emitter from `_core._onData`'s constructor); and the program-status one answers the probe, which the host must not do (below). Their tests' edge cases are ours (`tests/core/pty/stream-status.test.ts`).
+
+§ **What it keeps, and for how long.**
+
+- **One per terminal, bounded**: at most `MAX_RECORDS` = 64 records (the spec's floor; xterm.js keeps 256), the least recently updated dropped first, and one 9;4 bar.
+- **A new process is a new mirror**, so a restart or a respawn starts with nothing, and an exited PTY reports nothing (`info`). The spec drops working and blocked at exit; nothing of an exited one is used at all.
+- **RIS forgets everything** (the spec; `addon-program-status` does the same). DECSTR and the screens change nothing (the spec). The 9;4 bar is forgotten at RIS too: `addon-progress` and Windows Terminal keep it, but an agent that resets its terminal starts over.
+- **Once an OSC 7501 report came, 9;4 is not followed until the next RIS** (the spec: a terminal "SHOULD stop" mapping 9;4 once it has 7501). A program that says its full state needs no bar read as one.
+- **`since`** is when a record's state (and kind) began: a repeated `working` keeps it.
+
+§ **A "working" from the stream expires after `STALE_WORKING_MS` (15 min) with no output at all**, and shows idle and `stale`, the same bound and shape as a hook's working (`effectiveStatus`). The spec forbids requiring a heartbeat, and this asks none: any output keeps it, and an agent at work redraws something every second (Codex its elapsed time, opencode and Claude Code a spinner). Fifteen silent minutes after "working" means it went away without saying: killed, or crashed under a shell that lives on. Nobody else expires it: Windows Terminal keeps the taskbar state until told (only `SetTaskbarProgress` writes it), VS Code resets the bar when a shell-integration command finishes (`xtermTerminal.ts`), kitty drops working and blocked at a new prompt or exit, and keeps done and error until the window is focused or a key is pressed. Blocked has no expiry: waiting on you is quiet by nature, and the agent's next report or a new process ends it.
+
+§ **The `OSC 7501 ; ?` probe is not answered**, by the mirror or anyone. Answering it would switch Claude Code's own reports on for every session, but only those that started with no client attached (the mirror answers only then; the browser's xterm.js 6.0 has no handler, so a session started with the tab open would stay off): two behaviours, decided by who happened to watch. Claude has hooks; nothing needs it. Codex and opencode don't probe.
+
+§ **Notifications are not read as "needs you"**: plain OSC 9 (iTerm2), OSC 777;notify (Ghostty/urxvt) and OSC 99 (kitty). Codex picks OSC 9 by itself only for terminals it recognises (`notifications/mod.rs`: Ghostty, iTerm2, kitty, Warp, WezTerm; BEL elsewhere, OSC 777 only when configured), and sends one on a finished turn ("agent turn preview", `turn_runtime.rs`) as well as on an approval ("Approval requested: …", `notifications/osc.rs`), so the text can't tell "done" from "needs you". Claude Code chooses one by terminal and setting (`notifyITerm2` / `notifyKitty` / `notifyGhostty`). OSC 9 text that starts with a digit is read as a ConEmu command (opencode's `OT1998-notification-osc.md`: `9;4;…` is progress). And Codex and opencode say the same in OSC 7501 without ambiguity, and Claude has hooks.
+
+**Compared with others.**
+
+- **xterm.js**: `@xterm/addon-progress` (VS Code loads it) and `@xterm/addon-program-status` (records per id, cleared by RIS or `processExited` / `promptStarted`, which drop working and blocked). The parsing above is theirs.
+- **VS Code** (`src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts`): addon-progress for the tab's progress, reset when a shell-integration command finishes. No 7501.
+- **Windows Terminal** (`src/terminal/adapter/adaptDispatch.cpp`, `src/cascadia/TerminalCore/TerminalApi.cpp`): 9;4 to the taskbar; indeterminate keeps the percent, error and paused take 10 % when there was none. No timeout, no reset at RIS.
+- **kitty** (`docs/misc-protocol.rst`): 7501 rev 0.4 in the tab bar and `kitten @ ls`; the lifetime rules above.
+- **waveterm** (`frontend/app/view/term/termwrap.ts`): handlers for OSC 7 and 52 only; neither of these.
+- **Paradev** (`packages/shared/src/terminal-title-scanner.ts`): its own byte scanner over the raw PTY bytes reads titles (OSC 0/2) and ConEmu's 9;3, not 9;4 or 7501.
+
+Left open:
+
+- **Not seen live:** Codex and opencode sending these in a work session (their sources were read; the sequences were played through a real PTY into `PtySession`, and the status followed each step). A host started before this build reports no signal until `work pty-host --restart`.
+- **Done, unseen** (Codex's and opencode's `done`) shows as idle, seen: a stream status has no row for "Mark seen" to clear. Keeping "seen" for it in work web would let it reach the Inbox's Done section.
+- **The percent** reaches `SessionAttention.progress` and the summary; nothing draws it yet.
+- **`title`**, and `msg` other than a blocked one's (used as the summary), are validated but not shown.
