@@ -145,6 +145,12 @@ export interface WorkConfig {
    */
   useBundledConpty?: boolean;
   /**
+   * The engine of the PTY host's screen copy (pty/mirror.ts): `xterm` (@xterm/headless, the default) or `ghostty`
+   * (libghostty-vt's wasm build, for comparing them). The `WORK_TERMINAL_ENGINE` environment variable wins over
+   * it. Read at each terminal start; a running one keeps what it has.
+   */
+  terminalEngine?: 'xterm' | 'ghostty';
+  /**
    * Start each session's agent below normal priority, so the builds and tests it runs take the idle cores and give way
    * to what you look at (the dashboard, your editor). Read at each agent start; a running one keeps what it has.
    * Default off.
@@ -359,6 +365,7 @@ export function loadConfig(): WorkConfig | null {
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,
+      terminalEngine: parsed.terminalEngine === 'xterm' || parsed.terminalEngine === 'ghostty' ? parsed.terminalEngine : undefined,
       agentsLowPriority: typeof parsed.agentsLowPriority === 'boolean' ? parsed.agentsLowPriority : undefined,
       prompts: validatePrompts(parsed.prompts),
       time: validateTime(parsed.time),

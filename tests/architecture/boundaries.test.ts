@@ -151,6 +151,14 @@ describe('architecture boundaries', () => {
     expect(violations((f, s) => s === 'node-pty' && f.rel !== 'src/core/pty/pty-session.ts')).toEqual([]);
   });
 
+  it('only src/core/pty/ghostty/ (the libghostty-vt binding) touches WebAssembly', () => {
+    // One folder owns the module's memory, pointers and callbacks; the mirror and everything else go through its
+    // typed wrapper (GhosttyTerminal).
+    const offenders = files.filter((f) => !f.rel.startsWith('src/core/pty/ghostty/') && /\bWebAssembly\b/.test(f.text)).map((f) => f.rel);
+    expect(offenders).toEqual([]);
+    expect(files.some((f) => f.rel === 'src/core/pty/ghostty/wasm.ts' && /\bWebAssembly\b/.test(f.text))).toBe(true);
+  });
+
   it('the SQLite engine is loaded only by src/core/platform/db.ts (db-import.ts borrows its types)', () => {
     // One file owns the engine, so swapping it (e.g. to node:sqlite) is one
     // change and every other module goes through db.ts's transactions.

@@ -12,7 +12,8 @@ import path from 'node:path';
 import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
-import { ScreenMirror, type HeadlessTerminal, type SnapshotOptions } from './screen-mirror.js';
+import { createMirror } from './create-mirror.js';
+import type { SnapshotOptions, TerminalMirror } from './mirror.js';
 import type { StreamSignal } from './stream-status.js';
 import { windowsPtyFor, type WindowsPty } from './terminal-size.js';
 import { SyncScanner, cutAtFrameEnds } from './sync-output.js';
@@ -291,8 +292,8 @@ export class PtySession {
   readonly pause?: () => void;
   readonly resume?: () => void;
   private paused = false;
-  /** The PTY host's copy of the screen (screen-mirror.ts): what a client attaching is sent first. */
-  private readonly mirror: ScreenMirror;
+  /** The PTY host's copy of the screen (mirror.ts: xterm's or libghostty's): what a client attaching is sent first. */
+  private readonly mirror: TerminalMirror;
   /** The ConPTY it runs on, as xterm.js's `windowsPty` (its screens say it, pty-registry.ts); undefined off Windows. */
   readonly windowsPty?: WindowsPty;
   /** Where its output is in synchronized frames (sync-output.ts): it is cut at each frame's end. */
@@ -309,8 +310,9 @@ export class PtySession {
     // Which ConPTY, read once: node-pty starts on it, and the screens say how it reflows (config useBundledConpty).
     const conpty = conptyFor(process.platform, os.release(), readUseBundledConpty());
     if (conpty.windowsPty) this.windowsPty = conpty.windowsPty;
-    // ConPTY reflows lines itself on a resize: the copy is told so, as the Terminal tab is (the replay frame).
-    this.mirror = new ScreenMirror(cols, rows, undefined, { windowsPty: conpty.windowsPty });
+    // ConPTY reflows lines itself on a resize: the copy is told so, as the Terminal tab is (the replay frame). Its
+    // engine (config terminalEngine, WORK_TERMINAL_ENGINE) is read here, once.
+    this.mirror = createMirror(cols, rows, { windowsPty: conpty.windowsPty });
 
     let rawCmd: string;
     let rawArgs: string[];
@@ -472,11 +474,6 @@ export class PtySession {
    */
   answerQueries(now: () => boolean, colors: Pick<TerminalColors, 'reply'>): void {
     this.mirror.answerQueries({ now, colors, send: (reply) => this.write(reply) });
-  }
-
-  /** The headless terminal the screen is kept in. */
-  get terminal(): HeadlessTerminal {
-    return this.mirror.terminal;
   }
 
   /**
