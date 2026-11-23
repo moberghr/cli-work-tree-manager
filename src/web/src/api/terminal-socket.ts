@@ -1,4 +1,5 @@
 import type { TerminalTicketWire } from '../../../core/api-types.js';
+import { withFlow } from '../../../core/pty/flow-control.js';
 
 /**
  * The Terminal tab's connection: straight to the PTY host when it can, else through work web's relay as before.
@@ -27,6 +28,8 @@ export interface TerminalSocketOptions {
   force: boolean;
   /** work web's relay (`/ws/sessions/:id/terminal`), for when there's no direct way. */
   relayUrl: string;
+  /** It acks what it draws (flow-control.ts): `?flow=1` on whichever address it connects to (the relay passes it on). */
+  flow?: boolean;
   /** Tests: the ticket request. */
   askTicket?: (sessionId: string, force: boolean) => Promise<TerminalTicketWire | null>;
   /** Tests: the WebSocket class. */
@@ -72,7 +75,7 @@ export function openTerminalSocket(sessionId: string, opts: TerminalSocketOption
   const connect = (url: string, direct: boolean) => {
     if (closed) return;
     route = direct ? 'direct' : 'relay';
-    const sock = new Impl(url);
+    const sock = new Impl(opts.flow ? withFlow(url) : url);
     sock.binaryType = socket.binaryType;
     ws = sock;
     let opened = false;

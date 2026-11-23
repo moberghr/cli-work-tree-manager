@@ -13,6 +13,7 @@ import { readSessionActivity } from '../core/sessions/session-activity.js';
 import { readStatus } from '../core/status/session-status.js';
 import type { TerminalElsewhere } from '../core/api-types.js';
 import { readArchive } from '../core/archive/session-archive.js';
+import { FLOW_PARAM, withFlow } from '../core/pty/flow-control.js';
 
 const TERMINAL_PATH = /^\/ws\/sessions\/([^/]+)\/terminal(?:\?(.*))?$/;
 
@@ -138,6 +139,9 @@ export interface TerminalWsOptions {
  * { type: 'elsewhere', … } — the session's Claude runs in another terminal,
  * nothing was spawned; `?force=1` spawns anyway).
  *
+ * `?flow=1`: the browser acks what it draws (flow-control.ts); the host is told the same, and the acks pass through
+ * as any frame does.
+ *
  * `port` is the listening port — used for the same Host + Origin guard the
  * Hono routes get in `diff-server.launch` (core/local-origin.ts). The WS
  * upgrade bypasses Hono entirely so it needs its own check.
@@ -173,9 +177,11 @@ export function attachTerminalWs(httpServer: UpgradableServer, port: number, opt
       return;
     }
     const sessionId = decodeURIComponent(match[1]);
-    const force = new URLSearchParams(match[2] ?? '').get('force') === '1';
+    const params = new URLSearchParams(match[2] ?? '');
+    const force = params.get('force') === '1';
+    const flow = params.get(FLOW_PARAM) === '1';
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void bridgeToHost(ws, sessionId, force ? null : elsewhere(sessionId));
+      void bridgeToHost(ws, sessionId, force ? null : elsewhere(sessionId), flow);
     });
   });
 
@@ -190,12 +196,13 @@ export function attachTerminalWs(httpServer: UpgradableServer, port: number, opt
  * browser tab (or restarting `work web`) only drops the relay.
  *
  * Browser frames are already the host's ClientFrame JSON, so they pass
- * through verbatim.
+ * through verbatim — acks too. `flow`: the browser acks, so the host is told it does.
  */
 async function bridgeToHost(
   ws: WebSocket,
   sessionId: string,
   pending: TerminalElsewhere | null | Promise<TerminalElsewhere | null>,
+  flow = false,
 ): Promise<void> {
   const elsewhere = await pending;
   // The browser may have left while that was being worked out.
@@ -251,7 +258,7 @@ async function bridgeToHost(
   }
 
   if (browserGone) return;
-  upstream = new WebSocket(hostUrl);
+  upstream = new WebSocket(flow ? withFlow(hostUrl) : hostUrl);
   const up = upstream;
   const queued: string[] = [];
   up.on('open', () => {

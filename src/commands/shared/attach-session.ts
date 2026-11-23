@@ -6,6 +6,8 @@ import { spawnSpecFor } from '../../core/pty/pty-pool.js';
 import { ensureHost, PtyHostClient } from '../../core/pty/pty-host-client.js';
 import { resolveWorkBinPath } from '../../core/platform/work-bin.js';
 import { TERMINAL_RESET } from '../../core/pty/terminal-reset.js';
+import { ackFrame, withFlow } from '../../core/pty/flow-control.js';
+import { attachOutput } from './attach-output.js';
 
 // Bridges this terminal to a session in the PTY host. Shared by
 // `work attach` and `work tree --host`; it lives here rather than in either
@@ -66,10 +68,17 @@ export async function attachSession(session: WorktreeSession, launch: AttachSpaw
   // a list of agents rather than ten "claude"s.
   process.stdout.write(`\x1b]0;${session.target} · ${session.branch || '(base)'}\x07`);
 
-  const ws = new WebSocket(host.attachUrl(id));
+  // It acks what your terminal took (`?flow=1`): a terminal slower than the agent is paced, or sent the screen once it caught up.
+  const ws = new WebSocket(withFlow(host.attachUrl(id), { screenOnly: true }));
   const sendFrame = (frame: object) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
   };
+  const screen = attachOutput({
+    write: (data, done) => process.stdout.write(data, () => done()),
+    ack: (chars) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(ackFrame(chars));
+    },
+  });
   let exitCode = 0;
   let message = '';
 
@@ -100,7 +109,7 @@ export async function attachSession(session: WorktreeSession, launch: AttachSpaw
   process.stdout.on('resize', onResize);
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
-      process.stdout.write(data as Buffer);
+      screen.output(data as Buffer);
       return;
     }
     try {
@@ -111,7 +120,8 @@ export async function attachSession(session: WorktreeSession, launch: AttachSpaw
         data?: string;
       };
       if (msg.type === 'replay') {
-        process.stdout.write('\x1b[2J\x1b[H' + (msg.data ?? ''));
+        // A later one (it fell behind and caught up) is only drawn: no size nudge, which would take the PTY's size.
+        if (!screen.replay(msg.data ?? '')) return;
         replayed = true;
         // Nudge the size by one row and back: forces a SIGWINCH so Claude's
         // TUI redraws for this terminal's grid — the snapshot was drawn

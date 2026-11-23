@@ -29,6 +29,7 @@ import {
   lastStop,
 } from '../../src/server/terminal-ws.js';
 import type { TerminalElsewhere } from '../../src/core/api-types.js';
+import { ackFrame } from '../../src/core/pty/flow-control.js';
 let elsewhere: TerminalElsewhere | null = null;
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -41,14 +42,21 @@ async function fakeHost() {
   const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await new Promise<void>((r) => wss.on('listening', () => r()));
   const conns: WebSocket[] = [];
-  wss.on('connection', (ws) => {
+  /** The address each connection asked for, and the frames it sent. */
+  const urls: string[] = [];
+  const received: string[] = [];
+  wss.on('connection', (ws, req) => {
     conns.push(ws);
+    urls.push(req.url ?? '');
     ws.send(JSON.stringify({ type: 'replay', data: '', cols: 80, rows: 24 }));
-    ws.on('message', (m) => ws.send(Buffer.from('echo:' + m.toString()), { binary: true }));
+    ws.on('message', (m) => {
+      received.push(m.toString());
+      ws.send(Buffer.from('echo:' + m.toString()), { binary: true });
+    });
   });
   cleanups.push(() => new Promise<void>((r) => wss.close(() => r())));
   hostUrl = `ws://127.0.0.1:${(wss.address() as { port: number }).port}/ptys/s/attach`;
-  return { conns, open: () => conns.filter((c) => c.readyState === WebSocket.OPEN).length };
+  return { conns, urls, received, open: () => conns.filter((c) => c.readyState === WebSocket.OPEN).length };
 }
 
 async function relay() {
@@ -260,6 +268,29 @@ describe('terminal relay', () => {
     browser.close();
     await sleep(150);
     expect(host.open()).toBe(0);
+  });
+
+  it('a browser that acks (?flow=1): the host is told it does, and its acks pass through as they are', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    const browser = new WebSocket((await relay()) + '?flow=1');
+    await new Promise((r) => browser.on('open', r));
+    await sleep(100);
+    browser.send(ackFrame(5000));
+    await sleep(150);
+    expect(new URL(host.urls[0], 'ws://h').searchParams.get('flow')).toBe('1');
+    expect(host.received).toEqual([ackFrame(5000)]);
+    browser.close();
+  });
+
+  it('a browser that does not ack: the host is not told it does', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    const browser = new WebSocket(await relay());
+    await new Promise((r) => browser.on('open', r));
+    await sleep(100);
+    expect(host.urls).toEqual(['/ptys/s/attach']);
+    browser.close();
   });
 
   it('a browser that leaves while the host is still starting never gets an upstream', async () => {

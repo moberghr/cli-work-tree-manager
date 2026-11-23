@@ -12,7 +12,7 @@ import path from 'node:path';
 import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
-import { ScreenMirror, type HeadlessTerminal } from './screen-mirror.js';
+import { ScreenMirror, type HeadlessTerminal, type SnapshotOptions } from './screen-mirror.js';
 import type { TerminalColors } from './terminal-colors.js';
 
 type Fork = typeof childProcess.fork;
@@ -236,8 +236,44 @@ export function slowStart(ms: number): { note: string; warn: string | null } {
   };
 }
 
+/**
+ * Whether a PTY's output may be paused for a client to catch up (output-pacer.ts). Not on Windows: node-pty reads
+ * ConPTY's output through a worker thread so that ClosePseudoConsole, which before Windows 11 24H2 waits for that
+ * output to be drained, can't block the host; paused, nothing drains it, and killing the agent could hang the whole
+ * host. There a client too far behind is sent a fresh screen instead (as any other is). Pure.
+ */
+export function canPauseOutput(platform: NodeJS.Platform): boolean {
+  return platform !== 'win32';
+}
+
+/**
+ * Calls `exiting` the moment node-pty learns its child exited, before it waits for its socket to close. node-pty 1.1.0
+ * (lib/unixTerminal.js, `onexit`) arms `setTimeout(() => socket.destroy(), DESTROY_SOCKET_TIMEOUT_MS = 200)` and then
+ * registers `this.once('close', …)`. What was not read from the PTY by the time that timer fires is lost: a paused PTY
+ * (flow control) must read again before then. That `once('close')` is the only one it makes on itself (its other
+ * waits are on its socket), so it marks the exit. A test pins that against node-pty's source, so an upgrade that
+ * changes it fails there. False when there is nothing to hook (no `once`).
+ */
+export function onChildExit(pty: object, exiting: () => void): boolean {
+  const target = pty as { once?: (event: string, listener: (...args: unknown[]) => void) => unknown };
+  const once = target.once;
+  if (typeof once !== 'function') return false;
+  target.once = function (this: unknown, event, listener) {
+    if (event === 'close') exiting();
+    return once.call(this, event, listener);
+  };
+  return true;
+}
+
 export class PtySession {
   readonly pty: IPty;
+  /**
+   * Stop reading the agent's output, and start again (flow control, output-pacer.ts): paused, its writes block once
+   * the PTY's buffer is full. Undefined where that isn't safe (`canPauseOutput`).
+   */
+  readonly pause?: () => void;
+  readonly resume?: () => void;
+  private paused = false;
   /** The PTY host's copy of the screen (screen-mirror.ts): what a client attaching is sent first. */
   private readonly mirror: ScreenMirror;
   readonly cwd: string;
@@ -309,6 +345,34 @@ export class PtySession {
     if (aiOptions && readAgentsLowPriority()) {
       const why = lowerPriority(this.pty.pid);
       debug(why ? `PtySession: couldn't lower the agent's priority (${why})` : 'PtySession: agent started below normal priority');
+    }
+
+    if (canPauseOutput(process.platform)) {
+      // Its child exited: what it wrote last is read now (node-pty drops it 200 ms later), and nothing pauses it again.
+      // On Linux the child exits with its output unread; on macOS its exit waits for that output to be read.
+      let ending = false;
+      onChildExit(this.pty, () => {
+        ending = true;
+        this.resume?.();
+      });
+      this.pause = () => {
+        if (this._exited || ending || this.paused) return;
+        this.paused = true;
+        try {
+          this.pty.pause();
+        } catch {
+          /* PTY already exited */
+        }
+      };
+      this.resume = () => {
+        if (!this.paused) return;
+        this.paused = false;
+        try {
+          this.pty.resume();
+        } catch {
+          /* PTY already exited */
+        }
+      };
     }
 
     this.pty.onData((data) => {
@@ -392,8 +456,8 @@ export class PtySession {
    * sent instead of raw output history — raw bytes can start mid-sequence
    * and were drawn for another client's grid (VS Code does the same).
    */
-  serialize(): string {
-    return this.mirror.snapshot();
+  serialize(opts?: SnapshotOptions): string {
+    return this.mirror.snapshot(opts);
   }
 
   /**
@@ -401,8 +465,8 @@ export class PtySession {
    * xterm queues writes, and a write's callback runs right after that write
    * is parsed — before any written later. What a new client is sent first.
    */
-  serializeSettled(): Promise<string> {
-    return this.mirror.snapshotSettled();
+  serializeSettled(opts?: SnapshotOptions): Promise<string> {
+    return this.mirror.snapshotSettled(opts);
   }
 
   /** The visible screen as plain text, one line per row (no colors).
@@ -417,6 +481,8 @@ export class PtySession {
 
   dispose() {
     this.setOutputHandler(undefined);
+    // Reading again first: a paused PTY's end waits for its output to be read (node-pty emits exit once it is).
+    this.resume?.();
     if (!this._exited) {
       try {
         this.pty.kill();

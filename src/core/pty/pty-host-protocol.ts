@@ -132,13 +132,17 @@ export interface PtyInfo {
 }
 
 /** Client → host frames on the attach WebSocket (text, JSON). Host →
- *  client PTY output is sent as binary frames; control frames as text. */
-export type ClientFrame = { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number };
+ *  client PTY output is sent as binary frames; control frames as text.
+ *  `ack`: from a client that attached with `?flow=1` (flow-control.ts), the characters of output it finished drawing
+ *  since its last ack. Additive, no PROTOCOL_VERSION bump: an older host ignores the parameter and the frame. */
+export type ClientFrame = { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number } | { type: 'ack'; chars: number };
 
 export type HostControlFrame =
-  /** Sent once, first, on attach: the serialized screen and the grid it was
+  /** Sent first on attach: the serialized screen and the grid it was
    *  drawn for. Clients draw it at exactly cols×rows, then resize to their
-   *  own size (which makes Claude redraw), and only then send input. */
+   *  own size (which makes Claude redraw), and only then send input.
+   *  A client that acks is sent one again mid-session when it fell behind and caught up (output-pacer.ts): it resets
+   *  its screen (scrollback too) and draws it, and nothing else — no resize, no focus, no input held for it. */
   { type: 'replay'; data: string; cols: number; rows: number } | { type: 'exit'; code: number } | { type: 'error'; message: string };
 
 export function hostInfoPath(): string {

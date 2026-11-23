@@ -6,10 +6,12 @@ import { WebSocket } from 'ws';
 import { startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
 import { PtyRegistry, type PtyLike } from '../../../src/core/pty/pty-registry.js';
 import { isTerminalReply, replyParts } from '../../../src/core/pty/terminal-replies.js';
-import { ScreenMirror } from '../../../src/core/pty/screen-mirror.js';
+import { ScreenMirror, type SnapshotOptions } from '../../../src/core/pty/screen-mirror.js';
 import type { TerminalColors } from '../../../src/core/pty/terminal-colors.js';
 import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
 import { VERSION } from '../../../src/version.js';
+import { HIGH_WATERMARK, LOW_WATERMARK, ackFrame, withFlow } from '../../../src/core/pty/flow-control.js';
+import { CATCH_UP_MIN_MS } from '../../../src/core/pty/output-pacer.js';
 
 class EchoPty implements PtyLike {
   readonly pty = { pid: 1 };
@@ -64,11 +66,16 @@ class MirrorPty implements PtyLike {
     this.mirror.dispose();
     this.onExit?.(0);
   }
-  serialize() {
-    return this.mirror.snapshot();
+  serialize(opts?: SnapshotOptions) {
+    return this.mirror.snapshot(opts);
   }
-  serializeSettled() {
-    return this.mirror.snapshotSettled();
+  serializeSettled(opts?: SnapshotOptions) {
+    return this.mirror.snapshotSettled(opts);
+  }
+  /** The agent exited by itself: its screen stays (PtySession drops it only when disposed). */
+  end(code = 0) {
+    this.exited = true;
+    this.onExit?.(code);
   }
   answerQueries(now: () => boolean, colors: Pick<TerminalColors, 'reply'>) {
     this.mirror.answerQueries({ now, colors, send: (reply) => this.write(reply) });
@@ -77,6 +84,21 @@ class MirrorPty implements PtyLike {
   print(data: string) {
     this.mirror.write(data);
     this.out?.(data);
+  }
+}
+
+/** A MirrorPty that can stop being read, as PtySession can off Windows (flow control). */
+class FlowPty extends MirrorPty {
+  paused = false;
+  pauses = 0;
+  resumes = 0;
+  pause() {
+    this.paused = true;
+    this.pauses++;
+  }
+  resume() {
+    this.paused = false;
+    this.resumes++;
   }
 }
 
@@ -108,8 +130,8 @@ afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function attach(id: string) {
-  const ws = new WebSocket(client.attachUrl(id));
+function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean } = {}) {
+  const ws = new WebSocket(opts.flow ? withFlow(client.attachUrl(id), { screenOnly: opts.screenOnly }) : client.attachUrl(id));
   const binary: string[] = [];
   const control: unknown[] = [];
   ws.on('message', (d, isBinary) => {
@@ -497,6 +519,244 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
     expect(sent).toEqual(['\x1b[5n']);
     expect(drawing.replies(replyParts('\x1b[0n')!)).toBe('\x1b[0n');
     drawing.detach();
+  });
+
+  it('coalesced output: the query is answered by the client chosen as it ARRIVED, not as its frame went out', async () => {
+    await client.spawn('q7', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const got = { a: [] as string[], b: [] as string[] };
+    const a = host.registry.attach(
+      'q7',
+      (d) => got.a.push(d),
+      () => {},
+    )!;
+    const b = host.registry.attach(
+      'q7',
+      (d) => got.b.push(d),
+      () => {},
+    )!;
+    await Promise.all([a.ready, b.ready]);
+    a.start();
+    b.start();
+    b.lead();
+    pty.print('x'); // the first of a quiet moment: sent at once
+    pty.print('\x1b[c'); // within COALESCE_MS: waits for its frame — and is b's to answer, b being the one used last
+    a.lead(); // a typed before the frame went out
+    expect(got.a).toEqual(['x']);
+    await tick();
+    expect(got.a).toEqual(['x', '\x1b[c']);
+    expect(got.b).toEqual(['x', '\x1b[c']);
+    expect(b.replies(replyParts('\x1b[?62;22c')!)).toBe('\x1b[?62;22c');
+    expect(a.replies(replyParts('\x1b[?1;2c')!)).toBe('');
+    a.detach();
+    b.detach();
+  });
+
+  it('a client that fell behind is never chosen to answer (it is sent no output): the next live one is', async () => {
+    await client.spawn('q8', { cwd: dir, tool: tool as never }); // a MirrorPty: no pausing, so even the one used last falls behind
+    const pty = spawned.at(-1) as MirrorPty;
+    const live = host.registry.attach(
+      'q8',
+      () => {},
+      () => {},
+    )!;
+    const slow = host.registry.attach(
+      'q8',
+      () => {},
+      () => {},
+      { metered: true },
+    )!;
+    await Promise.all([live.ready, slow.ready]);
+    live.start();
+    slow.start();
+    slow.lead();
+    pty.print('y'.repeat(HIGH_WATERMARK + 1));
+    await tick();
+    pty.print('\x1b[c');
+    await tick();
+    expect(slow.replies(replyParts('\x1b[?62;22c')!)).toBe('');
+    expect(live.replies(replyParts('\x1b[?1;2c')!)).toBe('\x1b[?1;2c');
+    expect(pty.got).toEqual([]); // and the host left it to the client
+    live.detach();
+    slow.detach();
+  });
+});
+
+describe('flow control (terminal-rendering.md, "Flow control and coalescing")', () => {
+  beforeEach(() => {
+    makePty = () => new FlowPty();
+  });
+  afterEach(() => {
+    makePty = () => new EchoPty();
+  });
+  const chars = (c: { binary: string[] }) => c.binary.join('').length;
+  /** The agent prints `n` characters, in chunks as node-pty reads them. */
+  const flood = (pty: MirrorPty, n: number, ch = 'y') => {
+    for (let left = n; left > 0; left -= 10_000) {
+      const size = Math.min(10_000, left);
+      pty.print(size > 5 ? `\x1b[3${left % 7}m` + ch.repeat(size - 5) : ch.repeat(size)); // coloured: 5 characters of SGR
+    }
+  };
+
+  it('a client that acks holds the PTY: paused while it is HIGH_WATERMARK behind, read again once its acks bring it under LOW_WATERMARK', async () => {
+    await client.spawn('f1', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as FlowPty;
+    const c = attach('f1', { flow: true });
+    await c.opened;
+    await tick();
+    flood(pty, HIGH_WATERMARK + 10_000);
+    await tick();
+    expect(chars(c)).toBe(HIGH_WATERMARK + 10_000); // all of it was sent…
+    expect(pty.paused).toBe(true); // …and the agent waits for it to be drawn
+    c.ws.send(ackFrame(HIGH_WATERMARK));
+    await tick();
+    expect(pty.paused).toBe(true); // 10 000 still to draw: more than LOW_WATERMARK
+    c.ws.send(ackFrame(10_000 - LOW_WATERMARK + 1));
+    await tick();
+    expect(pty.paused).toBe(false);
+    expect([pty.pauses, pty.resumes]).toEqual([1, 1]);
+    pty.print('still live');
+    await tick();
+    expect(c.binary.at(-1)).toBe('still live');
+    c.ws.close();
+  });
+
+  it('a client that does not ack (an older one) is sent everything, and never pauses the PTY', async () => {
+    await client.spawn('f2', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as FlowPty;
+    const old = attach('f2');
+    await old.opened;
+    await tick();
+    flood(pty, HIGH_WATERMARK * 3);
+    pty.print('end');
+    await tick();
+    expect(chars(old)).toBe(HIGH_WATERMARK * 3 + 3);
+    expect(old.binary.join('').endsWith('end')).toBe(true);
+    expect(pty.pauses).toBe(0);
+    // Acks it sends anyway are ignored, as an older host ignores a new client's.
+    old.ws.send(ackFrame(HIGH_WATERMARK));
+    await tick();
+    expect(old.ws.readyState).toBe(WebSocket.OPEN);
+    old.ws.close();
+  });
+
+  it('a view that falls behind is sent nothing, then — caught up — the screen as it stands (a replay mid-session), then live output', async () => {
+    await client.spawn('f3', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as FlowPty;
+    const holder = attach('f3'); // attached first, never acks: holds nothing back
+    await holder.opened;
+    const view = attach('f3', { flow: true });
+    await view.opened;
+    await tick();
+    expect(view.control.filter((m) => (m as { type: string }).type === 'replay')).toHaveLength(1);
+    flood(pty, HIGH_WATERMARK + 10_000);
+    await tick();
+    const drawn = chars(view);
+    expect(drawn).toBe(HIGH_WATERMARK + 10_000);
+    pty.print('\r\nmissed by the view');
+    await tick();
+    expect(chars(view)).toBe(drawn); // behind: sent nothing
+    expect(holder.binary.join('').endsWith('missed by the view')).toBe(true);
+    expect(pty.pauses).toBe(0);
+    view.ws.send(ackFrame(drawn));
+    await new Promise((r) => setTimeout(r, CATCH_UP_MIN_MS + 100));
+    const replays = view.control.filter((m) => (m as { type: string }).type === 'replay') as Array<{
+      data: string;
+      cols: number;
+      rows: number;
+    }>;
+    expect(replays).toHaveLength(2);
+    expect(replays[1].data).toContain('missed by the view');
+    expect([replays[1].cols, replays[1].rows]).toEqual([120, 32]);
+    pty.print('live again');
+    await tick();
+    expect(view.binary.at(-1)).toBe('live again');
+    expect(holder.binary.at(-1)).toBe('live again');
+    holder.ws.close();
+    view.ws.close();
+  });
+
+  const replays = (c: { control: unknown[] }) =>
+    c.control.filter((m) => (m as { type: string }).type === 'replay') as Array<{ data: string; cols: number; rows: number }>;
+
+  it('a view behind when the agent exits is sent the final screen at once, and only then told it ended', async () => {
+    await client.spawn('f6', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as FlowPty;
+    const holder = attach('f6'); // never acks: holds nothing back
+    await holder.opened;
+    const view = attach('f6', { flow: true });
+    await view.opened;
+    await tick();
+    flood(pty, HIGH_WATERMARK + 10_000);
+    await tick();
+    pty.print('\r\nlast words');
+    await tick();
+    expect(view.binary.join('').includes('last words')).toBe(false); // behind
+    const exited = Date.now();
+    pty.end(0);
+    await view.closed;
+    expect(Date.now() - exited).toBeLessThan(CATCH_UP_MIN_MS); // not left waiting for its catch-up time
+    const types = view.control.map((m) => (m as { type: string }).type);
+    expect(types.slice(-3)).toEqual(['replay', 'replay', 'exit']);
+    expect(replays(view)[1].data).toContain('last words');
+    expect(view.control.at(-1)).toEqual({ type: 'exit', code: 0 });
+    await holder.closed;
+    expect(holder.binary.join('').endsWith('last words')).toBe(true);
+    expect(holder.control.at(-1)).toEqual({ type: 'exit', code: 0 });
+  });
+
+  it('a client that asks for screen-only catch-ups (work attach) is sent the screen without the scrollback mid-session; its first replay has it', async () => {
+    await client.spawn('f7', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as FlowPty;
+    pty.print('first line\r\n' + Array.from({ length: 40 }, (_, i) => `before ${i}`).join('\r\n'));
+    const holder = attach('f7');
+    await holder.opened;
+    const full = attach('f7', { flow: true });
+    const screen = attach('f7', { flow: true, screenOnly: true });
+    await Promise.all([full.opened, screen.opened]);
+    await tick();
+    expect(replays(screen)[0].data).toContain('first line'); // attaching: the session's history too
+    flood(pty, HIGH_WATERMARK + 10_000);
+    await tick();
+    pty.print('\r\nscrolled off\r\n' + Array.from({ length: 40 }, (_, i) => `after ${i}`).join('\r\n'));
+    await tick();
+    for (const c of [full, screen]) c.ws.send(ackFrame(chars(c)));
+    await new Promise((r) => setTimeout(r, CATCH_UP_MIN_MS + 100));
+    const [f, s] = [replays(full), replays(screen)];
+    expect([f.length, s.length]).toEqual([2, 2]);
+    expect(f[1].data).toContain('scrolled off');
+    expect(s[1].data).not.toContain('scrolled off');
+    expect(s[1].data).toContain('after 39');
+    expect(s[1].data).toContain('after 8'); // the top row of its screen (32 rows)
+    expect(s[1].data).not.toContain('after 7');
+    for (const c of [holder, full, screen]) c.ws.close();
+  });
+
+  it('a pause is released when its client disconnects, and when the session is killed', async () => {
+    await client.spawn('f4', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as FlowPty;
+    const c = attach('f4', { flow: true });
+    await c.opened;
+    await tick();
+    flood(pty, HIGH_WATERMARK + 1);
+    await tick();
+    expect(pty.paused).toBe(true);
+    c.ws.close();
+    await c.closed;
+    await tick();
+    expect(pty.paused).toBe(false);
+
+    await client.spawn('f5', { cwd: dir, tool: tool as never });
+    const pty5 = spawned.at(-1) as FlowPty;
+    const d = attach('f5', { flow: true });
+    await d.opened;
+    await tick();
+    flood(pty5, HIGH_WATERMARK + 1);
+    await tick();
+    expect(pty5.paused).toBe(true);
+    await client.kill('f5');
+    expect(pty5.paused).toBe(false);
+    expect(pty5.exited).toBe(true);
   });
 });
 

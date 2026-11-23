@@ -16,6 +16,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { VIEW_SCROLLBACK } from '../../../../core/pty/scrollback.js';
 import { TERMINAL_THEME } from '../../../../core/pty/terminal-colors.js';
+import { AckCounter, ackFrame, utf16Length } from '../../../../core/pty/flow-control.js';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -50,6 +51,17 @@ export const ELSEWHERE_RECHECK_MS = 6000;
 
 /** How often the Terminal tab sends what it measured to the debug log (and once more when it closes). */
 const PERF_SEND_MS = 10_000;
+
+/**
+ * The most one `term.write` is given: xterm parses a write whole before it looks at the clock (its 12 ms slices are
+ * between writes), so a big frame or screen in one piece is one long freeze. 64 KiB parses in a few ms.
+ */
+export const WRITE_PIECE = 64 * 1024;
+
+/** `write` called on `data` in pieces of at most WRITE_PIECE, `last` true for the final one; never called for empty `data`. */
+function inPieces<T extends string | Uint8Array>(data: T, write: (piece: T, last: boolean) => void): void {
+  for (let at = 0; at < data.length; at += WRITE_PIECE) write(data.slice(at, at + WRITE_PIECE) as T, at + WRITE_PIECE >= data.length);
+}
 
 const ago = (ms: number | null) => {
   if (ms === null) return null;
@@ -250,8 +262,9 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       return `${proto}//${window.location.host}/ws/sessions/${encodeURIComponent(sessionId)}/terminal${force.current ? '?force=1' : ''}`;
     })();
-    // Straight to the PTY host with a ticket when it can, else the relay at wsUrl (terminal-socket.ts).
-    const ws = openTerminalSocket(sessionId, { force: force.current, relayUrl: wsUrl });
+    // Straight to the PTY host with a ticket when it can, else the relay at wsUrl (terminal-socket.ts). It acks what
+    // it draws (flow: the host paces it, core/pty/flow-control.ts).
+    const ws = openTerminalSocket(sessionId, { force: force.current, relayUrl: wsUrl, flow: true });
     ws.binaryType = 'arraybuffer';
     setPhase('connecting');
     setFailed(null);
@@ -290,6 +303,27 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
 
     // Binary frames = PTY output; text frames = control JSON.
     let exited = false;
+    // Each piece of output acked once xterm has parsed it, every few thousand characters (an older host ignores them).
+    const acks = new AckCounter((chars) => {
+      if (!exited) ws.send(ackFrame(chars));
+    });
+    const writeOutput = (bytes: Uint8Array) =>
+      inPieces(bytes, (piece) => {
+        const chars = utf16Length(piece);
+        term.write(piece, () => acks.drawn(chars));
+      });
+    // A screen: in pieces, `done` once the last is drawn. Never acked (the host doesn't count it).
+    const writeScreen = (text: string, done: () => void) => inPieces(text, (piece, last) => term.write(piece, last ? done : undefined));
+    // A screen sent mid-session (this tab fell behind and caught up: the host's output-pacer.ts) is only drawn: over
+    // a reset terminal (RIS, in order with what was written before it; it clears the scrollback too), at its grid, then
+    // fitted here again. None of the first screen's work: no focus taken, no size sent (it would take the PTY's size
+    // from the terminal in use), nothing held to send.
+    const redraw = (msg: { data?: string; cols?: number; rows?: number }) => {
+      if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
+      writeScreen('\x1bc' + (msg.data ?? ''), () => {
+        if (activeRef.current) fit.fit();
+      });
+    };
     const meter = new LatencyMeter();
     let shownAt = 0;
     // What the corner shows: at most every half second, whatever moved it.
@@ -329,8 +363,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const perfTimer = setInterval(sendPerf, PERF_SEND_MS);
     ws.addEventListener('message', (e) => {
       if (e.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(e.data));
-        // The echo of a key sent (keystroke-latency.ts); shown at most every half second.
+        writeOutput(new Uint8Array(e.data));
+        // The echo of a key sent (keystroke-latency.ts): as it arrives; shown at most every half second.
         if (meter.output(performance.now()) !== null) showLatency();
         return;
       }
@@ -351,9 +385,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         return;
       }
       if (msg.type === 'replay') {
+        if (ready) return redraw(msg);
         // Draw at the grid the snapshot was serialized for, then fit.
         if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
-        if (msg.data) term.write(msg.data, finishReplay);
+        if (msg.data) writeScreen(msg.data, finishReplay);
         else finishReplay();
       } else if (msg.type === 'exit') {
         exited = true;

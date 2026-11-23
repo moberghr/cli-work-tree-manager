@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HALT_RESUME_MS, PtyRegistry, type PtyLike, type PtySpawner } from '../../../src/core/pty/pty-registry.js';
+import { COALESCE_MS } from '../../../src/core/pty/output-pacer.js';
 import { buildAiLaunchArgs, getAiTool, type AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 import { isPersistedPty, keepEnv } from '../../../src/core/pty/pty-host-protocol.js';
 import { withReporter } from '../../../src/core/platform/report.js';
@@ -82,6 +83,7 @@ describe('PtyRegistry', () => {
   });
 
   it('replays earlier output to a late attacher and streams new output', () => {
+    vi.useFakeTimers();
     const reg = makeRegistry();
     reg.spawn('a', { cwd: '/x', tool });
     spawned[0].pty.emit('hello ');
@@ -93,6 +95,9 @@ describe('PtyRegistry', () => {
     );
     expect(att?.replay.data).toBe('hello ');
     spawned[0].pty.emit('world');
+    // Within COALESCE_MS of 'hello ': it goes with what follows, once the window closes (output-pacer.ts).
+    expect(got).toEqual([]);
+    vi.advanceTimersByTime(COALESCE_MS);
     expect(got).toEqual(['world']);
     att?.detach();
     spawned[0].pty.emit('!');
@@ -560,6 +565,7 @@ describe('attaching while the screen is still parsing (a late attacher must not 
   }
 
   it('the snapshot is the screen as of the attach; output after it is held, then handed over once, in order', async () => {
+    vi.useFakeTimers();
     const pty = new ParsingPty();
     const reg = new PtyRegistry({ spawner: () => pty, hasConversation: () => false, sessionsPath, cwdExists: () => true });
     reg.spawn('a', { cwd: '/x', tool });
@@ -579,10 +585,12 @@ describe('attaching while the screen is still parsing (a late attacher must not 
     expect(got).toEqual([]);
     att.start();
     pty.emit('after-2');
+    vi.advanceTimersByTime(COALESCE_MS); // coalesced with nothing else: sent as the window closes
     expect(got).toEqual(['after-1', 'after-2']);
   });
 
   it('a screen with no parsing step streams at once, its replay the raw buffer', async () => {
+    vi.useFakeTimers();
     const reg = makeRegistry();
     reg.spawn('a', { cwd: '/x', tool });
     spawned[0].pty.emit('hello ');
@@ -594,6 +602,7 @@ describe('attaching while the screen is still parsing (a late attacher must not 
     )!;
     expect((await att.ready).data).toBe('hello ');
     spawned[0].pty.emit('world');
+    vi.advanceTimersByTime(COALESCE_MS);
     expect(got).toEqual(['world']);
   });
 });

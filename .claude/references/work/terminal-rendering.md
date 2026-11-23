@@ -113,3 +113,63 @@ Left as is, and why:
 
 - **XTVERSION**: not answered. Answering `xterm.js(…)` would switch on the wheel tuning and change the profile for every session at once. Superset answers `Paradev (xterm.js)` only because it ships a wheel handler that sends what native terminals send. Measure Claude's scrolling in the tab with and without it before choosing.
 - **TERM_PROGRAM and the other identity variables**: inherited from the terminal that started the host (`WT_SESSION` on purpose, so `work tree --host` matches in Windows Terminal). Right for that native view, wrong for the tab: a host started from Ghostty tells Claude it draws into Ghostty (profile `ghostty`) while xterm.js draws. Options: drop them for sessions the dashboard starts, or set `TERM_PROGRAM=xterm.js` there (Claude's `xtermjs` profile).
+
+## Flow control and coalescing
+
+Output used to go to every client chunk by chunk, as fast as the agent wrote it. A tab that drew slower than that (a flood, a background tab) queued megabytes in xterm.js (it throws past 50 MB), and the host sent a WebSocket frame per node-pty read. Now one module sits between the PTY's output and its clients: `core/pty/output-pacer.ts` (pure, timers injected), one per registry entry. The shared numbers and the client side are in `core/pty/flow-control.ts` (pure, import-free; the SPA imports it).
+
+**Coalescing.** The first output after a quiet moment goes out at once, so a keystroke's echo waits for nothing. Whatever arrives within the next `COALESCE_MS` (5) goes out as one frame, up to `MAX_FRAME_CHARS` (64 KiB). A single chunk bigger than that goes alone. The mirror is still written chunk by chunk (PtySession, before the registry sees it), and the window stays open while output keeps coming.
+
+**Acks.** A client that acks says so with `?flow=1` on its attach address (`withFlow`). It sends `{ type: 'ack', chars }` every `ACK_EVERY` (5 000) characters it has finished drawing. The browser counts in `term.write`'s callback, `work attach` in `process.stdout.write`'s. The unit is the host's: UTF-16 code units, the length of the string it sent. A client receives UTF-8 and counts it with `utf16Length` without decoding: one per sequence, two for a 4-byte one, and the counts still add up when a frame is cut inside a sequence. A screen (a replay frame) is never counted or acked.
+
+**Per client**, the pacer counts what it sent and what was acked (an ack never pays for more than was sent):
+
+- **The holder**: the client the registry picks (`pick`: the one used last, else the first attached, among those sent live output). It is the same rule as the answerer's. If it acks and the PTY can pause, the PTY is paused once its unacked count is above `HIGH_WATERMARK` (100 000) and read again once it is below `LOW_WATERMARK` (5 000). This is VS Code's flow control, for one client.
+- **Any other metered client** above `HIGH_WATERMARK`, and the holder once its pause passes `PAUSE_TIMEOUT_MS` (500 ms), is **behind**. It is sent no live output. Once its acks bring it under `LOW_WATERMARK`, at most every `CATCH_UP_MIN_MS` (500 ms, since each snapshot runs on the host's loop), it is sent the screen as it stands then (`resync`: a settled snapshot, output held meanwhile, as at attach) and goes live again. A holder that timed out doesn't pause the PTY again until it is used (types or resizes).
+- **A client that doesn't ack** (an older one, or no `?flow=1`) is sent everything, as before, and never pauses anything.
+
+§ An agent never waits for a view that isn't the holder, nor for the holder longer than `PAUSE_TIMEOUT_MS` at a time. 500 ms was measured, not guessed. A background tab parses in timer slices that run once a second, so it released each pause at its next tick and never reached a 2 s limit. The stress run below took 159 s for 20 MB that way; with 500 ms it took 2 s, with one pause and two catch-up screens.
+
+§ No pause outlives its reason. The pause is released when the holder detaches, when another client becomes the holder, and when the process ends (`end()`), restarts or halts (`setFlow(null)`, flushed first). It is also released when the entry is killed or removed (`dispose`). `PtySession.dispose` reads again before it kills, because a paused PTY's end waits for its output to be read.
+
+§ A pause never costs the agent's last output. On Unix, node-pty (1.1.0, `unixTerminal.ts`, `onexit`) waits for the PTY's socket to close once the child has exited. If it hasn't closed, node-pty destroys it after `DESTROY_SOCKET_TIMEOUT_MS` (200 ms) and drops whatever was unread.
+- **Linux**: a child exits with its last output still in the PTY's buffer (a small write doesn't block it). So a pause still in place 200 ms after the exit lost all of it. Measured: 2 000 characters, paused and released at 600 ms, arrived as none.
+- **macOS**: the child's exit waits for its output to be read, so nothing is lost there.
+
+`PtySession` hooks the moment node-pty starts that wait (`onChildExit`: its `once('close')`, which `onexit` calls right after setting the timer). From then on it reads, and it never pauses again. A shorter `PAUSE_TIMEOUT_MS` was the other way. But a timer under 200 ms is still at the mercy of a busy event loop (snapshots run on it), and it would have to count from an exit the pacer doesn't see. One test reads node-pty's source, so an upgrade that changes `onexit` fails it. A real-PTY test checks that the tail arrives; it passes on macOS and Linux, and without the hook it fails on Linux.
+
+§ A client behind when the agent exits is never left on a stale screen. `pacer.end()` sends what was pending to the live clients, releases the pause, and sends every client still behind the final screen at once, whatever `CATCH_UP_MIN_MS` says. The registry holds that client's exit while its screen is being taken, and tells it after the screen and the output held meanwhile. So the `exit` frame, which closes the socket, never overtakes the screen (tested).
+
+§ Who answers a query is still decided as the output **arrives** (`designate`, before the pacer sees the chunk). A frame may go out up to 5 ms later, after another client became the one used last, and the query is still the first one's (tested). The set of clients a frame goes to is fixed when it goes: a client that joins, falls behind or catches up has what was pending sent first. So a frame is never sent twice, nor to a client whose snapshot has it. A client falls behind only right after a whole frame went to it, and `pick` skips one that is behind. A query is therefore never designated to a client that won't be sent it.
+
+**Windows.** The PTY is never paused there (`canPauseOutput`). node-pty reads ConPTY's output through a worker thread so that `ClosePseudoConsole`, which before Windows 11 24H2 waits for that output to be drained, can't block the host. If reading were paused, nothing would drain it, and killing the agent could hang the whole host. There a holder too far behind falls behind like any other client, so the agent is never paused for it. Pausing on Windows waits on a check on 24H2 and with the bundled ConPTY.
+
+**A replay mid-session** (a client caught up) must redraw and nothing else:
+
+- **The browser** (`PtyView`) resizes to the snapshot's grid. It writes `ESC c` (RIS: in order with what was queued before it; it clears the scrollback too) followed by the screen, then fits, if shown. It takes no focus, sends no size (that would take the PTY's size from the terminal in use), holds no input and leaves the phase alone.
+- **`work attach`** (`commands/shared/attach-output.ts`) asks for screen-only catch-ups (`withFlow(…, { screenOnly: true })`, `?catchup=screen`). Its mid-session screen is the visible screen without the scrollback (`snapshot({ scrollback: false })`), so a catch-up adds nothing to your terminal's history. The saved cursor and the scroll region are positions on the screen (the saved cursor's buffer line less `baseY`), so they come out the same without the scrollback (round-trip tests, over a fresh terminal and over one with history in it). Every screen is drawn over a cleared screen (`CLEAR_SCREEN`), never `CSI 3 J`, so your shell's history from before the attach is kept. The first screen still carries the session's scrollback.
+
+The browser also bounds each `term.write` at `WRITE_PIECE` (64 KiB). xterm.js parses one write whole before it looks at the clock, so a big frame or screen written at once is one long freeze. The keystroke-latency meter still marks the echo as the frame arrives.
+
+**Offsets.** Each frame ends at an offset: the characters of output since the entry was spawned (restarts keep counting), `pacer.offset`. `attach` returns the offset its snapshot stands at. Nothing uses them on the wire yet: they are for a reconnecting client to ask for only what it missed.
+
+**Negotiation and compatibility.** There is no protocol version bump and no `HOST_FEATURES` entry, because no client needs to know whether the host paces. An older host ignores the parameter and the `ack` frames (unknown types are dropped), so a new client behaves as before. An older client sends neither, so the host sends it everything, unpaced. The relay (`terminal-ws.ts`) passes `?flow=1` on to the host and the acks through as they are. A mid-session replay only ever goes to a client that asked for flow. `work attach` also sends `catchup=screen` (`CATCH_UP_PARAM`), which an older host ignores like `flow=1`. Its catch-up then carries the scrollback, drawn into your history again: a duplicate, nothing lost, nothing erased.
+
+**Stress** (20 MB of coloured lines from a real PtySession through the host to an `@xterm/headless` client acking in its write callbacks, in one process):
+
+- **Acking client, keeping up**: peak unacked about 136 000, under HIGH plus one frame. 39 to 80 pauses and as many resumes. 1.1 to 2.1 s, the same as unpaced within noise.
+- **Acking once a second**: one pause, then two catch-up screens, 2 s.
+
+Every run's final screen equals the unpaced one and the host mirror's.
+
+**Compared:**
+
+- **VS Code**: the same numbers and unit (`FlowControlConstants`, `CharCountAckSize`), with one client per PTY and no timeout: a renderer that stops acking stops the PTY. Its `TerminalDataBufferer` flushes 5 ms after the first event with no leading edge, so every echo waits 5 ms. We send the first chunk at once.
+- **ttyd**: counts bytes, pauses above a pending-callback count (one callback per 100 KB written), and resumes when the browser's callbacks drain. Also one client, no timeout. **Tabby**: a pending-callback count, 128 KiB per callback.
+- **opencode**: its writer coalesces consecutive chunks and waits for each write's done callback before the next. That is pacing within one client, not between several.
+
+We have several clients on one PTY, some of them unwatched, hence the holder, the time-out and the fresh screen instead of a queue.
+
+Left open:
+
+- `HOLD 2026` (whole synchronized-output frames) belongs in the pacer too (Batch E).

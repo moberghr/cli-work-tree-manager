@@ -10,6 +10,8 @@ import { createRoot, type Root } from 'react-dom/client';
 const h = vi.hoisted(() => {
   const FIT = { cols: 100, rows: 30 };
   const terms: FakeTerminal[] = [];
+  /** What each tab asked openTerminalSocket for. */
+  const socketOpts: Array<{ flow?: boolean }> = [];
   let webglThrows = false;
 
   type KeyHandler = (e: KeyboardEvent) => boolean;
@@ -48,9 +50,17 @@ const h = vi.hoisted(() => {
       this.rows = r;
       this.resizes.push([c, r]);
     }
+    /** Writes parsed later, when the test says (`parsed()`), as xterm's are: their callbacks wait until then. */
+    deferWrites = false;
+    private unparsed: Array<() => void> = [];
     write(data: string | Uint8Array, cb?: () => void) {
-      this.writes.push(typeof data === 'string' ? data : String.fromCharCode(...data));
-      cb?.();
+      this.writes.push(typeof data === 'string' ? data : new TextDecoder('latin1').decode(data));
+      if (!cb) return;
+      if (this.deferWrites) this.unparsed.push(cb);
+      else cb();
+    }
+    parsed() {
+      for (const cb of this.unparsed.splice(0)) cb();
     }
     // A frame drawn (the latency meter's "on screen"); tests call it to draw one.
     renderCb: (() => void) | null = null;
@@ -129,6 +139,7 @@ const h = vi.hoisted(() => {
   return {
     FIT,
     terms,
+    socketOpts,
     webgls,
     FakeTerminal,
     FakeFit,
@@ -148,7 +159,8 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 // The tab's own connection, straight from its relay address (terminal-socket.ts has its own tests: the ticket, the
 // direct connection to the PTY host, the fallback): these drive the socket as the relay's.
 vi.mock('../../src/web/src/api/terminal-socket.js', () => ({
-  openTerminalSocket: (_id: string, opts: { relayUrl: string }) => {
+  openTerminalSocket: (_id: string, opts: { relayUrl: string; flow?: boolean }) => {
+    h.socketOpts.push(opts);
     const ws = new (globalThis as unknown as { WebSocket: new (url: string) => WebSocket }).WebSocket(opts.relayUrl);
     Object.defineProperty(ws, 'route', { value: 'relay' });
     return ws;
@@ -202,7 +214,8 @@ class FakeWebSocket {
   }
 }
 
-import { ELSEWHERE_RECHECK_MS, PtyView, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
+import { ELSEWHERE_RECHECK_MS, PtyView, WRITE_PIECE, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
+import { ACK_EVERY } from '../../src/core/pty/flow-control.js';
 import { WEBGL_RETRY_MS } from '../../src/web/src/state/webgl-recovery.js';
 import { requestTerminalReconnect } from '../../src/web/src/state/terminal-reconnect.js';
 
@@ -291,6 +304,54 @@ describe('PtyView', () => {
     ws.serverOpen();
     act(() => ws.binary('hello'));
     expect(term.writes).toContain('hello');
+  });
+
+  it('asks to be paced, and acks what xterm has finished parsing, every ACK_EVERY characters (counted as the host counts them)', () => {
+    const { ws, term } = mount();
+    expect(h.socketOpts.at(-1)?.flow).toBe(true);
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x'.repeat(ACK_EVERY), cols: 80, rows: 24 }));
+    term.deferWrites = true;
+    const acks = () => ws.sent.filter((m) => (m as { type: string }).type === 'ack');
+    act(() => ws.binary('a'.repeat(ACK_EVERY - 1)));
+    act(() => ws.binary('\xc3\xa9'.repeat(10))); // é: two bytes, one character
+    expect(acks()).toEqual([]); // received, not yet drawn — and a screen is never acked
+    act(() => term.parsed());
+    expect(acks()).toEqual([{ type: 'ack', chars: ACK_EVERY + 9 }]);
+  });
+
+  it('writes a big frame to xterm in pieces (it parses a write whole), acking each as it is drawn', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
+    const before = term.writes.length;
+    act(() => ws.binary('y'.repeat(WRITE_PIECE * 2 + 10)));
+    expect(term.writes.slice(before).map((w) => w.length)).toEqual([WRITE_PIECE, WRITE_PIECE, 10]);
+    expect(ws.sent.filter((m) => (m as { type: string }).type === 'ack')).toEqual([
+      { type: 'ack', chars: WRITE_PIECE },
+      { type: 'ack', chars: WRITE_PIECE },
+    ]);
+  });
+
+  it('a screen sent mid-session (it fell behind and caught up) is drawn over a reset terminal, and nothing else: no focus, no size, no input held', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '<first>', cols: 120, rows: 40 }));
+    act(() => term.type('k'));
+    const sent = [...ws.sent];
+    const focused = term.focused;
+    act(() => ws.binary('stale'));
+    act(() => ws.control({ type: 'replay', data: '<caught up>', cols: 90, rows: 20 }));
+    // Drawn at its grid, after a reset (RIS: in order with what was written before it, the scrollback cleared too)…
+    expect(term.resizes.at(-1)).toEqual([90, 20]);
+    expect(term.writes.at(-1)).toBe('\x1bc<caught up>');
+    // …then fitted here again, the PTY's size left as it is.
+    expect([term.cols, term.rows]).toEqual([h.FIT.cols, h.FIT.rows]);
+    expect(ws.sent).toEqual(sent);
+    expect(term.focused).toBe(focused);
+    // Typing goes straight on, as before.
+    act(() => term.type('z'));
+    expect(ws.sent.at(-1)).toEqual({ type: 'input', data: 'z' });
   });
 
   it("the corner shows when a keystroke's echo was on screen — its first frame, not the spinner's after it — and the debug log gets it", () => {

@@ -36,6 +36,15 @@ const KEYBOARD_STACK_MAX = 8;
 /** C0, DEL and C1: never let a remembered title end or start a sequence when it is written back. */
 const CONTROL = /[\x00-\x1f\x7f-\x9f]/g;
 
+/** Which snapshot: with the scrollback (the default), or the screen only (`scrollback: false`). */
+export interface SnapshotOptions {
+  /**
+   * False: the screen only, no lines above it — a catch-up screen for a native terminal (`work attach`), whose own
+   * scrollback holds your shell's history and, already, the agent's. The state after it is the same either way.
+   */
+  scrollback?: boolean;
+}
+
 /** What the mirror keeps per screen: xterm.js keeps these per buffer, kitty keeps its key flags per screen. */
 export interface ScreenState {
   /** DECSC (ESC 7, CSI s, 1048): the column, and the line counted from the top of the scrollback. */
@@ -177,12 +186,14 @@ export class ScreenMirror {
   /**
    * The screen and scrollback as escape sequences that redraw it, then the state that puts a fresh terminal in
    * the same modes (`rehydrate`). What a client attaching is sent instead of raw output — raw bytes can start
-   * mid-sequence and were drawn for another client's grid. '' if it can't be taken.
+   * mid-sequence and were drawn for another client's grid. '' if it can't be taken. `scrollback: false`: the screen
+   * only (SnapshotOptions). The positions written after it (the saved cursor, the cursor, the normal screen's under the
+   * alternate one) count from the screen's top, so they are the same either way.
    */
-  snapshot(): string {
+  snapshot(opts: SnapshotOptions = {}): string {
     let body: string;
     try {
-      body = this.serializer.serialize();
+      body = this.serializer.serialize(opts.scrollback === false ? { scrollback: 0 } : undefined);
     } catch {
       return '';
     }
@@ -200,12 +211,12 @@ export class ScreenMirror {
   }
 
   /** snapshot(), once everything written so far is parsed: xterm queues writes, and a write's callback runs once it is. */
-  snapshotSettled(): Promise<string> {
+  snapshotSettled(opts: SnapshotOptions = {}): Promise<string> {
     return new Promise((resolve) => {
       try {
-        this.terminal.write('', () => resolve(this.snapshot()));
+        this.terminal.write('', () => resolve(this.snapshot(opts)));
       } catch {
-        resolve(this.snapshot());
+        resolve(this.snapshot(opts));
       }
     });
   }

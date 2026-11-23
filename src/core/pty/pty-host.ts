@@ -12,6 +12,7 @@ import { report } from '../platform/report.js';
 import { isEnvDelta } from '../platform/env-delta.js';
 import { createTicketBook } from './terminal-tickets.js';
 import { replyParts } from './terminal-replies.js';
+import { CATCH_UP_PARAM, FLOW_PARAM } from './flow-control.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
 const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart|\/halt|\/resume)?$/;
@@ -173,6 +174,10 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
       socket.destroy();
       return;
     }
+    // A client that acks what it draws (flow-control.ts) is paced: one too far behind is sent the screen once it caught up.
+    const metered = url.searchParams.get(FLOW_PARAM) === '1';
+    // `work attach`: that screen without the scrollback (its native terminal keeps your history).
+    const screenOnlyCatchUp = url.searchParams.get(CATCH_UP_PARAM) === 'screen';
     wss.handleUpgrade(req, socket, head, (ws) => {
       const attached = registry.attach(
         id,
@@ -190,6 +195,17 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           } catch {
             /* */
           }
+        },
+        {
+          metered,
+          screenOnlyCatchUp,
+          onReplay: (replay) => {
+            try {
+              ws.send(JSON.stringify({ type: 'replay', ...replay }));
+            } catch {
+              /* */
+            }
+          },
         },
       );
       if (!attached) {
@@ -252,6 +268,8 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           size = { cols: msg.cols, rows: msg.rows };
           attached.lead();
           registry.resize(id, msg.cols, msg.rows);
+        } else if (msg.type === 'ack' && Number.isSafeInteger(msg.chars) && msg.chars > 0) {
+          attached.ack(msg.chars);
         }
       });
       ws.on('close', () => attached.detach());

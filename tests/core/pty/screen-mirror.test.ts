@@ -276,6 +276,98 @@ describe('ScreenMirror snapshot round trip', () => {
   });
 });
 
+describe('a screen-only snapshot (scrollback: false): the catch-up screen work attach is sent', () => {
+  const history = Array.from({ length: 300 }, (_, i) => `${CSI}38;5;${i % 256}mline ${i}${CSI}0m`).join('\r\n');
+  /**
+   * Its screen-only snapshot written to a fresh terminal, and over a terminal with your shell's history in it and a
+   * stale screen on the alternate one (as `work attach` writes it: the screen cleared first, never the scrollback).
+   */
+  async function screenOnly(input: string | string[], cols = 30, rows = 8) {
+    const source = mirror(cols, rows);
+    for (const chunk of [input].flat()) await write(source, chunk);
+    const snap = source.snapshot({ scrollback: false });
+    const fresh = browserLike(cols, rows);
+    await write(fresh, snap);
+    const used = browserLike(cols, rows);
+    await write(used, Array.from({ length: 20 }, (_, i) => `shell ${i}`).join('\r\n') + `\r\n${CSI}?1049h${CSI}?1000h${CSI}5;5Hstale`);
+    await write(used, `${CSI}2J${CSI}H` + snap);
+    const copy = mirror(cols, rows);
+    await write(copy, snap);
+    return { source, fresh, used, copy, snap };
+  }
+  /** The same screen (both screens' rows), cursor, modes and region as the source, in both terminals. */
+  async function expectSameScreen(r: Awaited<ReturnType<typeof screenOnly>>) {
+    const src = r.source.terminal;
+    for (const t of [r.fresh, r.used]) {
+      expect(t.buffer.active.type).toBe(src.buffer.active.type);
+      expect(screen(t)).toEqual(screen(src));
+      expect(lines(t, 'normal').slice(-t.rows)).toEqual(lines(src, 'normal').slice(-src.rows));
+      expect(cursor(t)).toEqual(cursor(src));
+      expect(modes(t)).toEqual(modes(src));
+      expect(await modeReplies(t)).toEqual(await modeReplies(src));
+      expect(await regionReply(t)).toEqual(await regionReply(src));
+    }
+    // The mirror keeps the saved cursor as a line of its buffer; on the screen, it is the same line.
+    const onScreen = (m: ScreenMirror) => {
+      const active = m.terminal.buffer.active;
+      const s = carried(m.state(), active.type);
+      const saved = s[active.type].savedCursor;
+      return { ...s, [active.type]: { ...s[active.type], savedCursor: saved && { ...saved, line: saved.line - active.baseY } } };
+    };
+    expect(onScreen(r.copy)).toEqual(onScreen(r.source));
+    // Nothing from above the screen, and your history kept.
+    expect(r.snap).not.toContain('line 100');
+    expect(lines(r.used, 'normal')).toContain('shell 0');
+    expect(r.snap).not.toContain('\x1b[3J');
+  }
+
+  it('carries the screen and none of the scrollback; the full snapshot has it', async () => {
+    const r = await screenOnly(`${history}\r\n$ git sta`);
+    expect(r.source.snapshot()).toContain('line 100');
+    expect(r.snap).toContain('line 299');
+    await expectSameScreen(r);
+  });
+
+  it('the saved cursor, the scroll region and origin mode land where they were on the screen (counted from its top, not the scrollback’s)', async () => {
+    for (const [input, after] of [
+      [`${history}\r\n${CSI}3;4H${ESC}7${CSI}8;1H$ prompt`, `${ESC}8X`],
+      [`${history}\r\n${CSI}5;9H${CSI}s${CSI}2;2H`, `${CSI}uY`],
+      [`${history}\r\n${CSI}2;6r${CSI}?6h${CSI}2;3Hab`, 'cd\r\n\r\n\r\n\r\n\r\nef'],
+    ]) {
+      const r = await screenOnly(input);
+      await expectSameScreen(r);
+      for (const t of [r.source, r.fresh, r.used]) await write(t, after);
+      for (const t of [r.fresh, r.used]) {
+        expect(screen(t)).toEqual(screen(r.source.terminal));
+        expect(cursor(t)).toEqual(cursor(r.source.terminal));
+      }
+    }
+  });
+
+  it('a full-screen agent over a normal screen with history: both screens, and leaving the alternate one lands the same', async () => {
+    const normal = `${history}\r\n$ agent\r\n${CSI}>1u${CSI}1;6r${CSI}4;2H${ESC}7`;
+    const enter = `${CSI}?1049h${CSI}?1002;1006h${CSI}?2004h${CSI}?25l${CSI}5 q${CSI}>3u${CSI}2;7r`;
+    const frame = Array.from({ length: 8 }, (_, i) => `${CSI}${i + 1};1H${CSI}3${i % 8}m row ${i} ${CSI}0m│ 👍 ✅`).join('');
+    const r = await screenOnly([normal, enter, frame, `${CSI}4;6H`]);
+    expect(r.source.terminal.buffer.active.type).toBe('alternate');
+    await expectSameScreen(r);
+    for (const t of [r.source, r.fresh, r.used]) await write(t, `${CSI}?1049l`);
+    for (const t of [r.fresh, r.used]) {
+      expect(screen(t)).toEqual(screen(r.source.terminal));
+      expect(cursor(t)).toEqual(cursor(r.source.terminal));
+      expect(await regionReply(t)).toEqual(await regionReply(r.source.terminal));
+    }
+  });
+
+  it('settled, as the catch-up takes it', async () => {
+    const m = mirror(30, 8);
+    m.write(`${history}\r\nlast`);
+    const snap = await m.snapshotSettled({ scrollback: false });
+    expect(snap).toContain('last');
+    expect(snap).not.toContain('line 100');
+  });
+});
+
 describe('ScreenMirror answering queries', () => {
   function answering(now: () => boolean) {
     const m = mirror(80, 24);

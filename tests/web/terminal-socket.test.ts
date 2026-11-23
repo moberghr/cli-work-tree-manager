@@ -37,11 +37,12 @@ class FakeWs extends EventTarget {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const relay = 'ws://127.0.0.1:54989/ws/sessions/s1/terminal';
-function open(answer: TerminalTicketWire | null, force = false) {
+function open(answer: TerminalTicketWire | null, force = false, flow = false) {
   FakeWs.made = [];
   const asked: boolean[] = [];
   const socket = openTerminalSocket('s1', {
     force,
+    flow,
     relayUrl: relay,
     askTicket: async (_id, f) => (asked.push(f), answer),
     WebSocketImpl: FakeWs as unknown as typeof WebSocket,
@@ -106,6 +107,13 @@ describe('openTerminalSocket', () => {
     await flush();
     expect(r.messages.map((m) => JSON.parse(m as string))).toEqual([{ type: 'error', message: 'archived' }]);
     expect(r.closes()).toBe(1);
+  });
+
+  it('a tab that acks says so on whichever address it connects to: the host’s, and the relay it falls back to', async () => {
+    open({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=old' }, false, true);
+    await flush();
+    FakeWs.made[0].refused();
+    expect(FakeWs.made.map((w) => w.url)).toEqual(['ws://127.0.0.1:1/ptys/s1/attach?ticket=old&flow=1', relay + '?flow=1']);
   });
 
   it('closed before the answer came: connects nothing', async () => {

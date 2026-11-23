@@ -13,6 +13,8 @@ import { logSwallowed, swallow } from '../platform/best-effort.js';
 import { report } from '../platform/report.js';
 import { TerminalColors } from './terminal-colors.js';
 import type { ReplyPart } from './terminal-replies.js';
+import { OutputPacer, type PacerTimers, type PtyFlow } from './output-pacer.js';
+import type { SnapshotOptions } from './screen-mirror.js';
 
 const REPLAY_MAX = 256 * 1024;
 
@@ -42,15 +44,31 @@ export interface PtyLike {
   dispose(): void;
   /** Serialized screen state (see PtySession.serialize). Optional so test
    *  fakes can fall back to the raw replay buffer. */
-  serialize?(): string;
+  serialize?(opts?: SnapshotOptions): string;
   /** The serialized screen once everything written so far is parsed (see
    *  PtySession.serializeSettled). Optional: a fake's screen is its raw buffer. */
-  serializeSettled?(): Promise<string>;
+  serializeSettled?(opts?: SnapshotOptions): Promise<string>;
   /** Visible screen as plain text (PtySession.screenText). */
   screenText?(): string;
   /** Its screen's copy answers the agent's queries in output arriving while `now()` says so (PtySession.answerQueries).
    *  Optional: a fake has no screen to answer from. */
   answerQueries?(now: () => boolean, colors: Pick<TerminalColors, 'reply'>): void;
+  /** Stop and start reading its output, for a client to catch up (PtySession.pause). Optional: where it can't, nothing waits. */
+  pause?(): void;
+  resume?(): void;
+}
+
+/** How a client attaches (`attach`). */
+export interface AttachOptions {
+  /** It acks what it draws (`?flow=1`, flow-control.ts): it is paced. Else it is sent everything, as before. */
+  metered?: boolean;
+  /** It fell behind and caught up: the screen as it stands now, before live output again (the host's `replay` frame). */
+  onReplay?: (replay: ReplaySnapshot) => void;
+  /**
+   * Its catch-up screens are the screen only, without the scrollback (`?catchup=screen`: `work attach`, whose native
+   * terminal keeps its own history). Its first screen still has the scrollback.
+   */
+  screenOnlyCatchUp?: boolean;
 }
 
 /** What a newly attached client is sent first: the screen as it stands,
@@ -79,6 +97,10 @@ export const defaultSpawner: PtySpawner = (spec) =>
 /** An attached client, as its subscription to the output. */
 type Client = (data: string) => void;
 
+/** What pauses the PTY's output, if it can be paused. */
+const flowOf = (pty: PtyLike): PtyFlow | null =>
+  pty.pause && pty.resume ? { pause: () => pty.pause?.(), resume: () => pty.resume?.() } : null;
+
 interface Entry {
   id: string;
   spec: Omit<PersistedPty, 'startedAt'>;
@@ -95,6 +117,8 @@ interface Entry {
   leader: Client | null;
   /** Who answers the queries in the output that arrived last (`designate`): its answers go through, the others' don't. */
   answerer: Client | null;
+  /** Its output on its way to the clients: coalesced into frames, paced by their acks (output-pacer.ts). */
+  pacer: OutputPacer<Client>;
   /** Set once the process exited (the entry lingers FORGET_EXITED_MS). */
   exitCode: number | null;
   /** When it last printed anything (ms): an idle Claude at its prompt prints nothing. */
@@ -124,6 +148,8 @@ export interface RegistryDeps {
   cwdExists?: (cwd: string) => boolean;
   /** The tool as it is started (default: its agent's `sessionTool`, which gives a Claude work's hooks). */
   sessionTool?: (tool: AiToolSpec) => AiToolSpec;
+  /** The output pacer's clock (tests). */
+  timers?: PacerTimers;
 }
 
 /** A restore list in a plain JSON file, written under the file lock. */
@@ -163,6 +189,7 @@ export class PtyRegistry {
   private readonly cwdExists: (cwd: string) => boolean;
   private readonly keepEnvNames: () => string[];
   private readonly sessionTool: (tool: AiToolSpec) => AiToolSpec;
+  private readonly timers?: PacerTimers;
   /** Serializes persistence writes inside this process. */
   private writeChain: Promise<void> = Promise.resolve();
   /** The colours the host answers a colour query with itself: the last a terminal attached to any PTY answered with. */
@@ -175,6 +202,7 @@ export class PtyRegistry {
     this.cwdExists = deps.cwdExists ?? ((p) => fs.existsSync(p));
     this.keepEnvNames = deps.keepEnvNames ?? (() => loadConfig()?.hostEnv ?? []);
     this.sessionTool = deps.sessionTool ?? sessionToolFor;
+    this.timers = deps.timers;
   }
 
   list(): PtyInfo[] {
@@ -220,6 +248,8 @@ export class PtyRegistry {
       // `--fresh` opts out even when one exists.
       resume: !spec.fresh && this.hasConversation(spec.cwd, spec.tool.cmd, spec.env ?? process.env),
     });
+    // The one that holds the PTY (may pause it) is the one that answers the agent: the client used last, else the first attached.
+    const pacer = new OutputPacer<Client>({ flow: null, holder: () => this.pick(entry), timers: this.timers });
     const entry: Entry = {
       id,
       // Only what a restore may reuse: env/prompt/fresh are one-shot (and
@@ -244,6 +274,7 @@ export class PtyRegistry {
       exitSubscribers: new Set(),
       leader: null,
       answerer: null,
+      pacer,
       exitCode: null,
       lastOutputAt: Date.now(),
     };
@@ -274,6 +305,7 @@ export class PtyRegistry {
     // Raw history is only a fallback for PTYs that can't serialize their
     // screen (test fakes) — real sessions replay PtySession.serialize().
     const keepRaw = !pty.serialize;
+    entry.pacer.setFlow(flowOf(pty));
     // Asked as the output arrives (before its screen parses it): with no client attached, the screen's copy answers.
     pty.answerQueries?.(() => this.designate(entry) === null, this.colors);
     pty.setOutputHandler((data) => {
@@ -285,15 +317,12 @@ export class PtyRegistry {
           entry.replay = entry.replay.slice(entry.replay.length - REPLAY_MAX);
         }
       }
-      for (const cb of entry.subscribers) {
-        try {
-          cb(data);
-        } catch {
-          /* subscriber gone */
-        }
-      }
+      // To the clients now, or with what follows within a few ms (output-pacer.ts): who answers it is decided above, as it arrives.
+      entry.pacer.output(data);
     });
     pty.onExit = (code) => {
+      // Its last output before its end, and the final screen to a client that is behind (each told it ended after it).
+      entry.pacer.end();
       entry.exitCode = code;
       for (const cb of entry.exitSubscribers) {
         try {
@@ -319,9 +348,20 @@ export class PtyRegistry {
    * that come back from that client go through.
    */
   private designate(e: Entry): Client | null {
-    const who = e.leader && e.subscribers.has(e.leader) ? e.leader : (e.subscribers.values().next().value ?? null);
+    const who = this.pick(e);
     e.answerer = who;
     return who;
+  }
+
+  /**
+   * `designate`'s choice, without making it: among the clients sent live output (one behind is sent none, so it would
+   * never see the query: output-pacer.ts), the one used last, else the first attached. Also the one that holds the
+   * PTY (may pause it until it has drawn what it was sent).
+   */
+  private pick(e: Entry): Client | null {
+    if (e.leader && e.subscribers.has(e.leader) && e.pacer.live(e.leader)) return e.leader;
+    for (const c of e.subscribers) if (e.pacer.live(c)) return c;
+    return null;
   }
 
   /** The live PTY's visible screen as text; null when there is none (or
@@ -368,11 +408,17 @@ export class PtyRegistry {
    * `lead()`: this client was used (typed in, resized), so it answers the agent's queries from the next output on.
    * `replies(parts)`: what of what this client sent on its own goes to the agent — its focus and mouse-motion reports
    * always, its answers only if it answers the queries in the output that arrived last (`designate`).
+   *
+   * Output reaches it in frames (output-pacer.ts). `opts.metered`: it acks what it draws (`ack(chars)`); if it falls
+   * behind, it is sent nothing until it catches up, then the screen as it stands then (`opts.onReplay`, taken and held
+   * as the attach's is: nothing lost, nothing twice) and live output again. `offset`: the output offset its snapshot
+   * stands at (where its first frame starts).
    */
   attach(
     id: string,
-    onData: (data: string) => void,
+    onData: (data: string, end?: number) => void,
     onExit: (code: number) => void,
+    opts: AttachOptions = {},
   ): {
     replay: ReplaySnapshot;
     ready: Promise<ReplaySnapshot>;
@@ -380,6 +426,8 @@ export class PtyRegistry {
     detach: () => void;
     lead: () => void;
     replies: (parts: ReplyPart[]) => string;
+    ack: (chars: number) => void;
+    offset: number;
     exitedWith: number | null;
   } | null {
     const e = this.entries.get(id);
@@ -393,33 +441,79 @@ export class PtyRegistry {
     const restarting = !!e.restarting || !!e.halted;
     const settled = restarting ? undefined : e.pty.serializeSettled;
     // Held output while the settled snapshot is taken; null = passed straight on.
-    let held: string[] | null = settled ? [] : null;
-    const sub = (d: string) => (held ? held.push(d) : onData(d));
-    if (exitedWith === null) {
-      e.subscribers.add(sub);
-      e.exitSubscribers.add(onExit);
-    }
+    let held: Array<[string, number | undefined]> | null = settled ? [] : null;
+    let started = !settled;
+    let gone = false;
+    const sub = (d: string, end?: number) => (held ? held.push([d, end]) : onData(d, end));
     const snapshot = (data: string): ReplaySnapshot => ({ data, cols: e.cols, rows: e.rows });
+    // A catch-up screen being taken (resync): output held meanwhile, and the PTY's end, told after the screen.
+    let catchingUp = false;
+    let endedWith: number | null = null;
+    const exitSub = (code: number) => {
+      if (catchingUp) endedWith = code;
+      else onExit(code);
+    };
+    // It fell behind and caught up (output-pacer.ts): the screen as it stands now, the output from now on held until it is sent.
+    const resync = () => {
+      // Before its first screen nothing could have been acked; after it left, nobody to send it to.
+      if (gone || !started) return;
+      const shot: SnapshotOptions | undefined = opts.screenOnlyCatchUp ? { scrollback: false } : undefined;
+      // Mid-restart the old process's screen is gone with it: an empty screen, the new one draws from scratch.
+      const between = !!e.restarting || !!e.halted;
+      const settle = between ? undefined : e.pty.serializeSettled;
+      if (!settle) {
+        opts.onReplay?.(snapshot(between ? '' : e.pty.serialize?.(shot) || e.replay));
+        return;
+      }
+      const mine: Array<[string, number | undefined]> = [];
+      held = mine;
+      catchingUp = true;
+      void settle
+        .call(e.pty, shot)
+        .catch(() => '')
+        .then((data) => {
+          if (gone || held !== mine) return;
+          opts.onReplay?.(snapshot(data || e.replay));
+          held = null;
+          catchingUp = false;
+          for (const [d, end] of mine) onData(d, end);
+          if (endedWith !== null) onExit(endedWith);
+        });
+    };
+    if (exitedWith === null) {
+      // Joins at the current offset: what arrived before is in its snapshot (the pacer sends what was pending first).
+      e.pacer.add(sub, { metered: !!opts.metered, send: sub, resync });
+      e.subscribers.add(sub);
+      e.exitSubscribers.add(exitSub);
+    }
+    const offset = e.pacer.offset;
     const replay = snapshot(restarting ? '' : e.pty.serialize?.() || e.replay);
     return {
       exitedWith,
       replay,
+      offset,
       ready: settled ? settled.call(e.pty).then((d) => snapshot(d || e.replay)) : Promise.resolve(replay),
       start: () => {
         const q = held;
         held = null;
-        for (const d of q ?? []) onData(d);
+        started = true;
+        for (const [d, end] of q ?? []) onData(d, end);
       },
       detach: () => {
+        gone = true;
         e.subscribers.delete(sub);
-        e.exitSubscribers.delete(onExit);
+        e.exitSubscribers.delete(exitSub);
         if (e.leader === sub) e.leader = null;
         // It left before answering, maybe: the next in line answers what it was sent (it was sent the same).
         if (e.answerer === sub) this.designate(e);
+        // Holding the PTY paused, maybe: the next in line holds it, or nobody does and it reads on.
+        e.pacer.remove(sub);
       },
       lead: () => {
         e.leader = sub;
+        e.pacer.used(sub);
       },
+      ack: (chars) => e.pacer.ack(sub, chars),
       replies: (parts) => {
         const answers = e.answerer === sub;
         let out = '';
@@ -453,6 +547,7 @@ export class PtyRegistry {
     const attached = [...e.exitSubscribers];
     e.subscribers.clear();
     e.exitSubscribers.clear();
+    e.pacer.dispose();
     const exited = e.pty.exited
       ? Promise.resolve(e.exitCode ?? 0)
       : new Promise<number>((resolve) => {
@@ -555,6 +650,9 @@ export class PtyRegistry {
   private async haltEntry(e: Entry, timeoutMs: number): Promise<boolean> {
     const id = e.id;
     const old = e.pty;
+    // Its last output to the clients, and no pause left on a process that is going.
+    e.pacer.flush();
+    e.pacer.setFlow(null);
     const stopped = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), timeoutMs);
       old.onExit = () => {
@@ -625,6 +723,7 @@ export class PtyRegistry {
     const attached = [...e.exitSubscribers];
     e.subscribers.clear();
     e.exitSubscribers.clear();
+    e.pacer.dispose();
     await this.persist();
     for (const cb of attached) {
       try {
@@ -667,6 +766,7 @@ export class PtyRegistry {
       e.pty.onExit = undefined;
       e.subscribers.clear();
       e.exitSubscribers.clear();
+      e.pacer.dispose();
       e.pty.dispose();
     }
     this.entries.clear();
