@@ -13,7 +13,8 @@ import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
 import { ScreenMirror, type HeadlessTerminal, type SnapshotOptions } from './screen-mirror.js';
-import { windowsPtyFor } from './terminal-size.js';
+import { windowsPtyFor, type WindowsPty } from './terminal-size.js';
+import { SyncScanner, cutAtFrameEnds } from './sync-output.js';
 import type { TerminalColors } from './terminal-colors.js';
 
 type Fork = typeof childProcess.fork;
@@ -202,6 +203,20 @@ export function conptyOptions(platform: NodeJS.Platform, useBundled: boolean): {
   return platform === 'win32' && useBundled ? { useConptyDll: true } : {};
 }
 
+/**
+ * The ConPTY a PTY starts on (`options`, node-pty's) and the `windowsPty` its screens say (terminal-size.ts), decided
+ * together so they can't disagree: the bundled one behaves as a newer Windows than `release` says. Pure.
+ */
+export function conptyFor(
+  platform: NodeJS.Platform,
+  release: string,
+  useBundled: boolean,
+): { options: { useConptyDll?: boolean }; windowsPty?: WindowsPty } {
+  const options = conptyOptions(platform, useBundled);
+  const windowsPty = windowsPtyFor(platform, release, options.useConptyDll === true);
+  return windowsPty ? { options, windowsPty } : { options };
+}
+
 /** Config `agentsLowPriority`, read at each start (off when config can't be read). */
 function readAgentsLowPriority(): boolean {
   try {
@@ -277,6 +292,10 @@ export class PtySession {
   private paused = false;
   /** The PTY host's copy of the screen (screen-mirror.ts): what a client attaching is sent first. */
   private readonly mirror: ScreenMirror;
+  /** The ConPTY it runs on, as xterm.js's `windowsPty` (its screens say it, pty-registry.ts); undefined off Windows. */
+  readonly windowsPty?: WindowsPty;
+  /** Where its output is in synchronized frames (sync-output.ts): it is cut at each frame's end. */
+  private readonly frames = new SyncScanner();
   readonly cwd: string;
   private outputHandler?: (data: string) => void;
   private _exited = false;
@@ -286,8 +305,11 @@ export class PtySession {
 
   constructor(cwd: string, cols: number, rows: number, command?: { cmd: string; args: string[] }, aiOptions?: PtyAiOptions) {
     this.cwd = cwd;
+    // Which ConPTY, read once: node-pty starts on it, and the screens say how it reflows (config useBundledConpty).
+    const conpty = conptyFor(process.platform, os.release(), readUseBundledConpty());
+    if (conpty.windowsPty) this.windowsPty = conpty.windowsPty;
     // ConPTY reflows lines itself on a resize: the copy is told so, as the Terminal tab is (the replay frame).
-    this.mirror = new ScreenMirror(cols, rows, undefined, { windowsPty: windowsPtyFor(process.platform, os.release()) });
+    this.mirror = new ScreenMirror(cols, rows, undefined, { windowsPty: conpty.windowsPty });
 
     let rawCmd: string;
     let rawArgs: string[];
@@ -337,7 +359,7 @@ export class PtySession {
       cols,
       rows,
       env: (batchEnv as Record<string, string> | undefined) ?? env,
-      ...conptyOptions(process.platform, readUseBundledConpty()),
+      ...conpty.options,
     });
     // node-pty's start is synchronous (Windows: creating the pseudo-console): a slow one holds up the whole host.
     const slow = slowStart(Date.now() - started);
@@ -378,8 +400,12 @@ export class PtySession {
     }
 
     this.pty.onData((data) => {
-      this.mirror.write(data);
-      this.outputHandler?.(data);
+      // Cut at each synchronized frame's end, the screen copy written and the output passed on piece by piece: a client
+      // joining (or caught up) at a frame's end is sent a screen of exactly what came before it (pty-registry.ts).
+      for (const piece of cutAtFrameEnds(this.frames, data)) {
+        this.mirror.write(piece);
+        this.outputHandler?.(piece);
+      }
       // Log first 500 chars of PTY output for debugging early exits
       if (!this._loggedOutput) {
         this._outputBuffer = (this._outputBuffer || '') + data;

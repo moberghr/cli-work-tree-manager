@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { canPauseOutput, conptyOptions, lowerPriority, slowStart } from '../../../src/core/pty/pty-session.js';
+import { canPauseOutput, conptyFor, conptyOptions, lowerPriority, slowStart } from '../../../src/core/pty/pty-session.js';
 import { loadConfig } from '../../../src/core/platform/config.js';
 
 describe('which ConPTY a terminal starts on (config useBundledConpty)', () => {
@@ -11,6 +11,15 @@ describe('which ConPTY a terminal starts on (config useBundledConpty)', () => {
     expect(conptyOptions('win32', false)).toEqual({});
     expect(conptyOptions('darwin', true)).toEqual({});
     expect(conptyOptions('linux', true)).toEqual({});
+  });
+
+  it('the windowsPty its clients are told follows the ConPTY the PTY is spawned on', () => {
+    expect(conptyFor('win32', '10.0.19045', true)).toEqual({
+      options: { useConptyDll: true },
+      windowsPty: { backend: 'conpty', buildNumber: 21376 },
+    });
+    expect(conptyFor('win32', '10.0.19045', false)).toEqual({ options: {}, windowsPty: { backend: 'conpty', buildNumber: 19045 } });
+    expect(conptyFor('darwin', '25.0.0', true)).toEqual({ options: {} });
   });
 
   it('config takes a boolean, and only that', () => {

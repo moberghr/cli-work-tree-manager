@@ -71,6 +71,8 @@ export interface PtyLike {
   /** Stop and start reading its output, for a client to catch up (PtySession.pause). Optional: where it can't, nothing waits. */
   pause?(): void;
   resume?(): void;
+  /** The ConPTY it runs on (PtySession.windowsPty: the bundled one reflows as a newer Windows). Optional: the host's is said. */
+  readonly windowsPty?: WindowsPty;
 }
 
 /** How a client attaches (`attach`). */
@@ -537,17 +539,19 @@ export class PtyRegistry {
     let started = !settled;
     let gone = false;
     const sub = (d: string, end?: number) => (held ? held.push([d, end]) : onData(d, end));
+    // On Windows (the host says so), the ConPTY this PTY runs on: the bundled one reflows as a newer build than the OS's.
+    const windowsPty = this.windowsPty ? (e.pty.windowsPty ?? this.windowsPty) : undefined;
     const snapshot = (data: string): ReplaySnapshot => ({
       data,
       cols: e.cols,
       rows: e.rows,
-      ...(this.windowsPty ? { windowsPty: this.windowsPty } : {}),
+      ...(windowsPty ? { windowsPty } : {}),
     });
-    // A catch-up screen being taken (resync): output held meanwhile, and the PTY's end, told after the screen.
+    // A screen being taken (its first, a catch-up): output held meanwhile, and the PTY's end, told after the screen.
     let catchingUp = false;
     let endedWith: number | null = null;
     const exitSub = (code: number) => {
-      if (catchingUp) endedWith = code;
+      if (catchingUp || !started) endedWith = code;
       else onExit(code);
     };
     // It fell behind and caught up (output-pacer.ts): the screen as it stands now, the output from now on held until it is sent.
@@ -577,9 +581,27 @@ export class PtyRegistry {
           if (endedWith !== null) onExit(endedWith);
         });
     };
-    if (exitedWith === null) {
-      // Joins at the current offset: what arrived before is in its snapshot (the pacer sends what was pending first).
+    // Its first screen: taken where it joins the output (`join`), as a promise of it.
+    let resolveReady: (r: ReplaySnapshot) => void = () => {};
+    const ready = new Promise<ReplaySnapshot>((resolve) => (resolveReady = resolve));
+    let offset = e.pacer.offset;
+    /**
+     * It joins the output here, and its first screen is taken here: what came before is on that screen, what comes after
+     * is sent to it (the pacer sends what was pending to the others first). Between synchronized frames (whenNoFrame):
+     * mid-frame, at the frame's end (or its cap) — the PTY's output is cut there (PtySession), so the screen is exactly
+     * what came before, never one drawn halfway (a screen has no 2026 in it to hold the client's drawing).
+     */
+    const join = (entryGone: boolean) => {
+      if (gone || entryGone || this.entries.get(id) !== e) {
+        resolveReady(snapshot(''));
+        return;
+      }
       e.pacer.add(sub, { metered: !!opts.metered, send: sub, resync });
+      offset = e.pacer.offset;
+      if (settled) void settled.call(e.pty).then((d) => resolveReady(snapshot(d || e.replay)));
+      else resolveReady(snapshot(restarting ? '' : e.pty.serialize?.() || e.replay));
+    };
+    if (exitedWith === null) {
       e.subscribers.add(sub);
       e.exitSubscribers.add(exitSub);
       // It stated its grid: it takes the size now, as its first resize would have (it is the one used last), and the
@@ -598,18 +620,29 @@ export class PtyRegistry {
         }
       }
     }
-    const offset = e.pacer.offset;
     const replay = snapshot(restarting ? '' : e.pty.serialize?.() || e.replay);
+    if (exitedWith !== null) resolveReady(replay);
+    // After the resize: the screen copy applies it in order with the output before it (ScreenMirror.resize), and the
+    // screen is taken behind both.
+    else e.pacer.whenNoFrame(join);
     return {
       exitedWith,
       replay,
-      offset,
-      ready: settled ? settled.call(e.pty).then((d) => snapshot(d || e.replay)) : Promise.resolve(replay),
+      get offset() {
+        return offset;
+      },
+      ready,
       start: () => {
         const q = held;
         held = null;
         started = true;
         for (const [d, end] of q ?? []) onData(d, end);
+        // It ended while its first screen was being taken: told after that screen and the output before its end.
+        if (endedWith !== null && !catchingUp) {
+          const code = endedWith;
+          endedWith = null;
+          onExit(code);
+        }
       },
       detach: () => {
         gone = true;

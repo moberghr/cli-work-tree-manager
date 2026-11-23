@@ -7,6 +7,7 @@ import {
   sameGrid,
   validGrid,
   windowsPtyFor,
+  CONPTY_REFLOW_BUILD,
   withGrid,
 } from '../../../src/core/pty/terminal-size.js';
 
@@ -64,6 +65,14 @@ describe('terminal-size', () => {
     expect(windowsPtyFor('win32', 'garbage')).toBeUndefined();
     expect(windowsPtyFor('darwin', '25.0.0')).toBeUndefined();
     expect(windowsPtyFor('linux', '6.8.0-45-generic')).toBeUndefined();
+  });
+
+  it('on the bundled ConPTY (node-pty 1.1.0: Windows Terminal 1.23) a build that reflows, whatever Windows it runs on', () => {
+    expect(windowsPtyFor('win32', '10.0.19045', true)).toEqual({ backend: 'conpty', buildNumber: CONPTY_REFLOW_BUILD });
+    expect(windowsPtyFor('win32', '10.0.26100', true)).toEqual({ backend: 'conpty', buildNumber: 26100 });
+    expect(windowsPtyFor('win32', 'garbage', true)).toEqual({ backend: 'conpty', buildNumber: CONPTY_REFLOW_BUILD });
+    expect(windowsPtyFor('darwin', '25.0.0', true)).toBeUndefined();
+    expect(CONPTY_REFLOW_BUILD).toBe(21376); // xterm.js reflows from this build on, and drops its windowsMode heuristics
   });
 
   it('a windowsPty read off the wire is shape-checked', () => {

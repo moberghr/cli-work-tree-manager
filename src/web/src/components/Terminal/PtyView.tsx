@@ -19,6 +19,7 @@ import { TERMINAL_THEME } from '../../../../core/pty/terminal-colors.js';
 import { AckCounter, ackFrame, utf16Length } from '../../../../core/pty/flow-control.js';
 import { isWindowsPty, validGrid, type Grid } from '../../../../core/pty/terminal-size.js';
 import { FitScheduler } from '../../state/fit-scheduler.js';
+import { RepaintScroll } from '../../state/repaint-scroll.js';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -172,6 +173,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     term.unicode.activeVersion = '11';
     term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
     term.open(hostRef.current);
+    // A view scrolled up stays on what you were reading when the agent reprints its transcript (repaint-scroll.ts).
+    const repaint = new RepaintScroll(term);
     // GPU renderer: the DOM renderer is what makes a busy Claude feel
     // sluggish (every spinner frame re-lays out spans). Must load after
     // open(). Falls back to DOM if WebGL is unavailable; a lost context (GPU
@@ -342,7 +345,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const writeOutput = (bytes: Uint8Array) =>
       inPieces(bytes, (piece) => {
         const chars = utf16Length(piece);
-        term.write(piece, () => acks.drawn(chars));
+        term.write(piece, () => {
+          acks.drawn(chars);
+          repaint.written();
+        });
       });
     // A screen: in pieces, `done` once the last is drawn. Never acked (the host doesn't count it).
     const writeScreen = (text: string, done: () => void) => inPieces(text, (piece, last) => term.write(piece, last ? done : undefined));
@@ -549,6 +555,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       } catch {
         /* */
       }
+      repaint.dispose();
       term.dispose();
     };
   }, [sessionId, generation]);

@@ -411,12 +411,13 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
   });
 
   it('the screen copy is reflowed to the stated grid before the snapshot; nothing lost or doubled around it', async () => {
-    /** Says the grid its screen copy had when each snapshot was taken. */
+    /** Says the grid its screen copy had when each snapshot was taken (once what was written before it is parsed). */
     class SizedMirrorPty extends MirrorPty {
       readonly shotsAt: string[] = [];
-      override serializeSettled(opts?: SnapshotOptions) {
+      override async serializeSettled(opts?: SnapshotOptions) {
+        const shot = await super.serializeSettled(opts);
         this.shotsAt.push(`${this.mirror.terminal.cols}x${this.mirror.terminal.rows}`);
-        return super.serializeSettled(opts);
+        return shot;
       }
     }
     makePty = () => new SizedMirrorPty();

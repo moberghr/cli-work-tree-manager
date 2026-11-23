@@ -1,4 +1,5 @@
 import { HIGH_WATERMARK, LOW_WATERMARK } from './flow-control.js';
+import { SyncScanner } from './sync-output.js';
 
 /**
  * The output path of one PTY, between its arriving and its clients (terminal-rendering.md, "Flow control and
@@ -18,6 +19,12 @@ import { HIGH_WATERMARK, LOW_WATERMARK } from './flow-control.js';
  * what was pending sent first, so a frame is never sent twice, nor to a client whose snapshot already has it. A
  * client falls behind only right after a whole frame went to it (or, the holder, at its time-out after what was
  * pending went to it): whatever query it was chosen to answer as the output arrived reached it.
+ *
+ * - **Synchronized frames.** Output between an agent's `CSI ? 2026 h` and `CSI ? 2026 l` (sync-output.ts, followed as it
+ *   arrives) is held and goes out as one frame when it ends, whatever COALESCE_MS and MAX_FRAME_CHARS say — or once it
+ *   was held FRAME_HOLD_MS or grew past FRAME_HOLD_MAX_CHARS, when what is held goes out and the rest of it flows as any
+ *   output does. Nothing is decided in the middle of a frame: a pause, a catch-up screen and a client joining
+ *   (`whenNoFrame`) wait for its end, so no client is ever sent half a frame, or a screen of one.
  *
  * Every frame ends at an offset: the characters of output since the PTY's entry was spawned (a restart keeps
  * counting). A reconnecting client may later ask to be sent only what it missed from there.
@@ -40,6 +47,14 @@ export const PAUSE_TIMEOUT_MS = 500;
  * (~17 ms at the mirror's full 2000 lines), and a client slower than a flood would otherwise ask for one every few ms.
  */
 export const CATCH_UP_MIN_MS = 500;
+/**
+ * The longest a synchronized frame is held whole: past it, what came of it goes out (and the rest of it as it comes), so
+ * an agent that stops mid-frame never freezes its views for longer — nor a client attaching, whose screen waits for the
+ * frame's end. A frame an agent writes at once arrives in a few ms (terminal-rendering.md, "Synchronized output").
+ */
+export const FRAME_HOLD_MS = 200;
+/** The most of one synchronized frame held: more than an inline agent's full reprint of the mirror's 2000 lines (~410 KiB). */
+export const FRAME_HOLD_MAX_CHARS = 1024 * 1024;
 
 export interface PacerTimers {
   now(): number;
@@ -80,6 +95,8 @@ interface ClientState {
   /** When it was last sent a screen (its attach, a catch-up). */
   snapshotAt: number;
   catchUp: unknown;
+  /** Its catch-up waits for the frame being held to end. */
+  catchUpAfterFrame: boolean;
 }
 
 export interface PacerStats {
@@ -100,6 +117,14 @@ export class OutputPacer<K> {
   private flow: PtyFlow | null;
   private readonly timers: PacerTimers;
   private readonly holder: () => K | null;
+  /** Where the output is in synchronized frames, as it arrives. */
+  private readonly sync = new SyncScanner();
+  /** A synchronized frame being held (its output is in `pending`): until it ends, or its time or size cap. */
+  private frame: { timer: unknown } | null = null;
+  /** The frame open now was let go at its cap: the rest of it flows as any output does, until it ends. */
+  private letGo = false;
+  /** What waits for no frame to be held (a client joining, a catch-up): `gone` once the PTY's entry is disposed. */
+  private waiting: Array<(gone: boolean) => void> = [];
 
   constructor(deps: { flow: PtyFlow | null; holder: () => K | null; timers?: PacerTimers }) {
     this.flow = deps.flow;
@@ -117,29 +142,58 @@ export class OutputPacer<K> {
     return this.paused !== null;
   }
 
-  /** Output arrived: sent at once if it is the first of a quiet moment, else with what follows within COALESCE_MS. */
+  /** Whether a synchronized frame is being held now. */
+  get inFrame(): boolean {
+    return this.frame !== null;
+  }
+
+  /**
+   * Output arrived: sent at once if it is the first of a quiet moment, else with what follows within COALESCE_MS — or,
+   * inside a synchronized frame, held until the frame ends.
+   */
   output(data: string): void {
     if (!data) return;
-    if (this.pendingLength && this.pendingLength + data.length > MAX_FRAME_CHARS) this.flushPending();
-    this.total += data.length;
-    if (this.window === null) {
-      this.window = this.timers.set(() => this.windowEnd(), COALESCE_MS);
-      this.deliver(data);
-      return;
+    let from = 0;
+    for (const change of this.sync.feed(data)) {
+      this.piece(data.slice(from, change.at), change.open);
+      from = change.at;
     }
-    this.pending.push(data);
-    this.pendingLength += data.length;
+    if (from < data.length) this.piece(data.slice(from), this.sync.open);
   }
 
-  /** Send what is pending now (the PTY ended, a client joins). */
+  /**
+   * `fn` once no frame is held: now if none is, else at the end of the one being held (or its cap), right after it went
+   * to the clients. `gone`: the entry was disposed first. A client joining then is sent nothing of that frame — its
+   * screen, taken then, has all of it.
+   */
+  whenNoFrame(fn: (gone: boolean) => void): void {
+    if (this.frame) this.waiting.push(fn);
+    else fn(false);
+  }
+
+  /** Send what is pending now, a frame being held included (the process is stopping). */
   flush(): void {
+    this.letFrameGo(false);
     this.flushPending();
   }
 
-  /** A client joins at the current offset: what arrived before it is in its snapshot and is not sent to it. */
+  /**
+   * A client joins at the current offset: what arrived before it is in its snapshot and is not sent to it. (The registry
+   * joins clients between frames, `whenNoFrame`; one joining mid-frame has what is held sent to the others first.)
+   */
   add(key: K, client: PacedClient): void {
+    this.letFrameGo(this.sync.open);
     this.flushPending();
-    this.clients.set(key, { client, sent: 0, acked: 0, behind: false, mayPause: true, snapshotAt: this.timers.now(), catchUp: null });
+    this.clients.set(key, {
+      client,
+      sent: 0,
+      acked: 0,
+      behind: false,
+      mayPause: true,
+      snapshotAt: this.timers.now(),
+      catchUp: null,
+      catchUpAfterFrame: false,
+    });
     this.evaluate();
   }
 
@@ -180,8 +234,10 @@ export class OutputPacer<K> {
     return c ? { sent: c.sent, acked: c.acked, unacked: c.sent - c.acked, behind: c.behind } : null;
   }
 
-  /** The PTY's process changed (a restart) or ended (null): a pause of the old one is over. */
+  /** The PTY's process changed (a restart) or ended (null): a pause of the old one is over, and so is any frame it had open. */
   setFlow(flow: PtyFlow | null): void {
+    this.letFrameGo(false);
+    this.sync.reset();
     this.release();
     this.flow = flow;
     this.evaluate();
@@ -193,6 +249,7 @@ export class OutputPacer<K> {
    * ended once that screen is sent).
    */
   end(): void {
+    this.letFrameGo(false);
     this.flushPending();
     this.setFlow(null);
     for (const c of [...this.clients.values()]) {
@@ -209,15 +266,77 @@ export class OutputPacer<K> {
     this.flow = null;
     if (this.window !== null) this.timers.clear(this.window);
     this.window = null;
+    if (this.frame) this.timers.clear(this.frame.timer);
+    this.frame = null;
     for (const c of this.clients.values()) if (c.catchUp !== null) this.timers.clear(c.catchUp);
     this.clients.clear();
     this.pending = [];
     this.pendingLength = 0;
+    // Nobody waits for a frame of an entry that is gone.
+    for (const fn of this.waiting.splice(0)) fn(true);
+  }
+
+  /** A piece of output after which a synchronized frame is `open` (or not): held while one is, else coalesced. */
+  private piece(text: string, open: boolean): void {
+    this.total += text.length;
+    if (this.frame) {
+      this.hold(text);
+      if (!open) this.frameEnded();
+      else if (this.pendingLength > FRAME_HOLD_MAX_CHARS) this.letFrameGo(true);
+      return;
+    }
+    if (open && !this.letGo) {
+      // A frame starts: held from here, with what was pending before it, until it ends (one frame on the wire).
+      this.frame = { timer: this.timers.set(() => this.letFrameGo(this.sync.open), FRAME_HOLD_MS) };
+      this.hold(text);
+      return;
+    }
+    if (!open) this.letGo = false;
+    if (this.pendingLength && this.pendingLength + text.length > MAX_FRAME_CHARS) this.flushPending();
+    if (this.window === null) {
+      this.window = this.timers.set(() => this.windowEnd(), COALESCE_MS);
+      this.deliver(text);
+      return;
+    }
+    this.hold(text);
+  }
+
+  private hold(text: string): void {
+    this.pending.push(text);
+    this.pendingLength += text.length;
+  }
+
+  /** The frame being held ended: it goes out now, whole, and then what waited for its end. */
+  private frameEnded(): void {
+    if (!this.frame) return;
+    this.timers.clear(this.frame.timer);
+    this.frame = null;
+    this.flushPending();
+    this.afterFrame();
+  }
+
+  /**
+   * Stop holding the frame (its cap, a client joining mid-frame, the process stopping): what is held goes out with
+   * what is pending, and what waited for its end goes on. `stillOpen`: the rest of it flows as any output does.
+   */
+  private letFrameGo(stillOpen: boolean): void {
+    if (!this.frame) return;
+    this.timers.clear(this.frame.timer);
+    this.frame = null;
+    this.letGo = stillOpen;
+    this.flushPending();
+    this.afterFrame();
+  }
+
+  private afterFrame(): void {
+    for (const fn of this.waiting.splice(0)) fn(false);
+    this.evaluate();
   }
 
   private windowEnd(): void {
     this.window = null;
-    if (!this.pendingLength) return; // quiet: the next output goes at once
+    // Quiet: the next output goes at once. A frame being held goes when it ends.
+    if (!this.pendingLength || this.frame) return;
     this.window = this.timers.set(() => this.windowEnd(), COALESCE_MS);
     this.flushPending();
   }
@@ -252,7 +371,10 @@ export class OutputPacer<K> {
     this.evaluate();
   }
 
-  /** Pause the PTY for its holder above HIGH_WATERMARK, resume it below LOW_WATERMARK — or when nobody holds it any more. */
+  /**
+   * Pause the PTY for its holder above HIGH_WATERMARK, resume it below LOW_WATERMARK — or when nobody holds it any more.
+   * Never paused mid-frame: the rest of the frame could not be read, nor the frame sent, until the pause timed out.
+   */
   private evaluate(): void {
     const key = this.holder();
     const h = key === null ? undefined : this.clients.get(key);
@@ -261,7 +383,7 @@ export class OutputPacer<K> {
       if (holds && this.paused.by === h && h.sent - h.acked >= LOW_WATERMARK) return; // still waiting for it
       this.release();
     }
-    if (holds && h.sent - h.acked > HIGH_WATERMARK) this.pause(h);
+    if (holds && !this.frame && h.sent - h.acked > HIGH_WATERMARK) this.pause(h);
   }
 
   private pause(h: ClientState): void {
@@ -287,6 +409,8 @@ export class OutputPacer<K> {
   /** The PTY waited for its holder long enough: it goes on, and the holder is behind (what was pending went to it first). */
   private timedOut(h: ClientState): void {
     if (this.paused?.by !== h) return;
+    // A frame begun in output read just before the pause goes to it too: it may hold a query it was chosen to answer.
+    this.letFrameGo(this.sync.open);
     this.flushPending();
     h.behind = true;
     h.mayPause = false;
@@ -307,9 +431,22 @@ export class OutputPacer<K> {
     this.catchUp(c);
   }
 
-  /** It caught up: what arrived meanwhile goes to the others (its snapshot has it), then it is sent the screen and live output. */
+  /**
+   * It caught up: what arrived meanwhile goes to the others (its snapshot has it), then it is sent the screen and live
+   * output — between frames: its screen is never one drawn halfway.
+   */
   private catchUp(c: ClientState): void {
     if (!c.behind || ![...this.clients.values()].includes(c)) return;
+    if (this.frame) {
+      if (!c.catchUpAfterFrame) {
+        c.catchUpAfterFrame = true;
+        this.waiting.push(() => {
+          c.catchUpAfterFrame = false;
+          this.catchUp(c);
+        });
+      }
+      return;
+    }
     this.flushPending();
     c.behind = false;
     c.snapshotAt = this.timers.now();

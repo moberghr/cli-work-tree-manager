@@ -118,7 +118,7 @@ Left as is, and why:
 
 Output used to go to every client chunk by chunk, as fast as the agent wrote it. A tab that drew slower than that (a flood, a background tab) queued megabytes in xterm.js (it throws past 50 MB), and the host sent a WebSocket frame per node-pty read. Now one module sits between the PTY's output and its clients: `core/pty/output-pacer.ts` (pure, timers injected), one per registry entry. The shared numbers and the client side are in `core/pty/flow-control.ts` (pure, import-free; the SPA imports it).
 
-**Coalescing.** The first output after a quiet moment goes out at once, so a keystroke's echo waits for nothing. Whatever arrives within the next `COALESCE_MS` (5) goes out as one frame, up to `MAX_FRAME_CHARS` (64 KiB). A single chunk bigger than that goes alone. The mirror is still written chunk by chunk (PtySession, before the registry sees it), and the window stays open while output keeps coming.
+**Coalescing.** The first output after a quiet moment goes out at once, so a keystroke's echo waits for nothing. Whatever arrives within the next `COALESCE_MS` (5) goes out as one frame, up to `MAX_FRAME_CHARS` (64 KiB). A single chunk bigger than that goes alone. The mirror is still written chunk by chunk (PtySession, before the registry sees it), and the window stays open while output keeps coming. A synchronized frame (DEC 2026) is not coalesced this way: it is held whole (see "Synchronized output").
 
 **Acks.** A client that acks says so with `?flow=1` on its attach address (`withFlow`). It sends `{ type: 'ack', chars }` every `ACK_EVERY` (5 000) characters it has finished drawing. The browser counts in `term.write`'s callback, `work attach` in `process.stdout.write`'s. The unit is the host's: UTF-16 code units, the length of the string it sent. A client receives UTF-8 and counts it with `utf16Length` without decoding: one per sequence, two for a 4-byte one, and the counts still add up when a frame is cut inside a sequence. A screen (a replay frame) is never counted or acked.
 
@@ -170,9 +170,7 @@ Every run's final screen equals the unpaced one and the host mirror's.
 
 We have several clients on one PTY, some of them unwatched, hence the holder, the time-out and the fresh screen instead of a queue.
 
-Left open:
-
-- `HOLD 2026` (whole synchronized-output frames) belongs in the pacer too (Batch E).
+Whole synchronized-output frames (`HOLD 2026`) are in the pacer now: see "Synchronized output".
 
 ## Resizing and attaching at a size
 
@@ -194,7 +192,7 @@ Left open:
 
 So the snapshot is at the client's grid:
 
-- **The mirror** has reflowed to it now.
+- **The mirror** reflows to it in order with the output before it: once that output is parsed, at the grid it was drawn for (`ScreenMirror.resize`), and the settled snapshot is taken behind both.
 - **The agent's repaint** (its SIGWINCH answer) arrives after the attach. Like any output after the attach, it is held for this client until `start()` and then sent as live output. Nothing is lost or doubled: what came before is in the snapshot, and what came after is in the held output, once (`ParsingPty`-style tests in `pty-registry.test.ts` and `pty-host.test.ts`).
 
 The client draws the snapshot at its own grid: there is no second reflow and no repaint after the fact.
@@ -234,6 +232,8 @@ An older host drops the frame.
 - its mirror (`ScreenMirror`'s option, set by `PtySession`);
 - every replay frame. The tab sets it on its xterm.js.
 
+The build follows the ConPTY each PTY actually runs on (`conptyFor`, `pty-session.ts`). With the bundled one (`useBundledConpty`: node-pty 1.1.0's `third_party/conpty/1.23.251008001`, Windows Terminal 1.23), it is at least `CONPTY_REFLOW_BUILD` (21376) whatever the OS build, because that ConPTY reflows; Tabby reports 21376 the same way. `PtySession.windowsPty` says it for that PTY and the registry sends it over the host's (`PtyLike.windowsPty`). A registry with no `windowsPty` (not on Windows) sends none.
+
 xterm.js 6 then reflows lines on a resize only from build 21376, where ConPTY reflows them too. Below that build it turns on its wrapping heuristics. On a grow, it adds rows at the bottom instead of pulling lines back from the scrollback, because ConPTY reprints its view. Without this, a resize drew ConPTY's reflow over xterm.js's own.
 
 The registry sets none by default. The host passes it (`startPtyHost`), so a test's registry says the same on every CI platform.
@@ -246,8 +246,68 @@ Untested on a real Windows machine:
 
 Left open:
 
-- **The mirror's resize ordering.** The mirror applies a resize before writes it hasn't parsed yet. That was so before this change.
 - **Older resize frames.** A `resize` frame from an older client is bounded only by the registry's `validGrid`.
 - **Clients that don't lead aren't told.** They are not told that the PTY's grid changed. They find out from the next catch-up screen.
-- **Bundled ConPTY.** node-pty's bundled ConPTY (if it is turned on) reflows like build 21376 whatever the OS build. Tabby reports 21376 in that case.
+- **The bundled ConPTY on a real Windows machine.** That it reflows as 21376 is from its version and Tabby's choice, not seen here.
 
+
+## Synchronized output
+
+An agent wraps each repaint in `CSI ? 2026 h` … `CSI ? 2026 l` (BSU … ESU) so that the terminal shows whole frames. Claude Code does it for every frame.
+
+**What xterm.js 6.0.0 does with it.** While a frame is open, it keeps the rows to refresh and draws none. At the next animation frame it draws only if no frame is open then. Its 1 s safety timeout starts at a BSU and is cleared at the ESU. So a frame that reaches it in two writes is drawn only if no animation frame falls between them. A stream in which every write ends mid-frame is never drawn: each frame ends within the second, so the timeout never runs out, and every animation frame finds a frame open (xterm.js #6071).
+
+**Measured** in Chromium (Playwright's Chrome for Testing, Metal GPU, M3 Pro), with xterm.js 6.0.0 and addon-webgl 0.19.0 set up as `PtyView` sets them up. A page counts `onRender` rows: a paint is whole when every row shows the same frame, torn otherwise. Frames were 200×50 and about 30 KiB. The scripts are not in the repo (a manual check, not a CI test).
+
+- **The real stream.** A fake agent wrote one frame per `write` at 60 and 30 fps through a real PTY (node-pty, macOS). The PTY delivers it in 1 KiB reads. A 30 KiB frame arrives whole within 0.4 ms (median) to 5 ms (max). 400 KiB takes 6 to 8 ms, 1.5 MiB 21 to 26 ms.
+- **The old pacer split every frame.** That stream was replayed through the old and the new pacer in virtual time, and what each sent was replayed into the page at the same times, in `WRITE_PIECE` writes. The old pacer sends the first read of a quiet moment at once. So every frame went out as two messages, 1 KiB and then the rest: 361 messages for 180 frames, 181 of them ending mid-frame.
+
+| What the tab got (60 fps agent) | DOM renderer | WebGL renderer |
+|---|---|---|
+| Old pacer, markers kept | 59.6 whole frames/s | 3.7 whole frames/s, gaps up to 532 ms |
+| New pacer, markers kept | 60.3/s, 0 torn | 60.1/s, 0 torn |
+| New pacer, markers stripped | 60.1/s, 0 torn | 60.1/s, 0 torn |
+| Old pacer, markers stripped | 169 torn paints in 3 s | 174 torn paints in 3 s |
+
+At 30 fps all of them drew 30 whole frames/s, except stripped markers on the old pacer: about 90 torn paints in 3 s.
+
+Synthetic streams (frames sent from the page itself):
+
+- **Each frame in 3 writes 2 ms apart**, markers kept: 7 to 21 whole frames/s at 30 fps, and 1.5 to 1.8/s at 60 fps, with 1 to 1.5 s gaps. 0 torn.
+- **Every write ending mid-frame**: no frame drawn, one paint every 5 s or so, both renderers.
+- **One write per frame**, markers or not: 23 to 38 whole frames/s on DOM, 0 torn. So did 100 KiB and 300 KiB frames on WebGL. Without markers they were also 0 torn, because xterm.js parses a write whole and draws after it.
+- **Without markers, each frame in pieces**: 100 to 230 torn paints in 4 s.
+
+**Parse rate**: 18 to 34 ms per MiB once warm, so a 64 KiB piece takes 1.2 to 2 ms. The first 16 KiB after the page loaded took 46 to 161 ms (JIT warm-up). xterm.js checks its 12 ms slice only between writes. So a frame with no markers is drawn whole up to about 350 to 650 KiB in the pieces of one message, and less when the page is cold. Past that only the markers keep it whole.
+
+**What was seen before.** Each of these follows from the code and the replay above.
+
+- **A frame split by the coalescing.** Every frame was split. A WebGL tab drew about 4 frames a second, with half-second stalls, while the agent animated at 60.
+- **A pause, or a client falling behind, mid-frame.** The half sent was held by the tab until the rest came, for up to `PAUSE_TIMEOUT_MS`.
+- **A catch-up or an attach mid-frame.** The screen was taken from the mirror as it stood: the top of the new frame over the bottom of the old one. A snapshot carries no 2026, and a catch-up starts with RIS, which ends the tab's frame. So the rest of the frame was drawn as it came, torn.
+
+**What the host does.**
+
+- **`core/pty/sync-output.ts`** follows only the set and the reset of 2026, as the output arrives. It also sees them among other modes (`CSI ? 2026 ; 25 h`) and when a read cuts one. A second set inside a frame changes nothing, a reset with no frame open is nothing, and RIS ends a frame, as each does in xterm.js. It doesn't use the mirror's parser, which is asynchronous.
+- **`PtySession`** cuts its output just past each frame end (`cutAtFrameEnds`). For each piece, it writes the mirror at once and then hands the piece on. The answerer of a query is still designated as the output arrives (see "Who answers a query").
+- **The pacer** holds a frame from its BSU to its ESU, with whatever was pending before it, and sends it as one message. It is not split by `COALESCE_MS` or `MAX_FRAME_CHARS`. Pausing and falling behind are decided only between frames: `deliver` runs once per whole frame, and `evaluate` never pauses while a frame is held.
+- **`FRAME_HOLD_MS` = 200** is the time cap. That is 8 times the slowest arrival measured (1.5 MiB in 26 ms), well under xterm.js's own 1 s, and alacritty and zellij use 150 ms. A frame that doesn't end in time is let go, and the rest of it flows as ordinary output. The tab still holds it by its markers.
+- **`FRAME_HOLD_MAX_CHARS` = 1 MiB** is the size cap. It bounds memory per PTY. A full repaint of a large screen in true colour is a few hundred KiB, and 1 MiB parses in about 20 to 35 ms.
+- **Snapshots are taken only between frames.** An attach joins at the frame's end (`pacer.whenNoFrame`), and so does a catch-up that falls due mid-frame. Both are bounded by the caps. Because PtySession cuts there, the settled snapshot is exactly what came before. A client joining mid-frame gets none of it, and the rest of the frame goes to the others first (`add`). When the process ends, restarts or the host stops, a held frame is sent first.
+- **The markers are kept for every client.** The measurements gave no reason to strip them for xterm.js. Once frames arrive whole, kept and stripped both draw at the agent's rate. Kept, they still protect a frame that a cap let go, or one that takes longer than a parse slice. Native terminals (`work attach`) keep them too.
+
+**Scroll after a repaint.** Claude Code reprints its whole transcript after a resize or a toggle: `CSI 2 J`, `CSI 3 J`, then every line, inside one frame. In xterm.js 6 (measured in the same Chromium, with or without 2026, and split into 4 writes), a view at the bottom stays at the bottom and follows. A view scrolled up 50 lines lands at line 0 of the new scrollback and stops following. Before, the top of the view showed "line 221"; after, "line 0".
+
+`state/repaint-scroll.ts` fixes it with xterm's public parser hooks. Its handlers run before xterm's and fall through (`return false`), so the view is noted before anything is cleared. It is put right at the frame's ESU, or, with no frame, once the write the clear came in is parsed:
+
+- **at the bottom**: kept at the bottom (`scrollToBottom`, as Wave Terminal does);
+- **scrolled up**: the same text stays at the top of the view. The view's top 3 lines are looked for in the reprint, starting from the same distance from the bottom and going out from there. If they are not found, that distance alone is used. It stays scrolled up and doesn't follow.
+
+Measured with the fix, "line 221" stayed at the top in every case, including a reprint 20 lines shorter. A cleared screen alone (`2 J`), the alternate screen and a reset move nothing.
+
+Left open:
+
+- **8-bit CSI** (`0x9b`) is not recognised by the scanner. Agents write the 7-bit form.
+- **A frame let go by a cap** reaches the tab split, as every frame did before, and so draws at the rate measured above. Upstream #6071 is still open.
+- **A repaint with no 2026** that spans several writes is put right at the end of its first write. A scrolled-up view can then land on the distance from the bottom instead of the text.
+- **Not seen on Windows**: ConPTY's read sizes, and so the arrival spans there.

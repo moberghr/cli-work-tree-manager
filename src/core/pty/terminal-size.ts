@@ -59,16 +59,26 @@ export interface WindowsPty {
 }
 
 /**
- * The `windowsPty` option for a PTY host on `platform` with `os.release()` = `release` ("10.0.22631"): ConPTY and the
+ * The Windows build ConPTY reflows lines on a resize from, and the one xterm.js 6 compares `windowsPty.buildNumber`
+ * with (its only threshold). node-pty's bundled ConPTY (1.1.0 ships conpty 1.23.251008001, Windows Terminal 1.23's)
+ * reflows whatever the OS build: Tabby reports this build for it (`WIN_BUILD_CONPTY_REFLOW_SUPPORTED`).
+ */
+export const CONPTY_REFLOW_BUILD = 21376;
+
+/**
+ * The `windowsPty` option for a PTY on `platform` with `os.release()` = `release` ("10.0.22631"): ConPTY and the
  * Windows build, as VS Code sets it (terminalProcess.ts `getWindowsPty`). xterm.js 6 then reflows lines on a resize
  * only from build 21376 (where ConPTY reflows them too), turns on its wrapping heuristics below it, and adds rows at the
- * bottom on a grow instead of pulling lines back from the scrollback (ConPTY reprints its view). Undefined off Windows,
- * or when the build can't be read.
+ * bottom on a grow instead of pulling lines back from the scrollback (ConPTY reprints its view). `bundledConpty`: the
+ * PTY runs on node-pty's own ConPTY (config `useBundledConpty`), which behaves as at least CONPTY_REFLOW_BUILD.
+ * Undefined off Windows, or when the build can't be read (and it isn't the bundled one).
  */
-export function windowsPtyFor(platform: string, release: string): WindowsPty | undefined {
+export function windowsPtyFor(platform: string, release: string, bundledConpty = false): WindowsPty | undefined {
   if (platform !== 'win32') return undefined;
-  const build = Number(/^\d+\.\d+\.(\d+)/.exec(release)?.[1]);
-  return Number.isInteger(build) && build > 0 ? { backend: 'conpty', buildNumber: build } : undefined;
+  const read = Number(/^\d+\.\d+\.(\d+)/.exec(release)?.[1]);
+  const build = Number.isInteger(read) && read > 0 ? read : 0;
+  if (bundledConpty) return { backend: 'conpty', buildNumber: Math.max(build, CONPTY_REFLOW_BUILD) };
+  return build ? { backend: 'conpty', buildNumber: build } : undefined;
 }
 
 /** A `windowsPty` as read off the wire (the replay frame): shape-checked, never cast. */

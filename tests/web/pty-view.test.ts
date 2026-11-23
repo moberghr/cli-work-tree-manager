@@ -34,7 +34,49 @@ const h = vi.hoisted(() => {
     element = document.createElement('div');
     /** Its cells (none here: the copy falls back to the plain selection, as it does when they disagree), and where the
      *  view is: `viewportY` < `baseY` = scrolled up into the scrollback. */
-    buffer = { active: { getLine: () => undefined, viewportY: 0, baseY: 0, cursorY: 0 } };
+    buffer = {
+      active: {
+        getLine: (_y: number): { translateToString(trimRight?: boolean): string } | undefined => undefined,
+        viewportY: 0,
+        baseY: 0,
+        cursorY: 0,
+        type: 'normal' as 'normal' | 'alternate',
+      },
+    };
+    /** xterm's parser hooks; `csi` runs a sequence through them, the last registered first, as xterm does. */
+    private csiHooks: Array<{ id: { prefix?: string; final: string }; cb: (params: (number | number[])[]) => boolean }> = [];
+    private escHooks: Array<{ id: { final: string }; cb: () => boolean }> = [];
+    parser = {
+      registerCsiHandler: (id: { prefix?: string; final: string }, cb: (params: (number | number[])[]) => boolean) => {
+        const hook = { id, cb };
+        this.csiHooks.unshift(hook);
+        return { dispose: () => void (this.csiHooks = this.csiHooks.filter((x) => x !== hook)) };
+      },
+      registerEscHandler: (id: { final: string }, cb: () => boolean) => {
+        const hook = { id, cb };
+        this.escHooks.unshift(hook);
+        return { dispose: () => void (this.escHooks = this.escHooks.filter((x) => x !== hook)) };
+      },
+    };
+    /** Returns whether xterm's own handler got the sequence too (no hook claimed it). */
+    csi(final: string, params: number[], prefix?: string): boolean {
+      for (const hook of this.csiHooks) if (hook.id.final === final && hook.id.prefix === prefix && hook.cb(params)) return false;
+      return true;
+    }
+    esc(final: string): boolean {
+      for (const hook of this.escHooks) if (hook.id.final === final && hook.cb()) return false;
+      return true;
+    }
+    get hooks(): number {
+      return this.csiHooks.length + this.escHooks.length;
+    }
+    /** The buffer's lines (the view is `rows` of them from `viewportY`): baseY = lines − rows. */
+    setLines(lines: string[], viewportY: number | 'bottom') {
+      const b = this.buffer.active;
+      b.getLine = (y) => (y >= 0 && y < lines.length ? { translateToString: () => lines[y]! } : undefined);
+      b.baseY = Math.max(0, lines.length - this.rows);
+      b.viewportY = viewportY === 'bottom' ? b.baseY : viewportY;
+    }
     options: Record<string, unknown> = {};
     /** How many lines a resize moves the scrollback by (a reflow): markers move with it, as xterm's do. */
     reflowShift = 0;
@@ -1083,5 +1125,100 @@ describe('PtyView: resizing and attaching at a size', () => {
     act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
     act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0, windowsPty: { backend: 'winpty', buildNumber: 'x' } }));
     expect(term.options.windowsPty).toBeUndefined();
+  });
+});
+
+describe('PtyView: the view through an agent repainting its transcript (CSI 2 J, CSI 3 J, every line again)', () => {
+  const BSU = (): [string, number[], string] => ['h', [2026], '?'];
+  const ESU = (): [string, number[], string] => ['l', [2026], '?'];
+  /** Shell output above the agent's transcript, then `n` transcript lines. */
+  const transcript = (n: number, shell = 0) => [
+    ...Array.from({ length: shell }, (_, i) => `$ shell ${i}`),
+    ...Array.from({ length: n }, (_, i) => `line ${i}`),
+  ];
+  const started = () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
+    term.scrolledTo.length = 0;
+    return { ws, term };
+  };
+  /** What xterm.js does with the repaint: the scrollback cleared and refilled, a view that was scrolled up put at line 0. */
+  const repaint = (term: ReturnType<typeof mount>['term'], lines: string[], wasAtBottom: boolean) => {
+    term.csi('J', [2]);
+    term.csi('J', [3]);
+    term.setLines(lines, wasAtBottom ? 'bottom' : 0);
+  };
+
+  it('scrolled up: the text you were reading stays at the top of the view (xterm puts the view at the top of the new scrollback)', () => {
+    const { term } = started();
+    term.setLines(transcript(90, 10), 40); // "line 30" at the top of the view
+    term.csi(...BSU());
+    repaint(term, transcript(95), false); // the shell lines gone, five new lines at the end
+    expect(term.scrolledTo).toEqual([]); // nothing until the frame is all there
+    term.csi(...ESU());
+    expect(term.scrolledTo).toEqual([30]);
+    expect(term.buffer.active.getLine(30)?.translateToString(true)).toBe('line 30');
+  });
+
+  it('scrolled up, the text no longer in the reprint: the same distance from the bottom', () => {
+    const { term } = started();
+    term.setLines(transcript(100), 40);
+    const fromBottom = term.buffer.active.baseY - 40;
+    term.csi(...BSU());
+    repaint(
+      term,
+      Array.from({ length: 120 }, (_, i) => `other ${i}`),
+      false,
+    );
+    term.csi(...ESU());
+    expect(term.scrolledTo).toEqual([term.buffer.active.baseY - fromBottom]);
+  });
+
+  it('at the bottom: stays at the bottom', () => {
+    const { term } = started();
+    term.setLines(transcript(100), 'bottom');
+    term.csi(...BSU());
+    repaint(term, transcript(105), true);
+    term.csi(...ESU());
+    expect(term.scrolledTo).toEqual(['bottom']);
+  });
+
+  it('a repaint with no synchronized frame around it is put right once the write it arrived in is parsed', () => {
+    const { ws, term } = started();
+    term.setLines(transcript(90, 10), 40);
+    term.deferWrites = true;
+    act(() => ws.binary('the repaint'));
+    repaint(term, transcript(95), false); // xterm parsing that write
+    expect(term.scrolledTo).toEqual([]);
+    act(() => term.parsed());
+    expect(term.scrolledTo).toEqual([30]);
+  });
+
+  it('a cleared screen alone (CSI 2 J, the scrollback kept), the alternate screen and a reset (RIS) move nothing', () => {
+    const { ws, term } = started();
+    term.setLines(transcript(100), 40);
+    term.csi(...BSU());
+    term.csi('J', [2]);
+    term.csi(...ESU());
+    term.buffer.active.type = 'alternate';
+    term.csi(...BSU());
+    term.csi('J', [3]);
+    term.csi(...ESU());
+    term.buffer.active.type = 'normal';
+    term.csi(...BSU());
+    term.csi('J', [3]);
+    term.esc('c'); // a catch-up's reset: the frame and what it noted are gone
+    act(() => ws.binary('x'));
+    expect(term.scrolledTo).toEqual([]);
+  });
+
+  it('lets xterm handle every sequence itself, and drops its hooks with the terminal', () => {
+    const { term } = started();
+    expect(term.hooks).toBeGreaterThan(0);
+    expect([term.csi('J', [3]), term.csi('h', [2026], '?'), term.csi('l', [2026], '?'), term.esc('c')]).toEqual([true, true, true, true]);
+    act(() => root.unmount());
+    root = createRoot(container);
+    expect(term.hooks).toBe(0);
   });
 });

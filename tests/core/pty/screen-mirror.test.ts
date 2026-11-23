@@ -276,6 +276,50 @@ describe('ScreenMirror snapshot round trip', () => {
   });
 });
 
+describe('ScreenMirror resize, in order with the output (terminal-rendering.md, "Resizing and attaching at a size")', () => {
+  /** An agent's frame for a 40-column grid: a full row, then the cursor put on the next row by position. */
+  const frameFor40 = `${'x'.repeat(40)}${CSI}2;1Hnext`;
+
+  it('output not parsed yet when the grid changes is drawn for the grid it was written for, then reflowed', async () => {
+    const m = mirror(40, 5);
+    m.write(frameFor40); // queued: xterm parses it later
+    m.resize(20, 5); // at once: before that parse
+    const shot = await m.snapshotSettled();
+    // Drawn at 40 and reflowed: nothing overwritten. (Resized first, the row would wrap at 20 and "next" overwrite it.)
+    expect(m.screenText().split('\n').slice(0, 3)).toEqual(['x'.repeat(20), 'x'.repeat(20), 'next']);
+    expect([m.terminal.cols, m.terminal.rows]).toEqual([20, 5]);
+    expect(shot).toContain('next');
+  });
+
+  it('with nothing queued it applies at once; the same grid again changes nothing', async () => {
+    const m = mirror(40, 5);
+    await write(m, 'settled');
+    m.resize(30, 6);
+    expect([m.terminal.cols, m.terminal.rows]).toEqual([30, 6]);
+    m.write('queued');
+    m.resize(30, 6);
+    expect([m.terminal.cols, m.terminal.rows]).toEqual([30, 6]);
+  });
+
+  it('two resizes behind output apply in order; a snapshot asked for after them is at the last', async () => {
+    const m = mirror(40, 5);
+    m.write(frameFor40);
+    m.resize(20, 5);
+    m.resize(50, 7);
+    await m.snapshotSettled();
+    expect([m.terminal.cols, m.terminal.rows]).toEqual([50, 7]);
+  });
+
+  it('disposed while a snapshot waits for its parse: the snapshot is empty, never left hanging', async () => {
+    const m = new ScreenMirror(40, 5);
+    m.write('x'.repeat(100_000));
+    const shot = m.snapshotSettled();
+    m.dispose();
+    expect(await shot).toBe('');
+    expect(await m.snapshotSettled()).toBe('');
+  });
+});
+
 describe('a screen-only snapshot (scrollback: false): the catch-up screen work attach is sent', () => {
   const history = Array.from({ length: 300 }, (_, i) => `${CSI}38;5;${i % 256}mline ${i}${CSI}0m`).join('\r\n');
   /**

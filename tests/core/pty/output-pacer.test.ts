@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   CATCH_UP_MIN_MS,
   COALESCE_MS,
+  FRAME_HOLD_MAX_CHARS,
+  FRAME_HOLD_MS,
   MAX_FRAME_CHARS,
   OutputPacer,
   PAUSE_TIMEOUT_MS,
@@ -9,6 +11,7 @@ import {
   type PacerTimers,
 } from '../../../src/core/pty/output-pacer.js';
 import { HIGH_WATERMARK, LOW_WATERMARK } from '../../../src/core/pty/flow-control.js';
+import { BSU, ESU } from '../../../src/core/pty/sync-output.js';
 
 /** Timers the test moves by hand. */
 class Clock implements PacerTimers {
@@ -407,5 +410,182 @@ describe('a client that is not the holder', () => {
     s.clock.advance(CATCH_UP_MIN_MS);
     expect(a.resyncs).toBe(0);
     expect(s.clock.pending).toBe(0);
+  });
+});
+
+describe('synchronized frames (DEC 2026)', () => {
+  /** Each frame's end is the characters sent so far: offsets only grow, and count everything. */
+  const expectOffsets = (c: Client) => {
+    let total = 0;
+    for (const [frame, end] of c.frames) {
+      total += frame.length;
+      expect(end).toBe(total);
+    }
+  };
+
+  it('holds a frame whole across chunks and coalescing windows, and sends it as one message when it ends', () => {
+    const s = setup();
+    const a = new Client();
+    s.pacer.add('a', a);
+    s.pacer.output('before');
+    s.pacer.output(`${BSU}part1`);
+    s.pacer.output('part2');
+    s.clock.advance(COALESCE_MS * 3);
+    s.pacer.output('pa');
+    expect(s.pacer.inFrame).toBe(true);
+    expect(a.frames.map(([f]) => f)).toEqual(['before']);
+    s.pacer.output(`rt3${ESU}after`);
+    expect(a.frames.map(([f]) => f)).toEqual(['before', `${BSU}part1part2part3${ESU}`, 'after']);
+    expect(s.pacer.inFrame).toBe(false);
+    expectOffsets(a);
+  });
+
+  it('follows a set and a reset cut between chunks: the frame body goes in one message', () => {
+    const s = setup();
+    const a = new Client();
+    s.pacer.add('a', a);
+    s.pacer.output('x\x1b[?20');
+    s.pacer.output('26hframe\x1b[?202');
+    s.clock.advance(COALESCE_MS * 2);
+    s.pacer.output('6l');
+    expect(a.frames.map(([f]) => f)).toEqual(['x\x1b[?20', `26hframe${ESU}`]);
+    expectOffsets(a);
+  });
+
+  it('a second set inside a frame changes nothing, a reset with no frame open is plain output', () => {
+    const s = setup();
+    const a = new Client();
+    s.pacer.add('a', a);
+    s.pacer.output(`${ESU}a`);
+    s.clock.advance(COALESCE_MS);
+    s.pacer.output(`${BSU}b${BSU}c`);
+    s.clock.advance(COALESCE_MS);
+    s.pacer.output(ESU);
+    expect(a.frames.map(([f]) => f)).toEqual([`${ESU}a`, `${BSU}b${BSU}c${ESU}`]);
+  });
+
+  it('time cap: a frame not ended within FRAME_HOLD_MS goes out then, and the rest of it flows as any output does', () => {
+    const s = setup();
+    const a = new Client();
+    s.pacer.add('a', a);
+    s.pacer.output(`${BSU}a`);
+    s.clock.advance(FRAME_HOLD_MS - 1);
+    expect(a.chars).toBe(0);
+    s.clock.advance(1);
+    expect(a.text).toBe(`${BSU}a`);
+    s.pacer.output('b'); // the same frame, no longer held: coalesced
+    s.pacer.output('c');
+    expect(a.text).toBe(`${BSU}ab`);
+    s.pacer.output(ESU);
+    s.clock.advance(COALESCE_MS);
+    expect(a.text).toBe(`${BSU}abc${ESU}`);
+    s.pacer.output(`${BSU}next`); // the next frame is held again
+    expect(s.pacer.inFrame).toBe(true);
+    expectOffsets(a);
+  });
+
+  it('size cap: a frame held past FRAME_HOLD_MAX_CHARS goes out at once', () => {
+    const s = setup();
+    const a = new Client(false);
+    s.pacer.add('a', a);
+    s.pacer.output(BSU);
+    s.pacer.output('x'.repeat(FRAME_HOLD_MAX_CHARS - BSU.length));
+    expect(a.chars).toBe(0); // at the cap, not past it
+    s.pacer.output('y');
+    expect(a.chars).toBe(FRAME_HOLD_MAX_CHARS + 1);
+    expect(s.pacer.inFrame).toBe(false);
+    expectOffsets(a);
+  });
+
+  it('pauses the PTY for its holder only at a frame end, never mid-frame', () => {
+    const s = setup();
+    const a = new Client();
+    s.pacer.add('a', a);
+    s.hold('a');
+    flood(s, HIGH_WATERMARK);
+    s.pacer.output(`${BSU}${'x'.repeat(100)}`);
+    s.clock.advance(COALESCE_MS);
+    s.pacer.output('y'.repeat(100));
+    expect(s.flow.paused).toBe(false); // over HIGH_WATERMARK by what is held, but the rest of the frame must be read
+    s.pacer.output(ESU);
+    expect(s.flow.paused).toBe(true);
+    expect(a.text.endsWith(`${'y'.repeat(100)}${ESU}`)).toBe(true);
+  });
+
+  it('a catch-up due mid-frame waits for the frame end: the screen it is sent is never drawn halfway', () => {
+    const s = setup();
+    const a = new Client();
+    const other = new Client(false);
+    s.pacer.add('a', a);
+    s.pacer.add('o', other);
+    flood(s, HIGH_WATERMARK + 1);
+    expect(s.pacer.live('a')).toBe(false);
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.output(`${BSU}half`);
+    s.pacer.ack('a', a.chars); // caught up, mid-frame
+    expect(a.resyncs).toBe(0);
+    s.pacer.output(`rest${ESU}`);
+    expect(a.resyncs).toBe(1);
+    expect(other.text.endsWith(`${BSU}halfrest${ESU}`)).toBe(true); // to the others first…
+    expect(a.text.includes('half')).toBe(false); // …and not to a: its screen, taken now, has all of it
+    expect(s.pacer.live('a')).toBe(true);
+  });
+
+  it('whenNoFrame: at once between frames; right after the frame went out mid-frame; gone when the entry is disposed', () => {
+    const s = setup();
+    const a = new Client();
+    s.pacer.add('a', a);
+    const calls: Array<[boolean, number]> = [];
+    s.pacer.whenNoFrame((gone) => calls.push([gone, a.chars]));
+    s.pacer.output(`${BSU}frame`);
+    s.pacer.whenNoFrame((gone) => calls.push([gone, a.chars]));
+    expect(calls).toEqual([[false, 0]]);
+    s.pacer.output(ESU);
+    expect(calls).toEqual([
+      [false, 0],
+      [false, BSU.length + 5 + ESU.length],
+    ]);
+    s.pacer.output(`${BSU}again`);
+    s.pacer.whenNoFrame((gone) => calls.push([gone, -1]));
+    s.pacer.dispose();
+    expect(calls.at(-1)).toEqual([true, -1]);
+    expect(s.clock.pending).toBe(0);
+  });
+
+  it('a client joining mid-frame is sent none of it: what is held goes to the others first, the rest to everyone', () => {
+    const s = setup();
+    const a = new Client();
+    const b = new Client();
+    s.pacer.add('a', a);
+    s.pacer.output(`${BSU}held`);
+    s.pacer.add('b', b);
+    expect(a.text).toBe(`${BSU}held`);
+    s.pacer.output(`rest${ESU}`);
+    expect(b.text).toBe(`rest${ESU}`);
+    expect(b.frames[0]![1]).toBe(a.chars); // the same offset for both
+  });
+
+  it('the process ending or changing mid-frame sends what is held; a restart forgets the open frame', () => {
+    const s = setup();
+    const a = new Client();
+    s.pacer.add('a', a);
+    s.pacer.output(`${BSU}last words`);
+    s.pacer.end();
+    expect(a.text).toBe(`${BSU}last words`);
+    expect(s.clock.pending).toBe(0);
+
+    const r = setup();
+    const c = new Client();
+    r.pacer.add('c', c);
+    r.pacer.output(`${BSU}old process`);
+    r.pacer.setFlow({ pause() {}, resume() {} });
+    expect(c.text).toBe(`${BSU}old process`);
+    r.clock.advance(COALESCE_MS);
+    r.pacer.output('new process'); // not part of a frame: sent at once
+    expect(c.text.endsWith('new process')).toBe(true);
+    r.pacer.output(BSU);
+    r.pacer.flush(); // the host stopping
+    expect(c.text.endsWith(BSU)).toBe(true);
+    expectOffsets(c);
   });
 });

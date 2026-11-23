@@ -10,7 +10,8 @@ import {
   type PtyLike,
   type PtySpawner,
 } from '../../../src/core/pty/pty-registry.js';
-import { COALESCE_MS } from '../../../src/core/pty/output-pacer.js';
+import { COALESCE_MS, FRAME_HOLD_MS } from '../../../src/core/pty/output-pacer.js';
+import { BSU, ESU } from '../../../src/core/pty/sync-output.js';
 import { buildAiLaunchArgs, getAiTool, type AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 import { isPersistedPty, keepEnv } from '../../../src/core/pty/pty-host-protocol.js';
 import { withReporter } from '../../../src/core/platform/report.js';
@@ -1225,6 +1226,46 @@ describe('windowsPty (ConPTY)', () => {
     ).toEqual({ backend: 'conpty', buildNumber: 19045 });
   });
 
+  it("a PTY on the bundled ConPTY says its own (PtySession.windowsPty), over the host's", () => {
+    const own = { backend: 'conpty' as const, buildNumber: 21376 };
+    const onBundled: PtySpawner = (spec) => {
+      const pty = Object.assign(new FakePty(), { windowsPty: own });
+      spawned.push({ spec, pty });
+      return pty;
+    };
+    const host = { backend: 'conpty' as const, buildNumber: 19045 };
+    const reg = new PtyRegistry({
+      spawner: onBundled,
+      hasConversation: () => false,
+      sessionsPath,
+      cwdExists: () => true,
+      windowsPty: host,
+    });
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(
+      reg.attach(
+        'a',
+        () => {},
+        () => {},
+      )?.replay.windowsPty,
+    ).toEqual(own);
+    const elsewhere = new PtyRegistry({
+      spawner: onBundled,
+      hasConversation: () => false,
+      sessionsPath,
+      cwdExists: () => true,
+      windowsPty: null,
+    });
+    elsewhere.spawn('b', { cwd: '/x', tool });
+    expect(
+      elsewhere.attach(
+        'b',
+        () => {},
+        () => {},
+      )?.replay,
+    ).not.toHaveProperty('windowsPty');
+  });
+
   it('a host anywhere else says nothing of it', () => {
     const reg = new PtyRegistry({ spawner, hasConversation: () => false, sessionsPath, cwdExists: () => true, windowsPty: null });
     reg.spawn('a', { cwd: '/x', tool });
@@ -1235,5 +1276,91 @@ describe('windowsPty (ConPTY)', () => {
         () => {},
       )?.replay,
     ).not.toHaveProperty('windowsPty');
+  });
+});
+
+describe('attaching during a synchronized frame (terminal-rendering.md, "Synchronized output")', () => {
+  /** A PTY whose screen copy has parsed everything it emitted (as pty-session's mirror has, by the time a snapshot settles). */
+  class FramedPty extends FakePty {
+    screen = '';
+    snapshots: string[] = [];
+    override emit(d: string) {
+      this.screen += d;
+      super.emit(d);
+    }
+    serialize() {
+      return this.screen;
+    }
+    serializeSettled() {
+      this.snapshots.push(this.screen);
+      return Promise.resolve(this.screen);
+    }
+  }
+  const framed = () => {
+    const pty = new FramedPty();
+    const reg = new PtyRegistry({ spawner: () => pty, hasConversation: () => false, sessionsPath, cwdExists: () => true });
+    reg.spawn('a', { cwd: '/x', tool });
+    return { pty, reg };
+  };
+  const attach = (reg: PtyRegistry, got: string[]) =>
+    reg.attach(
+      'a',
+      (d) => got.push(d),
+      () => {},
+    )!;
+
+  it('the snapshot waits for the frame end: it has the whole frame, and the client is sent none of it', async () => {
+    vi.useFakeTimers();
+    const { pty, reg } = framed();
+    pty.emit('prompt ');
+    pty.emit(`${BSU}top half `);
+    const got: string[] = [];
+    const att = attach(reg, got);
+    expect(pty.snapshots).toEqual([]); // not taken mid-frame
+    pty.emit(`bottom half${ESU}`); // pty-session cuts its output at each frame end
+    pty.emit('after');
+    const ready = await att.ready;
+    expect(pty.snapshots).toEqual([`prompt ${BSU}top half bottom half${ESU}`]);
+    expect(ready.data).toBe(`prompt ${BSU}top half bottom half${ESU}`);
+    att.start();
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(got).toEqual(['after']);
+    expect(att.offset).toBe(`prompt ${BSU}top half bottom half${ESU}`.length);
+  });
+
+  it('…for at most FRAME_HOLD_MS: a frame never ended does not keep a terminal from attaching', async () => {
+    vi.useFakeTimers();
+    const { pty, reg } = framed();
+    pty.emit(`${BSU}stuck`);
+    const got: string[] = [];
+    const att = attach(reg, got);
+    vi.advanceTimersByTime(FRAME_HOLD_MS - 1);
+    expect(pty.snapshots).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect((await att.ready).data).toBe(`${BSU}stuck`);
+    att.start();
+    pty.emit('more');
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(got).toEqual(['more']);
+  });
+
+  it('between frames it attaches at once', async () => {
+    const { pty, reg } = framed();
+    pty.emit(`${BSU}whole${ESU}`);
+    const att = attach(reg, []);
+    expect(pty.snapshots).toEqual([`${BSU}whole${ESU}`]);
+    expect((await att.ready).data).toBe(`${BSU}whole${ESU}`);
+  });
+
+  it('the session killed while an attach waits for the frame end: ready still answers', async () => {
+    vi.useFakeTimers();
+    const { pty, reg } = framed();
+    pty.emit(`${BSU}half`);
+    const att = attach(reg, []);
+    const killed = reg.kill('a');
+    vi.advanceTimersByTime(10_000);
+    await killed;
+    const ready = await Promise.race([att.ready, new Promise((r) => setTimeout(() => r('stuck'), 0)).then(() => 'stuck')]);
+    expect(ready).not.toBe('stuck');
   });
 });

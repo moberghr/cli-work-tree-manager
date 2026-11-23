@@ -130,6 +130,13 @@ export class ScreenMirror {
   private answers: MirrorAnswers | null = null;
   /** The chunk being parsed is one the mirror answers the queries in (set and cleared by the write queue's callbacks). */
   private answering = false;
+  /** Writes and resizes queued and not applied yet: a resize waits behind them (`resize`). */
+  private queued = 0;
+  /** The grid as last asked for: the terminal's own once every queued resize is applied. */
+  private grid: { cols: number; rows: number };
+  /** Snapshots waiting for the writes before them to be parsed (`snapshotSettled`). */
+  private readonly settling = new Set<() => void>();
+  private disposed = false;
 
   /**
    * `windowsPty`: the PTY is ConPTY's (terminal-size.ts `windowsPtyFor`), which reflows lines itself on a resize: the
@@ -143,6 +150,7 @@ export class ScreenMirror {
       allowProposedApi: true,
       ...(opts.windowsPty ? { windowsPty: opts.windowsPty } : {}),
     });
+    this.grid = { cols, rows };
     this.terminal.loadAddon(this.serializer);
     // Emoji and symbols (👍 ⭐ ✅ ⏳ 🚀) are 2 columns in the browser, which uses Unicode 11 (PtyView): 1 here
     // laid every replayed line out for the wrong columns.
@@ -170,18 +178,48 @@ export class ScreenMirror {
    * write's callback runs once it is parsed and before the next write is, so empty writes around it mark the chunk.
    */
   write(data: string, done?: () => void): void {
+    this.queued++;
+    const parsed = () => {
+      this.queued--;
+      done?.();
+    };
     if (!this.answers?.now()) {
-      this.terminal.write(data, done);
+      this.terminal.write(data, parsed);
       return;
     }
     this.terminal.write('', () => (this.answering = true));
     this.terminal.write(data, () => {
       this.answering = false;
-      done?.();
+      parsed();
     });
   }
 
+  /**
+   * In order with the writes around it: output that arrived before the resize was drawn for the old grid and is parsed
+   * at it, output after it at the new one. xterm parses writes later, so a resize applied at once would lay out what is
+   * still queued for a grid it was never drawn for — and every snapshot after would carry it. With nothing queued it is
+   * applied now; else behind an empty write, whose callback runs once all before it is parsed. `snapshotSettled` waits
+   * the same way, so a snapshot asked for after a resize is at the new grid.
+   */
   resize(cols: number, rows: number): void {
+    if (cols === this.grid.cols && rows === this.grid.rows) return;
+    this.grid = { cols, rows };
+    if (!this.queued) {
+      this.applyResize(cols, rows);
+      return;
+    }
+    this.queued++;
+    try {
+      this.terminal.write('', () => {
+        this.queued--;
+        this.applyResize(cols, rows);
+      });
+    } catch {
+      this.queued--; // disposed: nothing to resize
+    }
+  }
+
+  private applyResize(cols: number, rows: number): void {
     if (cols === this.terminal.cols && rows === this.terminal.rows) return;
     // xterm.js sets both buffers' scroll regions back to the whole screen on a resize.
     this.st.normal.scrollRegion = null;
@@ -224,10 +262,16 @@ export class ScreenMirror {
   /** snapshot(), once everything written so far is parsed: xterm queues writes, and a write's callback runs once it is. */
   snapshotSettled(opts: SnapshotOptions = {}): Promise<string> {
     return new Promise((resolve) => {
+      if (this.disposed) return resolve('');
+      const settle = () => {
+        this.settling.delete(settle);
+        resolve(this.disposed ? '' : this.snapshot(opts));
+      };
+      this.settling.add(settle);
       try {
-        this.terminal.write('', () => resolve(this.snapshot(opts)));
+        this.terminal.write('', settle);
       } catch {
-        resolve(this.snapshot(opts));
+        settle();
       }
     });
   }
@@ -246,8 +290,13 @@ export class ScreenMirror {
     }
   }
 
+  /** Disposing drops xterm's queued writes and their callbacks: a snapshot still waiting is answered '' then, never left hanging. */
   dispose(): void {
+    this.disposed = true;
+    const waiting = [...this.settling];
+    this.settling.clear();
     this.terminal.dispose();
+    for (const settle of waiting) settle();
   }
 
   private get screen(): Screen {
