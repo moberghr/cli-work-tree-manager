@@ -21,3 +21,4 @@ test-results/
 # Session handoff notes (mtk handoff): local only
 docs/handoffs/
 .claude/observability/
+.bench/

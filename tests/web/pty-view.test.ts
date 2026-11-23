@@ -247,6 +247,10 @@ vi.mock('../../src/web/src/state/webgl-gate.js', () => ({ pageWebglRefusal: () =
 vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: class {} }));
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
+// The libghostty-vt engine (its own chunk, loaded only when picked): here it can't be had, so xterm.js draws.
+vi.mock('../../src/web/src/components/Terminal/engine/ghostty-engine.js', () => ({
+  createGhosttyEngine: () => Promise.reject(new Error('no module')),
+}));
 // The tab's own connection, straight from its relay address (terminal-socket.ts has its own tests: the ticket, the
 // direct connection to the PTY host, the fallback): these drive the socket as the relay's.
 vi.mock('../../src/web/src/api/terminal-socket.js', () => ({
@@ -1323,5 +1327,34 @@ describe('PtyView: the view through an agent repainting its transcript (CSI 2 J,
     act(() => root.unmount());
     root = createRoot(container);
     expect(term.hooks).toBe(0);
+  });
+});
+
+describe('PtyView: the terminal engine switch', () => {
+  afterEach(() => {
+    localStorage.removeItem('work.terminalEngine');
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('xterm.js by default, at once (no wait for the setting)', () => {
+    const { term } = mount();
+    expect(term).toBeDefined();
+    expect(h.terms).toHaveLength(1);
+  });
+
+  it('?terminalEngine=ghostty that cannot be loaded falls back to xterm.js, and the corner says so', async () => {
+    window.history.replaceState(null, '', '/?terminalEngine=ghostty');
+    act(() => {
+      root.render(createElement(PtyView, { sessionId: 's1' }));
+    });
+    expect(h.terms).toHaveLength(0);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(h.terms).toHaveLength(1);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    const badge = container.querySelector('.wd-pty-latency')!;
+    expect(badge.textContent).toContain('xterm.js');
+    expect(badge.getAttribute('title')).toContain('libghostty-vt could not be loaded (no module)');
   });
 });

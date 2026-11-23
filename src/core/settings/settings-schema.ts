@@ -202,6 +202,21 @@ export const SETTINGS: readonly SettingField[] = [
     default: 'own',
     when: 'at the next refresh (on the Claudes work starts)',
   },
+  {
+    path: 'terminalEngine',
+    section: 'Agents & terminals',
+    label: 'Terminal engine',
+    help: "What reads an agent's terminal: xterm.js, or libghostty-vt (experimental; the Terminal tab draws it on a canvas, without selection, links or search yet). `?terminalEngine=` on the page's address tries the other in this browser.",
+    kind: {
+      type: 'choice',
+      options: [
+        { value: 'xterm', label: 'xterm.js' },
+        { value: 'ghostty', label: 'libghostty-vt (experimental)' },
+      ],
+    },
+    default: 'xterm',
+    when: 'at the next terminal start (a tab: when it opens)',
+  },
   bool(
     'useBundledConpty',
     'Agents & terminals',

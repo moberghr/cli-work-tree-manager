@@ -469,7 +469,8 @@ Everything above describes the default screen copy, `ScreenMirror` (@xterm/headl
 `GhosttyMirror` (`core/pty/ghostty-mirror.ts`, on libghostty-vt's wasm build: `vendor/libghostty-vt/README.md`), is
 there to compare the two; config `terminalEngine` / `WORK_TERMINAL_ENGINE` picks it per terminal (`create-mirror.ts`,
 falling back to xterm with one warning if the module can't load). Both implement `TerminalMirror` (`mirror.ts`); the
-browser is xterm.js either way, and the snapshot is the same layout (`START`, screen, state, never 2026, no palette).
+snapshot is the same layout (`START`, screen, state, never 2026, no palette), whichever engine the browser draws with
+(next section).
 
 - **Read, not followed:** modes, title, kitty flags (current), cursor and pending wrap from libghostty's API; pen,
   hyperlink, modifyOtherKeys, charsets and DECSCA from its formatter (`tail`); cursor shape, scroll region and saved
@@ -487,3 +488,38 @@ browser is xterm.js either way, and the snapshot is the same layout (`START`, sc
   flag stack is not readable (only the current flags are replayed); 1007 and 2031 are replayed only when they differ
   from libghostty's default, DECSCUSR 2 never; no resize without reflow (ConPTY's `windowsPty` only stops scrollback
   being pulled back); libghostty drops whole scrollback pages, so it is given twice `REPLAY_SCROLLBACK`.
+
+## The Terminal tab's engines
+
+PtyView (`web/.../Terminal/PtyView.tsx`) keeps the socket, frames and acks, the replay gate, reconnects, latency, the
+perf log and when to fit; what parses, draws, measures and turns keys into bytes is an engine (`engine/terminal-engine.ts`,
+`TerminalEngine`). The wire is the same for both: frames, the VT-bytes snapshot, acks.
+
+- **Which:** `?terminalEngine=ghostty|xterm` on the page's address (kept in this browser's localStorage; `?terminalEngine=`
+  forgets it), else the `terminalEngine` setting (the same key as the mirror's; read once per page in the background and
+  remembered for the next load, so the first terminal never waits for it), else xterm.js (`engineChoice`).
+- **xterm.js** (`engine/xterm-engine.ts`, the default): unchanged — WebGL with its retry, fonts, copy, links, Unicode 11.
+- **libghostty-vt** (`engine/ghostty-engine.ts`, its own chunk, loaded with `import()` only when picked): the module is
+  a served asset (`new URL(... .wasm, import.meta.url)`; `spa-handler.ts` serves it as `application/wasm`), compiled
+  once per page, a fresh instance per terminal. The binding is the mirror's: `wasm-core.ts`, `vt-terminal.ts`,
+  `render-state.ts`, `key-encoder.ts` and `replies.ts` are pure (in `SPA_SHARED`); only `wasm.ts` (Node: reads the
+  file) and `terminal.ts` stay Node-side. If it can't load, xterm.js draws and the corner says why (`cornerBadge`).
+- **Drawing:** one canvas, device pixels; a cell is `floor(advance × dpr)` wide like xterm.js's WebGL renderer, so both
+  fit the same grid (FitAddon's measure, with its 14 px scrollbar gutter, which draws the thumb). Each animation frame
+  takes the render state's dirty rows (`render-state.ts`, cells read in bulk) and repaints only those: backgrounds,
+  box/block characters as shapes (`ghostty-draw.ts`, `boxShape`), then text by style with `letterSpacing` making the
+  font's advance the cell's (a glyph wider than its cells is narrowed), then underlines (single, double, curly, dotted,
+  dashed, in their colour), strike, overline, the cursor (block/bar/underline, blinking, hollow when unfocused). Nothing
+  is drawn while a program holds the screen (2026, libghostty's render-hold callback), for at most 1 s.
+- **Input:** a hidden textarea; keys through libghostty's key encoder (kitty flags, DECCKM, modifyOtherKeys as the
+  program set them; `keyInput` maps a browser event), pastes through its paste encoder (2004), focus reports (1004).
+  Shift+Enter is ESC CR unless the program asked for kitty keys. Replies (`WRITE_PTY`) go out once, after the write,
+  translated as the mirror's (`translateReplies`, colour replies passed through: this terminal has the real colours).
+- **Scrollback:** libghostty's viewport (wheel, Shift+PageUp/PageDown); new output never moves a view scrolled up;
+  typing returns it to the bottom. On the alternate screen the wheel is arrow keys, as xterm.js does.
+- **Not yet** (batch 2): selection and copy, mouse reporting, OSC 8 links and URL detection, search, an accessibility
+  tree, ligatures and font fallback tuning, e2e specs.
+- **Known differences from xterm.js:** emoji sequences take their code points' widths (👍🏽 4 columns, a ZWJ family 6;
+  xterm.js: 2), because neither libghostty screen turns grapheme clustering (2027) on unless the program does; shades
+  (░▒▓) are drawn as translucent fills, not dither patterns; `setWindowsPty` is a no-op (libghostty always reflows);
+  the corner never says DOM/WebGL (`ghostty`).

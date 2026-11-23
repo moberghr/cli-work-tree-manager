@@ -22,6 +22,9 @@ Source: <https://release.files.ghostty.org/libghostty-vt/1.0.1/> (the release's 
 - **Built CLI**: `tsup.config.ts` (`onSuccess`) copies `ghostty-vt-1.0.1.wasm` and the licence (as
   `ghostty-vt-1.0.1.LICENSE`) into `dist/`, next to the chunks; the loader looks there first. `dist` is in the npm
   package's `files`, so npm installs carry it.
+- **Browser** (the Terminal tab's ghostty engine, `src/web/.../Terminal/engine/ghostty-engine.ts`): Vite emits the
+  module as a hashed asset (`new URL('…/ghostty-vt-1.0.1.wasm', import.meta.url)`, so its version is in that path too);
+  `work web` serves it as `application/wasm`. Fetched only when that engine is picked.
 - **Desktop app**: `desktop/scripts/stage-cli.mjs` copies the package's `files` (so `dist/`, wasm included); it needs
   no change of its own.
 
@@ -33,8 +36,8 @@ gets its own instance of it.
 1. Download the new version's `.wasm` files and the licence from `https://release.files.ghostty.org/libghostty-vt/<version>/`.
 2. Check them against the release's published checksums, and record the new SHA-256s in the table above
    (`shasum -a 256 *.wasm`).
-3. Replace the files here (the names carry the version), and change the version in `src/core/pty/ghostty/wasm.ts`
-   (`LIBRARY_VERSION`) and in `tsup.config.ts`.
+3. Replace the files here (the names carry the version), and change the version in `src/core/pty/ghostty/wasm-core.ts`
+   (`LIBRARY_VERSION`), in `tsup.config.ts` and in `ghostty-engine.ts`'s `WASM_URL`.
 4. The loader checks every export it uses (name and parameter count) and reads every struct offset from the module's
    own `ghostty_type_json()`; the option and data numbers in `src/core/pty/ghostty/terminal.ts` come from the headers —
    check them against the new ones. Then run `npx vitest run tests/core/pty/ghostty tests/core/pty/ghostty-mirror.test.ts`.

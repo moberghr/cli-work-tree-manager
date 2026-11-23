@@ -16,7 +16,7 @@ export function cleanPerfReport(x: unknown): TerminalPerfWire | null {
   const r = x as Record<string, unknown>;
   if (typeof r.sessionId !== 'string' || !r.sessionId || r.sessionId.length > 200) return null;
   if (r.route !== 'direct' && r.route !== 'relay' && r.route !== null) return null;
-  if (r.renderer !== 'webgl' && r.renderer !== 'retrying' && r.renderer !== 'dom') return null;
+  if (r.renderer !== 'webgl' && r.renderer !== 'retrying' && r.renderer !== 'dom' && r.renderer !== 'ghostty') return null;
   if (!Array.isArray(r.keys) || !Array.isArray(r.stalls)) return null;
   const keys: TerminalPerfWire['keys'] = [];
   for (const k of r.keys.slice(0, MAX_KEYS)) {

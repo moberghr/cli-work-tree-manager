@@ -2,8 +2,8 @@ import { EXTRA, GhosttyTerminal, type GridPoint, type NativeProgram } from './gh
 import type { MirrorAnswers, SnapshotOptions, TerminalMirror } from './mirror.js';
 import { REPLAY_SCROLLBACK } from './scrollback.js';
 import { StreamStatus, type ProgramKind, type ProgramRecord, type ProgramState, type StreamSignal } from './stream-status.js';
-import type { TerminalColors } from './terminal-colors.js';
 import type { WindowsPty } from './terminal-size.js';
+import { translateReplies } from './ghostty/replies.js';
 
 const ESC = '\x1b';
 const CSI = '\x1b[';
@@ -24,40 +24,9 @@ const TAIL = EXTRA.KEYBOARD | EXTRA.STYLE | EXTRA.HYPERLINK | EXTRA.PROTECTION |
 /** libghostty's DECSCUSR for "never set" (and for 0): a steady block. */
 const DEFAULT_CURSOR_STYLE = 2;
 
-/** xterm.js's own answers to DA1 and DA2: the browser's terminal, which the agent believes it talks to. */
-const XTERM_DA1 = `${CSI}?1;2c`;
-const XTERM_DA2 = `${CSI}>0;276;0c`;
-/**
- * Answers libghostty gives that xterm.js does not: XTVERSION (which libghostty answers "libghostty" whatever it is
- * told), DA3, XTGETTCAP, the kitty keyboard flags query, kitty graphics, and the OSC 7501 probe (the host never
- * answers it: terminal-rendering.md).
- */
-const DROPPED = [/^\x1bP>\|/, /^\x1bP!\|/, /^\x1bP[01]\+r/, /^\x1b\[\?\d*u$/, /^\x1b_G/, /^\x1b\]7501;/];
-const COLOR_REPLY = /^\x1b\]((?:1[012])|4;\d+);/;
+// The answers as xterm.js would give them (moved to ghostty/replies.ts: the browser's ghostty engine answers the same).
+export { translateReply, translateReplies } from './ghostty/replies.js';
 
-/** What the agent is answered for libghostty's reply `reply`, or null for none. */
-export function translateReply(reply: string, colors: Pick<TerminalColors, 'reply'>): string | null {
-  const color = COLOR_REPLY.exec(reply);
-  if (color) return colors.reply(color[1].startsWith('4;') ? `4;${Number(color[1].slice(2))}` : color[1]);
-  if (/^\x1b\[\?[\d;]*c$/.test(reply)) return XTERM_DA1;
-  if (/^\x1b\[>[\d;]*c$/.test(reply)) return XTERM_DA2;
-  return DROPPED.some((re) => re.test(reply)) ? null : reply;
-}
-
-/** One reply each: libghostty writes several in one go (OSC 10;?;? gives 10 and 11, OSC 4 one per index). */
-const REPLY = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][^\x1b]*\x1b\\|\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|[^\x1b]+|\x1b/g;
-
-/** What the agent is answered for what libghostty wrote to the PTY (one or more replies). */
-export function translateReplies(written: string, colors: Pick<TerminalColors, 'reply'>): string[] {
-  const out: string[] = [];
-  for (const [reply] of written.matchAll(REPLY)) {
-    const answer = translateReply(reply, colors);
-    if (answer) out.push(answer);
-  }
-  return out;
-}
-
-/** libghostty's program-status states and kinds, by their numbers (include/ghostty/vt/terminal.h); 5 is clear. */
 const PROGRAM_STATE: readonly (ProgramState | undefined)[] = ['idle', 'working', 'done', 'blocked', 'error'];
 const PROGRAM_CLEAR = 5;
 const PROGRAM_KIND: readonly (ProgramKind | undefined)[] = [undefined, 'permission', 'question', 'auth'];

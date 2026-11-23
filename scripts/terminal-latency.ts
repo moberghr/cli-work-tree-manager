@@ -121,12 +121,12 @@ async function measure(send: (c: string) => void, onData: (cb: (s: string) => vo
 async function main() {
   const { WebSocket } = await import('ws');
   const pty = await import('node-pty');
-  const { PtyRegistry } = await import('../src/core/pty-registry.js');
-  const { startPtyHost } = await import('../src/core/pty-host.js');
-  const { PtyHostClient } = await import('../src/core/pty-host-client.js');
-  const { upsertSession } = await import('../src/core/history.js');
-  const { sessionIdFor } = await import('../src/core/session-id.js');
-  const { startWebServer } = await import('../src/core/web-server.js');
+  const { PtyRegistry } = await import('../src/core/pty/pty-registry.js');
+  const { startPtyHost } = await import('../src/core/pty/pty-host.js');
+  const { PtyHostClient } = await import('../src/core/pty/pty-host-client.js');
+  const { upsertSession } = await import('../src/core/sessions/history.js');
+  const { sessionIdFor } = await import('../src/core/sessions/session-id.js');
+  const { startWebServer } = await import('../src/server/web-server.js');
 
   const cwd = path.join(home, 'wt');
   fs.mkdirSync(cwd, { recursive: true });
