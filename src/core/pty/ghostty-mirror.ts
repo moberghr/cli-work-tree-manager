@@ -14,6 +14,12 @@ const ENTER_ALT = '\x1b[?1049h\x1b[H';
 const CAN = '\x18';
 const ASK_CURSOR_STYLE = `${ESC}P$q q${ESC}\\`;
 const ASK_REGION = `${ESC}P$qr${ESC}\\`;
+/** Grapheme clustering (mode 2027): an emoji sequence is one cell pair, as the programs that draw boxes count it. */
+const GRAPHEMES = 2027;
+/** DECSC, SCOSC, and 1048 / 1049 set: what saves a cursor. */
+const SAVES_CURSOR = /\x1b7|(?:\x1b\[|\x9b)(?:s|\?[\d;]*104[89][\d;]*h)/;
+/** The longest of those worth carrying over a chunk's end (a sequence split between two writes). */
+const SAVE_CARRY = 24;
 const CONTROL = /[\x00-\x1f\x7f-\x9f]/g;
 const MOUSE_PROTOCOLS = [9, 1000, 1002, 1003];
 const MOUSE_ENCODINGS = [1005, 1006, 1015, 1016];
@@ -85,6 +91,13 @@ export class GhosttyMirror implements TerminalMirror {
   /** Replies libghostty made to the chunk being written. */
   private readonly replies: string[] = [];
   private readonly scrollback: number;
+  /**
+   * A cursor may have been saved (never cleared but by a reset: it only decides how the saved cursor is read). Until
+   * then a snapshot asks the terminal itself for its cursor shape and scroll region, without copying it.
+   */
+  private savedCursor = false;
+  /** The end of the last chunk from its last ESC, when a cursor-saving sequence could still be finishing in the next. */
+  private carry = '';
 
   /**
    * `scrollback`: lines above the screen a snapshot carries. libghostty drops whole pages of scrollback past its
@@ -105,9 +118,13 @@ export class GhosttyMirror implements TerminalMirror {
           const report = programReport(s);
           if (report) this.stream.program(report);
         },
-        reset: () => this.stream.reset(),
+        reset: () => {
+          this.stream.reset();
+          this.savedCursor = false;
+        },
       },
     );
+    this.term.write(`${CSI}?${GRAPHEMES}h`);
   }
 
   answerQueries(answers: MirrorAnswers): void {
@@ -121,6 +138,8 @@ export class GhosttyMirror implements TerminalMirror {
       const a = this.answers?.now() ? this.answers : null;
       this.replies.length = 0;
       t.write(data);
+      // After the write: a reset in this chunk forgets a saved cursor, one saved after it in the same chunk counts.
+      if (!this.savedCursor) this.noteSavedCursor(data);
       const replies = this.replies.splice(0);
       if (a) {
         for (const r of replies) for (const answer of translateReplies(r, a.colors)) a.send(answer);
@@ -151,6 +170,21 @@ export class GhosttyMirror implements TerminalMirror {
     if (!t) return '';
     let probe: GhosttyTerminal | null = null;
     try {
+      const scrollback = opts.scrollback !== false;
+      // The usual case costs no copy: on the normal screen, between sequences, no cursor ever saved — the two
+      // questions change nothing, so the terminal itself is asked.
+      if (!this.savedCursor && t.screen() === 'normal' && t.ground()) {
+        const ask = (query: string): string => {
+          this.replies.length = 0;
+          t.write(query);
+          return this.replies.splice(0).join('');
+        };
+        const style = /^\x1bP1\$r(\d+) q/.exec(ask(ASK_CURSOR_STYLE));
+        const region = parseRegion(ask(ASK_REGION), t.rows);
+        const cursorStyle = style ? Number(style[1]) : DEFAULT_CURSOR_STYLE;
+        const saved = { x: 0, y: 0, pendingWrap: false };
+        return START + this.graphemes(t) + this.body(t, scrollback) + this.rehydrate(t, { cursorStyle, region, saved });
+      }
       const heard: string[] = [];
       const copy = t.clone({ reply: (r) => heard.push(r) });
       probe = copy;
@@ -165,7 +199,6 @@ export class GhosttyMirror implements TerminalMirror {
       const region = parseRegion(ask(ASK_REGION), rows);
       copy.write(`${ESC}8`);
       const saved = copy.cursor();
-      const scrollback = opts.scrollback !== false;
       let body: string;
       if (t.screen() === 'alternate') {
         // The normal screen as it is under the alternate one: the copy leaves it as the app would (1049l puts back the
@@ -179,7 +212,7 @@ export class GhosttyMirror implements TerminalMirror {
         body = this.body(t, scrollback);
       }
       const cursorStyle = style ? Number(style[1]) : DEFAULT_CURSOR_STYLE;
-      return START + body + this.rehydrate(t, { cursorStyle, region, saved }) + t.continuation();
+      return START + this.graphemes(t) + body + this.rehydrate(t, { cursorStyle, region, saved }) + t.continuation();
     } catch {
       return '';
     } finally {
@@ -210,6 +243,22 @@ export class GhosttyMirror implements TerminalMirror {
   dispose(): void {
     this.term?.free();
     this.term = null;
+  }
+
+  /** Said before the screen: the client measures what follows the way this terminal did. */
+  private graphemes(t: GhosttyTerminal): string {
+    return `${CSI}?${GRAPHEMES}${t.mode(GRAPHEMES) ? 'h' : 'l'}`;
+  }
+
+  private noteSavedCursor(data: string): void {
+    if (SAVES_CURSOR.test(this.carry + data)) {
+      this.savedCursor = true;
+      this.carry = '';
+      return;
+    }
+    const esc = Math.max(data.lastIndexOf(ESC), data.lastIndexOf('\x9b'));
+    this.carry =
+      esc >= 0 && data.length - esc < SAVE_CARRY ? data.slice(esc) : esc < 0 && this.carry ? (this.carry + data).slice(-SAVE_CARRY) : '';
   }
 
   private end(t: GhosttyTerminal): GridPoint {

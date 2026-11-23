@@ -243,16 +243,59 @@ describe('GhosttyMirror snapshot round trip', () => {
   });
 
   it('measures emoji, CJK, ZWJ and VS16 text as the browser does (Unicode 11)', async () => {
-    // Measured the same by both (mode 2027, grapheme clustering, stays off): the ZWJ family is its three emoji, 6
-    // columns; VS16 doesn't widen ❤️ ☀️ ⚠️ ✔️.
+    // The rows read the same. The mirror clusters graphemes (mode 2027 on, as the Terminal tab on libghostty does): a
+    // ZWJ family is 2 columns to it and 6 to xterm.js's Unicode 11, so a cursor left on such a row would differ (below).
     const r = await roundTrip(`👍⭐✅⏳🚀|\r\na一二b|\r\n👨‍👩‍👧|\r\n❤️ ☀️|\r\n⚠️ ✔️|\r\né|`, 40, 8);
     await expectSame(r);
   });
 
-  // A flag is two regional indicators: 2 columns each to libghostty, 1 each to xterm.js's Unicode 11 (the browser).
-  // The row's text is the same, but the cursor (and anything drawn by position after the flag) is 2 columns apart.
-  it.fails('a flag (regional indicators) is as wide as xterm.js says', async () => {
+  // A flag is one cluster of 2 columns with mode 2027 on; xterm.js's Unicode 11 counts its two indicators 1 each.
+  it('a flag (regional indicators) is as wide as xterm.js says', async () => {
     await expectSame(await roundTrip('🇭🇷 é|', 40, 6));
+  });
+
+  // The one place the engines' widths part: a cluster xterm.js counts by its code points (a ZWJ family: 6 columns).
+  it.fails('a cursor left after a ZWJ family is where xterm.js puts it', async () => {
+    await expectSame(await roundTrip('👨‍👩‍👧|', 40, 6));
+  });
+
+  it('says its grapheme mode before the screen, so a libghostty client measures what follows the same', () => {
+    const m = ghostty(20, 4);
+    expect(m.snapshot()).toContain(`${CSI}?2027h`);
+    m.write(`${CSI}?2027l`);
+    expect(m.snapshot()).toContain(`${CSI}?2027l`);
+  });
+
+  describe('the saved cursor, read without copying the terminal until one is saved', () => {
+    it('a sequence that saves it, split between two writes, is still seen', async () => {
+      for (const [a, b] of [
+        [`${CSI}3;4H${ESC}`, `7${CSI}1;1Hx`],
+        [`${CSI}3;4H${CSI}?10`, `48h${CSI}1;1Hx`],
+        [`${CSI}3;4H${ESC}`, `[s${CSI}1;1Hx`],
+      ]) {
+        await expectSame(await roundTrip([`some output\r\n${a}`, b]));
+      }
+    });
+
+    it('cursor shape and scroll region come out the same asked of the terminal or of a copy', () => {
+      const plain = ghostty(30, 8);
+      const saved = ghostty(30, 8);
+      const state = `text\r\n${CSI}4 q${CSI}2;6r${CSI}3;3Hab`;
+      plain.write(state);
+      saved.write(`${ESC}7${state}`); // home saved: the same state, read the other way
+      expect(plain.snapshot()).toBe(saved.snapshot());
+      expect(plain.snapshot()).toContain(`${CSI}4 q`);
+      expect(plain.snapshot()).toContain(`${CSI}2;6r`);
+    });
+
+    it('a snapshot taken mid-sequence leaves the sequence to finish', async () => {
+      const m = ghostty(30, 8);
+      m.write(`ab${CSI}3`);
+      const snap = m.snapshot();
+      expect(snap.endsWith(`${CSI}3`)).toBe(true);
+      m.write('1mred');
+      expect(m.screenText().split('\n')[0]).toBe('abred');
+    });
   });
 
   // A zero-width character with nothing before it on the row: xterm.js keeps it in the row's text, libghostty drops it
