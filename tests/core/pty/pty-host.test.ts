@@ -12,6 +12,8 @@ import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
 import { VERSION } from '../../../src/version.js';
 import { HIGH_WATERMARK, LOW_WATERMARK, ackFrame, withFlow } from '../../../src/core/pty/flow-control.js';
 import { CATCH_UP_MIN_MS } from '../../../src/core/pty/output-pacer.js';
+import { withGrid, type Grid } from '../../../src/core/pty/terminal-size.js';
+import { REDRAW_JIGGLE_MS } from '../../../src/core/pty/pty-registry.js';
 
 class EchoPty implements PtyLike {
   readonly pty = { pid: 1 };
@@ -130,8 +132,9 @@ afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean } = {}) {
-  const ws = new WebSocket(opts.flow ? withFlow(client.attachUrl(id), { screenOnly: opts.screenOnly }) : client.attachUrl(id));
+function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean; grid?: Grid } = {}) {
+  const url = opts.flow ? withFlow(client.attachUrl(id), { screenOnly: opts.screenOnly }) : client.attachUrl(id);
+  const ws = new WebSocket(withGrid(url, opts.grid));
   const binary: string[] = [];
   const control: unknown[] = [];
   ws.on('message', (d, isBinary) => {
@@ -376,6 +379,89 @@ describe('PTY host', () => {
 
   it('refuses a spawn whose cwd does not exist', async () => {
     await expect(client.spawn('s3', { cwd: path.join(dir, 'nope'), tool: tool as never })).rejects.toThrow(/cwd/);
+  });
+});
+
+describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at a size")', () => {
+  afterEach(() => {
+    makePty = () => new EchoPty();
+  });
+
+  it('a client stating its grid (?cols&rows) has the PTY resized before its replay, which is drawn at that grid', async () => {
+    await client.spawn('g1', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as EchoPty;
+    const a = attach('g1', { flow: true, grid: { cols: 100, rows: 30 } });
+    await a.opened;
+    await tick();
+    expect(pty.log).toEqual(['resize 100x30']);
+    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 100, rows: 30 });
+    expect((await client.get('g1'))?.cols).toBe(100);
+    a.ws.close();
+  });
+
+  it('a client stating none (an older one, a hidden tab) attaches as before: nothing resized, the replay at the PTY grid', async () => {
+    await client.spawn('g2', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as EchoPty;
+    const a = attach('g2', { flow: true });
+    await a.opened;
+    await tick();
+    expect(pty.log).toEqual([]);
+    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 120, rows: 32 });
+    a.ws.close();
+  });
+
+  it('the screen copy is reflowed to the stated grid before the snapshot; nothing lost or doubled around it', async () => {
+    /** Says the grid its screen copy had when each snapshot was taken. */
+    class SizedMirrorPty extends MirrorPty {
+      readonly shotsAt: string[] = [];
+      override serializeSettled(opts?: SnapshotOptions) {
+        this.shotsAt.push(`${this.mirror.terminal.cols}x${this.mirror.terminal.rows}`);
+        return super.serializeSettled(opts);
+      }
+    }
+    makePty = () => new SizedMirrorPty();
+    await client.spawn('g3', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as SizedMirrorPty;
+    pty.print('before\r\n');
+    const a = attach('g3', { flow: true, grid: { cols: 60, rows: 20 } });
+    await a.opened;
+    pty.print('after'); // the agent repainting for the new grid, while the snapshot is taken
+    await tick();
+    const replay = a.control[0] as { type: string; data: string; cols: number; rows: number };
+    expect(replay).toMatchObject({ type: 'replay', cols: 60, rows: 20 });
+    expect(pty.shotsAt).toEqual(['60x20']);
+    expect((replay.data.match(/before/g) ?? []).length + (a.binary.join('').match(/before/g) ?? []).length).toBe(1);
+    expect((replay.data.match(/after/g) ?? []).length + (a.binary.join('').match(/after/g) ?? []).length).toBe(1);
+    a.ws.close();
+  });
+
+  it('typing re-asserts the stated grid after another client resized the PTY (the one used last sets it)', async () => {
+    await client.spawn('g4', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as EchoPty;
+    const terminal = attach('g4', { grid: { cols: 200, rows: 50 } });
+    await terminal.opened;
+    const app = attach('g4');
+    await app.opened;
+    app.ws.send(JSON.stringify({ type: 'resize', cols: 90, rows: 30 }));
+    await tick();
+    terminal.ws.send(JSON.stringify({ type: 'input', data: 'k' }));
+    await tick();
+    expect(pty.log).toEqual(['resize 200x50', 'resize 90x30', 'resize 200x50', 'write k']);
+    terminal.ws.close();
+    app.ws.close();
+  });
+
+  it('a redraw frame (⋯ → Reconnect terminal) makes the PTY a row smaller and puts it back: the agent repaints', async () => {
+    await client.spawn('g5', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as EchoPty;
+    const a = attach('g5', { flow: true });
+    await a.opened;
+    a.ws.send(JSON.stringify({ type: 'redraw' }));
+    await tick();
+    expect(pty.log).toEqual(['resize 120x31']);
+    await new Promise((r) => setTimeout(r, REDRAW_JIGGLE_MS + 50));
+    expect(pty.log).toEqual(['resize 120x31', 'resize 120x32']);
+    a.ws.close();
   });
 });
 

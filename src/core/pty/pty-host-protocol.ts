@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getConfigDir } from '../platform/config.js';
 import type { AiToolSpec } from '../platform/ai-launcher.js';
 import { isEnvDelta, type EnvDelta } from '../platform/env-delta.js';
+import type { WindowsPty } from './terminal-size.js';
 
 /**
  * Wire contract between the PTY host (`work pty-host`, the long-lived
@@ -41,6 +42,11 @@ export interface SpawnSpec {
   cwd: string;
   tool: AiToolSpec;
   port?: number;
+  /**
+   * The grid to start at: the terminal it is started for (a Terminal tab's, `work attach`'s), or the one it was used at
+   * last (a restore). None: the last grid a client set in this host, else 120 × 32 (pty-registry.ts). Persisted with
+   * each restore-list entry (additive: a host from before writes none and starts a restore at 120 × 32).
+   */
   cols?: number;
   rows?: number;
   // No `unsafe` any more: every agent starts in its own permission mode. An older client may still send
@@ -135,15 +141,31 @@ export interface PtyInfo {
  *  client PTY output is sent as binary frames; control frames as text.
  *  `ack`: from a client that attached with `?flow=1` (flow-control.ts), the characters of output it finished drawing
  *  since its last ack. Additive, no PROTOCOL_VERSION bump: an older host ignores the parameter and the frame. */
-export type ClientFrame = { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number } | { type: 'ack'; chars: number };
+export type ClientFrame =
+  | { type: 'input'; data: string }
+  | { type: 'resize'; cols: number; rows: number }
+  | { type: 'ack'; chars: number }
+  /** ⋯ → Reconnect terminal, after its replay: ask the agent to draw its screen again (registry.redraw). Additive: an older host drops it. */
+  | { type: 'redraw' };
 
 export type HostControlFrame =
   /** Sent first on attach: the serialized screen and the grid it was
    *  drawn for. Clients draw it at exactly cols×rows, then resize to their
-   *  own size (which makes Claude redraw), and only then send input.
+   *  own size (which makes Claude redraw), and only then send input. A client
+   *  that stated its grid as it attached (terminal-size.ts) is sent it at that
+   *  grid already: its resize after it changes nothing.
    *  A client that acks is sent one again mid-session when it fell behind and caught up (output-pacer.ts): it resets
    *  its screen (scrollback too) and draws it, and nothing else — no resize, no focus, no input held for it. */
-  { type: 'replay'; data: string; cols: number; rows: number } | { type: 'exit'; code: number } | { type: 'error'; message: string };
+  | {
+      type: 'replay';
+      data: string;
+      cols: number;
+      rows: number;
+      /** The host runs on Windows: its PTYs are ConPTY's, which reflows lines itself (terminal-size.ts). Additive. */
+      windowsPty?: WindowsPty;
+    }
+  | { type: 'exit'; code: number }
+  | { type: 'error'; message: string };
 
 export function hostInfoPath(): string {
   return path.join(getConfigDir(), 'pty-host.json');

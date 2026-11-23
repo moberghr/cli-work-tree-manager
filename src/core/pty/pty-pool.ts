@@ -19,6 +19,7 @@ import { logSwallowed, swallow } from '../platform/best-effort.js';
 import { ASSISTANT_ID, prepareAssistantDir } from '../agents/assistant.js';
 import { accountLoginId, accountOfLoginId } from './account-login-id.js';
 import { accountLoginSpec } from './account-login.js';
+import type { Grid } from './terminal-size.js';
 
 /**
  * `work web`'s view of the Claude PTYs. The PTYs themselves live in the
@@ -199,7 +200,7 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
  * needed) and return the host WebSocket URL to attach to. Null for an
  * unknown session.
  */
-export async function ensurePty(sessionId: string, extra: { initialPrompt?: string } = {}): Promise<string | null> {
+export async function ensurePty(sessionId: string, extra: { initialPrompt?: string; grid?: Grid } = {}): Promise<string | null> {
   // An account's login terminal (the Accounts page) is no session: the agent's own CLI on that account (account-login.ts).
   const loginFor = accountOfLoginId(sessionId);
   // The dashboard assistant (Ctrl+K) is not a worktree: it runs in its own
@@ -220,8 +221,14 @@ export async function ensurePty(sessionId: string, extra: { initialPrompt?: stri
           : null;
   if (!base) return null;
   // The first prompt only applies to a fresh spawn (the host ignores the
-  // spec when the session's PTY is already running).
-  const spec = extra.initialPrompt ? { ...base, initialPrompt: extra.initialPrompt } : base;
+  // spec when the session's PTY is already running), and so does the grid: the Terminal tab's that starts it
+  // (terminal-size.ts), so its agent doesn't start at another size and paint again a moment later. None (a start
+  // with no tab): the host takes the last grid a client used.
+  const spec = {
+    ...base,
+    ...(extra.initialPrompt ? { initialPrompt: extra.initialPrompt } : {}),
+    ...(extra.grid ? { cols: extra.grid.cols, rows: extra.grid.rows } : {}),
+  };
 
   let c = await getClient(true);
   if (!c) return null;

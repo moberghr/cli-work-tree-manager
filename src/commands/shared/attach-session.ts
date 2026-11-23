@@ -7,6 +7,7 @@ import { ensureHost, PtyHostClient } from '../../core/pty/pty-host-client.js';
 import { resolveWorkBinPath } from '../../core/platform/work-bin.js';
 import { TERMINAL_RESET } from '../../core/pty/terminal-reset.js';
 import { ackFrame, withFlow } from '../../core/pty/flow-control.js';
+import { sameGrid, validGrid, withGrid } from '../../core/pty/terminal-size.js';
 import { attachOutput } from './attach-output.js';
 
 // Bridges this terminal to a session in the PTY host. Shared by
@@ -69,7 +70,10 @@ export async function attachSession(session: WorktreeSession, launch: AttachSpaw
   process.stdout.write(`\x1b]0;${session.target} · ${session.branch || '(base)'}\x07`);
 
   // It acks what your terminal took (`?flow=1`): a terminal slower than the agent is paced, or sent the screen once it caught up.
-  const ws = new WebSocket(withFlow(host.attachUrl(id), { screenOnly: true }));
+  // It states your terminal's grid (`?cols&rows`, terminal-size.ts): the host resizes the PTY to it before it takes the
+  // screen it sends first, so that screen is drawn for this terminal, and the agent's repaint for it follows as output.
+  const grid = validGrid(cols, rows);
+  const ws = new WebSocket(withGrid(withFlow(host.attachUrl(id), { screenOnly: true }), grid));
   const sendFrame = (frame: object) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
   };
@@ -118,18 +122,19 @@ export async function attachSession(session: WorktreeSession, launch: AttachSpaw
         code?: number;
         message?: string;
         data?: string;
+        cols?: number;
+        rows?: number;
       };
       if (msg.type === 'replay') {
-        // A later one (it fell behind and caught up) is only drawn: no size nudge, which would take the PTY's size.
+        // A later one (it fell behind and caught up) is only drawn: no resize, which would take the PTY's size.
         if (!screen.replay(msg.data ?? '')) return;
         replayed = true;
-        // Nudge the size by one row and back: forces a SIGWINCH so Claude's
-        // TUI redraws for this terminal's grid — the snapshot was drawn
-        // for whichever client sized the PTY last.
-        const c = process.stdout.columns || cols;
-        const r = process.stdout.rows || rows;
-        sendFrame({ type: 'resize', cols: c, rows: Math.max(2, r - 1) });
-        sendFrame({ type: 'resize', cols: c, rows: r });
+        // Drawn at this terminal's grid (a current host took the grid stated above): nothing to do — the PTY is at it,
+        // and an agent that had to repaint for it did so as the output that follows. Drawn at another (an older host,
+        // which ignores the parameters; or the terminal resized meanwhile): this terminal's grid, which makes the agent
+        // repaint for it. It used to nudge the size a row and back here instead, a repaint on every attach.
+        const own = validGrid(process.stdout.columns || cols, process.stdout.rows || rows);
+        if (own && !sameGrid(own, validGrid(msg.cols, msg.rows))) sendFrame({ type: 'resize', ...own });
       } else if (msg.type === 'exit') {
         exitCode = msg.code ?? 0;
         message = 'Claude exited.';

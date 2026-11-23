@@ -1,6 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import { WebSocketServer } from 'ws';
 import { atomicWriteFile } from '../platform/fs-safe.js';
 import { PtyRegistry } from './pty-registry.js';
@@ -13,6 +14,7 @@ import { isEnvDelta } from '../platform/env-delta.js';
 import { createTicketBook } from './terminal-tickets.js';
 import { replyParts } from './terminal-replies.js';
 import { CATCH_UP_PARAM, FLOW_PARAM } from './flow-control.js';
+import { gridFromParams, windowsPtyFor } from './terminal-size.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
 const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart|\/halt|\/resume)?$/;
@@ -73,7 +75,8 @@ function isSpawnSpec(v: unknown): v is SpawnSpec {
  * against DNS rebinding, same as the other local servers (§1.3).
  */
 export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boolean; writeInfo?: boolean } = {}): Promise<PtyHostHandle> {
-  const registry = opts.registry ?? new PtyRegistry();
+  // On Windows its PTYs are ConPTY's: every screen it sends says so (windowsPty, terminal-size.ts).
+  const registry = opts.registry ?? new PtyRegistry({ windowsPty: windowsPtyFor(process.platform, os.release()) });
   const token = crypto.randomBytes(24).toString('hex');
   let allowedHosts = new Set<string>();
   // A dashboard page's Terminal tab connects here directly with one of these (terminal-tickets.ts), never the token.
@@ -178,6 +181,9 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
     const metered = url.searchParams.get(FLOW_PARAM) === '1';
     // `work attach`: that screen without the scrollback (its native terminal keeps your history).
     const screenOnlyCatchUp = url.searchParams.get(CATCH_UP_PARAM) === 'screen';
+    // Its grid, when it takes the size as it attaches (`?cols=…&rows=…`, terminal-size.ts): the PTY is resized to it
+    // before the snapshot. A hidden terminal states none, and changes nothing.
+    const grid = gridFromParams(url.searchParams) ?? undefined;
     wss.handleUpgrade(req, socket, head, (ws) => {
       const attached = registry.attach(
         id,
@@ -199,6 +205,7 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
         {
           metered,
           screenOnlyCatchUp,
+          grid,
           onReplay: (replay) => {
             try {
               ws.send(JSON.stringify({ type: 'replay', ...replay }));
@@ -241,7 +248,7 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
       // This client's own grid. The PTY has one size for all its clients: the one used last sets it — resized OR typed
       // in (tmux's `window-size latest` counts both). With "last resize" alone, opening the session in the app shrank
       // the PTY to the app's grid, and a terminal attached to it stayed drawn for that size while you typed in it.
-      let size: { cols: number; rows: number } | null = null;
+      let size: { cols: number; rows: number } | null = grid ?? null;
       ws.on('message', (raw, isBinary) => {
         if (isBinary) return;
         let msg: ClientFrame;
@@ -270,6 +277,9 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           registry.resize(id, msg.cols, msg.rows);
         } else if (msg.type === 'ack' && Number.isSafeInteger(msg.chars) && msg.chars > 0) {
           attached.ack(msg.chars);
+        } else if (msg.type === 'redraw') {
+          // ⋯ → Reconnect terminal: the agent draws its screen again (registry.redraw). Not someone using it: no size taken.
+          registry.redraw(id);
         }
       });
       ws.on('close', () => attached.detach());

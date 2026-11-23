@@ -17,6 +17,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { VIEW_SCROLLBACK } from '../../../../core/pty/scrollback.js';
 import { TERMINAL_THEME } from '../../../../core/pty/terminal-colors.js';
 import { AckCounter, ackFrame, utf16Length } from '../../../../core/pty/flow-control.js';
+import { isWindowsPty, validGrid, type Grid } from '../../../../core/pty/terminal-size.js';
+import { FitScheduler } from '../../state/fit-scheduler.js';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -118,8 +120,18 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     force.current = false;
   }, [sessionId]);
   // ⋯ → Reconnect terminal (⇧R): a new connection, whatever state this one is in — one gone
-  // stale without saying so shows a screen that takes no input.
-  useEffect(() => onTerminalReconnect(sessionId, () => setGeneration((g) => g + 1)), [sessionId]);
+  // stale without saying so shows a screen that takes no input. It also asks the agent to draw its screen again once
+  // the new connection's screen is drawn (`redraw`): it is what you reach for when the screen looks wrong. Only then —
+  // a repaint flashes, and an agent drawing inline can repeat its transcript in the scrollback.
+  const redrawNext = useRef(false);
+  useEffect(
+    () =>
+      onTerminalReconnect(sessionId, () => {
+        redrawNext.current = true;
+        setGeneration((g) => g + 1);
+      }),
+    [sessionId],
+  );
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -174,9 +186,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       setRenderer(wait === null ? 'dom' : 'retrying');
       if (wait !== null) webglRetry = setTimeout(() => loadWebgl(true), wait);
     };
+    // A drag fires the pane's observer every frame: fitted at most every FIT_MIN_MS, the last size always, each in a
+    // task of its own (fit-scheduler.ts). The fit is applyGrid, below.
+    const fits = new FitScheduler(() => applyGrid());
     // The two renderers measure a cell differently: refit after a swap, or
     // the grid is a column off until the next resize.
-    const rendererChanged = () => onResize();
+    const rendererChanged = () => fits.request();
     const loadWebgl = (retry: boolean) => {
       if (disposed) return;
       let webgl: WebglAddon | null = null;
@@ -204,7 +219,21 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       }
     };
     loadWebgl(false);
-    fit.fit();
+    // The grid this pane holds, or null when it can't be told: no size (not laid out, 0 × 0), or one the PTY host
+    // wouldn't take (terminal-size.ts; FitAddon proposes 2 × 1 for an empty pane). Measured here; applied by applyGrid.
+    const measure = (): Grid | null => {
+      const el = hostRef.current;
+      if (!el || el.clientWidth <= 0 || el.clientHeight <= 0) return null;
+      const dims = fit.proposeDimensions();
+      return dims ? validGrid(dims.cols, dims.rows) : null;
+    };
+    // The grid it attaches at: stated on its address when it takes the PTY's size (shown), so the host sends its first
+    // screen at this grid, and starts an agent at it (terminal-size.ts). Hidden in the deck it states none.
+    const attachGrid = activeRef.current ? measure() : null;
+    if (attachGrid) term.resize(attachGrid.cols, attachGrid.rows);
+    // This connection is a ⋯ → Reconnect terminal's: the agent is asked to repaint once its screen is drawn.
+    const askRedraw = redrawNext.current;
+    redrawNext.current = false;
     // Take the keyboard: you land here to answer Claude (Inbox "needs your
     // input", `n`, a notification click). Without focus your answer went to
     // the dashboard, whose j/k/n navigated away. Typing before the replay
@@ -264,7 +293,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     })();
     // Straight to the PTY host with a ticket when it can, else the relay at wsUrl (terminal-socket.ts). It acks what
     // it draws (flow: the host paces it, core/pty/flow-control.ts).
-    const ws = openTerminalSocket(sessionId, { force: force.current, relayUrl: wsUrl, flow: true });
+    const ws = openTerminalSocket(sessionId, { force: force.current, relayUrl: wsUrl, flow: true, grid: attachGrid });
     ws.binaryType = 'arraybuffer';
     setPhase('connecting');
     setFailed(null);
@@ -278,7 +307,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
 
     // Nothing is sent until the host's replay frame (always first) has been
     // drawn: input typed meanwhile is queued, and our size is sent only
-    // after the snapshot is on screen, so Claude redraws for our grid.
+    // after the snapshot is on screen. A current host sent it at the grid stated on the attach address already, so
+    // this resize changes nothing; an older one ignored that, and this is what gives Claude our grid, as before.
     const finishReplay = () => {
       clearTimeout(slowStart);
       setPhase('ready');
@@ -287,14 +317,16 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       retries.current = 0;
       setElsewhere(null);
       setChecking(false);
-      fit.fit();
       // After a reconnect the terminal is rebuilt: take focus back unless
       // the user has put it somewhere else meanwhile.
       if (activeRef.current && (!document.activeElement || document.activeElement === document.body)) term.focus();
       ready = true;
+      // The PTY's grid: the screen's. Shown, the pane's grid is taken with it now, and sent even when the same. Hidden in
+      // the deck (a try again while hidden), nothing: it keeps the screen's grid until it is shown.
       sentCols = term.cols;
       sentRows = term.rows;
-      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      applyGrid(true);
+      if (askRedraw && activeRef.current) ws.send(JSON.stringify({ type: 'redraw' }));
       for (const data of pendingInput) {
         ws.send(JSON.stringify({ type: 'input', data }));
       }
@@ -315,14 +347,14 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     // A screen: in pieces, `done` once the last is drawn. Never acked (the host doesn't count it).
     const writeScreen = (text: string, done: () => void) => inPieces(text, (piece, last) => term.write(piece, last ? done : undefined));
     // A screen sent mid-session (this tab fell behind and caught up: the host's output-pacer.ts) is only drawn: over
-    // a reset terminal (RIS, in order with what was written before it; it clears the scrollback too), at its grid, then
-    // fitted here again. None of the first screen's work: no focus taken, no size sent (it would take the PTY's size
-    // from the terminal in use), nothing held to send.
-    const redraw = (msg: { data?: string; cols?: number; rows?: number }) => {
+    // a reset terminal (RIS, in order with what was written before it; it clears the scrollback too), at its grid — the
+    // PTY's — and left there: fitted here alone, the agent's frame, drawn for another client's grid, would be reflowed
+    // into garbage. Only if this pane's own grid changed since it last told the PTY are both changed (applyGrid). None
+    // of the first screen's work: no focus taken, no size sent (it would take the PTY's size from the terminal in use),
+    // nothing held to send.
+    const drawCatchUp = (msg: { data?: string; cols?: number; rows?: number }) => {
       if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
-      writeScreen('\x1bc' + (msg.data ?? ''), () => {
-        if (activeRef.current) fit.fit();
-      });
+      writeScreen('\x1bc' + (msg.data ?? ''), () => fits.request());
     };
     const meter = new LatencyMeter();
     let shownAt = 0;
@@ -376,6 +408,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         data?: string;
         cols?: number;
         rows?: number;
+        windowsPty?: unknown;
         lastActivity?: number | null;
         state?: string | null;
       };
@@ -385,7 +418,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         return;
       }
       if (msg.type === 'replay') {
-        if (ready) return redraw(msg);
+        // The host's PTYs are ConPTY's, which reflows lines itself on a resize: xterm.js must not reflow them again
+        // (VS Code sets the same; terminal-size.ts). Said by a host on Windows only.
+        if (isWindowsPty(msg.windowsPty)) term.options.windowsPty = msg.windowsPty;
+        if (ready) return drawCatchUp(msg);
         // Draw at the grid the snapshot was serialized for, then fit.
         if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
         if (msg.data) writeScreen(msg.data, finishReplay);
@@ -445,43 +481,49 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       } else pendingInput.push(data);
     }
 
-    // A drag fires the observer every frame; only tell the server when the
-    // grid actually changes.
+    // The grid the PTY was last told (by this tab): only a change from it is sent.
     let sentCols = term.cols;
     let sentRows = term.rows;
-    // `force`: send even if OUR size didn't change — another window on this
-    // session (your terminal tab, attached by `work tree`) may have resized
-    // the PTY since, and the last resize wins: Claude then wrapped its input
-    // at that window's width and text ran off the edge here.
-    const onResize = (force = false) => {
-      // Hidden in the deck: keep the grid as it was, send nothing.
-      if (!activeRef.current) return;
-      fit.fit();
-      if (!force && term.cols === sentCols && term.rows === sentRows) return;
-      sentCols = term.cols;
-      sentRows = term.rows;
-      if (ready) {
-        ws.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: term.cols,
-            rows: term.rows,
-          }),
-        );
-      }
+    // The local grid changed: the line at the top of the view stays there when you had scrolled up (a marker follows
+    // it through the reflow), and the view stays at the bottom when it was there.
+    const resizeKeepingView = (grid: Grid) => {
+      const buf = term.buffer.active;
+      const atBottom = buf.viewportY >= buf.baseY;
+      const marker = atBottom ? undefined : term.registerMarker(buf.viewportY - (buf.baseY + buf.cursorY));
+      term.resize(grid.cols, grid.rows);
+      if (atBottom) term.scrollToBottom();
+      else if (marker && !marker.isDisposed && marker.line >= 0) term.scrollToLine(marker.line);
+      marker?.dispose();
     };
-    const onWindowResize = () => onResize();
+    // This tab's grid and the PTY's change TOGETHER: the pane measured, the terminal resized and the PTY told in one go.
+    // Never the local grid alone, or the agent's last frame, drawn for the PTY's grid, is reflowed here into garbage.
+    // Only while shown (hidden in the deck it keeps its grid and sends nothing: the PTY's size is the terminal in use's)
+    // and once the first screen is drawn (until then the grid is stated on the attach address). A pane with no size
+    // changes nothing. `force`: send even if OUR size didn't change — another window on this session (your terminal
+    // tab, attached by `work tree`) may have resized the PTY since, and the last resize wins: Claude then wrapped its
+    // input at that window's width and text ran off the edge here.
+    const applyGrid = (force = false) => {
+      if (!activeRef.current || !ready) return;
+      const grid = measure();
+      if (!grid) return;
+      if (!force && grid.cols === sentCols && grid.rows === sentRows) return;
+      if (grid.cols !== term.cols || grid.rows !== term.rows) resizeKeepingView(grid);
+      sentCols = grid.cols;
+      sentRows = grid.rows;
+      ws.send(JSON.stringify({ type: 'resize', cols: grid.cols, rows: grid.rows }));
+    };
+    const onWindowResize = () => fits.request();
     // Observe the host, not just the window: dragging the dashboard's rail
     // divider resizes the pane without any window resize event.
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => onResize()) : null;
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => fits.request()) : null;
     if (observer) observer.observe(hostRef.current);
     else window.addEventListener('resize', onWindowResize);
     shown.current = () => {
-      onResize(true);
+      applyGrid(true);
       term.focus();
     };
     // The terminal you type in sets the size.
-    const onFocus = () => onResize(true);
+    const onFocus = () => applyGrid(true);
     term.textarea?.addEventListener('focus', onFocus);
 
     return () => {
@@ -493,6 +535,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       term.element?.removeEventListener('copy', onCopy, true);
       term.textarea?.removeEventListener('focus', onFocus);
       shown.current = null;
+      fits.dispose();
       observer?.disconnect();
       window.removeEventListener('resize', onWindowResize);
       inputSub.dispose();

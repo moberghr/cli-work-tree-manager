@@ -33,8 +33,18 @@ describe('the terminal ticket route', () => {
     const res = await ask();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=abc' });
-    expect(opts.ensure).toHaveBeenCalledWith('s1');
+    expect(opts.ensure).toHaveBeenCalledWith('s1', undefined);
     expect(opts.ticket).toHaveBeenCalledWith('s1', page);
+  });
+
+  it('a tab stating its grid has the agent started at it; a grid that is not one is not passed on', async () => {
+    const { opts, ask } = setup();
+    await ask({ cols: 133, rows: 41 });
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', { cols: 133, rows: 41 });
+    await ask({ cols: 1, rows: 41 });
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', undefined);
+    await ask({ cols: '133', rows: '41' });
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', undefined);
   });
 
   it('a Claude in another terminal: said, nothing started — unless forced', async () => {

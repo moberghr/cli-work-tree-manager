@@ -409,3 +409,23 @@ describe('ScreenMirror answering queries', () => {
     ]);
   });
 });
+
+describe('ScreenMirror on ConPTY (windowsPty)', () => {
+  it('a host on Windows sets windowsPty, so the copy leaves the reflow to ConPTY as the Terminal tab does', () => {
+    const m = new ScreenMirror(80, 24, undefined, { windowsPty: { backend: 'conpty', buildNumber: 19045 } });
+    try {
+      expect(m.terminal.options.windowsPty).toEqual({ backend: 'conpty', buildNumber: 19045 });
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it('anywhere else it sets none', () => {
+    const m = new ScreenMirror(80, 24);
+    try {
+      expect(m.terminal.options.windowsPty?.backend).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+});

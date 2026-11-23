@@ -146,7 +146,7 @@ Output used to go to every client chunk by chunk, as fast as the agent wrote it.
 
 **A replay mid-session** (a client caught up) must redraw and nothing else:
 
-- **The browser** (`PtyView`) resizes to the snapshot's grid. It writes `ESC c` (RIS: in order with what was queued before it; it clears the scrollback too) followed by the screen, then fits, if shown. It takes no focus, sends no size (that would take the PTY's size from the terminal in use), holds no input and leaves the phase alone.
+- **The browser** (`PtyView`) resizes to the snapshot's grid. It writes `ESC c` (RIS: in order with what was queued before it; it clears the scrollback too) followed by the screen, and stays at that grid, the PTY's (see "Resizing and attaching at a size"). It takes no focus, sends no size (that would take the PTY's size from the terminal in use), holds no input and leaves the phase alone.
 - **`work attach`** (`commands/shared/attach-output.ts`) asks for screen-only catch-ups (`withFlow(…, { screenOnly: true })`, `?catchup=screen`). Its mid-session screen is the visible screen without the scrollback (`snapshot({ scrollback: false })`), so a catch-up adds nothing to your terminal's history. The saved cursor and the scroll region are positions on the screen (the saved cursor's buffer line less `baseY`), so they come out the same without the scrollback (round-trip tests, over a fresh terminal and over one with history in it). Every screen is drawn over a cleared screen (`CLEAR_SCREEN`), never `CSI 3 J`, so your shell's history from before the attach is kept. The first screen still carries the session's scrollback.
 
 The browser also bounds each `term.write` at `WRITE_PIECE` (64 KiB). xterm.js parses one write whole before it looks at the clock, so a big frame or screen written at once is one long freeze. The keystroke-latency meter still marks the echo as the frame arrives.
@@ -173,3 +173,81 @@ We have several clients on one PTY, some of them unwatched, hence the holder, th
 Left open:
 
 - `HOLD 2026` (whole synchronized-output frames) belongs in the pacer too (Batch E).
+
+## Resizing and attaching at a size
+
+`core/pty/terminal-size.ts` holds the rules: a grid is whole numbers, 2..1000 columns and 2..500 rows (`validGrid`), and it is stated on an attach address as `?cols=…&rows=…` (`withGrid`, `gridFromParams`). It is pure and import-free, and the SPA imports it (`SPA_SHARED`).
+
+§ **The Terminal tab's grid and the PTY's change together.** `applyGrid` in `PtyView` measures the pane, resizes xterm.js and sends the `resize` frame in one go. Nothing else resizes the tab's terminal to a size of its own. A terminal fitted alone reflows the agent's last frame, which was drawn for the PTY's grid, into garbage until the agent repaints. That is what a drag used to look like.
+
+- **Rate.** A drag fires the pane's ResizeObserver every frame, and each grid change makes the agent repaint its whole screen. `FitScheduler` (`web/src/state/fit-scheduler.ts`) runs a fit at most once per `FIT_MIN_MS` = 50 ms: the first of a burst at once, the rest as one at the end of the window. That last fit measures the pane as it is then, so the final size always lands. Others do the same. Tabby caps its reflows at one per frame with a 32 ms floor, for its own renderer. Theia waits 50 ms before it resizes the terminal and its process. Codex waits 75 ms before it reflows. Here each fit costs a repaint that comes back over the host and a WebSocket (an echo takes 6–18 ms), so 50 ms lets one land before the next size goes and still follows a drag.
+- **The blank frame.** It is real when the fit runs inside the ResizeObserver callback. That callback runs after the frame's animation callbacks and right before its paint. The WebGL renderer clears its canvas on a resize (setting `canvas.width` clears it) and draws it again only in the next frame's animation callback. Measured with xterm.js 6.0 and addon-webgl 0.19 in Chromium: one blank frame per fit. So every fit runs in a task of its own (a timer), never inside the callback, and the renderer's draw then comes before the next paint. No private API is used: `_renderService` is not touched.
+- **No size, no fit.** A pane with no width or height (not laid out yet, a collapsed panel), or one FitAddon makes no grid of (it proposes 2 × 1 for an empty pane), changes nothing. coder skips a fit the same way. When the pane gets a size, the observer fits it.
+- **Hidden.** A tab hidden in the deck keeps its grid and sends nothing. The PTY's size belongs to the terminal in use. Shown or focused, it takes the size again, sent even when unchanged (another window may have resized the PTY since).
+- **Scroll position.** When you have scrolled up, a marker on the line at the top of the view follows it through the reflow, and the view is put back on it. When the view was at the bottom, it stays there.
+- **A catch-up screen** (output-pacer.ts) stays at the snapshot's grid, the PTY's. Only if the pane's own grid changed since this tab last told the PTY are both changed, through the same scheduler.
+
+**Attaching at a size.** A client that takes the PTY's size anyway states its grid on its attach address: the Terminal tab when shown, and `work attach`. A tab hidden in the deck never states one. `registry.attach` (`AttachOptions.grid`) then does these steps before it takes the snapshot:
+
+- makes the client the one used last (`leader`, `pacer.used`), as its first resize would have;
+- resizes the PTY and the mirror to that grid (`resize`; mid-restart only the entry's grid, which the new process starts at).
+
+So the snapshot is at the client's grid:
+
+- **The mirror** has reflowed to it now.
+- **The agent's repaint** (its SIGWINCH answer) arrives after the attach. Like any output after the attach, it is held for this client until `start()` and then sent as live output. Nothing is lost or doubled: what came before is in the snapshot, and what came after is in the held output, once (`ParsingPty`-style tests in `pty-registry.test.ts` and `pty-host.test.ts`).
+
+The client draws the snapshot at its own grid: there is no second reflow and no repaint after the fact.
+
+The grid also goes:
+
+- to the ticket request (`POST /api/terminals/:id/ticket` takes `cols` and `rows`);
+- through the relay (`terminal-ws.ts` passes the parameters on and gives them to `ensurePty`).
+
+**Compatibility.** The parameters are additive. There is no protocol bump and no `HOST_FEATURES` entry.
+
+- **An older host** ignores them. The tab's resize after the replay, sent as before, then does it the old way.
+- **`work attach`** used to nudge the size a row and back after every replay. Now it sends one resize, and only when the replay's grid isn't its terminal's (an older host).
+- **An invalid grid** is ignored everywhere: the host, the relay and the ticket route.
+- **The replay frame** says which grid it was drawn for, as before.
+
+**The grid an agent starts at** (`registry.spawn`):
+
+| Start | Before | Now |
+|---|---|---|
+| A tab's (a ticket or the relay) | 120 × 32 | The tab's grid |
+| `work attach` | Its terminal's | Its terminal's |
+| One with no tab (started in the background) | 120 × 32 | The last grid a client set in this host, else 120 × 32 |
+| A restore | 120 × 32 | The grid it had when last used |
+
+Each restore-list entry keeps its grid (`persist` writes `cols` and `rows`, which `PersistedPty` allowed already). A client's change is written `GRID_PERSIST_MS` = 1 s after the last change. A list from an older host has no grid, so its restore starts at 120 × 32. After a restore and before any client sets a grid, a start with none takes the grid most restored sessions had.
+
+**Redraw** (⋯ → Reconnect terminal only, never on a normal attach). After the new connection's replay, the tab sends `{ type: 'redraw' }`, then any input it held. `registry.redraw` makes the PTY one row smaller (a row bigger at the minimum). After `REDRAW_JIGGLE_MS` = 100 ms it puts the PTY back to the grid it has then. The clients aren't resized: the agent's repaint at the smaller grid is drawn over by the one at theirs. It works the same on every platform.
+
+- **Why not SIGWINCH to the foreground process group.** A same-size SIGWINCH repaints nothing in a Node or Bun agent (Claude Code is a Bun binary): they emit `'resize'` only when the size they read has changed. Measured with node-pty 1.1, Node 24 and Bun 1.3: two resizes back to back gave two SIGWINCHes and no `'resize'`, and 30 ms apart gave both. node-pty also exposes no `TIOCGPGRP`.
+- **Why not a one-row jiggle with no pause on Windows.** ConPTY sends nothing for an unchanged size.
+
+An older host drops the frame.
+
+**ConPTY.** When the host runs on Windows, it passes `windowsPty` (`{ backend: 'conpty', buildNumber }` from `os.release()`, as VS Code's `getWindowsPty` does) to:
+
+- its mirror (`ScreenMirror`'s option, set by `PtySession`);
+- every replay frame. The tab sets it on its xterm.js.
+
+xterm.js 6 then reflows lines on a resize only from build 21376, where ConPTY reflows them too. Below that build it turns on its wrapping heuristics. On a grow, it adds rows at the bottom instead of pulling lines back from the scrollback, because ConPTY reprints its view. Without this, a resize drew ConPTY's reflow over xterm.js's own.
+
+The registry sets none by default. The host passes it (`startPtyHost`), so a test's registry says the same on every CI platform.
+
+Untested on a real Windows machine:
+
+- the reflow with `windowsPty` set;
+- the jiggle under ConPTY;
+- the build read from `os.release()`.
+
+Left open:
+
+- **The mirror's resize ordering.** The mirror applies a resize before writes it hasn't parsed yet. That was so before this change.
+- **Older resize frames.** A `resize` frame from an older client is bounded only by the registry's `validGrid`.
+- **Clients that don't lead aren't told.** They are not told that the PTY's grid changed. They find out from the next catch-up screen.
+- **Bundled ConPTY.** node-pty's bundled ConPTY (if it is turned on) reflows like build 21376 whatever the OS build. Tabby reports 21376 in that case.
+

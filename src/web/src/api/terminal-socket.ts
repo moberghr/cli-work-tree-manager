@@ -1,5 +1,6 @@
 import type { TerminalTicketWire } from '../../../core/api-types.js';
 import { withFlow } from '../../../core/pty/flow-control.js';
+import { withGrid, type Grid } from '../../../core/pty/terminal-size.js';
 
 /**
  * The Terminal tab's connection: straight to the PTY host when it can, else through work web's relay as before.
@@ -30,18 +31,24 @@ export interface TerminalSocketOptions {
   relayUrl: string;
   /** It acks what it draws (flow-control.ts): `?flow=1` on whichever address it connects to (the relay passes it on). */
   flow?: boolean;
+  /**
+   * Its grid, when it takes the PTY's size (the terminal shown; never a hidden one): stated on whichever address it
+   * connects to (`?cols=…&rows=…`, terminal-size.ts), so the host sends its first screen at this grid, and in the ticket
+   * request, so an agent started for it starts at it.
+   */
+  grid?: Grid | null;
   /** Tests: the ticket request. */
-  askTicket?: (sessionId: string, force: boolean) => Promise<TerminalTicketWire | null>;
+  askTicket?: (sessionId: string, force: boolean, grid?: Grid | null) => Promise<TerminalTicketWire | null>;
   /** Tests: the WebSocket class. */
   WebSocketImpl?: typeof WebSocket;
 }
 
-export async function askTerminalTicket(sessionId: string, force: boolean): Promise<TerminalTicketWire | null> {
+export async function askTerminalTicket(sessionId: string, force: boolean, grid?: Grid | null): Promise<TerminalTicketWire | null> {
   try {
     const res = await fetch(`/api/terminals/${encodeURIComponent(sessionId)}/ticket`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ force }),
+      body: JSON.stringify(grid ? { force, cols: grid.cols, rows: grid.rows } : { force }),
     });
     // An older work web (404) or anything unexpected: the relay.
     if (res.status === 404 && !(res.headers.get('content-type') ?? '').includes('json')) return null;
@@ -75,7 +82,7 @@ export function openTerminalSocket(sessionId: string, opts: TerminalSocketOption
   const connect = (url: string, direct: boolean) => {
     if (closed) return;
     route = direct ? 'direct' : 'relay';
-    const sock = new Impl(opts.flow ? withFlow(url) : url);
+    const sock = new Impl(withGrid(opts.flow ? withFlow(url) : url, opts.grid));
     sock.binaryType = socket.binaryType;
     ws = sock;
     let opened = false;
@@ -115,7 +122,7 @@ export function openTerminalSocket(sessionId: string, opts: TerminalSocketOption
     },
   };
 
-  void ask(sessionId, opts.force).then((answer) => {
+  void ask(sessionId, opts.force, opts.grid).then((answer) => {
     if (closed) return;
     if (answer && 'url' in answer) return connect(answer.url, true);
     // As the relay would have said it: the tab explains, or shows why, then sees the connection end.

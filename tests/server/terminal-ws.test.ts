@@ -11,8 +11,11 @@ import { WebSocket, WebSocketServer } from 'ws';
 let hostUrl = '';
 let ensureDelay = 0;
 let spawns = 0;
+/** What each ensurePty was asked with (the grid a start takes). */
+const ensured: unknown[][] = [];
 vi.mock('../../src/core/pty/pty-pool.js', () => ({
-  ensurePty: async () => {
+  ensurePty: async (...args: unknown[]) => {
+    ensured.push(args);
     spawns++;
     await new Promise((r) => setTimeout(r, ensureDelay));
     return hostUrl;
@@ -290,6 +293,31 @@ describe('terminal relay', () => {
     await new Promise((r) => browser.on('open', r));
     await sleep(100);
     expect(host.urls).toEqual(['/ptys/s/attach']);
+    browser.close();
+  });
+
+  it('a browser stating its grid (?cols&rows): the host is told it, and an agent it starts starts at it', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    const browser = new WebSocket((await relay()) + '?flow=1&cols=133&rows=41');
+    await new Promise((r) => browser.on('open', r));
+    await sleep(100);
+    const params = new URL(host.urls[0], 'ws://h').searchParams;
+    expect([params.get('flow'), params.get('cols'), params.get('rows')]).toEqual(['1', '133', '41']);
+    expect(ensured.at(-1)).toEqual(['s', { grid: { cols: 133, rows: 41 } }]);
+    browser.close();
+  });
+
+  it('a grid that is not one is not passed on: the host attaches and starts as before', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    const browser = new WebSocket((await relay()) + '?cols=1&rows=99999');
+    await new Promise((r) => browser.on('open', r));
+    await sleep(100);
+    expect(host.urls).toEqual(['/ptys/s/attach']);
+    expect(ensured.at(-1)).toEqual(['s', {}]);
     browser.close();
   });
 

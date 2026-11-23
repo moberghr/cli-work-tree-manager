@@ -13,8 +13,9 @@ import { logSwallowed, swallow } from '../platform/best-effort.js';
 import { report } from '../platform/report.js';
 import { TerminalColors } from './terminal-colors.js';
 import type { ReplyPart } from './terminal-replies.js';
-import { OutputPacer, type PacerTimers, type PtyFlow } from './output-pacer.js';
+import { OutputPacer, realTimers, type PacerTimers, type PtyFlow } from './output-pacer.js';
 import type { SnapshotOptions } from './screen-mirror.js';
+import { MIN_ROWS, validGrid, type Grid, type WindowsPty } from './terminal-size.js';
 
 const REPLAY_MAX = 256 * 1024;
 
@@ -31,6 +32,20 @@ export const HALT_RESUME_MS = 5 * 60_000;
  *  the list we need to restore after the reboot. A host that's itself about
  *  to die never reaches the timer. */
 const FORGET_EXITED_MS = 5_000;
+
+/** The grid a PTY starts at when nothing says another: no client stated one, and none has set one since the host started. */
+export const DEFAULT_GRID: Grid = { cols: 120, rows: 32 };
+
+/**
+ * How long `redraw` holds the PTY one row smaller before it puts it back. A same-size SIGWINCH repaints nothing in a
+ * Node or Bun agent (Claude Code is a Bun binary): their `'resize'` event fires only when the size they read changed,
+ * and they read it when they get to the signal. Measured (node-pty 1.1, Node 24 and Bun 1.3): the two resizes back to
+ * back gave two SIGWINCHes and no `'resize'`; 30 ms apart gave both. 100 ms leaves a busy agent's event loop time.
+ */
+export const REDRAW_JIGGLE_MS = 100;
+
+/** A grid a client set is written to the restore list this long after the last change (a drag resizes many times). */
+const GRID_PERSIST_MS = 1000;
 
 /** Minimal PTY surface the registry needs — `PtySession` in production, a
  *  fake in tests. */
@@ -69,6 +84,13 @@ export interface AttachOptions {
    * terminal keeps its own history). Its first screen still has the scrollback.
    */
   screenOnlyCatchUp?: boolean;
+  /**
+   * Its grid, stated as it attaches (`?cols=…&rows=…`, terminal-size.ts): it takes the PTY's size, as its first resize
+   * would have — the terminal shown or `work attach`, never a hidden one. The PTY and its screen are resized to it
+   * BEFORE the snapshot is taken, so the snapshot is drawn for its grid and it needs no second reflow; the agent's
+   * repaint for it follows as live output.
+   */
+  grid?: Grid;
 }
 
 /** What a newly attached client is sent first: the screen as it stands,
@@ -77,6 +99,8 @@ export interface ReplaySnapshot {
   data: string;
   cols: number;
   rows: number;
+  /** The PTY is ConPTY's (a host on Windows): the client's xterm.js sets this, so it doesn't reflow lines ConPTY reflows. */
+  windowsPty?: WindowsPty;
 }
 
 /** An environment without its unset names, typed as the spawn takes it. */
@@ -86,13 +110,28 @@ const definedEnv = (env: Record<string, string | undefined>): Record<string, str
 export type PtySpawner = (spec: SpawnSpec & { resume: boolean }) => PtyLike;
 
 export const defaultSpawner: PtySpawner = (spec) =>
-  new PtySession(spec.cwd, spec.cols ?? 120, spec.rows ?? 32, undefined, {
+  new PtySession(spec.cwd, spec.cols ?? DEFAULT_GRID.cols, spec.rows ?? DEFAULT_GRID.rows, undefined, {
     tool: spec.tool,
     resume: spec.resume,
     port: spec.port,
     initialPrompt: spec.initialPrompt,
     env: spec.env,
   });
+
+/** The grid most of `grids` are (the first of those tied), or null when none is a grid. */
+function mostCommonGrid(grids: Array<Grid | null>): Grid | null {
+  const counts = new Map<string, { grid: Grid; n: number }>();
+  for (const g of grids) {
+    if (!g) continue;
+    const key = `${g.cols}x${g.rows}`;
+    const c = counts.get(key) ?? { grid: g, n: 0 };
+    c.n++;
+    counts.set(key, c);
+  }
+  let best: { grid: Grid; n: number } | null = null;
+  for (const c of counts.values()) if (!best || c.n > best.n) best = c;
+  return best?.grid ?? null;
+}
 
 /** An attached client, as its subscription to the output. */
 type Client = (data: string) => void;
@@ -132,6 +171,8 @@ interface Entry {
   /** The environment it was started with, in memory only (never in the restore list: it can hold secrets), so a
    *  restart runs as the session did; a restore after the host restarts has only what `hostEnv` kept. */
   env?: Record<string, string>;
+  /** A `redraw` under way: the timer that puts the grid back. */
+  redrawing?: unknown;
 }
 
 export interface RegistryDeps {
@@ -150,6 +191,9 @@ export interface RegistryDeps {
   sessionTool?: (tool: AiToolSpec) => AiToolSpec;
   /** The output pacer's clock (tests). */
   timers?: PacerTimers;
+  /** The `windowsPty` its clients are told with each screen (terminal-size.ts). None by default: the PTY host sets it
+   *  from its platform and Windows build (pty-host.ts), so a registry in a test says the same on every platform. */
+  windowsPty?: WindowsPty | null;
 }
 
 /** A restore list in a plain JSON file, written under the file lock. */
@@ -190,6 +234,15 @@ export class PtyRegistry {
   private readonly keepEnvNames: () => string[];
   private readonly sessionTool: (tool: AiToolSpec) => AiToolSpec;
   private readonly timers?: PacerTimers;
+  private readonly windowsPty?: WindowsPty;
+  /**
+   * The last grid a client set (a resize, an attach or a start that stated one): what a PTY started with no grid of its
+   * own (a background start, a session's Start) starts at. After a host restart, before any client: the restored
+   * sessions' most common grid. In memory; each session's own grid is in the restore list.
+   */
+  private lastGrid: Grid | null = null;
+  /** The restore-list write a grid change is waiting for (GRID_PERSIST_MS). */
+  private gridPersist: unknown = null;
   /** Serializes persistence writes inside this process. */
   private writeChain: Promise<void> = Promise.resolve();
   /** The colours the host answers a colour query with itself: the last a terminal attached to any PTY answered with. */
@@ -203,6 +256,7 @@ export class PtyRegistry {
     this.keepEnvNames = deps.keepEnvNames ?? (() => loadConfig()?.hostEnv ?? []);
     this.sessionTool = deps.sessionTool ?? sessionToolFor;
     this.timers = deps.timers;
+    if (deps.windowsPty) this.windowsPty = deps.windowsPty;
   }
 
   list(): PtyInfo[] {
@@ -238,8 +292,11 @@ export class PtyRegistry {
     const env = this.launchEnv({ env: spec.env, keptEnv: kept, agentEnv });
     if (env) spec = { ...spec, env };
 
-    const cols = spec.cols ?? 120;
-    const rows = spec.rows ?? 32;
+    // The grid it starts at: the one stated (a tab's, `work attach`'s terminal's, a restore's own), else the last one a
+    // client set, else the default. Started at one and resized a moment later, an agent paints twice.
+    const stated = validGrid(spec.cols, spec.rows);
+    const { cols, rows } = stated ?? this.lastGrid ?? DEFAULT_GRID;
+    if (stated && !restored) this.lastGrid = stated;
     const pty = this.spawner({
       ...spec,
       cols,
@@ -386,10 +443,45 @@ export class PtyRegistry {
   resize(id: string, cols: number, rows: number): void {
     const e = this.entries.get(id);
     if (!e || e.pty.exited) return;
-    if (cols < 2 || rows < 2 || (cols === e.cols && rows === e.rows)) return;
+    const grid = validGrid(cols, rows);
+    if (!grid || (cols === e.cols && rows === e.rows)) return;
     e.cols = cols;
     e.rows = rows;
     e.pty.resize(cols, rows);
+    this.remember(grid);
+  }
+
+  /** `grid` is the last a client set: what a start with none takes, and — soon — the session's grid in the restore list. */
+  private remember(grid: Grid): void {
+    this.lastGrid = grid;
+    if (this.gridPersist !== null) return;
+    const timers = this.timers ?? realTimers;
+    const handle = timers.set(() => {
+      this.gridPersist = null;
+      void this.persist();
+    }, GRID_PERSIST_MS);
+    (handle as { unref?: () => void } | null)?.unref?.();
+    this.gridPersist = handle;
+  }
+
+  /**
+   * Ask its agent to draw its screen again (⋯ → Reconnect terminal: the screen looks wrong). The PTY is made one row
+   * smaller and, REDRAW_JIGGLE_MS later, put back to the grid it has then: two real size changes, so the agent sees one
+   * whatever it runs on. A same-size SIGWINCH (zmx's way) repaints nothing in a Node or Bun agent (REDRAW_JIGGLE_MS); on
+   * Windows ConPTY sends no resize for an unchanged size at all. The clients aren't resized: the agent's repaint at the
+   * smaller grid is drawn over by the one at theirs. False when nothing runs.
+   */
+  redraw(id: string): boolean {
+    const e = this.entries.get(id);
+    if (!e || e.pty.exited || e.restarting || e.halted) return false;
+    if (e.redrawing !== undefined) return true;
+    e.pty.resize(e.cols, e.rows > MIN_ROWS ? e.rows - 1 : e.rows + 1);
+    e.redrawing = (this.timers ?? realTimers).set(() => {
+      e.redrawing = undefined;
+      // Back to the grid it has now (a client may have set another meanwhile), unless it was killed or restarted.
+      if (this.entries.get(id) === e && !e.pty.exited && !e.restarting && !e.halted) e.pty.resize(e.cols, e.rows);
+    }, REDRAW_JIGGLE_MS);
+    return true;
   }
 
   /**
@@ -445,7 +537,12 @@ export class PtyRegistry {
     let started = !settled;
     let gone = false;
     const sub = (d: string, end?: number) => (held ? held.push([d, end]) : onData(d, end));
-    const snapshot = (data: string): ReplaySnapshot => ({ data, cols: e.cols, rows: e.rows });
+    const snapshot = (data: string): ReplaySnapshot => ({
+      data,
+      cols: e.cols,
+      rows: e.rows,
+      ...(this.windowsPty ? { windowsPty: this.windowsPty } : {}),
+    });
     // A catch-up screen being taken (resync): output held meanwhile, and the PTY's end, told after the screen.
     let catchingUp = false;
     let endedWith: number | null = null;
@@ -485,6 +582,21 @@ export class PtyRegistry {
       e.pacer.add(sub, { metered: !!opts.metered, send: sub, resync });
       e.subscribers.add(sub);
       e.exitSubscribers.add(exitSub);
+      // It stated its grid: it takes the size now, as its first resize would have (it is the one used last), and the
+      // snapshot below is taken at that grid: the screen copy reflowed now, the agent's repaint for it (SIGWINCH)
+      // following as live output, held for it like any other until `start()`.
+      const grid = opts.grid ? validGrid(opts.grid.cols, opts.grid.rows) : null;
+      if (grid) {
+        e.leader = sub;
+        e.pacer.used(sub);
+        if (!restarting) this.resize(id, grid.cols, grid.rows);
+        else {
+          // Nothing runs to resize: the agent being started again starts at it (resumeEntry).
+          e.cols = grid.cols;
+          e.rows = grid.rows;
+          this.remember(grid);
+        }
+      }
     }
     const offset = e.pacer.offset;
     const replay = snapshot(restarting ? '' : e.pty.serialize?.() || e.replay);
@@ -755,6 +867,8 @@ export class PtyRegistry {
         logSwallowed(`restore session ${id} in ${entry.cwd}`, err);
       }
     }
+    // No client has set a grid yet: a start with none takes the one most of the restored sessions had.
+    this.lastGrid ??= mostCommonGrid(restored.map((id) => validGrid(saved[id].cols, saved[id].rows)));
     await this.persist();
     return restored;
   }
@@ -762,6 +876,9 @@ export class PtyRegistry {
   /** Host shutdown: kill every PTY but KEEP the persisted list, so the next
    *  host start restores them. */
   disposeAllKeepingState(): void {
+    // A grid write still to come would write the list with nothing in it.
+    if (this.gridPersist !== null) (this.timers ?? realTimers).clear(this.gridPersist);
+    this.gridPersist = null;
     for (const e of this.entries.values()) {
       e.pty.onExit = undefined;
       e.subscribers.clear();
@@ -807,7 +924,8 @@ export class PtyRegistry {
     // Exited entries still lingering (see FORGET_EXITED_MS) are kept on
     // purpose — dropping them on an unrelated write would defeat the delay.
     for (const e of this.entries.values()) {
-      snapshot[e.id] = { ...e.spec, startedAt: e.startedAt };
+      // Its grid too: a restore after a reboot starts it at the size it was used at last.
+      snapshot[e.id] = { ...e.spec, cols: e.cols, rows: e.rows, startedAt: e.startedAt };
     }
     this.writeChain = this.writeChain
       .then(() => this.store.write(snapshot))

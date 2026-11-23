@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { openTerminalSocket } from '../../src/web/src/api/terminal-socket.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { askTerminalTicket, openTerminalSocket } from '../../src/web/src/api/terminal-socket.js';
 import type { TerminalTicketWire } from '../../src/core/api-types.js';
 
 /** The Terminal tab's connection: straight to the PTY host with a ticket, else work web's relay. */
@@ -56,6 +56,50 @@ function open(answer: TerminalTicketWire | null, force = false, flow = false) {
 }
 
 describe('openTerminalSocket', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('a tab that states its grid says it on whichever address it connects to, and in its ticket request', async () => {
+    FakeWs.made = [];
+    const grids: unknown[] = [];
+    openTerminalSocket('s1', {
+      force: false,
+      flow: true,
+      grid: { cols: 133, rows: 41 },
+      relayUrl: relay,
+      askTicket: async (_id, _f, grid) => (grids.push(grid), { url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=old' }),
+      WebSocketImpl: FakeWs as unknown as typeof WebSocket,
+    });
+    await flush();
+    FakeWs.made[0].refused();
+    expect(grids).toEqual([{ cols: 133, rows: 41 }]);
+    expect(FakeWs.made.map((w) => w.url)).toEqual([
+      'ws://127.0.0.1:1/ptys/s1/attach?ticket=old&flow=1&cols=133&rows=41',
+      relay + '?flow=1&cols=133&rows=41',
+    ]);
+  });
+
+  it('a tab with no grid (hidden in the deck) states none', async () => {
+    open({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=t' }, false, true);
+    await flush();
+    expect(FakeWs.made[0].url).toBe('ws://127.0.0.1:1/ptys/s1/attach?ticket=t&flow=1');
+  });
+
+  it('the ticket request carries the grid (so an agent started for the tab starts at it), and none without one', async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        bodies.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ fallback: true }), { headers: { 'content-type': 'application/json' } });
+      }),
+    );
+    await askTerminalTicket('s1', false, { cols: 100, rows: 30 });
+    await askTerminalTicket('s1', true, null);
+    expect(bodies).toEqual([{ force: false, cols: 100, rows: 30 }, { force: true }]);
+  });
+
   it('goes straight to the PTY host with the ticket; what is sent before it opens goes once it does', async () => {
     const t = open({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=abc' }, true);
     expect(t.socket.route).toBeNull();

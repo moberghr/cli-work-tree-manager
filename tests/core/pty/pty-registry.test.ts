@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { HALT_RESUME_MS, PtyRegistry, type PtyLike, type PtySpawner } from '../../../src/core/pty/pty-registry.js';
+import {
+  DEFAULT_GRID,
+  HALT_RESUME_MS,
+  PtyRegistry,
+  REDRAW_JIGGLE_MS,
+  type PtyLike,
+  type PtySpawner,
+} from '../../../src/core/pty/pty-registry.js';
 import { COALESCE_MS } from '../../../src/core/pty/output-pacer.js';
 import { buildAiLaunchArgs, getAiTool, type AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 import { isPersistedPty, keepEnv } from '../../../src/core/pty/pty-host-protocol.js';
@@ -19,6 +26,8 @@ class FakePty implements PtyLike {
   output?: (data: string) => void;
   written: string[] = [];
   size: [number, number] = [0, 0];
+  /** Every resize, in order. */
+  sizes: Array<[number, number]> = [];
   setOutputHandler(h?: (data: string) => void) {
     this.output = h;
   }
@@ -27,6 +36,7 @@ class FakePty implements PtyLike {
   }
   resize(c: number, r: number) {
     this.size = [c, r];
+    this.sizes.push([c, r]);
   }
   dispose() {
     this.disposed = true;
@@ -930,5 +940,300 @@ describe('restart', () => {
     await restarting;
     spawned[1].pty.emit('fresh');
     expect(out).toEqual(['fresh']);
+  });
+});
+
+describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at a size")', () => {
+  /** A PTY whose screen copy parses later, as xterm's does, and says which grid each snapshot was taken at. */
+  class SizedPty extends FakePty {
+    readonly log: string[] = [];
+    settle: () => void = () => {};
+    override resize(c: number, r: number) {
+      super.resize(c, r);
+      this.log.push(`resize ${c}x${r}`);
+    }
+    serialize() {
+      this.log.push('serialize');
+      return `screen@${this.size.join('x')}`;
+    }
+    serializeSettled() {
+      this.log.push('serializeSettled');
+      const at = this.size.join('x');
+      return new Promise<string>((r) => (this.settle = () => r(`screen@${at}`)));
+    }
+  }
+  const sized = () => {
+    const pty = new SizedPty();
+    const reg = new PtyRegistry({ spawner: () => pty, hasConversation: () => false, sessionsPath, cwdExists: () => true });
+    return { pty, reg };
+  };
+
+  it('a client stating its grid has the PTY (and its screen copy) resized BEFORE the snapshot, which is at that grid', async () => {
+    const { pty, reg } = sized();
+    reg.spawn('a', { cwd: '/x', tool, cols: 120, rows: 32 });
+    const att = reg.attach(
+      'a',
+      () => {},
+      () => {},
+      { grid: { cols: 100, rows: 30 } },
+    )!;
+    expect(pty.log).toEqual(['resize 100x30', 'serialize', 'serializeSettled']);
+    expect(att.replay).toMatchObject({ cols: 100, rows: 30 });
+    pty.settle();
+    expect(await att.ready).toEqual({ data: 'screen@100x30', cols: 100, rows: 30 });
+    expect(reg.get('a')).toMatchObject({ cols: 100, rows: 30 });
+  });
+
+  it('a client stating none (a hidden tab, an older client) changes nothing: the snapshot is at the PTY grid', async () => {
+    const { pty, reg } = sized();
+    reg.spawn('a', { cwd: '/x', tool, cols: 120, rows: 32 });
+    const att = reg.attach(
+      'a',
+      () => {},
+      () => {},
+    )!;
+    expect(pty.log).toEqual(['serialize', 'serializeSettled']);
+    pty.settle();
+    expect(await att.ready).toEqual({ data: 'screen@0x0', cols: 120, rows: 32 }); // never resized: the grid it started at
+  });
+
+  it('a grid that is not one (too small, too big, not whole) is ignored', () => {
+    const { pty, reg } = sized();
+    reg.spawn('a', { cwd: '/x', tool, cols: 120, rows: 32 });
+    for (const grid of [
+      { cols: 2, rows: 1 },
+      { cols: 5000, rows: 30 },
+      { cols: 80.5, rows: 24 },
+    ])
+      reg.attach(
+        'a',
+        () => {},
+        () => {},
+        { grid },
+      );
+    expect(pty.sizes).toEqual([]);
+    expect(reg.get('a')).toMatchObject({ cols: 120, rows: 32 });
+  });
+
+  it('the same grid as the PTY: no resize, so no repaint', () => {
+    const { pty, reg } = sized();
+    reg.spawn('a', { cwd: '/x', tool, cols: 100, rows: 30 });
+    reg.attach(
+      'a',
+      () => {},
+      () => {},
+      { grid: { cols: 100, rows: 30 } },
+    );
+    expect(pty.sizes).toEqual([]);
+  });
+
+  it('nothing lost or doubled: the agent repaint for the new grid arrives after the snapshot and is handed over once', async () => {
+    vi.useFakeTimers();
+    const { pty, reg } = sized();
+    reg.spawn('a', { cwd: '/x', tool, cols: 120, rows: 32 });
+    pty.emit('before');
+    const got: string[] = [];
+    const att = reg.attach(
+      'a',
+      (d) => got.push(d),
+      () => {},
+      { grid: { cols: 90, rows: 25 } },
+    )!;
+    pty.emit('repaint@90x25'); // its SIGWINCH answer: after the attach, held while the snapshot is taken
+    expect(got).toEqual([]);
+    pty.settle();
+    expect((await att.ready).data).toBe('screen@90x25');
+    att.start();
+    pty.emit('live');
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(got.join('')).toBe('repaint@90x25live');
+    expect(got.join('')).not.toContain('before'); // that is in the snapshot
+  });
+
+  it('a later client stating its grid takes the size from an earlier one (the one used last), and other clients go on', () => {
+    const { pty, reg } = sized();
+    reg.spawn('a', { cwd: '/x', tool, cols: 120, rows: 32 });
+    reg.attach(
+      'a',
+      () => {},
+      () => {},
+      { grid: { cols: 100, rows: 30 } },
+    );
+    reg.attach(
+      'a',
+      () => {},
+      () => {},
+      { grid: { cols: 200, rows: 50 } },
+    );
+    reg.attach(
+      'a',
+      () => {},
+      () => {},
+    ); // hidden: states none
+    expect(pty.sizes).toEqual([
+      [100, 30],
+      [200, 50],
+    ]);
+  });
+});
+
+describe('the grid an agent starts at', () => {
+  it('a start that states one (the tab it is started for, `work attach`) starts at it', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool, cols: 140, rows: 40 });
+    expect(spawned[0].spec).toMatchObject({ cols: 140, rows: 40 });
+  });
+
+  it('a start with none takes the last grid a client set in this host, else the default', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(spawned[0].spec).toMatchObject(DEFAULT_GRID);
+    reg.resize('a', 100, 28);
+    reg.spawn('b', { cwd: '/y', tool });
+    expect(spawned[1].spec).toMatchObject({ cols: 100, rows: 28 });
+    reg.attach(
+      'a',
+      () => {},
+      () => {},
+      { grid: { cols: 90, rows: 26 } },
+    );
+    reg.spawn('c', { cwd: '/z', tool });
+    expect(spawned[2].spec).toMatchObject({ cols: 90, rows: 26 });
+    reg.spawn('d', { cwd: '/w', tool, cols: 150, rows: 45 }); // a stated start is a client's grid too
+    reg.spawn('e', { cwd: '/v', tool });
+    expect(spawned[4].spec).toMatchObject({ cols: 150, rows: 45 });
+  });
+
+  it('keeps each session grid in the restore list (a moment after the last change), and a restore starts it there', async () => {
+    vi.useFakeTimers();
+    const first = makeRegistry();
+    first.spawn('a', { cwd: '/x', tool });
+    await first.flush();
+    expect(readSaved().a).toMatchObject(DEFAULT_GRID);
+    first.resize('a', 101, 31);
+    first.resize('a', 102, 33);
+    await first.flush();
+    expect(readSaved().a).toMatchObject(DEFAULT_GRID); // a drag: written once it stops
+    vi.advanceTimersByTime(1000);
+    await first.flush();
+    expect(readSaved().a).toMatchObject({ cols: 102, rows: 33 });
+    first.disposeAllKeepingState();
+    await first.flush();
+
+    const second = makeRegistry(() => true);
+    await second.restore();
+    expect(spawned[1].spec).toMatchObject({ cols: 102, rows: 33, resume: true });
+  });
+
+  it('a host shutting down with a grid write pending still leaves the list as it was (never empty)', async () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    await reg.flush();
+    reg.resize('a', 99, 29);
+    reg.disposeAllKeepingState();
+    vi.advanceTimersByTime(5000);
+    await reg.flush();
+    expect(Object.keys(readSaved())).toEqual(['a']);
+  });
+
+  it('after a restore, a start with none takes the grid most restored sessions had; an older list (no grid) the default', async () => {
+    const write = (entries: Record<string, object>) =>
+      fs.writeFileSync(
+        sessionsPath,
+        JSON.stringify(Object.fromEntries(Object.entries(entries).map(([id, g]) => [id, { cwd: `/${id}`, tool, startedAt: 'x', ...g }]))),
+      );
+    write({ a: { cols: 100, rows: 30 }, b: { cols: 80, rows: 24 }, c: { cols: 100, rows: 30 } });
+    const reg = makeRegistry();
+    await reg.restore();
+    reg.spawn('d', { cwd: '/d', tool });
+    expect(spawned.at(-1)!.spec).toMatchObject({ cols: 100, rows: 30 });
+    reg.disposeAllKeepingState();
+
+    spawned = [];
+    write({ a: {} });
+    const older = makeRegistry();
+    await older.restore();
+    expect(spawned[0].spec).toMatchObject(DEFAULT_GRID);
+    older.spawn('d', { cwd: '/d', tool });
+    expect(spawned[1].spec).toMatchObject(DEFAULT_GRID);
+  });
+});
+
+describe('redraw (⋯ → Reconnect terminal)', () => {
+  it('makes the PTY a row smaller and, REDRAW_JIGGLE_MS later, puts it back: two real size changes', () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool, cols: 100, rows: 30 });
+    expect(reg.redraw('a')).toBe(true);
+    expect(spawned[0].pty.sizes).toEqual([[100, 29]]);
+    expect(reg.redraw('a')).toBe(true); // asked again meanwhile: the one under way does
+    vi.advanceTimersByTime(REDRAW_JIGGLE_MS - 1);
+    expect(spawned[0].pty.sizes).toEqual([[100, 29]]);
+    vi.advanceTimersByTime(1);
+    expect(spawned[0].pty.sizes).toEqual([
+      [100, 29],
+      [100, 30],
+    ]);
+    expect(reg.get('a')).toMatchObject({ cols: 100, rows: 30 }); // its grid, as the clients know it, never changed
+  });
+
+  it('puts it back to the grid a client set meanwhile; at the smallest grid it goes a row bigger instead', () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool, cols: 100, rows: 30 });
+    reg.redraw('a');
+    reg.resize('a', 120, 40);
+    vi.advanceTimersByTime(REDRAW_JIGGLE_MS);
+    expect(spawned[0].pty.sizes.at(-1)).toEqual([120, 40]);
+    reg.spawn('b', { cwd: '/y', tool, cols: 40, rows: 2 });
+    reg.redraw('b');
+    expect(spawned[1].pty.sizes).toEqual([[40, 3]]);
+  });
+
+  it('nothing running: false, and nothing resized (an exited one, an unknown one, one killed before it puts back)', async () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry();
+    expect(reg.redraw('nope')).toBe(false);
+    reg.spawn('a', { cwd: '/x', tool, cols: 100, rows: 30 });
+    spawned[0].pty.exit(0);
+    expect(reg.redraw('a')).toBe(false);
+    reg.spawn('b', { cwd: '/y', tool, cols: 100, rows: 30 });
+    reg.redraw('b');
+    spawned[1].pty.exit(0);
+    vi.advanceTimersByTime(REDRAW_JIGGLE_MS);
+    expect(spawned[1].pty.sizes).toEqual([[100, 29]]);
+  });
+});
+
+describe('windowsPty (ConPTY)', () => {
+  it('a host on Windows tells its clients, with every screen it sends', () => {
+    const reg = new PtyRegistry({
+      spawner,
+      hasConversation: () => false,
+      sessionsPath,
+      cwdExists: () => true,
+      windowsPty: { backend: 'conpty', buildNumber: 19045 },
+    });
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(
+      reg.attach(
+        'a',
+        () => {},
+        () => {},
+      )?.replay.windowsPty,
+    ).toEqual({ backend: 'conpty', buildNumber: 19045 });
+  });
+
+  it('a host anywhere else says nothing of it', () => {
+    const reg = new PtyRegistry({ spawner, hasConversation: () => false, sessionsPath, cwdExists: () => true, windowsPty: null });
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(
+      reg.attach(
+        'a',
+        () => {},
+        () => {},
+      )?.replay,
+    ).not.toHaveProperty('windowsPty');
   });
 });

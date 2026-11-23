@@ -13,6 +13,7 @@ import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
 import { ScreenMirror, type HeadlessTerminal, type SnapshotOptions } from './screen-mirror.js';
+import { windowsPtyFor } from './terminal-size.js';
 import type { TerminalColors } from './terminal-colors.js';
 
 type Fork = typeof childProcess.fork;
@@ -285,7 +286,8 @@ export class PtySession {
 
   constructor(cwd: string, cols: number, rows: number, command?: { cmd: string; args: string[] }, aiOptions?: PtyAiOptions) {
     this.cwd = cwd;
-    this.mirror = new ScreenMirror(cols, rows);
+    // ConPTY reflows lines itself on a resize: the copy is told so, as the Terminal tab is (the replay frame).
+    this.mirror = new ScreenMirror(cols, rows, undefined, { windowsPty: windowsPtyFor(process.platform, os.release()) });
 
     let rawCmd: string;
     let rawArgs: string[];

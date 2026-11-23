@@ -14,6 +14,7 @@ import { readStatus } from '../core/status/session-status.js';
 import type { TerminalElsewhere } from '../core/api-types.js';
 import { readArchive } from '../core/archive/session-archive.js';
 import { FLOW_PARAM, withFlow } from '../core/pty/flow-control.js';
+import { gridFromParams, withGrid, type Grid } from '../core/pty/terminal-size.js';
 
 const TERMINAL_PATH = /^\/ws\/sessions\/([^/]+)\/terminal(?:\?(.*))?$/;
 
@@ -140,7 +141,8 @@ export interface TerminalWsOptions {
  * nothing was spawned; `?force=1` spawns anyway).
  *
  * `?flow=1`: the browser acks what it draws (flow-control.ts); the host is told the same, and the acks pass through
- * as any frame does.
+ * as any frame does. `?cols=…&rows=…`: the tab's grid (terminal-size.ts): its agent is started at it, and the host is
+ * told it (the PTY takes it before the snapshot).
  *
  * `port` is the listening port — used for the same Host + Origin guard the
  * Hono routes get in `diff-server.launch` (core/local-origin.ts). The WS
@@ -180,8 +182,9 @@ export function attachTerminalWs(httpServer: UpgradableServer, port: number, opt
     const params = new URLSearchParams(match[2] ?? '');
     const force = params.get('force') === '1';
     const flow = params.get(FLOW_PARAM) === '1';
+    const grid = gridFromParams(params);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void bridgeToHost(ws, sessionId, force ? null : elsewhere(sessionId), flow);
+      void bridgeToHost(ws, sessionId, force ? null : elsewhere(sessionId), flow, grid);
     });
   });
 
@@ -196,13 +199,15 @@ export function attachTerminalWs(httpServer: UpgradableServer, port: number, opt
  * browser tab (or restarting `work web`) only drops the relay.
  *
  * Browser frames are already the host's ClientFrame JSON, so they pass
- * through verbatim — acks too. `flow`: the browser acks, so the host is told it does.
+ * through verbatim — acks too. `flow`: the browser acks, so the host is told it does. `grid`: the browser's grid,
+ * which a start takes and the host is told as it attaches.
  */
 async function bridgeToHost(
   ws: WebSocket,
   sessionId: string,
   pending: TerminalElsewhere | null | Promise<TerminalElsewhere | null>,
   flow = false,
+  grid: Grid | null = null,
 ): Promise<void> {
   const elsewhere = await pending;
   // The browser may have left while that was being worked out.
@@ -236,7 +241,7 @@ async function bridgeToHost(
 
   let hostUrl: string | null;
   try {
-    hostUrl = await ensurePty(sessionId);
+    hostUrl = await ensurePty(sessionId, grid ? { grid } : {});
   } catch (err) {
     // Said once, with the reason (an archived session, a host that won't start).
     try {
@@ -258,7 +263,7 @@ async function bridgeToHost(
   }
 
   if (browserGone) return;
-  upstream = new WebSocket(flow ? withFlow(hostUrl) : hostUrl);
+  upstream = new WebSocket(withGrid(flow ? withFlow(hostUrl) : hostUrl, grid));
   const up = upstream;
   const queued: string[] = [];
   up.on('open', () => {

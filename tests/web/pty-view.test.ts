@@ -9,9 +9,11 @@ import { createRoot, type Root } from 'react-dom/client';
 
 const h = vi.hoisted(() => {
   const FIT = { cols: 100, rows: 30 };
+  /** The pane's size in pixels (jsdom lays nothing out: every element measures this). 0 × 0 = not laid out. */
+  const PANE = { width: 800, height: 600 };
   const terms: FakeTerminal[] = [];
   /** What each tab asked openTerminalSocket for. */
-  const socketOpts: Array<{ flow?: boolean }> = [];
+  const socketOpts: Array<{ flow?: boolean; grid?: { cols: number; rows: number } | null }> = [];
   let webglThrows = false;
 
   type KeyHandler = (e: KeyboardEvent) => boolean;
@@ -30,8 +32,34 @@ const h = vi.hoisted(() => {
     textarea = document.createElement('textarea');
     /** Its root (the browser's copy event arrives on it). */
     element = document.createElement('div');
-    /** Its cells (none here: the copy falls back to the plain selection, as it does when they disagree). */
-    buffer = { active: { getLine: () => undefined } };
+    /** Its cells (none here: the copy falls back to the plain selection, as it does when they disagree), and where the
+     *  view is: `viewportY` < `baseY` = scrolled up into the scrollback. */
+    buffer = { active: { getLine: () => undefined, viewportY: 0, baseY: 0, cursorY: 0 } };
+    options: Record<string, unknown> = {};
+    /** How many lines a resize moves the scrollback by (a reflow): markers move with it, as xterm's do. */
+    reflowShift = 0;
+    markers: Array<{ line: number; isDisposed: boolean; dispose(): void }> = [];
+    scrolledTo: Array<number | 'bottom'> = [];
+    registerMarker(offset: number) {
+      const b = this.buffer.active;
+      const marker = {
+        line: b.baseY + b.cursorY + offset,
+        isDisposed: false,
+        dispose() {
+          this.isDisposed = true;
+        },
+      };
+      this.markers.push(marker);
+      return marker;
+    }
+    scrollToLine(line: number) {
+      this.scrolledTo.push(line);
+      this.buffer.active.viewportY = line;
+    }
+    scrollToBottom() {
+      this.scrolledTo.push('bottom');
+      this.buffer.active.viewportY = this.buffer.active.baseY;
+    }
     /** Where the selection starts (its column: the first line's text began there). */
     selectionStart = { x: 0, y: 0 };
     constructor(readonly opts: unknown) {
@@ -49,6 +77,10 @@ const h = vi.hoisted(() => {
       this.cols = c;
       this.rows = r;
       this.resizes.push([c, r]);
+      // A reflow moves the lines; the view itself lands wherever xterm puts it (here: the top, the worst case).
+      this.buffer.active.baseY += this.reflowShift;
+      this.buffer.active.viewportY = 0;
+      for (const m of this.markers) if (!m.isDisposed) m.line += this.reflowShift;
     }
     /** Writes parsed later, when the test says (`parsed()`), as xterm's are: their callbacks wait until then. */
     deferWrites = false;
@@ -114,6 +146,11 @@ const h = vi.hoisted(() => {
       this.t.cols = FIT.cols;
       this.t.rows = FIT.rows;
     }
+    /** What fits the pane (FitAddon's: 2 × 1 for an empty one, whatever the cell size says otherwise). */
+    proposeDimensions() {
+      if (!this.t) return undefined;
+      return PANE.width > 0 && PANE.height > 0 ? { ...FIT } : { cols: 2, rows: 1 };
+    }
   }
 
   const webgls: FakeWebgl[] = [];
@@ -138,6 +175,7 @@ const h = vi.hoisted(() => {
 
   return {
     FIT,
+    PANE,
     terms,
     socketOpts,
     webgls,
@@ -159,7 +197,7 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 // The tab's own connection, straight from its relay address (terminal-socket.ts has its own tests: the ticket, the
 // direct connection to the PTY host, the fallback): these drive the socket as the relay's.
 vi.mock('../../src/web/src/api/terminal-socket.js', () => ({
-  openTerminalSocket: (_id: string, opts: { relayUrl: string; flow?: boolean }) => {
+  openTerminalSocket: (_id: string, opts: { relayUrl: string; flow?: boolean; grid?: { cols: number; rows: number } | null }) => {
     h.socketOpts.push(opts);
     const ws = new (globalThis as unknown as { WebSocket: new (url: string) => WebSocket }).WebSocket(opts.relayUrl);
     Object.defineProperty(ws, 'route', { value: 'relay' });
@@ -218,12 +256,21 @@ import { ELSEWHERE_RECHECK_MS, PtyView, WRITE_PIECE, openLink } from '../../src/
 import { ACK_EVERY } from '../../src/core/pty/flow-control.js';
 import { WEBGL_RETRY_MS } from '../../src/web/src/state/webgl-recovery.js';
 import { requestTerminalReconnect } from '../../src/web/src/state/terminal-reconnect.js';
+import { FIT_MIN_MS } from '../../src/web/src/state/fit-scheduler.js';
 
 let container: HTMLDivElement;
 let root: Root;
 const realWebSocket = globalThis.WebSocket;
 
+// jsdom lays nothing out (every clientWidth is 0): the pane measures PANE.
+const paneSize = (dim: 'width' | 'height') => ({ configurable: true, get: () => h.PANE[dim] });
+
 beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', paneSize('width'));
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', paneSize('height'));
+  Object.assign(h.PANE, { width: 800, height: 600 });
+  Object.assign(h.FIT, { cols: 100, rows: 30 });
+  h.socketOpts.length = 0;
   h.terms.length = 0;
   h.webgls.length = 0;
   h.setWebglThrows(false);
@@ -238,6 +285,8 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   (globalThis as { WebSocket: unknown }).WebSocket = realWebSocket;
+  delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+  delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
 });
 
 function mount(sessionId = 's1') {
@@ -276,9 +325,15 @@ describe('PtyView', () => {
     ws.serverOpen();
     act(() => term.type('a'));
     act(() => term.type('b'));
+    // An older host's: drawn for another grid (it ignored the one stated on the address).
     act(() => ws.control({ type: 'replay', data: '<screen>', cols: 120, rows: 40 }));
 
-    expect(term.resizes.at(-1)).toEqual([120, 40]);
+    // At the pane's grid to attach, at the screen's to draw it, then the pane's again together with the PTY's.
+    expect(term.resizes).toEqual([
+      [h.FIT.cols, h.FIT.rows],
+      [120, 40],
+      [h.FIT.cols, h.FIT.rows],
+    ]);
     expect(term.writes).toContain('<screen>');
     expect(ws.sent).toEqual([
       { type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows },
@@ -296,7 +351,8 @@ describe('PtyView', () => {
     ws.serverOpen();
     act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
     expect(ws.sent).toEqual([{ type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows }]);
-    expect(term.resizes).toEqual([]);
+    expect(term.resizes).toEqual([[h.FIT.cols, h.FIT.rows]]); // the attach grid only
+    expect(term.writes).toEqual([]);
   });
 
   it('writes binary frames as PTY output', () => {
@@ -334,24 +390,48 @@ describe('PtyView', () => {
   });
 
   it('a screen sent mid-session (it fell behind and caught up) is drawn over a reset terminal, and nothing else: no focus, no size, no input held', () => {
-    const { ws, term } = mount();
-    ws.serverOpen();
-    act(() => ws.control({ type: 'replay', data: '<first>', cols: 120, rows: 40 }));
-    act(() => term.type('k'));
-    const sent = [...ws.sent];
-    const focused = term.focused;
-    act(() => ws.binary('stale'));
-    act(() => ws.control({ type: 'replay', data: '<caught up>', cols: 90, rows: 20 }));
-    // Drawn at its grid, after a reset (RIS: in order with what was written before it, the scrollback cleared too)…
-    expect(term.resizes.at(-1)).toEqual([90, 20]);
-    expect(term.writes.at(-1)).toBe('\x1bc<caught up>');
-    // …then fitted here again, the PTY's size left as it is.
-    expect([term.cols, term.rows]).toEqual([h.FIT.cols, h.FIT.rows]);
-    expect(ws.sent).toEqual(sent);
-    expect(term.focused).toBe(focused);
-    // Typing goes straight on, as before.
-    act(() => term.type('z'));
-    expect(ws.sent.at(-1)).toEqual({ type: 'input', data: 'z' });
+    vi.useFakeTimers();
+    try {
+      const { ws, term } = mount();
+      ws.serverOpen();
+      act(() => ws.control({ type: 'replay', data: '<first>', cols: 120, rows: 40 }));
+      act(() => term.type('k'));
+      const sent = [...ws.sent];
+      const focused = term.focused;
+      act(() => ws.binary('stale'));
+      // The PTY's grid now: another window's (the terminal in use sets it).
+      act(() => ws.control({ type: 'replay', data: '<caught up>', cols: 90, rows: 20 }));
+      act(() => void vi.advanceTimersByTime(1000));
+      // Drawn at its grid, after a reset (RIS: in order with what was written before it, the scrollback cleared too),
+      // and left at it: the agent's frame is for that grid, and fitting here alone would reflow it into garbage.
+      expect(term.resizes.at(-1)).toEqual([90, 20]);
+      expect(term.writes.at(-1)).toBe('\x1bc<caught up>');
+      expect([term.cols, term.rows]).toEqual([90, 20]);
+      expect(ws.sent).toEqual(sent);
+      expect(term.focused).toBe(focused);
+      // Typing goes straight on, as before.
+      act(() => term.type('z'));
+      expect(ws.sent.at(-1)).toEqual({ type: 'input', data: 'z' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('after a screen sent mid-session, a pane that changed size changes both grids together', () => {
+    vi.useFakeTimers();
+    try {
+      const { ws, term } = mount();
+      ws.serverOpen();
+      act(() => ws.control({ type: 'replay', data: '<first>', cols: h.FIT.cols, rows: h.FIT.rows }));
+      ws.sent.length = 0;
+      h.FIT.cols = 70;
+      act(() => ws.control({ type: 'replay', data: '<caught up>', cols: 90, rows: 20 }));
+      act(() => void vi.advanceTimersByTime(1000));
+      expect([term.cols, term.rows]).toEqual([70, h.FIT.rows]);
+      expect(ws.sent).toEqual([{ type: 'resize', cols: 70, rows: h.FIT.rows }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("the corner shows when a keystroke's echo was on screen — its first frame, not the spinner's after it — and the debug log gets it", () => {
@@ -735,18 +815,20 @@ describe('PtyView', () => {
   });
 
   it('refits after the renderer changes (the two measure a cell differently)', () => {
-    const { ws, term } = mount();
-    ws.serverOpen();
-    act(() => ws.control({ type: 'replay', data: '', cols: 10, rows: 5 }));
-    ws.sent.length = 0;
-    // The DOM renderer's cells are a little wider: one column fewer fits.
-    h.FIT.cols = 99;
+    vi.useFakeTimers();
     try {
+      const { ws, term } = mount();
+      ws.serverOpen();
+      act(() => ws.control({ type: 'replay', data: '', cols: 10, rows: 5 }));
+      ws.sent.length = 0;
+      // The DOM renderer's cells are a little wider: one column fewer fits.
+      h.FIT.cols = 99;
       act(() => h.webgls[0].loseContext());
+      act(() => void vi.advanceTimersByTime(0));
       expect(term.cols).toBe(99);
       expect(ws.sent).toContainEqual({ type: 'resize', cols: 99, rows: h.FIT.rows });
     } finally {
-      h.FIT.cols = 100;
+      vi.useRealTimers();
     }
   });
 
@@ -792,23 +874,27 @@ describe('PtyView', () => {
     expect(resizes()).toHaveLength(1);
 
     render(false);
-    const before = { ...h.FIT };
     h.FIT.cols = 60;
     h.FIT.rows = 20;
+    vi.useFakeTimers();
     try {
+      const grid = [term.cols, term.rows];
       act(() => {
         window.dispatchEvent(new Event('resize'));
       });
+      act(() => void vi.advanceTimersByTime(1000));
       expect(resizes()).toHaveLength(1);
+      expect([term.cols, term.rows]).toEqual(grid); // its own grid kept too
       expect(ws.closed).toBe(false);
 
       const focused = term.focused;
       render(true);
       expect(resizes().at(-1)).toEqual({ type: 'resize', cols: 60, rows: 20 });
+      expect([term.cols, term.rows]).toEqual([60, 20]);
       expect(term.focused).toBeGreaterThan(focused);
       expect(FakeWebSocket.instances.at(-1)).toBe(ws);
     } finally {
-      Object.assign(h.FIT, before);
+      vi.useRealTimers();
     }
   });
 
@@ -817,5 +903,185 @@ describe('PtyView', () => {
     act(() => root.render(createElement('div')));
     expect(ws.closed).toBe(true);
     expect(term.disposed).toBe(true);
+  });
+});
+
+describe('PtyView: resizing and attaching at a size', () => {
+  const resizesSent = (ws: FakeWebSocket) => ws.sent.filter((m) => (m as { type: string }).type === 'resize');
+  const windowResize = () =>
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+  const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Mounted, shown, its first screen drawn at the pane's grid; nothing sent or resized yet as far as the test knows. */
+  function attached() {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: h.FIT.cols, rows: h.FIT.rows }));
+    ws.sent.length = 0;
+    term.resizes.length = 0;
+    return { ws, term };
+  }
+
+  it('attaches at the pane grid when shown (the host draws its first screen for it), and states none when hidden', () => {
+    const { term } = mount();
+    expect(h.socketOpts.at(-1)?.grid).toEqual({ cols: h.FIT.cols, rows: h.FIT.rows });
+    expect(term.resizes).toEqual([[h.FIT.cols, h.FIT.rows]]); // its own grid set to match, before anything is drawn
+    act(() => root.render(createElement('div')));
+    act(() => root.render(createElement(PtyView, { sessionId: 's2', active: false })));
+    expect(h.socketOpts.at(-1)?.grid).toBeNull();
+    expect(h.terms.at(-1)!.resizes).toEqual([]);
+  });
+
+  it('a drag (a burst of resizes) fits once at once and once at its end, the local grid and the PTY changed together', () => {
+    const { ws, term } = attached();
+    h.FIT.cols = 90;
+    windowResize();
+    expect(resizesSent(ws)).toEqual([]); // never inside the event: in a task of its own
+    advance(0);
+    expect(resizesSent(ws)).toEqual([{ type: 'resize', cols: 90, rows: h.FIT.rows }]);
+    for (let cols = 89; cols > 80; cols--) {
+      advance(4);
+      h.FIT.cols = cols;
+      windowResize();
+    }
+    expect(resizesSent(ws)).toHaveLength(1); // the rest of the burst waits for the window to end
+    advance(FIT_MIN_MS);
+    expect(resizesSent(ws)).toEqual([
+      { type: 'resize', cols: 90, rows: h.FIT.rows },
+      { type: 'resize', cols: 81, rows: h.FIT.rows }, // the last size, measured when it runs
+    ]);
+    // Every local resize was the PTY's too, and no other.
+    expect(term.resizes).toEqual(resizesSent(ws).map((m) => [(m as { cols: number }).cols, (m as { rows: number }).rows]));
+    advance(10 * FIT_MIN_MS);
+    expect(resizesSent(ws)).toHaveLength(2);
+  });
+
+  it('a pane with no size (0 × 0, not laid out) changes nothing, and the grid follows once it has one', () => {
+    const { ws, term } = attached();
+    h.PANE.width = 0;
+    h.PANE.height = 0;
+    windowResize();
+    advance(FIT_MIN_MS);
+    act(() => {
+      term.textarea.dispatchEvent(new Event('focus'));
+    });
+    expect(ws.sent).toEqual([]);
+    expect(term.resizes).toEqual([]);
+    h.PANE.width = 800;
+    h.PANE.height = 600;
+    h.FIT.rows = 25;
+    windowResize();
+    advance(FIT_MIN_MS);
+    expect(resizesSent(ws)).toEqual([{ type: 'resize', cols: h.FIT.cols, rows: 25 }]);
+    expect(term.resizes).toEqual([[h.FIT.cols, 25]]);
+  });
+
+  it('a pane too small to be a grid (FitAddon proposes 2 × 1) changes nothing', () => {
+    const { ws, term } = attached();
+    h.FIT.cols = 2;
+    h.FIT.rows = 1;
+    windowResize();
+    advance(FIT_MIN_MS);
+    expect(ws.sent).toEqual([]);
+    expect(term.resizes).toEqual([]);
+  });
+
+  it('attached while not laid out: no grid stated, no size sent after the screen; the first real size is', () => {
+    h.PANE.width = 0;
+    const { ws, term } = mount();
+    expect(h.socketOpts.at(-1)?.grid).toBeNull();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x', cols: 80, rows: 24 }));
+    expect(resizesSent(ws)).toEqual([]);
+    h.PANE.width = 800;
+    windowResize();
+    advance(0);
+    expect(resizesSent(ws)).toEqual([{ type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows }]);
+    expect([term.cols, term.rows]).toEqual([h.FIT.cols, h.FIT.rows]);
+  });
+
+  it('a hidden deck terminal never resizes the PTY: not after its screen, not on a resize, not on focus', () => {
+    act(() => root.render(createElement(PtyView, { sessionId: 's1', active: false })));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    const term = h.terms.at(-1)!;
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x', cols: 120, rows: 40 }));
+    h.FIT.cols = 70;
+    windowResize();
+    advance(10 * FIT_MIN_MS);
+    act(() => {
+      term.textarea.dispatchEvent(new Event('focus'));
+    });
+    expect(ws.sent).toEqual([]);
+    expect(term.resizes).toEqual([[120, 40]]); // the screen's grid, kept
+  });
+
+  it('keeps the view where you scrolled up to across a fit (the top line follows the reflow)', () => {
+    const { term } = attached();
+    Object.assign(term.buffer.active, { baseY: 100, viewportY: 40, cursorY: 10 });
+    term.reflowShift = 15;
+    h.FIT.cols = 60;
+    windowResize();
+    advance(0);
+    expect(term.scrolledTo).toEqual([55]);
+    expect(term.buffer.active.viewportY).toBe(55);
+    expect(term.markers.every((m) => m.isDisposed)).toBe(true);
+  });
+
+  it('stays at the bottom across a fit when the view was there', () => {
+    const { term } = attached();
+    Object.assign(term.buffer.active, { baseY: 100, viewportY: 100, cursorY: 10 });
+    term.reflowShift = -20;
+    h.FIT.cols = 140;
+    windowResize();
+    advance(0);
+    expect(term.scrolledTo).toEqual(['bottom']);
+    expect(term.markers).toEqual([]);
+  });
+
+  it('asks the agent to repaint (redraw) after the screen of a ⋯ → Reconnect terminal only, before held input', () => {
+    const { ws } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x', cols: h.FIT.cols, rows: h.FIT.rows }));
+    expect(ws.sent).not.toContainEqual({ type: 'redraw' });
+
+    act(() => requestTerminalReconnect('s1'));
+    const again = FakeWebSocket.instances.at(-1)!;
+    const term = h.terms.at(-1)!;
+    again.serverOpen();
+    act(() => term.type('q'));
+    act(() => again.control({ type: 'replay', data: 'x', cols: h.FIT.cols, rows: h.FIT.rows }));
+    expect(again.sent).toEqual([{ type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows }, { type: 'redraw' }, { type: 'input', data: 'q' }]);
+    // Once: a later connection of the same tab (a closed one reconnected with Enter) asks for none.
+    act(() => again.serverClose());
+    act(() => h.terms.at(-1)!.type('\r'));
+    const third = FakeWebSocket.instances.at(-1)!;
+    expect(third).not.toBe(again);
+    third.serverOpen();
+    act(() => third.control({ type: 'replay', data: 'x', cols: h.FIT.cols, rows: h.FIT.rows }));
+    expect(third.sent).not.toContainEqual({ type: 'redraw' });
+  });
+
+  it("takes ConPTY's windowsPty from a Windows host's screen, so xterm.js leaves the reflow to ConPTY", () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0, windowsPty: { backend: 'conpty', buildNumber: 22631 } }));
+    expect(term.options.windowsPty).toEqual({ backend: 'conpty', buildNumber: 22631 });
+  });
+
+  it('sets no windowsPty from a host off Windows, or from a malformed one', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0, windowsPty: { backend: 'winpty', buildNumber: 'x' } }));
+    expect(term.options.windowsPty).toBeUndefined();
   });
 });

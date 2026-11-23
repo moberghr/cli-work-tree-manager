@@ -3,6 +3,7 @@ import xtermSerialize from '@xterm/addon-serialize';
 import xtermUnicode11 from '@xterm/addon-unicode11';
 import { REPLAY_SCROLLBACK } from './scrollback.js';
 import type { TerminalColors } from './terminal-colors.js';
+import type { WindowsPty } from './terminal-size.js';
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
@@ -130,8 +131,18 @@ export class ScreenMirror {
   /** The chunk being parsed is one the mirror answers the queries in (set and cleared by the write queue's callbacks). */
   private answering = false;
 
-  constructor(cols: number, rows: number, scrollback: number = REPLAY_SCROLLBACK) {
-    this.terminal = new Terminal({ cols, rows, scrollback, allowProposedApi: true });
+  /**
+   * `windowsPty`: the PTY is ConPTY's (terminal-size.ts `windowsPtyFor`), which reflows lines itself on a resize: the
+   * copy then resizes as the Terminal tab's xterm.js does with the same option, not reflowing them a second time.
+   */
+  constructor(cols: number, rows: number, scrollback: number = REPLAY_SCROLLBACK, opts: { windowsPty?: WindowsPty } = {}) {
+    this.terminal = new Terminal({
+      cols,
+      rows,
+      scrollback,
+      allowProposedApi: true,
+      ...(opts.windowsPty ? { windowsPty: opts.windowsPty } : {}),
+    });
     this.terminal.loadAddon(this.serializer);
     // Emoji and symbols (👍 ⭐ ✅ ⏳ 🚀) are 2 columns in the browser, which uses Unicode 11 (PtyView): 1 here
     // laid every replayed line out for the wrong columns.

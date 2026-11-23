@@ -314,6 +314,15 @@ describe('ensurePty', () => {
     expect(host.spawned[0].spec).toMatchObject({ cwd: sessions.single.paths[0], initialPrompt: 'Work on ABC-1' });
   });
 
+  it('starts the agent at the grid of the tab it is started for; with none, the host picks (its last grid)', async () => {
+    const pool = await freshPool();
+    await pool.ensurePty('single', { grid: { cols: 133, rows: 41 } });
+    expect(host.spawned[0].spec).toMatchObject({ cols: 133, rows: 41 });
+    await pool.ensurePty('group');
+    expect(host.spawned[1].spec).not.toHaveProperty('cols');
+    expect(host.spawned[1].spec).not.toHaveProperty('rows');
+  });
+
   it("never starts an archived session's Claude, or one being archived (a Terminal tab still open on it reconnects)", async () => {
     const pool = await freshPool();
     await expect(pool.ensurePty('archived')).rejects.toThrow(/archived\. Restore it/);
