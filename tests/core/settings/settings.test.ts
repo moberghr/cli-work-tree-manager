@@ -18,6 +18,7 @@ import {
   DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_TERMINAL_LINE_HEIGHT,
   DEFAULT_TERMINAL_THEME,
+  TERMINAL_THEME_APP,
   TERMINAL_FONT_PATTERN,
   TERMINAL_FONT_SIZE_RANGE,
   TERMINAL_LINE_HEIGHT_RANGE,
@@ -25,6 +26,7 @@ import {
 } from '../../../src/core/settings/terminal-style.js';
 import { originShown, readRepoSettings, readSettings, writeRepoSetting, writeSetting } from '../../../src/core/settings/settings-admin.js';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
+import { APP_THEMES, DEFAULT_APP_THEME } from '../../../src/core/settings/app-theme.js';
 import { DEFAULT_TRUSTED_BOTS } from '../../../src/core/pr/pr-review.js';
 import { isIssueKey } from '../../../src/core/time/allocate.js';
 
@@ -39,19 +41,29 @@ describe('the settings schema (pure)', () => {
     }
   });
 
-  it('the Terminal fields are the terminal module’s: its defaults, ranges, themes and font rule', () => {
-    expect(field('terminal.theme').section).toBe('Terminal');
-    expect(field('terminal.theme').default).toBe(DEFAULT_TERMINAL_THEME);
+  it('the Theme fields are the theme modules’: their defaults, ranges, themes and font rule', () => {
+    expect(field('terminal.theme').section).toBe('Theme');
+    expect(field('terminal.theme').default).toBe(TERMINAL_THEME_APP);
     expect(field('terminal.theme').kind).toEqual({
       type: 'choice',
-      options: TERMINAL_THEMES.map((t) => ({ value: t.id, label: t.label })),
+      options: [{ value: TERMINAL_THEME_APP, label: 'Match the app' }, ...TERMINAL_THEMES.map((t) => ({ value: t.id, label: t.label }))],
     });
+    expect(TERMINAL_THEMES.some((t) => t.id === DEFAULT_TERMINAL_THEME)).toBe(true);
     expect(field('terminal.fontSize').default).toBe(DEFAULT_TERMINAL_FONT_SIZE);
     expect(field('terminal.fontSize').kind).toEqual({ type: 'number', ...TERMINAL_FONT_SIZE_RANGE });
     expect(field('terminal.lineHeight').default).toBe(DEFAULT_TERMINAL_LINE_HEIGHT);
     expect(field('terminal.lineHeight').kind).toEqual({ type: 'number', ...TERMINAL_LINE_HEIGHT_RANGE });
     expect(field('terminal.fontFamily').default).toBeNull();
     expect(SETTING_PATTERNS.fontFamily).toBe(TERMINAL_FONT_PATTERN);
+  });
+
+  it('the app theme field lists System and the app themes, defaulting to the module’s default', () => {
+    expect(field('theme').section).toBe('Theme');
+    expect(field('theme').label).toBe('App theme');
+    expect(field('theme').default).toBe(DEFAULT_APP_THEME);
+    const kind = field('theme').kind as { type: 'choice'; options: { value: string; label: string }[] };
+    expect(kind.options.map((o) => o.value)).toEqual(['system', ...APP_THEMES.map((t) => t.id)]);
+    expect(kind.options.slice(1).map((o) => o.label)).toEqual(APP_THEMES.map((t) => t.label));
   });
 
   it('the terminal’s font size and font name are checked', () => {
@@ -229,6 +241,15 @@ describe('settings over config.json', () => {
     expect(loadConfig()?.prWatch?.fixCi).toBe(false);
     await writeSetting('prWatch.fixCi', null);
     expect(raw().prWatch).toBeUndefined();
+  });
+
+  it('the app theme is written to config.json, read back, and a value that is no theme is refused', async () => {
+    await writeSetting('theme', 'dracula');
+    expect(raw().theme).toBe('dracula');
+    expect(readSettings().values.theme).toBe('dracula');
+    expect(loadConfig()?.theme).toBe('dracula');
+    await expect(writeSetting('theme', 'nope')).rejects.toThrow();
+    expect(raw().theme).toBe('dracula');
   });
 
   it('refused: a setting not on the page, a value that does not fit, the worktrees folder taken away', async () => {

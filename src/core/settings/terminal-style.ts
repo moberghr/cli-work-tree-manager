@@ -180,6 +180,9 @@ export const TERMINAL_THEMES: readonly { id: TerminalThemeId; label: string; pal
 
 export const DEFAULT_TERMINAL_THEME: TerminalThemeId = 'default';
 
+/** The `terminal.theme` option that takes the palette of the app's theme instead of one of its own. */
+export const TERMINAL_THEME_APP = 'app';
+
 /** Cascadia is Windows Terminal's default — same glyphs, same widths. */
 export const DEFAULT_TERMINAL_FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, "Liberation Mono", monospace';
 
@@ -257,9 +260,16 @@ const inRange = (v: unknown, range: { min: number; max: number }): v is number =
 /**
  * The style a terminal draws with, from the Settings page's values (by path, as `SettingsWire.values` has them) and
  * the hand-written colours over the theme. Field by field: one that doesn't fit is its default, the others stand.
+ * A palette's id as the theme is that palette; `app`, absent or unknown is the palette `follow` names (the one the
+ * app's theme maps to), or the default palette when `follow` is none.
  */
-export function resolveTerminalStyle(values: Record<string, unknown>, colors?: Partial<Record<TerminalColorKey, string>>): TerminalStyle {
-  const base = TERMINAL_THEMES.find((t) => t.id === values['terminal.theme']) ?? TERMINAL_THEMES[0]!;
+export function resolveTerminalStyle(
+  values: Record<string, unknown>,
+  colors?: Partial<Record<TerminalColorKey, string>>,
+  follow: string = DEFAULT_TERMINAL_THEME,
+): TerminalStyle {
+  const base =
+    TERMINAL_THEMES.find((t) => t.id === values['terminal.theme']) ?? TERMINAL_THEMES.find((t) => t.id === follow) ?? TERMINAL_THEMES[0]!;
 
   const font = values['terminal.fontFamily'];
   // The user's font first, today's stack after it: a name that isn't installed falls back to it.

@@ -111,3 +111,40 @@ None.
 ## Prior Work Check
 
 `grep -rniE "terminal-?theme|termTheme|--term-bg|terminalStyle" src tests` → no matches. No existing terminal styling to reuse; the light/dark `ThemeProvider` is the app's, not the terminal's. Verdict: CLEAR.
+
+## Part 2 — the app's theme (added 2026-11-23, same PR)
+
+The user asked to theme the whole app, not only the terminal: a **Theme** section on the Settings page with the app and the terminal, the terminal following the app unless overridden. Their choices (AskUserQuestion): app themes System / Light / Dark / Midnight / Dracula / Tokyo Night; the terminal's new default is **Match the app**; the app's choice lives in config.json (the top-bar button writes it too); same PR #90.
+
+### Behaviour
+
+- `theme` (config.json, top level): `system` (default) | `light` | `dark` | `midnight` | `dracula` | `tokyo-night`. Absent = `system` = follow the OS (`prefers-color-scheme`), as today.
+- Light and Dark are today's Primer palettes. Midnight, Dracula and Tokyo Night are dark-based: `data-theme="dark"` (so hljs, diff.css and `color-scheme` stay dark) plus `data-app-theme="<id>"`, whose block in tokens.css redefines every colour token the dark block defines.
+- `terminal.theme` gains `app` ("Match the app"), its new default. Absent, `app` or unknown → the palette the app theme maps to: light → `github-light`, dark → `default` (today's #1e1e1e: no change for dark users), midnight/dracula/tokyo-night → the same-named palette. A palette id overrides.
+- The top-bar button flips light ↔ dark from the current base. In work web it writes `theme` to config.json (`saveSetting`), with the page updated at once. In `wd` (no settings API) it writes localStorage as today.
+- No flash: localStorage `wd:theme` caches the app theme (in work web it mirrors config.json; system/absent removes it). The boot script in index.html paints from it, and for a named theme sets `data-theme="dark"` + `data-app-theme`. `--term-bg` / `--term-fg` CSS defaults follow the base (light: GitHub Light's; dark: today's) and each named theme's, so a terminal frame never flashes the wrong colour before the settings arrive.
+- Upgrade: a light/dark choice made with the button before this change was per browser. In work web, config.json's value (System until set) now wins; one click on the button sets it again. `wd` keeps the browser's choice.
+
+### Design
+
+- `src/core/settings/app-theme.ts` (new, pure, import-free, in `SPA_SHARED`): `APP_THEMES` (`id`, `label`, `base: 'light' | 'dark'`, `terminal`: a palette id), `DEFAULT_APP_THEME = 'system'`, and `resolveAppTheme(value, osDark)` → `{ id, base, terminal }` (`id` never `system`; unknown → system).
+- `resolveTerminalStyle(values, colors?, follow = 'default')`: `follow` is the palette the app theme maps to.
+- Schema: the section `Terminal` becomes `Theme`. Fields: `theme` (App theme), `terminal.theme` (Terminal theme, options `app` + the 5 palettes, default `app`), `terminal.fontFamily`, `terminal.fontSize`, `terminal.lineHeight`. The theme option lists are written in the schema and held equal to the modules' by a test, as the font pattern is.
+- `loadConfig` reads `theme`, checked against the ids (the § rule in appearance.md).
+- SPA: `state/terminal-style.ts` becomes `state/appearance.ts`: one store for the page.
+  - It holds the settings' values (when the page has them), the localStorage cache and the OS scheme (a matchMedia listener).
+  - It derives the resolved app theme and the terminal style, stamps `data-theme` / `data-app-theme` / `--term-bg` / `--term-fg`, and tells subscribers only on a real change.
+  - Exports: `useTerminalStyle()` as before, `useAppearanceUpdates()` (the page's one subscription, was `useTerminalStyleUpdates`), `useAppTheme()`, `setAppTheme(id)`, `toggleAppTheme()`.
+  - `ThemeProvider` becomes a thin adapter over it, keeping its API (`theme` = base, `explicit`, `setTheme`, `toggle`), so `ThemeToggle` and `App.tsx` don't change.
+- diff.css: the three GitHub-dark surfaces become tokens: `--empty-bg` / `--ln-bg: var(--code-bg)`, `--status-binary-bg: var(--hover)`. The values are the same on Dark, and named themes follow.
+- Docs: `terminal-appearance.md` becomes `appearance.md` (git mv), covering both. Pointers are updated in CLAUDE.md, settings.md, configuration.md and pty-host.md.
+
+### Success criteria (part 2)
+
+- **SC8**: `resolveAppTheme`. System follows `osDark`, each id gives its base and terminal palette, unknown → system (tests/core/settings/app-theme.test.ts).
+- **SC9**: the terminal follows the app by default; a palette id overrides; unknown → follows (tests/core/settings/terminal-style.test.ts).
+- **SC10**: the Theme section lists App theme + the 4 terminal fields; the options and defaults equal the modules'; `loadConfig` keeps `theme` (settings, config tests).
+- **SC11**: the store. A settings read sets the app theme and the attributes on `<html>`; the OS change is followed under System; the cache mirrors config; the toggle writes the setting in work web and localStorage in wd; the terminal palette follows (tests/web/appearance.test.ts, tests/web/theme-provider.test.ts).
+- **SC12**: every named theme's block in tokens.css defines every colour token of the dark block; fg, muted, accent and the semantic colours read ≥ 4.5:1 on its `--bg` (tests/web/theme-tokens.test.ts).
+- **SC13**: no flash. The boot script paints a cached named theme with `data-theme="dark"` + `data-app-theme` (a test runs the inline script in jsdom).
+- **SC14**: live in the demo, each app theme re-themes the whole page and the terminal follows; screenshots for the PR.

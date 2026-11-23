@@ -5,6 +5,7 @@ import { atomicWriteFile } from './fs-safe.js';
 import { validatePrompts } from '../sessions/saved-prompts.js';
 import { isIssueKey } from '../time/allocate.js';
 import { getConfigDir } from './config-dir.js';
+import { isAppThemeId } from '../settings/app-theme.js';
 import { checkTerminalColors, type TerminalColorKey } from '../settings/terminal-style.js';
 import type { SavedPrompt } from '../api-types.js';
 
@@ -161,10 +162,15 @@ export interface WorkConfig {
    */
   agentsLowPriority?: boolean;
   /**
-   * How work web's terminals look (Settings → Terminal; core/settings/terminal-style.ts resolves it, a value out of
+   * How work web's terminals look (Settings → Theme; core/settings/terminal-style.ts resolves it, a value out of
    * range to its default). Loaded so that a command that saves config.json (`work config remove-repo`) keeps it.
    */
   terminal?: TerminalConfig;
+  /**
+   * The app's theme (an AppThemeId, core/settings/app-theme.ts; absent = system). Loaded, when it is a known id, so that
+   * a command that saves config.json keeps it.
+   */
+  theme?: string;
   /**
    * Archived conversations (archive-retention.ts): gzip them once this many
    * days old (default 30; 0 = never; lossless), and delete them after this
@@ -376,6 +382,7 @@ export function loadConfig(): WorkConfig | null {
       useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,
       agentsLowPriority: typeof parsed.agentsLowPriority === 'boolean' ? parsed.agentsLowPriority : undefined,
       terminal: terminalConfigOf(parsed.terminal),
+      theme: isAppThemeId(parsed.theme) ? parsed.theme : undefined,
       prompts: validatePrompts(parsed.prompts),
       time: validateTime(parsed.time),
       archive:

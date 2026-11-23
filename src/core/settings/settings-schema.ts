@@ -71,12 +71,12 @@ export const SETTING_PATTERNS = {
 } as const;
 
 export type SettingSection =
-  'General' | 'Agents & terminals' | 'Terminal' | 'Pull requests' | 'Reviews' | 'Issues' | 'Time' | 'Archive & usage';
+  'General' | 'Agents & terminals' | 'Theme' | 'Pull requests' | 'Reviews' | 'Issues' | 'Time' | 'Archive & usage';
 
 export const SETTING_SECTIONS: readonly SettingSection[] = [
   'General',
   'Agents & terminals',
-  'Terminal',
+  'Theme',
   'Pull requests',
   'Reviews',
   'Issues',
@@ -222,15 +222,34 @@ export const SETTINGS: readonly SettingField[] = [
     false,
     'at the next agent start (a running one: restart it)',
   ),
-  // ---- Terminal
+  // ---- Theme
   {
-    path: 'terminal.theme',
-    section: 'Terminal',
-    label: 'Theme',
-    help: "The colours of every terminal in work (sessions, the Ctrl+K assistant, an account's sign-in). On GitHub Light, switch Claude Code to its light theme (/theme) so its own colours read. Single colours can be changed in config.json (terminal.colors).",
+    path: 'theme',
+    section: 'Theme',
+    label: 'App theme',
+    help: "The colours of the whole app; System follows the computer's light or dark mode.",
     kind: {
       type: 'choice',
       options: [
+        { value: 'system', label: 'System' },
+        { value: 'light', label: 'Light' },
+        { value: 'dark', label: 'Dark' },
+        { value: 'midnight', label: 'Midnight' },
+        { value: 'dracula', label: 'Dracula' },
+        { value: 'tokyo-night', label: 'Tokyo Night' },
+      ],
+    },
+    default: 'system',
+  },
+  {
+    path: 'terminal.theme',
+    section: 'Theme',
+    label: 'Terminal theme',
+    help: "The colours of every terminal in work (sessions, the Ctrl+K assistant, an account's sign-in): they follow the app's theme unless you pick one here. On GitHub Light, switch Claude Code to its light theme (/theme) so its own colours read. Single colours can be changed in config.json (terminal.colors).",
+    kind: {
+      type: 'choice',
+      options: [
+        { value: 'app', label: 'Match the app' },
         { value: 'default', label: 'Default dark' },
         { value: 'midnight', label: 'Midnight' },
         { value: 'dracula', label: 'Dracula' },
@@ -238,12 +257,12 @@ export const SETTINGS: readonly SettingField[] = [
         { value: 'github-light', label: 'GitHub Light' },
       ],
     },
-    default: 'default',
+    default: 'app',
   },
   {
     path: 'terminal.fontFamily',
-    section: 'Terminal',
-    label: 'Font',
+    section: 'Theme',
+    label: 'Terminal font',
     help: "A font installed on this computer (work doesn't ship fonts). Several, comma-separated, are tried in order; work's own list comes after yours, so a name that isn't installed falls back to it.",
     kind: {
       type: 'text',
@@ -255,16 +274,16 @@ export const SETTINGS: readonly SettingField[] = [
   },
   {
     path: 'terminal.fontSize',
-    section: 'Terminal',
-    label: 'Font size',
+    section: 'Theme',
+    label: 'Terminal font size',
     help: 'In pixels.',
     kind: { type: 'number', min: 8, max: 32 },
     default: 13,
   },
   {
     path: 'terminal.lineHeight',
-    section: 'Terminal',
-    label: 'Line height',
+    section: 'Theme',
+    label: 'Terminal line height',
     help: '1 is as tight as today; 1.2 gives each line a little more room.',
     kind: { type: 'number', min: 1, max: 2 },
     default: 1,

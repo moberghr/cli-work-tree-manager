@@ -42,3 +42,13 @@ Depends: B2 (describes its behaviour).
 ## After the batches
 
 `npm run typecheck && npm run lint && npm run format:check && npm test && npm run build`; SC6 in the running app (`npm run dev -- web` from the worktree), screenshots of each theme for the PR; spec-drift check; review (compliance, then test-reviewer + context-miner); cleanup; PR with screenshots, assigned to the user (asked before pushing per the global rules — the user asked for the PR).
+
+## Part 2 — the app's theme (same PR)
+
+Spec: "Part 2" in `docs/specs/2026-11-23-terminal-themes.md` (SC8–SC14). The Part 1 names above are as they were built then: `state/terminal-style.ts` became `state/appearance.ts` (`loadAppearance`, `useAppearanceUpdates`), its test `tests/web/appearance.test.ts`, and `terminal-appearance.md` became `appearance.md`.
+
+- **B4 — core**: `core/settings/app-theme.ts` (new: `APP_THEMES`, `resolveAppTheme`), `resolveTerminalStyle(values, colors, follow)`, the schema's Theme section (`theme`, `terminal.theme` gains `app`), `loadConfig` keeps `theme`. SC8–SC10.
+- **B5 — SPA**: the appearance store (app theme + terminal style, stamps on `<html>`, cache mirrors config), `ThemeProvider` an adapter over it, the boot script paints named themes. SC11, SC13. Depends on B4.
+- **B6 — CSS + docs**: named-theme blocks and per-base `--term-*` in `tokens.css`, three `diff.css` surfaces as tokens, `appearance.md` and its pointers. SC12. Depends on B4.
+
+After: the same commands as above; SC14 in `work web --demo` (each app theme, the terminal following, Settings → Theme), screenshots added to `pr-assets/terminal-themes`.

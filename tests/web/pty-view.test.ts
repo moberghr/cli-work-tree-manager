@@ -158,9 +158,9 @@ vi.mock('../../src/web/src/api/terminal-socket.js', () => ({
   },
 }));
 
-// The style every terminal shares (Settings → Terminal): the test sets it, a re-render hands it to PtyView.
+// The style every terminal shares (Settings → Theme): the test sets it, a re-render hands it to PtyView.
 const st = vi.hoisted(() => ({ style: undefined as TerminalStyle | undefined }));
-vi.mock('../../src/web/src/state/terminal-style.js', () => ({ useTerminalStyle: () => st.style! }));
+vi.mock('../../src/web/src/state/appearance.js', () => ({ useTerminalStyle: () => st.style! }));
 
 // ---- WebSocket fake ----------------------------------------------------------
 
@@ -768,7 +768,7 @@ describe('PtyView', () => {
   });
 });
 
-describe('PtyView takes Settings → Terminal', () => {
+describe('PtyView takes Settings → Theme', () => {
   const tokyo: TerminalStyle = {
     themeId: 'tokyo-night',
     theme: { ...TERMINAL_THEMES.find((t) => t.id === 'tokyo-night')!.palette },

@@ -9,7 +9,7 @@ import { ask } from '../../state/ask.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
 import { writeRich } from '../../state/rich-copy.js';
-import { useTerminalStyle } from '../../state/terminal-style.js';
+import { useTerminalStyle } from '../../state/appearance.js';
 import type { TerminalStyle } from '../../../../core/settings/terminal-style.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -68,7 +68,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
-  // Settings → Terminal: the terminal is built with it (read through the ref, so a change never reconnects) and an
+  // Settings → Theme: the terminal is built with it (read through the ref, so a change never reconnects) and an
   // open one takes a change through `restyle`.
   const style = useTerminalStyle();
   const styleRef = useRef(style);

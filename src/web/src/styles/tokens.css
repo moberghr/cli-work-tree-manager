@@ -1,13 +1,15 @@
 /* Design tokens — GitHub's Primer palette.
 
-   Two themes, selected by `data-theme` on <html>:
+   Two base themes, selected by `data-theme` on <html>:
      - light  → Primer "light default"
      - dark   → Primer "dark default"
+   and three named themes (midnight, dracula, tokyo-night), dark-based: the store sets `data-theme="dark"` plus
+   `data-app-theme="<id>"`, whose block below redefines every colour token the dark block defines.
 
-   The attribute is stamped synchronously by the inline boot script in
-   index.html (before first paint, so no flash) and thereafter owned by the
-   ThemeProvider. Default follows the OS (`prefers-color-scheme`); a user
-   toggle overrides it and persists to localStorage (`wd:theme`). */
+   The choice is Settings → Theme (config.json, `theme`; System follows the OS, `prefers-color-scheme`), cached
+   in localStorage (`wd:theme`) for the inline boot script in index.html, which stamps the attributes before first
+   paint (no flash); thereafter the store (state/appearance.ts) owns them. In `wd` it is still the browser's own
+   choice (the toggle writes localStorage). */
 /* The scale every control and page is built on (src/web/src/ui/): the sizes that were already the most used,
    written down once. A new size is a new token here, argued for, never a number in a page's stylesheet. */
 :root {
@@ -41,9 +43,6 @@
   --space-4: 16px;
   --space-6: 24px;
   --space-8: 32px;
-  /* The terminal's background and text: its own theme, not the app's (the store sets them from Settings → Terminal). */
-  --term-bg: #1e1e1e;
-  --term-fg: #d4d4d4;
 }
 
 :root,
@@ -63,6 +62,9 @@
   --warn-fg: #9a6700;
   --code-bg: #f6f8fa;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  /* The terminal's background and text follow the app's theme; the store sets them from Settings → Theme. */
+  --term-bg: #ffffff;
+  --term-fg: #1f2328;
   /* Claude-authored review comments (purple accent). */
   --claude-fg: #7c3aed;
   --claude-bg: rgba(124, 58, 237, 0.07);
@@ -95,6 +97,8 @@
   --warn-fg: #d29922;
   --code-bg: #161b22;
   --shadow-sm: 0 1px 2px rgba(1, 4, 9, 0.4);
+  --term-bg: #1e1e1e;
+  --term-fg: #d4d4d4;
   --claude-fg: #d2a8ff;
   --claude-bg: rgba(188, 140, 255, 0.12);
   --review-fg: #db61a2;
@@ -107,4 +111,94 @@
   --tag-green: #4cac5a;
   --tag-blue: #6aa7ed;
   --tag-purple: #be99f2;
+}
+
+/* Midnight: a near-black zinc, like Warp. */
+:root[data-app-theme='midnight'] {
+  --bg: #0d0d10;
+  --fg: #e4e4e7;
+  --border: #27272a;
+  --muted: #a1a1aa;
+  --sidebar-bg: #131316;
+  --header-bg: #131316;
+  --hover: #1f1f23;
+  --current: rgba(96, 165, 250, 0.14);
+  --accent: #60a5fa;
+  --add-fg: #4ade80;
+  --del-fg: #f87171;
+  --warn-fg: #facc15;
+  --code-bg: #131316;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --claude-fg: #c084fc;
+  --claude-bg: rgba(192, 132, 252, 0.12);
+  --review-fg: #f472b6;
+  --background-fg: #22d3ee;
+  --tag-red: #e5625c;
+  --tag-orange: #dc8b52;
+  --tag-yellow: #d1ac53;
+  --tag-green: #4cac5a;
+  --tag-blue: #6aa7ed;
+  --tag-purple: #be99f2;
+  --term-bg: #0d0d10;
+  --term-fg: #e4e4e7;
+}
+
+/* Dracula: purple on a blue-grey. */
+:root[data-app-theme='dracula'] {
+  --bg: #282a36;
+  --fg: #f8f8f2;
+  --border: #44475a;
+  --muted: #a6accd;
+  --sidebar-bg: #21222c;
+  --header-bg: #21222c;
+  --hover: #343746;
+  --current: rgba(189, 147, 249, 0.18);
+  --accent: #bd93f9;
+  --add-fg: #50fa7b;
+  --del-fg: #ff5555;
+  --warn-fg: #f1fa8c;
+  --code-bg: #21222c;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --claude-fg: #ff79c6;
+  --claude-bg: rgba(255, 121, 198, 0.12);
+  --review-fg: #ffb86c;
+  --background-fg: #8be9fd;
+  --tag-red: #e5625c;
+  --tag-orange: #dc8b52;
+  --tag-yellow: #d1ac53;
+  --tag-green: #4cac5a;
+  --tag-blue: #6aa7ed;
+  --tag-purple: #be99f2;
+  --term-bg: #282a36;
+  --term-fg: #f8f8f2;
+}
+
+/* Tokyo Night: a blue-violet night. */
+:root[data-app-theme='tokyo-night'] {
+  --bg: #1a1b26;
+  --fg: #c0caf5;
+  --border: #292e42;
+  --muted: #9099c2;
+  --sidebar-bg: #16161e;
+  --header-bg: #16161e;
+  --hover: #292e42;
+  --current: rgba(122, 162, 247, 0.15);
+  --accent: #7aa2f7;
+  --add-fg: #9ece6a;
+  --del-fg: #f7768e;
+  --warn-fg: #e0af68;
+  --code-bg: #16161e;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --claude-fg: #bb9af7;
+  --claude-bg: rgba(187, 154, 247, 0.12);
+  --review-fg: #ff9e64;
+  --background-fg: #1abc9c;
+  --tag-red: #e5625c;
+  --tag-orange: #dc8b52;
+  --tag-yellow: #d1ac53;
+  --tag-green: #4cac5a;
+  --tag-blue: #6aa7ed;
+  --tag-purple: #be99f2;
+  --term-bg: #1a1b26;
+  --term-fg: #c0caf5;
 }

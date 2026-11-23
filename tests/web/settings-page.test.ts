@@ -90,7 +90,7 @@ describe('the Settings page', () => {
     expect([...host.querySelectorAll('h2')].map((h) => h.textContent)).toEqual([
       'General',
       'Agents & terminals',
-      'Terminal',
+      'Theme',
       'Pull requests',
       'Reviews',
       'Issues',

@@ -5,6 +5,7 @@ import {
   DEFAULT_TERMINAL_STYLE,
   resolveTerminalStyle,
   TERMINAL_COLOR_KEYS,
+  TERMINAL_THEME_APP,
   TERMINAL_THEMES,
 } from '../../../src/core/settings/terminal-style.js';
 
@@ -60,11 +61,32 @@ describe('resolveTerminalStyle', () => {
     expect(s.lineHeight).toBe(1);
   });
 
-  it('a theme by its id; an unknown one is the default', () => {
+  it('a theme by its id; an unknown one is the default when nothing is followed', () => {
     expect(resolveTerminalStyle({ 'terminal.theme': 'dracula' }).theme.background).toBe('#282a36');
     expect(resolveTerminalStyle({ 'terminal.theme': 'dracula' }).themeId).toBe('dracula');
     expect(resolveTerminalStyle({ 'terminal.theme': 'solarized' }).themeId).toBe('default');
     expect(resolveTerminalStyle({ 'terminal.theme': 7 }).theme).toEqual(defaultTheme.palette);
+  });
+
+  it('without a palette of its own the terminal follows: absent, app and unknown take the follow palette', () => {
+    for (const values of [{}, { 'terminal.theme': 'app' }, { 'terminal.theme': 'solarized' }, { 'terminal.theme': 7 }]) {
+      const s = resolveTerminalStyle(values, undefined, 'dracula');
+      expect(s.themeId, JSON.stringify(values)).toBe('dracula');
+      expect(s.theme.background).toBe('#282a36');
+    }
+    expect(resolveTerminalStyle({ 'terminal.theme': TERMINAL_THEME_APP }, undefined, 'github-light').themeId).toBe('github-light');
+  });
+
+  it('a palette id overrides the follow palette; an unknown follow is the default palette', () => {
+    expect(resolveTerminalStyle({ 'terminal.theme': 'midnight' }, undefined, 'dracula').themeId).toBe('midnight');
+    expect(resolveTerminalStyle({ 'terminal.theme': 'app' }, undefined, 'nope').themeId).toBe('default');
+    expect(resolveTerminalStyle({}, undefined, 'nope').theme).toEqual(defaultTheme.palette);
+  });
+
+  it('hand-written colours still sit over the followed palette', () => {
+    const s = resolveTerminalStyle({}, { background: '#000' }, 'dracula');
+    expect(s.theme.background).toBe('#000');
+    expect(s.theme.foreground).toBe('#f8f8f2');
   });
 
   it('a valid font comes first, today’s stack after it; a bad one is the stack alone', () => {

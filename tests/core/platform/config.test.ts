@@ -220,6 +220,33 @@ describe('loadConfig', () => {
   });
 });
 
+describe("the app's theme (theme)", () => {
+  const write = (extra: Record<string, unknown>) => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    const file = path.join(tmpDir, '.work', 'config.json');
+    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, ...extra }));
+    return file;
+  };
+
+  it('kept through a load and a save', () => {
+    const file = write({ theme: 'dracula' });
+    expect(loadConfig()?.theme).toBe('dracula');
+    saveConfig(loadConfig()!);
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).theme).toBe('dracula');
+  });
+
+  it('an unknown value is dropped, and so is a missing one', () => {
+    const file = write({ theme: 'solarized' });
+    expect(loadConfig()?.theme).toBeUndefined();
+    saveConfig(loadConfig()!);
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).theme).toBeUndefined();
+    write({ theme: 7 });
+    expect(loadConfig()?.theme).toBeUndefined();
+    write({});
+    expect(loadConfig()?.theme).toBeUndefined();
+  });
+});
+
 describe("the terminal's look (terminal)", () => {
   it('kept through a load and a save (a command that saves config.json, work config remove-repo, would drop it); a colour that does not fit goes', () => {
     fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });

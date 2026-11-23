@@ -110,12 +110,12 @@ How each part of work is built, and its rules (the `§` lines), is in `.claude/r
 |---|---|
 | Orientation | `source-layout.md`, `core-is-a-library.md`, `key-design.md`, `cli-commands.md`, `configuration.md`, `build.md`, `startup-and-load-costs.md` |
 | Sessions | `session-tracking.md` (identity, branches, repos, Add a repo), `re-entering-a-worktree.md`, `session-navigation.md` (top bar, shortcuts, session page, rail, fork, stacks, time, notes), `start-from-a-ticket-or-pr.md`, `saved-prompts.md`, `driving-a-session-from-outside-its-terminal.md` |
-| Terminals and agents | `pty-host.md` (the host, idle sleep, latency, restarts), `agents.md` (the agent interface, accounts), `the-ctrl-k-assistant.md`, `dev-server-preview.md`, `terminal-appearance.md` (theme, font, size, line height) |
+| Terminals and agents | `pty-host.md` (the host, idle sleep, latency, restarts), `agents.md` (the agent interface, accounts), `the-ctrl-k-assistant.md`, `dev-server-preview.md` |
 | Status | `attention-inbox.md` (hooks, status, Inbox, snooze, search, context), `activity.md`, `usage.md`, `today.md` |
 | Diffs | `diff-review.md` (`wd`), `the-diff-tab.md`, `checkpoint-trigger-reload-loop-guard.md`, `revert-batched-review.md` |
 | Pull requests | `git-hosts.md`, `pr-watch.md`, `ship-archive.md` (Ship, Archive, Restore), `reviews.md` |
 | Other pages | `time.md`, `issues.md` (the Issues tab, which project an issue starts in), `jira-watch.md`, `repos-page.md`, `settings.md`, `first-run.md` |
 | Storage and moving | `state-storage.md`, `moving-to-another-computer.md` |
 | Shipping | `desktop-app.md`, `updates-and-release-notes.md`, `demo-mode.md` |
-| Web UI | `web-ui.md` (the scale, the shared pieces, the rule that a page never restyles one) |
+| Web UI | `web-ui.md` (the scale, the shared pieces, the rule that a page never restyles one), `appearance.md` (app and terminal theme, terminal font, size, line height) |
 | Small | `tab-completions.md`, `color-forcing.md`, `work-dash.md` (removed in 2.0) |
