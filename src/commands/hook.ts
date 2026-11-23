@@ -9,6 +9,7 @@ import {
 } from '../core/comments/pending-delivery.js';
 import { isInternalRun } from '../core/platform/internal-run.js';
 import { isOwnCheckout, ownCheckoutNote } from '../core/worktree/own-checkout.js';
+import { workSessionIntro } from '../core/sessions/work-intro.js';
 import { loadConfig } from '../core/platform/config.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
@@ -41,7 +42,9 @@ export type HookEvent =
   | 'assistant-context'
   /** One hook per turn edge: delivery + status + checkpoint (the full dashboard). */
   | 'turn-start'
-  | 'turn-end';
+  | 'turn-end'
+  /** A conversation starts (or resumes, clears, compacts): what its agent is told about work (work-intro.ts). */
+  | 'session-start';
 
 const STATUS_EVENTS = new Set<HookEvent>(['status-prompt', 'status-stop', 'status-notify']);
 
@@ -190,6 +193,7 @@ const HOOK_EVENTS = [
   'assistant-context',
   'turn-start',
   'turn-end',
+  'session-start',
 ] as const;
 
 /** `work hook <event> [--agent <id>]` without the yargs router (bin.ts's fast path). An
@@ -234,6 +238,12 @@ export interface TurnHookIo {
 export function recordBranchesFor(cwd: string): void {
   const session = findSessionForCwd(cwd);
   if (session) recordCheckedOutBranches(session);
+}
+
+/** What a conversation starting in `cwd` is told about work: null outside a work session. */
+export function sessionStartNote(cwd: string): string | null {
+  const session = findSessionForCwd(cwd);
+  return session ? workSessionIntro(session) : null;
 }
 
 /** The note for a turn starting in a repo's own checkout (the session for that folder), or null. */
@@ -369,6 +379,12 @@ async function handleHook(event: HookEvent, agentId = 'claude'): Promise<void> {
     // bookkeeping runs after, side by side.
     if (event === 'turn-start' || event === 'turn-end') {
       await runTurnHook(event === 'turn-start', payload, undefined, agent);
+      return;
+    }
+    // Its stdout becomes the conversation's context: that it runs in work, and how to reach the other sessions.
+    if (event === 'session-start') {
+      const note = sessionStartNote(cwd);
+      if (note) process.stdout.write(note + '\n');
       return;
     }
     // Attention inbox: record the session's state, then nudge work web so
