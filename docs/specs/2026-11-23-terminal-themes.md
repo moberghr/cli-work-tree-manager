@@ -143,8 +143,25 @@ The user asked to theme the whole app, not only the terminal: a **Theme** sectio
 
 - **SC8**: `resolveAppTheme`. System follows `osDark`, each id gives its base and terminal palette, unknown → system (tests/core/settings/app-theme.test.ts).
 - **SC9**: the terminal follows the app by default; a palette id overrides; unknown → follows (tests/core/settings/terminal-style.test.ts).
-- **SC10**: the Theme section lists App theme + the 4 terminal fields; the options and defaults equal the modules'; `loadConfig` keeps `theme` (settings, config tests).
+- **SC10**: the Theme section lists App theme + the 4 terminal fields; the options and defaults equal the modules'; a save keeps `theme` (settings, config tests; SC15).
 - **SC11**: the store. A settings read sets the app theme and the attributes on `<html>`; the OS change is followed under System; the cache mirrors config; the toggle writes the setting in work web and localStorage in wd; the terminal palette follows (tests/web/appearance.test.ts, tests/web/theme-provider.test.ts).
 - **SC12**: every named theme's block in tokens.css defines every colour token of the dark block; fg, muted, accent and the semantic colours read ≥ 4.5:1 on its `--bg` (tests/web/theme-tokens.test.ts).
 - **SC13**: no flash. The boot script paints a cached named theme with `data-theme="dark"` + `data-app-theme` (a test runs the inline script in jsdom).
 - **SC14**: live in the demo, each app theme re-themes the whole page and the terminal follows; screenshots for the PR.
+
+## Part 3 — the review's suggestions (added 2026-11-23, same PR)
+
+The user asked for the suggestions left over from Part 2's review to be done too.
+
+- **config.json keeps what it doesn't model.** `loadConfig` now starts from the file as written and checks the keys it models over it, so a command that saves config.json keeps every other key — `theme` and `terminal` among them, an unknown value too (read as System / its default). This replaces Part 1's and Part 2's special-casing (`terminalConfigOf`, the `isAppThemeId` check, `TerminalConfig`), and `platform/config.ts` no longer imports `core/settings/`. The rejected alternative was a merge in `saveConfig`: about 100 callers (most of them tests) use it as a whole replacement.
+- **A choice's default is its label**: "Default: System.", "Default: Match the app." (`defaultText`), for every choice setting.
+- **The covers' text takes the palette**: the store stamps `--term-dim` (bright black) and `--term-error` (red), and Connecting… and a failed start mix them halfway with `--term-fg`. On Default dark the grey is a neutral one, about `#959595` (was the bluish `#9da5b4`), and the red a stronger `#d06a6a` (was the pink `#e8b4b4`).
+- **Highlighted code follows the named themes**: each colour in `hljs.css` is the fallback of a `--syn-*` property; Dark sets none (GitHub's, unchanged), Midnight, Dracula and Tokyo Night set theirs.
+- Not done: reusing `coalesce` for the store's reads. `coalesce` waits on a timer before its first run and returns no promise, and the store's first read must start at once and be awaited.
+
+### Success criteria (part 3)
+
+- **SC15**: a hand-written key loadConfig doesn't model (and `theme` / `terminal`, even with values no list knows) survives a load and a save; a modelled key with a bad value still goes (config tests).
+- **SC16**: the default of a choice setting shows as its option's label (settings tests).
+- **SC17**: the store stamps `--term-dim` / `--term-error` from the resolved palette; tokens.css's defaults are each palette's bright black and red (appearance, theme-tokens tests).
+- **SC18**: each named theme sets every `--syn-*` hljs.css reads, each at 4.5:1 or better on `--bg` and `--code-bg`; Dark sets none (theme-tokens test).

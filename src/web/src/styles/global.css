@@ -805,8 +805,8 @@ pre {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* A dimmed grey on the terminal's theme: on the default one exactly the #9da5b4 it was, a dark slate on a light one. */
-  color: color-mix(in srgb, #667694 50%, var(--term-fg));
+  /* The palette's dim grey (bright black), halfway to its text so it reads on any terminal theme. */
+  color: color-mix(in srgb, var(--term-dim) 50%, var(--term-fg));
   font-size: 13px;
   background: var(--term-bg);
   pointer-events: none;
@@ -822,7 +822,7 @@ pre {
 .wd-pty-failed p {
   margin: 0;
 }
-/* A soft red that reads on the terminal's theme: on the default one exactly #e8b4b4, a dark red on a light one. */
+/* The palette's red, halfway to its text so it reads on any terminal theme: soft on a dark one, deep on a light one. */
 .wd-pty-failed p:first-child {
-  color: color-mix(in srgb, #fc9494 50%, var(--term-fg));
+  color: color-mix(in srgb, var(--term-error) 50%, var(--term-fg));
 }

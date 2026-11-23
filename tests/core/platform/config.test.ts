@@ -220,68 +220,35 @@ describe('loadConfig', () => {
   });
 });
 
-describe("the app's theme (theme)", () => {
-  const write = (extra: Record<string, unknown>) => {
+describe('keys loadConfig does not model', () => {
+  it("kept as written through a load and a save: the Settings page's theme and terminal, even a value no list knows, and anything else", () => {
     fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
     const file = path.join(tmpDir, '.work', 'config.json');
-    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, ...extra }));
-    return file;
-  };
-
-  it('kept through a load and a save', () => {
-    const file = write({ theme: 'dracula' });
-    expect(loadConfig()?.theme).toBe('dracula');
+    const written = {
+      theme: 'solarized',
+      terminal: { theme: 'midnight', fontSize: 15, colors: { background: '#101014', cursor: 'red', nope: '#fff' } },
+      fromANewerWork: { on: true },
+    };
+    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, ...written }));
     saveConfig(loadConfig()!);
-    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).theme).toBe('dracula');
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8'))).toMatchObject(written);
   });
 
-  it('an unknown value is dropped, and so is a missing one', () => {
-    const file = write({ theme: 'solarized' });
-    expect(loadConfig()?.theme).toBeUndefined();
-    saveConfig(loadConfig()!);
-    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).theme).toBeUndefined();
-    write({ theme: 7 });
-    expect(loadConfig()?.theme).toBeUndefined();
-    write({});
-    expect(loadConfig()?.theme).toBeUndefined();
-  });
-});
-
-describe("the terminal's look (terminal)", () => {
-  it('kept through a load and a save (a command that saves config.json, work config remove-repo, would drop it); a colour that does not fit goes', () => {
+  it('a key it models is still checked: a bad value goes', () => {
     fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
     const file = path.join(tmpDir, '.work', 'config.json');
-    fs.writeFileSync(
-      file,
-      JSON.stringify({
-        worktreesRoot: '/w',
-        repos: {},
-        terminal: {
-          theme: 'midnight',
-          fontFamily: 'Hack',
-          fontSize: 15,
-          lineHeight: 1.2,
-          colors: { background: '#101014', cursor: 'red', nope: '#fff' },
-        },
-      }),
-    );
+    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, launchViaHost: 'yes', notifications: 'on' }));
+    expect(loadConfig()).toMatchObject({ launchViaHost: undefined, notifications: false });
     saveConfig(loadConfig()!);
-    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).terminal).toEqual({
-      theme: 'midnight',
-      fontFamily: 'Hack',
-      fontSize: 15,
-      lineHeight: 1.2,
-      colors: { background: '#101014' },
-    });
+    const saved = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    expect(saved.launchViaHost).toBeUndefined();
+    expect(saved.notifications).toBe(false);
   });
 
-  it('absent when not written, or when nothing in it fits', () => {
+  it('a file that is not an object adds nothing', () => {
     fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
-    const file = path.join(tmpDir, '.work', 'config.json');
-    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {} }));
-    expect(loadConfig()?.terminal).toBeUndefined();
-    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, terminal: { fontSize: 'big', colors: [] } }));
-    expect(loadConfig()?.terminal).toBeUndefined();
+    fs.writeFileSync(path.join(tmpDir, '.work', 'config.json'), JSON.stringify(['a']));
+    expect(Object.keys(loadConfig()!)).not.toContain('0');
   });
 });
 

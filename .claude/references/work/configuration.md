@@ -1,6 +1,6 @@
 # Configuration
 
-Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`:
+Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`. `loadConfig` checks each key it models (a bad value is left to its default and goes at the next save) and keeps every other one as written — the Settings page's `theme` and `terminal`, a key written by hand or by a newer work — so a command that saves config.json (`saveConfig`: `work config remove-repo`, `add-group`, `remove-group`, `work init`) drops nothing it doesn't know. § WHEN work starts reading a key, model it in `loadConfig` (checked); a key only the Settings page reads (through `readSettings`) needs nothing there.
 - `worktreesRoot` — parent directory for all worktrees
 - `repos` — map of alias → repo path
 - `groups` — map of group name → array of repo aliases

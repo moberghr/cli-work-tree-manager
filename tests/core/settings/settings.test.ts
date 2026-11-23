@@ -225,7 +225,6 @@ describe('settings over config.json', () => {
       values: { 'terminal.theme': 'dracula', 'terminal.fontSize': 16 },
       terminalColors: { background: '#000' },
     });
-    expect(loadConfig()?.terminal).toEqual({ theme: 'dracula', fontSize: 16, colors: { background: '#000' } });
 
     await writeSetting('terminal.theme', null);
     await writeSetting('terminal.fontSize', null);
@@ -247,7 +246,6 @@ describe('settings over config.json', () => {
     await writeSetting('theme', 'dracula');
     expect(raw().theme).toBe('dracula');
     expect(readSettings().values.theme).toBe('dracula');
-    expect(loadConfig()?.theme).toBe('dracula');
     await expect(writeSetting('theme', 'nope')).rejects.toThrow();
     expect(raw().theme).toBe('dracula');
   });

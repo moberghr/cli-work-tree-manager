@@ -108,11 +108,13 @@ describe('the terminal style store', () => {
     expect(getTerminalStyle().theme).toMatchObject({ background: '#1e1e1e', foreground: '#d4d4d4' });
     expect(htmlVar('--term-bg')).toBe('#1e1e1e');
     expect(htmlVar('--term-fg')).toBe('#d4d4d4');
+    expect(htmlVar('--term-dim')).toBe('#555753');
+    expect(htmlVar('--term-error')).toBe('#cc0000');
     expect(html.dataset.theme).toBe('dark');
     expect(html.dataset.appTheme).toBeUndefined();
   });
 
-  it('a load takes the theme, font, size, line height and hand-written colours, tells subscribers once and sets the two colours on <html>', async () => {
+  it('a load takes the theme, font, size, line height and hand-written colours, tells subscribers once and sets the colours on <html>', async () => {
     m.fetchSettings.mockResolvedValueOnce(dracula);
     const heard = vi.fn();
     subscribeAppearance(heard);
@@ -126,6 +128,9 @@ describe('the terminal style store', () => {
     expect(heard).toHaveBeenCalledTimes(1);
     expect(htmlVar('--term-bg')).toBe('#000000');
     expect(htmlVar('--term-fg')).toBe('#f8f8f2');
+    // Connecting and a failed start take the palette's dim grey and red.
+    expect(htmlVar('--term-dim')).toBe('#6272a4');
+    expect(htmlVar('--term-error')).toBe('#ff5555');
   });
 
   it('calls while a read runs make exactly one more read after it, and the last answer wins', async () => {

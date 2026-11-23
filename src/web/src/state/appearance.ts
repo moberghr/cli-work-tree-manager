@@ -108,6 +108,9 @@ function stamp(): void {
   else root.dataset.appTheme = appState.app.id;
   root.style.setProperty('--term-bg', terminal.theme.background);
   root.style.setProperty('--term-fg', terminal.theme.foreground);
+  // What the page writes over a terminal ("Connecting…", a failed start) takes its dim grey and its red from the palette.
+  root.style.setProperty('--term-dim', terminal.theme.brightBlack);
+  root.style.setProperty('--term-error', terminal.theme.red);
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);

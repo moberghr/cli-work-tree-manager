@@ -776,6 +776,22 @@
           "typecheck": ".mtk/evidence/20261123-184224-part2-fix-typecheck-65949.log (exit 0)",
           "lint": ".mtk/evidence/20261123-184301-part2-fix-lint-66521.log (exit 0)"
         }
+      },
+      {
+        "lane": "Part 2 report's suggestions, done at the user's request ('implement suggestions as well')",
+        "fixed": [
+          "loadConfig keeps every key it doesn't model (theme and terminal included, an unknown value too), so saveConfig drops nothing it doesn't know; terminalConfigOf / TerminalConfig / the isAppThemeId check removed, platform/config.ts no longer imports core/settings (SC15)",
+          "a choice setting's default shows its label ('Default: System.', 'Default: Match the app.') (SC16)",
+          "Connecting... and a failed start take the palette's bright black / red (--term-dim / --term-error stamped by the store, defaults in tokens.css) (SC17)",
+          "highlighted code follows the named themes: hljs.css colours are --syn-* fallbacks, Midnight/Dracula/Tokyo Night set theirs at 4.5:1+ (SC18)"
+        ],
+        "not_fixed": [
+          "coalesce reuse for the store's reads: coalesce delays its first run on a timer and returns no promise; the store's first read must start at once and be awaited",
+          "hljs .hljs-addition / .hljs-deletion (diff-language add/delete) keep GitHub's tints under every dark theme"
+        ],
+        "behaviour_changes": [
+          "Default dark's Connecting... grey: #9da5b4 -> about #959595 (bright black #555753 mixed with #d4d4d4); failed-start red: #e8b4b4 -> #d06a6a"
+        ]
       }
     ]
   }

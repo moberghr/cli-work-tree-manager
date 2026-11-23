@@ -62,9 +62,11 @@
   --warn-fg: #9a6700;
   --code-bg: #f6f8fa;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  /* The terminal's background and text follow the app's theme; the store sets them from Settings → Theme. */
+  /* The terminal's background, text, dim grey and red follow the app's theme; the store sets them from Settings → Theme. */
   --term-bg: #ffffff;
   --term-fg: #1f2328;
+  --term-dim: #57606a;
+  --term-error: #cf222e;
   /* Claude-authored review comments (purple accent). */
   --claude-fg: #7c3aed;
   --claude-bg: rgba(124, 58, 237, 0.07);
@@ -99,6 +101,8 @@
   --shadow-sm: 0 1px 2px rgba(1, 4, 9, 0.4);
   --term-bg: #1e1e1e;
   --term-fg: #d4d4d4;
+  --term-dim: #555753;
+  --term-error: #cc0000;
   --claude-fg: #d2a8ff;
   --claude-bg: rgba(188, 140, 255, 0.12);
   --review-fg: #db61a2;
@@ -141,6 +145,19 @@
   --tag-purple: #be99f2;
   --term-bg: #0d0d10;
   --term-fg: #e4e4e7;
+  --term-dim: #52525b;
+  --term-error: #f87171;
+  /* Highlighted code in diffs (hljs.css; Dark keeps GitHub's). */
+  --syn-fg: #e4e4e7;
+  --syn-keyword: #c084fc;
+  --syn-title: #60a5fa;
+  --syn-constant: #67e8f9;
+  --syn-string: #86efac;
+  --syn-builtin: #fdba74;
+  --syn-comment: #a1a1aa;
+  --syn-tag: #f472b6;
+  --syn-section: #60a5fa;
+  --syn-bullet: #facc15;
 }
 
 /* Dracula: purple on a blue-grey. */
@@ -171,6 +188,18 @@
   --tag-purple: #be99f2;
   --term-bg: #282a36;
   --term-fg: #f8f8f2;
+  --term-dim: #6272a4;
+  --term-error: #ff5555;
+  --syn-fg: #f8f8f2;
+  --syn-keyword: #ff79c6;
+  --syn-title: #50fa7b;
+  --syn-constant: #bd93f9;
+  --syn-string: #f1fa8c;
+  --syn-builtin: #8be9fd;
+  --syn-comment: #8b95c9;
+  --syn-tag: #ff79c6;
+  --syn-section: #bd93f9;
+  --syn-bullet: #ffb86c;
 }
 
 /* Tokyo Night: a blue-violet night. */
@@ -201,4 +230,16 @@
   --tag-purple: #be99f2;
   --term-bg: #1a1b26;
   --term-fg: #c0caf5;
+  --term-dim: #414868;
+  --term-error: #f7768e;
+  --syn-fg: #c0caf5;
+  --syn-keyword: #bb9af7;
+  --syn-title: #7aa2f7;
+  --syn-constant: #ff9e64;
+  --syn-string: #9ece6a;
+  --syn-builtin: #2ac3de;
+  --syn-comment: #7c85b3;
+  --syn-tag: #f7768e;
+  --syn-section: #89ddff;
+  --syn-bullet: #e0af68;
 }

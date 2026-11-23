@@ -17,6 +17,8 @@ export function defaultText(field: SettingField): string | null {
   if (typeof d === 'boolean') return d ? 'on' : 'off';
   if (Array.isArray(d)) return d.length ? d.join(', ') : 'none';
   if (d === 0 && field.kind.type === 'number' && field.kind.zeroOff) return '0 (off)';
+  // A choice says its option as the list shows it ("Match the app"), not the value written to config.json ("app").
+  if (field.kind.type === 'choice') return field.kind.options.find((o) => o.value === d)?.label ?? String(d);
   return String(d);
 }
 

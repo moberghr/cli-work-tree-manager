@@ -27,6 +27,10 @@ describe('reading settings for the screen (pure)', () => {
     expect(defaultText(settingAt('copyFiles')!)).toBe('none');
     expect(defaultText(settingAt('archive.dropTranscriptsAfterDays')!)).toBe('0 (off)');
     expect(defaultText(settingAt('time.gapTicket')!)).toBeNull();
+    // A choice: its option's label, not the value config.json holds.
+    expect(defaultText(settingAt('theme')!)).toBe('System');
+    expect(defaultText(settingAt('terminal.theme')!)).toBe('Match the app');
+    expect(defaultText(settingAt('claudeStatusLine')!)).toBe('Yours (from your Claude settings)');
   });
 
   it('a list is one entry a line (a glob keeps its commas)', () => {

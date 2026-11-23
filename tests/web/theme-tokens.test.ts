@@ -49,13 +49,33 @@ describe('tokens.css themes', () => {
     const props = block(`:root[data-app-theme='${id}']`);
     expect(props['--term-bg']).toBe(palette(id).background);
     expect(props['--term-fg']).toBe(palette(id).foreground);
+    expect(props['--term-dim']).toBe(palette(id).brightBlack);
+    expect(props['--term-error']).toBe(palette(id).red);
+  });
+
+  it.each(named)('%s colours highlighted code: every --syn-* hljs.css reads, each at 4.5:1 or better on the page and on code', (id) => {
+    const hljs = fs.readFileSync(path.join(__dirname, '../../src/web/src/styles/hljs.css'), 'utf8');
+    const used = [...new Set([...hljs.matchAll(/var\((--syn-[\w-]+),/g)].map((m) => m[1]!))];
+    expect(used.length).toBeGreaterThanOrEqual(10);
+    const props = block(`:root[data-app-theme='${id}']`);
+    for (const name of used) {
+      expect(props[name], `${id} ${name}`).toBeDefined();
+      for (const bg of ['--bg', '--code-bg'])
+        expect(contrast(props[name]!, props[bg]!), `${id} ${name} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    }
+    // Dark sets none: GitHub's colours, the fallbacks in hljs.css.
+    expect(Object.keys(dark).filter((n) => n.startsWith('--syn-'))).toEqual([]);
   });
 
   it("light's and dark's terminal colours are GitHub Light's and the default palette's", () => {
     const light = block(":root,\n:root[data-theme='light']");
     expect(light['--term-bg']).toBe(palette('github-light').background);
     expect(light['--term-fg']).toBe(palette('github-light').foreground);
+    expect(light['--term-dim']).toBe(palette('github-light').brightBlack);
+    expect(light['--term-error']).toBe(palette('github-light').red);
     expect(dark['--term-bg']).toBe(palette('default').background);
     expect(dark['--term-fg']).toBe(palette('default').foreground);
+    expect(dark['--term-dim']).toBe(palette('default').brightBlack);
+    expect(dark['--term-error']).toBe(palette('default').red);
   });
 });
