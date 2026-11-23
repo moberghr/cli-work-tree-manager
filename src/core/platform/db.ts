@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -113,6 +113,11 @@ CREATE TABLE IF NOT EXISTS session_prs (session_id TEXT PRIMARY KEY, data TEXT N
 -- A session's own review, the last one prepared, with the notes sent and dismissed (core/review/local-review-store.ts). (v14)
 CREATE TABLE IF NOT EXISTS session_reviews (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 
+-- A session started by another (work child spawn): child → its coordinator; and the coordinators' grant (work
+-- coordinate --on). core/sessions/session-children.ts. (v15)
+CREATE TABLE IF NOT EXISTS session_parents (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS session_coordinators (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.
 INSERT OR IGNORE INTO meta (key, value) VALUES ('rev:sessions', '0'), ('rev:tasks', '0');
@@ -147,6 +152,11 @@ CREATE TRIGGER IF NOT EXISTS rail_sections_rev_i AFTER INSERT ON meta WHEN NEW.k
 -- A branch new to a session shows in its row (the header's Branches line). (v12)
 CREATE TRIGGER IF NOT EXISTS branches_rev_i AFTER INSERT ON session_branches BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
 CREATE TRIGGER IF NOT EXISTS branches_rev_u AFTER UPDATE ON session_branches BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+-- A child started, a grant given or taken back: the sessions list shows both. (v15)
+CREATE TRIGGER IF NOT EXISTS parents_rev_i AFTER INSERT ON session_parents BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS parents_rev_d AFTER DELETE ON session_parents BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS coordinators_rev_i AFTER INSERT ON session_coordinators BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS coordinators_rev_d AFTER DELETE ON session_coordinators BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
 CREATE TRIGGER IF NOT EXISTS rail_sections_rev_u AFTER UPDATE ON meta WHEN NEW.key = 'ui:rail-sections' BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
 `;
 
@@ -325,10 +335,14 @@ export function purgeSessionRows(d: Db, sessionId: string): void {
     'session_branches',
     'session_prs',
     'session_reviews',
+    'session_parents',
+    'session_coordinators',
   ]) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }
   d.prepare('DELETE FROM comments WHERE store = ?').run(sessionId);
+  // Its children are nobody's now: a later session on the same repo and branch (the same id) must not inherit them.
+  d.prepare("DELETE FROM session_parents WHERE json_extract(data, '$.parentId') = ?").run(sessionId);
 }
 
 /** JSON.parse that returns `unknown` (and null on bad JSON): stored rows

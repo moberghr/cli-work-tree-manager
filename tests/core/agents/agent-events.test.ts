@@ -74,6 +74,14 @@ describe('work’s hooks ride with the Claudes work starts, never the user’s s
     expect(claudeSessionSettings({ statusLine: false, invocation })).not.toHaveProperty('statusLine');
   });
 
+  it('allows only what work itself confines: a coordinator’s own children, a child’s report; never the grant or another session', async () => {
+    const { claudeSessionSettings } = await import('../../../src/core/agents/claude/session-settings.js');
+    const allow = (claudeSessionSettings({ statusLine: false }) as { permissions: { allow: string[] } }).permissions.allow;
+    expect(allow).toEqual(['Bash(work child:*)', 'Bash(work report:*)']);
+    for (const never of ['send', 'answer', 'start', 'stop', 'coordinate', 'pr'])
+      expect(allow.some((r) => r.startsWith(`Bash(work ${never}`))).toBe(false);
+  });
+
   it("the file has work's line when the limits' reading is on, or when work's own line is chosen", async () => {
     const { writeSessionSettings } = await import('../../../src/core/agents/claude/session-settings.js');
     const has = (config: object) => {

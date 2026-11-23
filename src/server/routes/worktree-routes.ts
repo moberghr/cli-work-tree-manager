@@ -19,6 +19,7 @@ import { detectParentBranch } from '../../core/diff/diff-scope.js';
 import { toBaseSpec } from '../../core/git/base-spec.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { startSessionWithPrompt, type StartOutcome } from '../../core/sessions/session-start.js';
+import { childBrief, childrenOf, coordinatorSince, newBranchCheck, setParent, spawnCheck } from '../../core/sessions/session-children.js';
 import { resolvePrToStart, type PrStartResult } from '../../core/pr/pr-start.js';
 import type { PrStartWire } from '../../core/api-types.js';
 import { codeFilePath } from '../../core/worktree/code-browse.js';
@@ -52,6 +53,19 @@ export interface WorktreeMutOptions {
  * All mutations broadcast `sessions-changed` so the SPA refetches and
  * the sidebar updates without a manual refresh.
  */
+/** Run `fn` after every earlier call with the same key has finished (one coordinator's spawns, in turn). */
+const queues = new Map<string, Promise<unknown>>();
+function oneAtATime<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const run = (queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(fn);
+  queues.set(key, run);
+  void run
+    .finally(() => {
+      if (queues.get(key) === run) queues.delete(key);
+    })
+    .catch(() => undefined);
+  return run;
+}
+
 export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   // -- Create ------------------------------------------------------------
   const createSchema = z.object({
@@ -66,6 +80,8 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     name: z.string().max(120).optional(),
     /** The Claude account a new session runs on (a name from `work account list`); empty: the configured default. */
     account: z.string().max(64).optional(),
+    /** Started by this session (`work child spawn`): a new branch, its first prompt the task (session-children.ts). */
+    parentId: z.string().optional(),
   });
   const startSession = opts.startSession ?? startSessionWithPrompt;
   const create = opts.create ?? createInProcess;
@@ -84,48 +100,84 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   app.post('/api/worktrees', zValidator('json', createSchema), async (c) => {
     const { target, base, issueKey, prompt, name } = c.req.valid('json');
     const account = c.req.valid('json').account?.trim() || undefined;
-    const config = loadConfig();
-    if (!config) return c.json({ error: 'no config' }, 400);
+    const loaded = loadConfig();
+    if (!loaded) return c.json({ error: 'no config' }, 400);
+    const config = loaded;
     const wanted = c.req.valid('json').branch?.trim() ?? '';
     if (!wanted && base?.trim())
       return c.json({ error: 'a base needs a branch to fork (leave both empty to open the repo as it is)' }, 400);
+    const parentId = c.req.valid('json').parentId;
+    // A coordinator's spawns one at a time: its count of children holds until the new one is linked (MAX_CHILDREN).
+    if (parentId) return oneAtATime(parentId, () => createOne());
+    return createOne();
 
-    try {
-      // No branch: the repo's own checkout, as `work tree <repo>` opens it.
-      // A failure says why (core's reports, or the child run's errors).
-      const made = await create(
-        { target, branch: wanted || undefined, base: base?.trim() ? toBaseSpec(base.trim()) : undefined, issueKey, name, account },
-        config,
-      );
-      if (!made.ok) return c.json({ error: made.error }, 400);
-      const branch = made.branch;
-      const result = { launchDir: made.launchDir, paths: made.paths };
-      opts.broadcast('sessions-changed', { ts: Date.now() });
-      // Re-derive the new session id so the client can route to it
-      // immediately (it's just sha1(target:branch)).
-      const id = sessionIdFor({ target, branch });
-      // The worktree exists either way; a failed start is reported, not
-      // fatal (the Terminal tab can still start it by hand).
-      let started: StartOutcome | undefined;
-      let startError: string | undefined;
-      if (prompt?.trim()) {
-        try {
-          started = await startSession(id, prompt.trim());
-        } catch (err) {
-          startError = (err as Error).message;
-        }
-        opts.broadcast('sessions-changed', { ts: Date.now() });
+    async function createOne() {
+      const parent = parentId ? findSession(parentId) : undefined;
+      if (parentId) {
+        if (!parent || parent.archivedAt) return c.json({ error: 'the coordinating session is unknown or archived' }, 400);
+        if (!wanted || !prompt?.trim()) return c.json({ error: 'a child session needs a branch and its task' }, 400);
+        // Only a new one: a coordinator never takes over a session you (or another) already have.
+        if (findSession(sessionIdFor({ target, branch: wanted })))
+          return c.json({ error: `a session on ${target} ${wanted} exists already` }, 409);
+        // …and on a branch of its own: a branch a repo has (its own folder on main) would put it in your checkout.
+        const fresh = newBranchCheck(target, wanted, config, (dir, b) =>
+          ['refs/heads/', 'refs/remotes/origin/'].some(
+            (ref) => git(['rev-parse', '--verify', '--quiet', `${ref}${b}`], dir).exitCode === 0,
+          ),
+        );
+        if (!fresh.ok) return c.json({ error: fresh.error }, 409);
+        const may = spawnCheck(parentId, {
+          coordinator: (id) => coordinatorSince(id) !== null,
+          liveChildren: (id) =>
+            childrenOf(id).filter((k) => {
+              const s = findSession(k.id);
+              return !!s && !s.archivedAt;
+            }).length,
+        });
+        if (!may.ok) return c.json({ error: may.error }, 403);
       }
-      return c.json({
-        sessionId: id,
-        launchDir: result.launchDir,
-        paths: result.paths,
-        ...(made.warnings?.length ? { warnings: made.warnings } : {}),
-        ...(started ? { started } : {}),
-        ...(startError ? { startError } : {}),
-      });
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 500);
+
+      try {
+        // No branch: the repo's own checkout, as `work tree <repo>` opens it.
+        // A failure says why (core's reports, or the child run's errors).
+        const made = await create(
+          { target, branch: wanted || undefined, base: base?.trim() ? toBaseSpec(base.trim()) : undefined, issueKey, name, account },
+          config,
+        );
+        if (!made.ok) return c.json({ error: made.error }, 400);
+        const branch = made.branch;
+        const result = { launchDir: made.launchDir, paths: made.paths };
+        opts.broadcast('sessions-changed', { ts: Date.now() });
+        // Re-derive the new session id so the client can route to it
+        // immediately (it's just sha1(target:branch)).
+        const id = sessionIdFor({ target, branch });
+        if (parentId && parent) setParent(id, parentId);
+        // The worktree exists either way; a failed start is reported, not
+        // fatal (the Terminal tab can still start it by hand).
+        let started: StartOutcome | undefined;
+        let startError: string | undefined;
+        if (prompt?.trim()) {
+          try {
+            started = await startSession(
+              id,
+              parent ? childBrief(parent.title?.trim() || `${parent.target} · ${parent.branch}`, prompt) : prompt.trim(),
+            );
+          } catch (err) {
+            startError = (err as Error).message;
+          }
+          opts.broadcast('sessions-changed', { ts: Date.now() });
+        }
+        return c.json({
+          sessionId: id,
+          launchDir: result.launchDir,
+          paths: result.paths,
+          ...(made.warnings?.length ? { warnings: made.warnings } : {}),
+          ...(started ? { started } : {}),
+          ...(startError ? { startError } : {}),
+        });
+      } catch (err) {
+        return c.json({ error: (err as Error).message }, 500);
+      }
     }
   });
 

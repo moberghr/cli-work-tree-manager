@@ -27,7 +27,12 @@ vi.mock('../../../src/core/sessions/web-state.js', () => ({
         : undefined,
 }));
 
-import { mountSessionCommentRoutes, SUBMIT_DELAY_MS, typeAndSubmit } from '../../../src/server/routes/session-comment-routes.js';
+import {
+  mountSessionCommentRoutes,
+  recheckLater,
+  SUBMIT_DELAY_MS,
+  typeAndSubmit,
+} from '../../../src/server/routes/session-comment-routes.js';
 import { clearCommentStoreCache } from '../../../src/core/comments/comment-file-store.js';
 import { formatPendingForPrompt, NOTE_NUDGE, readPendingForSession } from '../../../src/core/comments/pending-delivery.js';
 import { recordStatusEvent } from '../../../src/core/status/session-status.js';
@@ -103,6 +108,28 @@ describe('a Claude mid-turn', () => {
     await new Promise((r) => setTimeout(r, 400));
     expect(pty.writes).toEqual([]);
     expect(readPendingForSession('s1').map((c) => c.body)).toEqual(['also check the logs']);
+  });
+});
+
+describe('a note left for a turn end that never comes (recheckLater)', () => {
+  it('is typed in once the agent is idle, looked at again until then; stops when it was handed over', async () => {
+    const answers: Array<'typed' | 'next-turn' | null> = ['next-turn', 'typed'];
+    const typed: string[] = [];
+    recheckLater('r1', 'user', { after: [5, 5, 5], decide: () => answers.shift() ?? null, type: async (id) => void typed.push(id) });
+    await vi.waitFor(() => expect(typed).toEqual(['r1']), { timeout: 2000 });
+    expect(answers).toEqual([]);
+    // Two notes left mid-turn: one chain, so the nudge is typed once.
+    const once: string[] = [];
+    let calls = 0;
+    const decide = () => (++calls < 2 ? 'next-turn' : 'typed') as 'typed' | 'next-turn';
+    recheckLater('r3', 'user', { after: [5, 5, 5], decide, type: async (id) => void once.push(id) });
+    recheckLater('r3', 'user', { after: [5, 5, 5], decide, type: async (id) => void once.push(id) });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(once).toEqual(['r3']);
+    const gone: string[] = [];
+    recheckLater('r2', 'user', { after: [5, 5], decide: () => null, type: async (id) => void gone.push(id) });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(gone).toEqual([]);
   });
 });
 

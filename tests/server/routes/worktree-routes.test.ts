@@ -27,6 +27,7 @@ import { loadConfig, saveConfig, type WorkConfig } from '../../../src/core/platf
 import { loadHistory, upsertSession } from '../../../src/core/sessions/history.js';
 import { createSingleWorktree } from '../../../src/core/worktree/worktree.js';
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
+import { childBrief, MAX_CHILDREN, parentOf, setCoordinator, setParent } from '../../../src/core/sessions/session-children.js';
 
 let tmpHome: string;
 let repoDir: string;
@@ -204,6 +205,77 @@ describe('POST /api/worktrees with a first prompt', () => {
     const body = (await res.json()) as { sessionId: string; startError: string; paths: string[] };
     expect(body.startError).toBe('claude not found');
     expect(fs.existsSync(body.paths[0])).toBe(true);
+  });
+});
+
+describe('POST /api/worktrees for a coordinating session (work child spawn)', () => {
+  const create = (body: Record<string, unknown>) =>
+    app.request('/api/worktrees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const kidId = () => sessionIdFor({ target: 'repo', branch: 'feat/kid' });
+  beforeEach(() => {
+    ensurePty.mockClear();
+    peekPty.mockReset().mockReturnValue(false);
+  });
+
+  it('without the grant: refused, nothing made', async () => {
+    const res = await create({ target: 'repo', branch: 'feat/kid', prompt: 'do it', parentId: sessionId() });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toContain('work coordinate --on');
+    expect(loadHistory().some((s) => s.branch === 'feat/kid')).toBe(false);
+  });
+
+  it('with it: a new session, linked to its coordinator, started with its task wrapped in how to report back', async () => {
+    setCoordinator(sessionId(), true);
+    const res = await create({ target: 'repo', branch: 'feat/kid', prompt: 'Add the export', parentId: sessionId() });
+    expect(res.status).toBe(200);
+    expect(parentOf(kidId())?.parentId).toBe(sessionId());
+    const first = (ensurePty.mock.calls.at(-1) as unknown as [string, { initialPrompt: string }])[1].initialPrompt;
+    expect(first).toBe(childBrief('repo · feat/x', 'Add the export'));
+    expect(first).toContain('work report');
+  });
+
+  it('never takes over a session that exists, and needs a branch and a task', async () => {
+    setCoordinator(sessionId(), true);
+    const other = await create({
+      target: 'repo',
+      branch: BRANCH,
+      prompt: 'x',
+      parentId: sessionIdFor({ target: 'repo', branch: 'feat/none' }),
+    });
+    expect(other.status).toBe(400); // an unknown coordinator
+    await upsertSession('repo', false, 'feat/yours', [path.join(tmpHome, 'yours')]);
+    expect((await create({ target: 'repo', branch: 'feat/yours', prompt: 'x', parentId: sessionId() })).status).toBe(409);
+    expect(parentOf(sessionIdFor({ target: 'repo', branch: 'feat/yours' }))).toBeNull();
+    expect((await create({ target: 'repo', branch: 'feat/kid', parentId: sessionId() })).status).toBe(400);
+  });
+
+  it('only on a new branch: never one the repo has (its own folder on main, where it would commit on yours)', async () => {
+    setCoordinator(sessionId(), true);
+    const res = await create({ target: 'repo', branch: 'main', prompt: 'x', parentId: sessionId() });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain('new branch');
+    expect(parentOf(sessionIdFor({ target: 'repo', branch: 'main' }))).toBeNull();
+  });
+
+  it('spawns asked together still keep to the cap: one at a time per coordinator', async () => {
+    setCoordinator(sessionId(), true);
+    for (let i = 0; i < MAX_CHILDREN - 1; i++) {
+      setParent(sessionIdFor({ target: 'repo', branch: `k${i}` }), sessionId());
+      await upsertSession('repo', false, `k${i}`, [path.join(tmpHome, `k${i}`)]);
+    }
+    const both = await Promise.all(
+      ['feat/a', 'feat/b'].map((b) => create({ target: 'repo', branch: b, prompt: 'x', parentId: sessionId() })),
+    );
+    expect(both.map((r) => r.status).sort()).toEqual([200, 403]);
+  });
+
+  it('at most MAX_CHILDREN live children', async () => {
+    setCoordinator(sessionId(), true);
+    for (let i = 0; i < MAX_CHILDREN; i++) setParent(sessionIdFor({ target: 'repo', branch: `k${i}` }), sessionId());
+    for (let i = 0; i < MAX_CHILDREN; i++) await upsertSession('repo', false, `k${i}`, [path.join(tmpHome, `k${i}`)]);
+    const res = await create({ target: 'repo', branch: 'feat/kid', prompt: 'x', parentId: sessionId() });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toContain('work child finish');
   });
 });
 

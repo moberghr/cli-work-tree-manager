@@ -49,6 +49,10 @@ work wait [target] [branch] [--timeout 15m] [--json]  # Until it finishes its tu
 work start|stop [target] [branch]                  # Start its agent in the PTY host (resuming its conversation) / stop it
 work restart [target] [branch] [--outdated|--all]  # Restart agents in place (conversation resumed, terminals kept): now when idle, after its turn when working or waiting on you; --outdated = the ones running a version from before their tool updated. Never pre-allowed
 work answer [target] [branch] [--allow|--deny]     # The permission prompt it waits on (no flag: shows it); --allow/--deny answers that exact request — never pre-allowed
+work coordinate [target] [branch] [--on|--off] [--adopt <t> <b>] [--release <t> <b>]  # --adopt: coordinate a session that already exists (grants too); --release lets it go. Grant a session the say-so to drive sessions it starts (`work child`) without asking each time; never pre-allowed (core/sessions/session-children.ts)
+work child spawn <target> <branch> -m "task" [--base b] [--name n] [--account a] [--json]  # From a coordinator's folder: a new session on a new branch, linked to it, started with its task and how to report (POST /api/worktrees {parentId}); needs the grant, at most MAX_CHILDREN live
+work child list [--json] | send <target> <branch> -m "…" | finish <target> <branch>  # Its children and their state / a follow-up to one / archive one (nothing discarded). Only its own children, only with the grant; pre-allowed in work's session settings
+work report -m "…"|--file f                        # From a child: tell the session that started it what it did (a message marked as the child's words, data not instructions); pre-allowed
 work completion [--install]                        # Shell completions
 
 work run <cmd...> [--target <a>] [--branch <b>] [--all] [--parallel] [--jobs N] [--halt-on-error]  # Run a shell command across worktrees (bare run needs --all; Ctrl-C kills the whole fleet)

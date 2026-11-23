@@ -49,6 +49,8 @@ const TABLES = [
   'session_branches',
   'session_prs',
   'session_reviews',
+  'session_parents',
+  'session_coordinators',
 ];
 
 /** Per-session tables of the newer features (session_id + data). */
@@ -61,6 +63,8 @@ const NEWER_BY_SESSION = [
   'session_branches',
   'session_prs',
   'session_reviews',
+  'session_parents',
+  'session_coordinators',
 ];
 /** meta rows that are state, not counters. */
 const NEWER_META = ['ui:session-order', 'ui:rail-sections', 'jira-watch', 'time:issue-ids'];

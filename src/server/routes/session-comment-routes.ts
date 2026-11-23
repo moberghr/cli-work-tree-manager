@@ -3,9 +3,15 @@ import { agentOf } from '../../core/agents/index.js';
 import { zValidator } from '@hono/zod-validator';
 import { getCommentFileStore } from '../../core/comments/comment-file-store.js';
 import { findSession } from '../../core/sessions/web-state.js';
-import { peekPty, writeToPty } from '../../core/pty/pty-pool.js';
-import { NOTE_NUDGE, readPendingForSession, readPendingForWorktree } from '../../core/comments/pending-delivery.js';
+import { peekPty, ptyPids, writeToPty } from '../../core/pty/pty-pool.js';
+import { liveAgents } from '../../core/agents/index.js';
+import { agentsBySession } from '../../core/sessions/live-agents.js';
+import { sessionStatusView } from '../../core/status/turn-activity.js';
 import { readStatus } from '../../core/status/session-status.js';
+import { readSessionActivity } from '../../core/sessions/session-activity.js';
+import { bestEffort } from '../../core/platform/best-effort.js';
+import { noteDelivery, RECHECK_AFTER_MS, type NoteDelivery } from '../../core/comments/note-delivery.js';
+import { NOTE_NUDGE, readPendingForSession, readPendingForWorktree } from '../../core/comments/pending-delivery.js';
 import { commentInputSchema, resolveSchema, submitReviewSchema } from '../../core/comments/comment-schemas.js';
 import {
   announceChange,
@@ -82,6 +88,7 @@ export function mountSessionCommentRoutes(app: Hono, opts: MountOptions): void {
       // A draft goes nowhere yet (it reaches Claude when the review is submitted).
       const delivery = comment.status === 'published' ? ownedPtyDelivery(id, comment.author) : null;
       if (delivery === 'typed') void typeAndSubmit(id, NOTE_NUDGE).catch(() => false);
+      if (delivery === 'next-turn') recheckLater(id, comment.author);
       return c.json({ comment, comments: listFor(ctx), delivery });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -162,13 +169,64 @@ export async function deliverViaOwnedPty(sessionId: string, author: string): Pro
  * (no host terminal: the prompt hook hands it over on its next turn). The
  * comment route answers with it, so a sender is told what happened.
  */
-export function ownedPtyDelivery(sessionId: string, author: string): 'typed' | 'next-turn' | null {
-  if (author !== 'user') return null;
-  if (!peekPty(sessionId)) return null;
+export function ownedPtyDelivery(sessionId: string, author: string): NoteDelivery {
+  if (author !== 'user' || !peekPty(sessionId)) return null;
   // Every store the hook hands over: a reply on the Diff tab to a thread from the browser page is in the scope's.
   const session = findSession(sessionId);
-  if ((session ? readPendingForWorktree(session, sessionId) : readPendingForSession(sessionId)).length === 0) return null;
-  return readStatus(sessionId)?.state === 'working' ? 'next-turn' : 'typed';
+  const pending = (session ? readPendingForWorktree(session, sessionId) : readPendingForSession(sessionId)).length;
+  if (pending === 0) return null;
+  // What the host's Claude says of itself (the hooks miss an interrupted turn's end): note-delivery.ts.
+  const live =
+    bestEffort(
+      'live state for a note',
+      () => {
+        const hostPids = ptyPids();
+        return (agentsBySession(liveAgents(), loadHistory()).get(sessionId) ?? []).filter((a) => hostPids.has(a.pid)).map((a) => a.state);
+      },
+      [],
+    ) ?? [];
+  const raw = readStatus(sessionId);
+  const shown = raw
+    ? session
+      ? (bestEffort(
+          'shown state for a note',
+          () => sessionStatusView(raw, session, readSessionActivity(session).lastActivity ?? 0).state,
+          raw.state,
+        ) ?? raw.state)
+      : raw.state
+    : null;
+  return noteDelivery({ author, hosted: true, pending, live, shown });
+}
+
+/**
+ * A note left for the end of a turn is looked at again a few times (RECHECK_AFTER_MS): if it is still waiting and the
+ * agent is idle by then — the turn ended without a Stop hook, or it was never mid-turn — it is typed in then.
+ */
+/** Sessions with a recheck under way: one chain each, so two notes left mid-turn don't each type the nudge. */
+const rechecking = new Set<string>();
+
+export function recheckLater(
+  sessionId: string,
+  author: string,
+  o: { after?: readonly number[]; decide?: typeof ownedPtyDelivery; type?: (id: string) => Promise<unknown> } = {},
+): void {
+  // The chain under way looks at every pending note, this one included.
+  if (rechecking.has(sessionId)) return;
+  rechecking.add(sessionId);
+  const decide = o.decide ?? ownedPtyDelivery;
+  const type = o.type ?? ((id: string) => typeAndSubmit(id, NOTE_NUDGE));
+  const step = (after: readonly number[]) => {
+    const [next, ...rest] = after;
+    if (next === undefined) return void rechecking.delete(sessionId);
+    setTimeout(() => {
+      const d = bestEffort('recheck a waiting note', () => decide(sessionId, author), null);
+      if (d === 'next-turn') return step(rest);
+      rechecking.delete(sessionId);
+      if (d === 'typed') void type(sessionId).catch(() => false);
+      // null: handed over meanwhile (nothing pending), or its terminal is gone.
+    }, next).unref?.();
+  };
+  step(o.after ?? RECHECK_AFTER_MS);
 }
 
 export { SUBMIT_DELAY_MS } from '../../core/agents/typing.js';

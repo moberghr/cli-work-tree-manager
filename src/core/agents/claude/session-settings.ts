@@ -23,6 +23,9 @@ import { CLAUDE_EVENT } from './hooks.js';
 
 export const SESSION_SETTINGS_NAME = 'claude-settings.json';
 
+/** What the Claudes work starts may run without asking: only what work itself confines (see claudeSessionSettings). */
+export const SESSION_ALLOW: readonly string[] = ['Bash(work child:*)', 'Bash(work report:*)'];
+
 export const sessionSettingsPath = (): string => path.join(getConfigDir(), SESSION_SETTINGS_NAME);
 
 /** The settings themselves. `statusLine: false` (config `usage.statusLine: false`): the user's own line, untouched. */
@@ -35,6 +38,11 @@ export function claudeSessionSettings(o: { statusLine: boolean; invocation?: Wor
   }
   return {
     hooks,
+    // A coordinator's own sessions (session-children.ts): `work child` acts only on the sessions the one running it
+    // started, and only once you granted it (`work coordinate --on`, never allowed here: Claude running it asks you);
+    // `work report` reaches only the session that started this one. Everything else that drives another session
+    // (`work send / stop / answer`) keeps asking.
+    permissions: { allow: [...SESSION_ALLOW] },
     ...(o.statusLine ? { statusLine: { type: 'command', command: workCommand(['hook', 'statusline'], o.invocation) } } : {}),
   };
 }
