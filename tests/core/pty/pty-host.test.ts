@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
 import { startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
 import { PtyRegistry, type PtyLike } from '../../../src/core/pty/pty-registry.js';
-import { isTerminalReply, replyParts } from '../../../src/core/pty/terminal-replies.js';
+import { replyParts } from '../../../src/core/pty/terminal-replies.js';
 import { ScreenMirror, type SnapshotOptions } from '../../../src/core/pty/screen-mirror.js';
 import type { TerminalColors } from '../../../src/core/pty/terminal-colors.js';
 import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
@@ -312,7 +312,7 @@ describe('PTY host', () => {
       '\x1b[<35;10;5M', // the mouse moving, no button down (hovering)
       '\x1b[<39;10;5M\x1b[<35;11;5M', // …with Shift, then without
     ])
-      expect(isTerminalReply(reply), JSON.stringify(reply)).toBe(true);
+      expect(replyParts(reply), JSON.stringify(reply)).not.toBeNull();
     for (const typed of [
       'k',
       '\r',
@@ -326,7 +326,7 @@ describe('PTY host', () => {
       '\x1b[O' + 'k',
       '\x03',
     ])
-      expect(isTerminalReply(typed), JSON.stringify(typed)).toBe(false);
+      expect(replyParts(typed), JSON.stringify(typed)).toBeNull();
   });
 
   it('restart: a new agent in place, the attached terminals kept and not told the old one ended', async () => {
@@ -454,6 +454,25 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     await app.opened;
     app.ws.send(JSON.stringify({ type: 'resize', cols: 90, rows: 30 }));
     await tick();
+    terminal.ws.send(JSON.stringify({ type: 'input', data: 'k' }));
+    await tick();
+    expect(pty.log).toEqual(['resize 200x50', 'resize 90x30', 'resize 200x50', 'write k']);
+    terminal.ws.close();
+    app.ws.close();
+  });
+
+  it('a resize to a grid the PTY would not take changes nothing: not its size, not the one used last', async () => {
+    await client.spawn('g6', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as EchoPty;
+    const terminal = attach('g6', { grid: { cols: 200, rows: 50 } });
+    await terminal.opened;
+    const app = attach('g6');
+    await app.opened;
+    app.ws.send(JSON.stringify({ type: 'resize', cols: 90, rows: 30 }));
+    terminal.ws.send(JSON.stringify({ type: 'resize', cols: 0, rows: 0 })); // a pane not laid out
+    terminal.ws.send(JSON.stringify({ type: 'resize', cols: 2.5, rows: 30 }));
+    await tick();
+    // Typing in it still brings back its own grid: the bad sizes were never taken for its own.
     terminal.ws.send(JSON.stringify({ type: 'input', data: 'k' }));
     await tick();
     expect(pty.log).toEqual(['resize 200x50', 'resize 90x30', 'resize 200x50', 'write k']);

@@ -109,7 +109,6 @@ export interface PacerStats {
 }
 
 export class OutputPacer<K> {
-  private total = 0;
   private pending: string[] = [];
   private pendingLength = 0;
   /** The coalescing window, open from the first output of a quiet moment until one passes with nothing. */
@@ -137,9 +136,13 @@ export class OutputPacer<K> {
     this.tail = deps.tail ?? new OutputTail();
   }
 
-  /** Characters of output so far: where the next frame starts, and where a snapshot taken now stands. */
+  /**
+   * Characters of output so far: where the next frame starts, and where a snapshot taken now stands. The tail's end, one
+   * count for both: each piece is pushed to the tail as the pacer takes it in, so a client joining between two pieces of
+   * one chunk (at a frame's end) is never sent from the tail what it will be sent live.
+   */
   get offset(): number {
-    return this.total;
+    return this.tail.end;
   }
 
   /** Whether the PTY is paused for a client now. */
@@ -158,7 +161,6 @@ export class OutputPacer<K> {
    */
   output(data: string): void {
     if (!data) return;
-    this.tail.push(data);
     let from = 0;
     for (const change of this.sync.feed(data)) {
       this.piece(data.slice(from, change.at), change.open);
@@ -285,7 +287,7 @@ export class OutputPacer<K> {
 
   /** A piece of output after which a synchronized frame is `open` (or not): held while one is, else coalesced. */
   private piece(text: string, open: boolean): void {
-    this.total += text.length;
+    this.tail.push(text);
     if (this.frame) {
       this.hold(text);
       if (!open) this.frameEnded();
@@ -357,7 +359,7 @@ export class OutputPacer<K> {
   }
 
   private deliver(frame: string): void {
-    const end = this.total;
+    const end = this.offset;
     for (const c of this.clients.values()) {
       if (c.behind) continue;
       c.sent += frame.length;

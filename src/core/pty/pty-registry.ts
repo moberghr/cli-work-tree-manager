@@ -61,12 +61,12 @@ export interface PtyLike {
   write(data: string): void;
   resize(cols: number, rows: number): void;
   dispose(): void;
-  /** Serialized screen state (see PtySession.serialize). Optional so test
+  /** Serialized screen state (see PtySession.serialize); null when it couldn't be taken. Optional so test
    *  fakes can fall back to the raw replay buffer. */
-  serialize?(opts?: SnapshotOptions): string;
+  serialize?(opts?: SnapshotOptions): string | null;
   /** The serialized screen once everything written so far is parsed (see
-   *  PtySession.serializeSettled). Optional: a fake's screen is its raw buffer. */
-  serializeSettled?(opts?: SnapshotOptions): Promise<string>;
+   *  PtySession.serializeSettled); null when it couldn't be taken. Optional: a fake's screen is its raw buffer. */
+  serializeSettled?(opts?: SnapshotOptions): Promise<string | null>;
   /** Visible screen as plain text (PtySession.screenText). */
   screenText?(): string;
   /** What its agent says about itself in its output (PtySession.streamSignal). Optional: a fake says nothing. */
@@ -117,7 +117,11 @@ export interface ReplaySnapshot {
   /** The PTY's output stream (one per entry: resume.ts) and the offset this screen stands at — where its live output starts. */
   stream: string;
   offset: number;
-  /** `data` is not a screen but the output the client missed, from where it said it stood up to `offset`: drawn on its screen as it is. */
+  /**
+   * `data` is not a screen but the output the client missed, from where it said it stood up to `offset`: drawn on its
+   * screen as it is. Also a catch-up whose screen couldn't be taken: `data` '' and `stream` '' (where it stands is
+   * unknown now: it never resumes from here), its screen kept.
+   */
   resumed?: true;
   /** The PTY is ConPTY's (a host on Windows): the client's xterm.js sets this, so it doesn't reflow lines ConPTY reflows. */
   windowsPty?: WindowsPty;
@@ -586,6 +590,16 @@ export class PtyRegistry {
       if (catchingUp || !started) endedWith = code;
       else onExit(code);
     };
+    // A catch-up's screen, sent. One that couldn't be taken (null) is not sent as an empty screen, which the client would
+    // draw over the one it has, blank: it keeps its screen, said in the debug log. It missed what came meanwhile, so a
+    // client that resumes (a tab) is told it no longer knows where it stands — no stream (it never resumes from here),
+    // nothing to draw, drawn as missed output is (`resumed`: never over a reset terminal); `work attach`, which draws
+    // every screen over a cleared one and never resumes, is sent nothing.
+    const sendCatchUp = (data: string | null, at: number) => {
+      if (data !== null) return opts.onReplay?.(snapshot(data, at));
+      report('warn', `${id}: a terminal's catch-up screen couldn't be taken; it keeps the screen it has`);
+      if (!opts.screenOnlyCatchUp) opts.onReplay?.({ ...snapshot('', at), stream: '', resumed: true });
+    };
     // It fell behind and caught up (output-pacer.ts): the screen as it stands now, the output from now on held until it is sent.
     const resync = () => {
       // Before its first screen nothing could have been acked; after it left, nobody to send it to.
@@ -597,7 +611,8 @@ export class PtyRegistry {
       // The pacer sent what was pending to the others first: the screen is everything up to here, the output held from here.
       const at = e.pacer.offset;
       if (!settle) {
-        opts.onReplay?.(snapshot(between ? '' : e.pty.serialize?.(shot) || e.replay, at));
+        const data = between ? '' : e.pty.serialize?.(shot);
+        sendCatchUp(data === null ? null : data || e.replay, at);
         return;
       }
       const mine: Array<[string, number | undefined]> = [];
@@ -605,10 +620,13 @@ export class PtyRegistry {
       catchingUp = true;
       void settle
         .call(e.pty, shot)
-        .catch(() => '')
+        .catch((err: unknown) => {
+          logSwallowed(`${id}: take a catch-up screen`, err);
+          return null;
+        })
         .then((data) => {
           if (gone || held !== mine) return;
-          opts.onReplay?.(snapshot(data || e.replay, at));
+          sendCatchUp(data === null ? null : data || e.replay, at);
           held = null;
           catchingUp = false;
           for (const [d, end] of mine) onData(d, end);
@@ -653,8 +671,21 @@ export class PtyRegistry {
         }
         opts.onResumeRefused?.(r.refused);
       }
-      if (settled) void settled.call(e.pty).then((d) => resolveReady(snapshot(d || e.replay, offset)));
-      else resolveReady(snapshot(restarting ? '' : e.pty.serialize?.() || e.replay, offset));
+      if (settled)
+        void settled
+          .call(e.pty)
+          .catch((err: unknown) => {
+            logSwallowed(`${id}: take a screen for an attach`, err);
+            return null;
+          })
+          .then((d) => resolveReady(snapshot(firstScreen(d), offset)));
+      else resolveReady(snapshot(restarting ? '' : firstScreen(e.pty.serialize?.()), offset));
+    };
+    // Its first screen; one that couldn't be taken (null): it attaches all the same, on an empty screen the agent's next
+    // repaint fills, and that is said. Never left waiting: a terminal that gets no first frame takes no input.
+    const firstScreen = (d: string | null | undefined): string => {
+      if (d === null) report('warn', `${id}: a terminal's screen couldn't be taken; it attached with an empty one`);
+      return d || e.replay;
     };
     // The PTY's grid before this attach resizes it to the one it states: a resume needs its own grid to have been the PTY's.
     const gridBefore: Grid = { cols: e.cols, rows: e.rows };

@@ -83,6 +83,7 @@ const SPA_SHARED = new Set([
   'src/core/pty/terminal-size.js', // pure, import-free: a stated grid's rules and address parameters, ConPTY's windowsPty
   'src/core/pty/resume.js', // pure: where a client stands in a PTY's output, the resume parameter (a dropped tab reconnects in place)
   'src/core/pty/terminal-replies.js', // pure, import-free: what a terminal sends on its own (a resumed tab answers no query in what it missed)
+  'src/core/pty/sync-output.js', // pure, import-free: synchronized output's mode (the Terminal tab keeps the view through a repaint in one)
   'src/core/worktree/repo-rules.js',
   'src/core/pr/pr-stage.js',
   'src/core/pr/branch-work.js',

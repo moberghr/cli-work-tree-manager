@@ -304,6 +304,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     // place from there, its screen kept, and sent only what it missed when the host can tell that is all it needs.
     const position = new StreamPosition();
     let ws!: TerminalSocket;
+    // `ws` until it closes, then null: a frame drawn after its connection closed makes nothing ready.
+    let live: TerminalSocket | null = null;
     // The server's reason when a start fails (said before it closes), and the timer of the try again.
     let failReason: string | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -321,7 +323,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     // drawn: input typed meanwhile is queued, and our size is sent only
     // after the snapshot is on screen. A current host sent it at the grid stated on the attach address already, so
     // this resize changes nothing; an older one ignored that, and this is what gives Claude our grid, as before.
-    const finishReplay = () => {
+    // `sock`: the connection whose first frame was drawn. It runs from xterm's write callback, a while after the frame
+    // came: if that connection closed meanwhile (another try waits or is on its way), nothing is made ready — the next
+    // connection's first frame is still to come, and would otherwise be taken for a catch-up (a reset terminal), and
+    // what was typed would go to a closed connection.
+    const finishReplay = (sock: TerminalSocket) => {
+      if (disposed || live !== sock) return;
       clearTimeout(slowStart);
       clearTimeout(coverTimer);
       resuming = null;
@@ -429,7 +436,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       if (report) sendTerminalPerf(report);
     };
     const perfTimer = setInterval(sendPerf, PERF_SEND_MS);
-    const onMessage = (e: MessageEvent, acks: AckCounter) => {
+    const onMessage = (e: MessageEvent, acks: AckCounter, sock: TerminalSocket) => {
       if (e.data instanceof ArrayBuffer) {
         const bytes = new Uint8Array(e.data);
         // Frames are contiguous slices of the PTY's output: where it stands moves on by each, counted as the host counts.
@@ -463,21 +470,26 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         // The host's PTYs are ConPTY's, which reflows lines itself on a resize: xterm.js must not reflow them again
         // (VS Code sets the same; terminal-size.ts). Said by a host on Windows only.
         if (isWindowsPty(msg.windowsPty)) term.options.windowsPty = msg.windowsPty;
-        // Where this frame leaves it in the output (a host from before says nothing: then it never resumes).
+        // Where this frame leaves it in the output (a host from before says nothing: then it never resumes). Set as the
+        // frame comes, though xterm draws it later: what is given to xterm is drawn, in order, even if this connection
+        // drops first — so the next connection's frames land after it, and the position counts what was written.
         position.replay(msg);
+        const done = () => finishReplay(sock);
+        // What it missed, drawn on the screen it kept — the scrollback, the scroll position and the selection stay:
+        // reconnected in place, or a catch-up the host couldn't take a screen for (it says where this stands is
+        // unknown now: then no stream). Never over a reset terminal, whatever state the tab thinks it is in.
+        if (msg.resumed === true) return drawMissed(msg.data ?? '', ready ? () => {} : done);
         if (ready) return drawCatchUp(msg);
         if (resuming) {
-          // Reconnected in place: what it missed, drawn on the screen it kept — the scrollback, the scroll position and
-          // the selection stay. Or, when the host couldn't tell that would be enough (resume.ts), a screen, drawn as a
-          // catch-up's is: over a reset terminal, at its grid.
-          if (msg.resumed === true) return drawMissed(msg.data ?? '', finishReplay);
+          // Reconnected in place, but the host couldn't tell what it missed would be enough (resume.ts): a screen,
+          // drawn as a catch-up's is: over a reset terminal, at its grid.
           if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
-          return writeScreen('\x1bc' + (msg.data ?? ''), finishReplay);
+          return writeScreen('\x1bc' + (msg.data ?? ''), done);
         }
         // Draw at the grid the snapshot was serialized for, then fit.
         if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
-        if (msg.data) writeScreen(msg.data, finishReplay);
-        else finishReplay();
+        if (msg.data) writeScreen(msg.data, done);
+        else done();
       } else if (msg.type === 'exit') {
         exited = true;
         term.write(`\r\n\x1b[33m[session exited${msg.code ? ` with code ${msg.code}` : ''} — press Enter to start it again]\x1b[0m\r\n`);
@@ -496,17 +508,19 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       }
     };
 
-    const connectionClosed = () => term.write('\r\n\x1b[33m[connection closed — press Enter to reconnect]\x1b[0m\r\n');
+    const connectionClosed = (detail = '') => term.write(`\r\n\x1b[33m[connection closed${detail} — press Enter to reconnect]\x1b[0m\r\n`);
     // The next try of a reconnect in place, from where the terminal stands now (a try that got its frame and then
-    // dropped has moved it); none left, or nowhere to resume from: the connection's end is said, and Enter starts over.
+    // dropped has moved it); none left, or nowhere to resume from: the connection's end is said — with the host's reason
+    // when the last try was given one, and that what was typed meanwhile was not sent — and Enter starts over.
     const reconnectLater = () => {
       const at = position.point(term.cols, term.rows);
       if (!at || reconnects >= RECONNECT_DELAYS_MS.length) {
         clearTimeout(coverTimer);
         setPhase('ready');
         resuming = null;
+        const unsent = pendingInput.length > 0;
         pendingInput.length = 0;
-        connectionClosed();
+        connectionClosed((failReason ? `: ${failReason}` : '') + (unsent ? '; what you typed meanwhile was not sent' : ''));
         exited = true;
         return;
       }
@@ -553,14 +567,16 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       const sock = openTerminalSocket(sessionId, { force: at ? false : force.current, relayUrl: wsUrl, flow: true, grid, resume: at });
       sock.binaryType = 'arraybuffer';
       ws = sock;
+      live = sock;
       failReason = null;
       const acks = new AckCounter((chars) => {
         if (!exited && ws === sock) sock.send(ackFrame(chars));
       });
       sock.addEventListener('message', (e) => {
-        if (ws === sock) onMessage(e, acks);
+        if (ws === sock) onMessage(e, acks, sock);
       });
       sock.addEventListener('close', () => {
+        if (live === sock) live = null;
         if (ws === sock) onClose();
       });
     };

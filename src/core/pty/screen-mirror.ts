@@ -5,6 +5,7 @@ import { REPLAY_SCROLLBACK } from './scrollback.js';
 import type { TerminalColors } from './terminal-colors.js';
 import type { WindowsPty } from './terminal-size.js';
 import { StreamStatus, type StreamSignal } from './stream-status.js';
+import { logSwallowed } from '../platform/best-effort.js';
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
@@ -245,16 +246,18 @@ export class ScreenMirror {
   /**
    * The screen and scrollback as escape sequences that redraw it, then the state that puts a fresh terminal in
    * the same modes (`rehydrate`). What a client attaching is sent instead of raw output — raw bytes can start
-   * mid-sequence and were drawn for another client's grid. '' if it can't be taken. `scrollback: false`: the screen
-   * only (SnapshotOptions). The positions written after it (the saved cursor, the cursor, the normal screen's under the
-   * alternate one) count from the screen's top, so they are the same either way.
+   * mid-sequence and were drawn for another client's grid. Null if it can't be taken (logged): never an empty screen
+   * in its place, which a client would draw over the one it has (pty-registry.ts decides what it is sent instead).
+   * `scrollback: false`: the screen only (SnapshotOptions). The positions written after it (the saved cursor, the
+   * cursor, the normal screen's under the alternate one) count from the screen's top, so they are the same either way.
    */
-  snapshot(opts: SnapshotOptions = {}): string {
+  snapshot(opts: SnapshotOptions = {}): string | null {
     let body: string;
     try {
       body = this.serializer.serialize(opts.scrollback === false ? { scrollback: 0 } : undefined);
-    } catch {
-      return '';
+    } catch (err) {
+      logSwallowed('screen copy: take a snapshot', err);
+      return null;
     }
     let regionBeforeAlt = false;
     if (this.terminal.buffer.active.type === 'alternate') {
@@ -270,7 +273,7 @@ export class ScreenMirror {
   }
 
   /** snapshot(), once everything written so far is parsed: xterm queues writes, and a write's callback runs once it is. */
-  snapshotSettled(opts: SnapshotOptions = {}): Promise<string> {
+  snapshotSettled(opts: SnapshotOptions = {}): Promise<string | null> {
     return new Promise((resolve) => {
       if (this.disposed) return resolve('');
       const settle = () => {

@@ -12,6 +12,7 @@ import { startPtyHost, type PtyHostHandle } from '../../src/core/pty/pty-host.js
 import { PtyHostClient } from '../../src/core/pty/pty-host-client.js';
 import { AckCounter, ackFrame, utf16Length, withFlow } from '../../src/core/pty/flow-control.js';
 import { StreamPosition, withResume, type ResumePoint } from '../../src/core/pty/resume.js';
+import { FRAME_HOLD_MS, realTimers, type PacerTimers } from '../../src/core/pty/output-pacer.js';
 import type { AiToolSpec } from '../../src/core/platform/ai-launcher.js';
 
 const { Terminal } = xtermHeadless;
@@ -25,6 +26,20 @@ const { Unicode11Addon } = xtermUnicode11;
  * it counted. Every step waits on what was seen (the clients' output, the host's screen copy), never on time: what it
  * is sent must be exactly the stream from where it stood, and both screens (and scrollbacks), serialized, the same.
  */
+
+/**
+ * The host's clock, but with the cap on holding a synchronized frame (FRAME_HOLD_MS, a guard against an agent that
+ * stalls mid-frame) never armed: the held frame is then held until its end however slow the machine is, so the cut is
+ * inside it on every run — not only when the test got there within the cap. Every frame flood-ai.cjs starts, it ends.
+ */
+const NOT_ARMED = Symbol('frame cap not armed');
+const timers: PacerTimers = {
+  now: realTimers.now,
+  set: (fn, ms) => (ms === FRAME_HOLD_MS ? NOT_ARMED : realTimers.set(fn, ms)),
+  clear: (handle) => {
+    if (handle !== NOT_ARMED) realTimers.clear(handle);
+  },
+};
 
 const FLOOD_AI = path.resolve(__dirname, 'fixtures/flood-ai.cjs');
 const tool = { cmd: 'node', baseArgs: [FLOOD_AI], resumeFlag: '--continue', promptFileFlag: '', promptFlag: '' } as unknown as AiToolSpec;
@@ -46,7 +61,7 @@ beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-resume-'));
   worktree = path.join(dir, 'worktree');
   fs.mkdirSync(worktree);
-  const registry = new PtyRegistry({ sessionsPath: path.join(dir, 'pty-sessions.json'), hasConversation: () => false });
+  const registry = new PtyRegistry({ sessionsPath: path.join(dir, 'pty-sessions.json'), hasConversation: () => false, timers });
   host = await startPtyHost({ registry, restore: false, writeInfo: false });
   client = new PtyHostClient(host.info);
   cleanup.push(() => host.stop());
@@ -160,12 +175,13 @@ describe('reattaching where it left off, on a real PTY through the host', () => 
     expect(b.replays[1].data.length).toBeGreaterThanOrEqual(1000);
 
     // Cut 2: inside a synchronized frame. Its first half is on the host's screen copy, so the host holds it (PtySession
-    // hands each chunk to the copy and the pacer at once); it is cut there, and reconnects — the host attaches it as
-    // it accepts the socket, so before `open` — before the frame's end is printed.
+    // hands each chunk to the copy and the pacer at once) and has sent none of it: this client, connected until then,
+    // has seen nothing of it. It is cut there, and reconnects — the host attaches it as it accepts the socket, so
+    // before `open` — before the frame's end is printed.
     fs.writeFileSync(path.join(worktree, 'hold-go'), '');
     await waitFor(async () => (await client.screen('s'))?.includes(TOP) === true, 15_000, 'the held frame');
-    // Sent nothing of it yet, unless the host let it go at its cap (FRAME_HOLD_MS) before this ran.
-    const hadFrame = b.text.includes(TOP);
+    expect(b.text).not.toContain(TOP);
+    expect(a.text).not.toContain(TOP);
     const at2 = b.point();
     b.drop();
     await b.connect('s', at2);
@@ -178,11 +194,11 @@ describe('reattaching where it left off, on a real PTY through the host', () => 
     // Nothing lost, nothing twice: from where its first screen stood, it was given exactly the other's stream.
     expect(b.start).toBeGreaterThanOrEqual(a.start);
     expect(b.live).toBe(a.live.slice(b.start - a.start));
-    // The frame it was cut in: in what it missed, whole — the host waited for its end — when the host held it whole
-    // (the other client was sent it in one piece). Only a stall past the hold's cap lets it go in two.
-    const heldWhole = a.frames.some((f) => f.includes(FRAME_START) && f.includes(BOTTOM));
-    if (!hadFrame) expect(missed).toContain(FRAME_START);
-    expect(missed.includes(BOTTOM)).toBe(heldWhole && !hadFrame);
+    // The frame it was cut in: in what it missed, whole — the host waited for its end — as the other client was sent it,
+    // in one piece.
+    expect(missed).toContain(FRAME_START);
+    expect(missed).toContain(BOTTOM);
+    expect(a.frames.some((f) => f.includes(FRAME_START) && f.includes(BOTTOM))).toBe(true);
 
     const [screenA, screenB] = await Promise.all([a.serialized(), b.serialized()]);
     expect(screenB).toBe(screenA);

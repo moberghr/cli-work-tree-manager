@@ -4,6 +4,7 @@ import {
   parseProgramStatus,
   parseProgress,
   StreamStatus,
+  streamSignalFrom,
   summarize,
   type ProgramRecord,
 } from '../../../src/core/pty/stream-status.js';
@@ -180,5 +181,28 @@ describe('StreamStatus', () => {
     s.osc7501('state=blocked:kind=auth');
     s.reset();
     expect(s.signal()).toBeNull();
+  });
+});
+
+describe('streamSignalFrom (PtyInfo.signal off the wire: shape-checked, never cast)', () => {
+  const since = '2026-11-23T12:00:00.000Z';
+  it('keeps what has the shape this build reads', () => {
+    const signal = {
+      program: { id: 'a', state: 'blocked', kind: 'question', progress: 40, app: 'codex', message: 'Which one?', since },
+      progress: { state: 3, percent: 0, since },
+    };
+    expect(streamSignalFrom(signal)).toEqual(signal);
+  });
+
+  it('drops the parts that do not, and an unknown kind or a bad percentage from a part it keeps', () => {
+    expect(streamSignalFrom({ program: { id: '', state: 'blocked', kind: 'telepathy', progress: 400, since } })).toEqual({
+      program: { id: '', state: 'blocked', since },
+    });
+    expect(streamSignalFrom({ program: { id: '', state: 'dancing', since }, progress: { state: 1, percent: 50, since } })).toEqual({
+      progress: { state: 1, percent: 50, since },
+    });
+    expect(streamSignalFrom({ progress: { state: 9, percent: 50, since } })).toBeNull();
+    expect(streamSignalFrom({ program: { state: 'working', since } })).toBeNull(); // no id
+    for (const junk of [null, undefined, 'working', 7, [], {}]) expect(streamSignalFrom(junk)).toBeNull();
   });
 });

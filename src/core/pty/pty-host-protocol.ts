@@ -176,7 +176,9 @@ export type HostControlFrame =
       /**
        * Sent only to a client that asked to resume (`?resume=…`): `data` is the output it missed, from where it said it
        * stood up to `offset`, to draw on its screen as it is — no reset, no resize. Its queries were answered when they
-       * came: the client doesn't answer them again.
+       * came: the client doesn't answer them again. Also, mid-session, to a paced client other than `work attach` whose
+       * catch-up screen couldn't be taken: `data` '' and `stream` '' — it keeps its screen, and no longer knows where it
+       * stands (it never resumes from there).
        */
       resumed?: true;
     }

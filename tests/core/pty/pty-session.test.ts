@@ -61,6 +61,9 @@ describe.skipIf(process.platform === 'win32')('a PTY paused as its child exits (
 
   it("loses none of its last output: read again once its child exits (Linux: past node-pty's 200 ms), or once released (macOS: the exit waits for it)", async () => {
     cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-exit-'));
+    // It proves the fix only on Linux, where node-pty drops what is unread 200 ms after the child exits: on macOS the
+    // exit waits for the PTY to be released and read, so it passes there with or without the exit hook. Run everywhere
+    // all the same (not skipped): there it still holds that a paused PTY loses nothing as its child exits.
     // Small enough to fit in the PTY's buffer: on Linux the child exits with it unread (a bigger write would block the
     // child until it is read). Without the exit hook, node-pty dropped all of it 200 ms later (measured on Linux).
     const script = `process.stdout.write('x'.repeat(2000) + 'END'); process.exit(0)`;

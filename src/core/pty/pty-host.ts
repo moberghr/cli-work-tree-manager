@@ -14,7 +14,7 @@ import { isEnvDelta } from '../platform/env-delta.js';
 import { createTicketBook } from './terminal-tickets.js';
 import { replyParts } from './terminal-replies.js';
 import { CATCH_UP_PARAM, FLOW_PARAM } from './flow-control.js';
-import { gridFromParams, windowsPtyFor } from './terminal-size.js';
+import { gridFromParams, validGrid, windowsPtyFor } from './terminal-size.js';
 import { resumeFromParams } from './resume.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
@@ -214,7 +214,7 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
             try {
               ws.send(JSON.stringify({ type: 'replay', ...replay }));
             } catch {
-              /* */
+              /* the socket closed meanwhile: its close detaches it */
             }
           },
         },
@@ -275,10 +275,13 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           attached.lead();
           if (size) registry.resize(id, size.cols, size.rows);
           registry.write(id, msg.data);
-        } else if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
-          size = { cols: msg.cols, rows: msg.rows };
+        } else if (msg.type === 'resize') {
+          // Only a grid the PTY would take is this client's size, and makes it the one used last.
+          const asked = validGrid(msg.cols, msg.rows);
+          if (!asked) return;
+          size = asked;
           attached.lead();
-          registry.resize(id, msg.cols, msg.rows);
+          registry.resize(id, asked.cols, asked.rows);
         } else if (msg.type === 'ack' && Number.isSafeInteger(msg.chars) && msg.chars > 0) {
           attached.ack(msg.chars);
         } else if (msg.type === 'redraw') {

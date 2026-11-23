@@ -61,6 +61,14 @@ describe('the terminal ticket route', () => {
     expect(opts.elsewhere).toHaveBeenCalled();
   });
 
+  it('forced and attachOnly together: still only attached (a reconnect never starts one), no "elsewhere" asked', async () => {
+    const { opts, ask } = setup({ elsewhere: vi.fn(async () => elsewhere) });
+    expect(await (await ask({ force: true, attachOnly: true, cols: 80, rows: 24 })).json()).toMatchObject({ url: expect.any(String) });
+    expect(opts.elsewhere).not.toHaveBeenCalled();
+    expect(opts.ensure).toHaveBeenCalledTimes(1);
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', { cols: 80, rows: 24 }, true);
+  });
+
   it('a Claude in another terminal: said, nothing started — unless forced', async () => {
     const { opts, ask } = setup({ elsewhere: vi.fn(async () => elsewhere) });
     expect(await (await ask()).json()).toEqual({ elsewhere });

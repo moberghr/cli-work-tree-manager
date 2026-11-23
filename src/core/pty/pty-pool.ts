@@ -20,6 +20,7 @@ import { ASSISTANT_ID, prepareAssistantDir } from '../agents/assistant.js';
 import { accountLoginId, accountOfLoginId } from './account-login-id.js';
 import { accountLoginSpec } from './account-login.js';
 import type { Grid } from './terminal-size.js';
+import { streamSignalFrom } from './stream-status.js';
 
 /**
  * `work web`'s view of the Claude PTYs. The PTYs themselves live in the
@@ -104,13 +105,14 @@ async function refresh(): Promise<void> {
     beat.hostVersion = await c.workVersion();
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
     livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
+    // The signal is the host's data (another build's, maybe): shape-checked, what doesn't fit dropped (stream-status.ts).
     outputs = new Map(
       ptys
         .filter((p) => !p.exited)
-        .map((p) => [
-          p.id,
-          { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt, pid: p.pid, ...(p.signal ? { signal: p.signal } : {}) },
-        ]),
+        .map((p) => {
+          const signal = streamSignalFrom(p.signal);
+          return [p.id, { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt, pid: p.pid, ...(signal ? { signal } : {}) }];
+        }),
     );
   } catch (err) {
     // Host went away (or was restarted on a new port) — rediscover next tick.

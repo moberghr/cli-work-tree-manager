@@ -5,8 +5,11 @@ import { validGrid } from './terminal-size.js';
  * the PTY host share it.
  *
  * Every screen the host sends (the `replay` frame) says which output stream it belongs to (`stream`: one per PTY entry
- * in one host, so a new process under the same id, or a host started again, is another stream) and the offset it
- * stands at (`offset`: characters of output since the entry was spawned, the pacer's unit, UTF-16 code units). Live
+ * in one host, so a new spawn under the same id after the entry ended, or a host started again, is another stream) and
+ * the offset it stands at (`offset`: characters of output since the entry was spawned, the pacer's unit, UTF-16 code
+ * units). A restart or halt of its agent in place keeps the entry, and so the stream and the count: the clients attached
+ * through it are sent the new process's output as it continues the old one's, with no screen in between, and a client
+ * resuming across it is sent the same characters from its offset (pty-registry.test.ts, "across a restart"). Live
  * output follows in frames that are contiguous slices of that output, so a client knows its offset without any stamp
  * on them: the screen's offset plus what it was sent since (`utf16Length` of each binary frame, flow-control.ts).
  *

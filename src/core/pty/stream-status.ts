@@ -251,3 +251,37 @@ export class StreamStatus {
     return null;
   }
 }
+
+/**
+ * A `PtyInfo.signal` as it came over the wire (the PTY host's answer, data like any other): the parts of it that have
+ * the shape this build reads, null when none does. A host of another build may say more or other; nothing is cast.
+ */
+export function streamSignalFrom(raw: unknown): StreamSignal | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { program: p, progress: b } = raw as { program?: unknown; progress?: unknown };
+  const out: StreamSignal = {};
+  const text = (v: unknown): v is string => typeof v === 'string';
+  const pct = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 100;
+  if (p && typeof p === 'object') {
+    const r = p as Record<string, unknown>;
+    const state = PROGRAM_STATES.find((s) => s === r.state);
+    if (state && text(r.id) && text(r.since)) {
+      const kind = PROGRAM_KINDS.find((k) => k === r.kind);
+      out.program = {
+        id: r.id,
+        state,
+        since: r.since,
+        ...(kind ? { kind } : {}),
+        ...(pct(r.progress) ? { progress: r.progress } : {}),
+        ...(text(r.app) ? { app: r.app } : {}),
+        ...(text(r.message) ? { message: r.message } : {}),
+      };
+    }
+  }
+  if (b && typeof b === 'object') {
+    const r = b as Record<string, unknown>;
+    const state = ([0, 1, 2, 3, 4] as const).find((s) => s === r.state);
+    if (state !== undefined && pct(r.percent) && text(r.since)) out.progress = { state, percent: r.percent, since: r.since };
+  }
+  return out.program || out.progress ? out : null;
+}

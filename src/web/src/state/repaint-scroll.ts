@@ -13,6 +13,7 @@
  * It is put right when the frame ends (the reprint is all there then); a repaint with no frame around it, once the
  * write it arrived in is parsed (`written`). The alternate screen (no scrollback) is left alone.
  */
+import { SYNC_MODE } from '../../../core/pty/sync-output.js';
 
 /** The part of xterm.js's Terminal used here (public API). */
 export interface RepaintTerminal {
@@ -33,7 +34,6 @@ export interface RepaintTerminal {
   scrollToLine(line: number): void;
 }
 
-const SYNC_MODE = 2026;
 /** How many lines from the top of the view are looked for in the reprint (one alone is often a blank or a rule). */
 const ANCHOR_LINES = 3;
 

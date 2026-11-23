@@ -1383,7 +1383,8 @@ describe('attaching during a synchronized frame (terminal-rendering.md, "Synchro
     const killed = reg.kill('a');
     vi.advanceTimersByTime(10_000);
     await killed;
-    const ready = await Promise.race([att.ready, new Promise((r) => setTimeout(() => r('stuck'), 0)).then(() => 'stuck')]);
+    // Already answered, it wins the race; never answered, the race says so (a fake timer would never fire: a time-out).
+    const ready = await Promise.race([att.ready, Promise.resolve('stuck' as const)]);
     expect(ready).not.toBe('stuck');
   });
 });
@@ -1465,6 +1466,21 @@ describe('reattaching where it left off (terminal-rendering.md, "Reattach where 
     att.start();
     vi.advanceTimersByTime(COALESCE_MS);
     expect(got).toEqual(['after']);
+  });
+
+  it('a frame’s end and what follows it in one chunk: what it missed stops at the frame’s end, the rest comes live, once', async () => {
+    vi.useFakeTimers();
+    const { pty, reg, stream } = setup();
+    pty.emit('seen ');
+    pty.emit(`${BSU}top `);
+    const got: string[] = [];
+    const { att } = resumeAt(reg, { stream, offset: 'seen '.length }, got);
+    pty.emit(`bottom${ESU}after`); // one read: it joins at the frame's end, between the two pieces
+    const ready = await att.ready;
+    expect(ready).toMatchObject({ data: `${BSU}top bottom${ESU}`, resumed: true, offset: pty.screen.length - 'after'.length });
+    att.start();
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(ready.data + got.join('')).toBe(pty.screen.slice('seen '.length));
   });
 
   it('from its own offset a tail cut mid-escape or mid-surrogate is never sent; one standing mid-pair gets a screen', async () => {
@@ -1608,5 +1624,164 @@ describe('reattaching where it left off (terminal-rendering.md, "Reattach where 
     pty.emit(' later');
     const again = resumeAt(reg, { stream, offset: replays[0].offset }, []);
     expect(await again.att.ready).toMatchObject({ data: ' later', resumed: true });
+  });
+
+  it('across a restart in place the stream goes on: resumed with exactly what a client attached all along was sent', async () => {
+    vi.useFakeTimers();
+    const ptys: ScreenPty[] = [];
+    const reg = new PtyRegistry({
+      spawner: () => {
+        ptys.push(new ScreenPty());
+        return ptys.at(-1)!;
+      },
+      hasConversation: () => false,
+      sessionsPath,
+      cwdExists: () => true,
+    });
+    reg.spawn('a', { cwd: '/x', tool, cols: 80, rows: 24 });
+    // Attached all along: through the restart it is sent output only — no screen, no reset.
+    const steady: string[] = [];
+    const replays: unknown[] = [];
+    const all = reg.attach(
+      'a',
+      (d) => steady.push(d),
+      () => {},
+      { onReplay: (r) => replays.push(r) },
+    )!;
+    const { stream, offset: from } = await all.ready;
+    all.start();
+    ptys[0].emit('old screen ');
+    vi.advanceTimersByTime(COALESCE_MS);
+    const droppedAt = from + steady.join('').length; // another client drew up to here, and dropped
+    ptys[0].emit('old last words ');
+    const restarted = reg.restart('a');
+    // While it restarts: a screen (busy), never what it missed.
+    const during = resumeAt(reg, { stream, offset: droppedAt }, []);
+    expect((await during.att.ready).resumed).toBeUndefined();
+    expect(during.refused).toEqual(['busy']);
+    during.att.detach();
+    ptys[0].exit(0);
+    await restarted;
+    expect(ptys).toHaveLength(2);
+    ptys[1].emit('new agent draws');
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(replays).toEqual([]);
+    expect(steady.join('')).toBe('old screen old last words new agent draws');
+    // After it: the output it missed, old process and new, is what the client attached all along was sent from there.
+    const { att, refused } = resumeAt(reg, { stream, offset: droppedAt }, []);
+    const ready = await att.ready;
+    expect(refused).toEqual([]);
+    expect(ready).toMatchObject({ resumed: true, stream, data: steady.join('').slice(droppedAt - from) });
+    expect(ready.offset).toBe(from + steady.join('').length);
+    // A new process has a new screen copy: a screen sent now is the new agent's alone (what a fresh terminal gets).
+    const fresh = reg.attach(
+      'a',
+      () => {},
+      () => {},
+    )!;
+    expect((await fresh.ready).data).toBe('new agent draws');
+  });
+});
+
+describe('a screen that cannot be taken (the screen copy failed: null, logged)', () => {
+  /** A PTY whose screen copy fails once `broken` is set. */
+  class FailingScreenPty extends FakePty {
+    screen = '';
+    broken = false;
+    override emit(d: string) {
+      this.screen += d;
+      super.emit(d);
+    }
+    serialize() {
+      return this.broken ? null : this.screen;
+    }
+    serializeSettled() {
+      return Promise.resolve(this.broken ? null : this.screen);
+    }
+  }
+  const setup = () => {
+    const pty = new FailingScreenPty();
+    const reg = new PtyRegistry({ spawner: () => pty, hasConversation: () => false, sessionsPath, cwdExists: () => true });
+    reg.spawn('a', { cwd: '/x', tool, cols: 80, rows: 24 });
+    return { pty, reg };
+  };
+  const reports: string[] = [];
+  const reporting = <T>(fn: () => Promise<T>) => {
+    reports.length = 0;
+    return withReporter((level, text) => reports.push(`${level}: ${text}`), fn);
+  };
+  /** A paced client, fallen behind and caught up while its screen copy fails: what it was sent. */
+  async function caughtUpWithNoScreen(extra: Partial<AttachOptions> = {}) {
+    vi.useFakeTimers();
+    const { pty, reg } = setup();
+    const got: string[] = [];
+    const replays: Array<{ data: string; stream: string; offset: number; resumed?: true }> = [];
+    const att = reg.attach(
+      'a',
+      (d) => got.push(d),
+      () => {},
+      { metered: true, onReplay: (r) => replays.push(r), ...extra },
+    )!;
+    await att.ready;
+    att.start();
+    pty.emit('a'.repeat(60_000));
+    vi.advanceTimersByTime(COALESCE_MS);
+    pty.emit('b'.repeat(50_000)); // now behind: nothing more is sent to it
+    vi.advanceTimersByTime(COALESCE_MS);
+    pty.emit('missed');
+    vi.advanceTimersByTime(COALESCE_MS);
+    pty.broken = true;
+    att.ack(110_000);
+    vi.advanceTimersByTime(CATCH_UP_MIN_MS);
+    pty.emit('live');
+    await vi.waitFor(() => expect(got.join('')).toContain('live'));
+    return { got, replays };
+  }
+
+  it('a first attach still attaches, on an empty screen, and says so', async () => {
+    await reporting(async () => {
+      const { pty, reg } = setup();
+      pty.emit('on screen');
+      pty.broken = true;
+      const att = reg.attach(
+        'a',
+        () => {},
+        () => {},
+      )!;
+      expect(await att.ready).toMatchObject({ data: '', offset: 'on screen'.length });
+      expect(reports).toEqual([expect.stringMatching(/^warn: a: a terminal's screen couldn't be taken; it attached with an empty one/)]);
+    });
+  });
+
+  it('a catch-up sends no screen to draw over the tab’s: nothing to draw, no stream (it no longer resumes from there), then live output', async () => {
+    await reporting(async () => {
+      const { got, replays } = await caughtUpWithNoScreen();
+      expect(replays).toEqual([expect.objectContaining({ data: '', stream: '', resumed: true })]);
+      expect(got.join('')).not.toContain('missed');
+      expect(reports).toEqual([
+        expect.stringMatching(/^warn: a: a terminal's catch-up screen couldn't be taken; it keeps the screen it has/),
+      ]);
+    });
+  });
+
+  it('`work attach` (screen-only catch-ups, never resumes) is sent no replay at all: its screen is kept', async () => {
+    await reporting(async () => {
+      const { replays } = await caughtUpWithNoScreen({ screenOnlyCatchUp: true });
+      expect(replays).toEqual([]);
+      expect(reports).toHaveLength(1);
+    });
+  });
+
+  it('a screen copy that throws instead: the same, logged', async () => {
+    const { pty, reg } = setup();
+    pty.serializeSettled = () => Promise.reject(new Error('gone'));
+    const att = reg.attach(
+      'a',
+      () => {},
+      () => {},
+    )!;
+    await new Promise((r) => setTimeout(r, 0)); // its promise chain settles
+    // Never left waiting: a terminal with no first frame takes no input.
+    expect(await Promise.race([att.ready, Promise.resolve('stuck' as const)])).toMatchObject({ data: '' });
   });
 });

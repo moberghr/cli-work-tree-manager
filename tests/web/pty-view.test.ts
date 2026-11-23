@@ -1499,14 +1499,95 @@ describe('PtyView: reconnecting where it left off (terminal-rendering.md, "Reatt
       act(() => attempt.serverClose());
     }
     expect(FakeWebSocket.instances).toHaveLength(1 + RECONNECT_DELAYS_MS.length);
-    expect(term.writes.join('')).not.toMatch(/not running/); // a try's error isn't written on the screen it kept
-    expect(term.writes.join('')).toMatch(/connection closed.*press Enter to reconnect/);
+    // A try's error isn't written on the screen it kept: the last one's is said once, in the closing message.
+    expect(term.writes.join('').match(/not running/g)).toHaveLength(1);
+    expect(term.writes.join('')).toMatch(/connection closed: its terminal is not running — press Enter to reconnect/);
+    expect(term.writes.join('')).not.toMatch(/not sent/); // nothing was typed
     expect(overlay()).toBeNull();
     act(() => void vi.advanceTimersByTime(60_000));
     expect(FakeWebSocket.instances).toHaveLength(1 + RECONNECT_DELAYS_MS.length);
     act(() => term.type('\r'));
     expect(h.socketOpts.at(-1)?.resume).toBeNull();
     expect(h.terms).toHaveLength(2);
+  });
+
+  it('a drop while what it missed is still being drawn: nothing made ready by it, and the next replay is drawn as missed output too', () => {
+    const { term, written } = connectedThenDropped(['abc']); // stands at 1003
+    act(() => void vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]));
+    const first = next();
+    first.serverOpen();
+    term.deferWrites = true;
+    act(() =>
+      first.control({ type: 'replay', data: 'missed', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1009, resumed: true }),
+    );
+    act(() => first.binary('xy')); // live output after it, given to xterm too
+    act(() => term.type('typed'));
+    act(() => first.serverClose()); // it drops before xterm drew any of it…
+    act(() => term.parsed()); // …which it draws now: on the screen it kept, in order, and nothing is sent on a closed connection
+    expect(first.sent).toEqual([]);
+    expect(FakeWebSocket.instances).toHaveLength(2); // the next try waits for its delay
+    term.deferWrites = false;
+    act(() => void vi.advanceTimersByTime(RECONNECT_DELAYS_MS[1]));
+    // It states what it was given, in order: the replay's offset and the frame after it.
+    expect(h.socketOpts.at(-1)?.resume).toMatchObject({ stream: S, offset: 1011 });
+    const second = next();
+    second.serverOpen();
+    act(() => second.control({ type: 'replay', data: 'more', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1015, resumed: true }));
+    const drawn = term.writes.slice(written).join('');
+    expect(drawn).toBe('missedxymore');
+    expect(drawn).not.toContain('\x1bc'); // never over a reset terminal: the screen and scrollback stay
+    expect(second.sent).toEqual([
+      { type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows },
+      { type: 'input', data: 'typed' },
+    ]);
+    expect(overlay()).toBeNull();
+  });
+
+  it('a screen drawn for a connection that dropped before it was drawn: the next connection still resumes from it', () => {
+    const { term, written } = connectedThenDropped();
+    act(() => void vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]));
+    const first = next();
+    first.serverOpen();
+    term.deferWrites = true;
+    act(() => first.control({ type: 'replay', data: '<screen>', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 2000 }));
+    act(() => first.serverClose());
+    act(() => term.parsed());
+    term.deferWrites = false;
+    act(() => void vi.advanceTimersByTime(RECONNECT_DELAYS_MS[1]));
+    expect(h.socketOpts.at(-1)?.resume).toMatchObject({ stream: S, offset: 2000 });
+    const second = next();
+    second.serverOpen();
+    act(() => second.control({ type: 'replay', data: 'm', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 2001, resumed: true }));
+    expect(term.writes.slice(written).join('')).toBe('\x1bc<screen>m');
+    expect(second.sent).toEqual([{ type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows }]);
+  });
+
+  it('when the tries run out it says the host’s reason, and that what was typed meanwhile was not sent', () => {
+    const { term } = connectedThenDropped();
+    act(() => term.type('lost keys'));
+    for (const delay of RECONNECT_DELAYS_MS) {
+      act(() => void vi.advanceTimersByTime(delay));
+      act(() => next().control({ type: 'error', message: 'no such pty' }));
+      act(() => next().serverClose());
+    }
+    expect(term.writes.join('')).toMatch(
+      /connection closed: no such pty; what you typed meanwhile was not sent — press Enter to reconnect/,
+    );
+  });
+
+  it('a catch-up the host could take no screen for (it says no stream): nothing drawn over the screen, and it no longer resumes', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '<screen>', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 10 }));
+    const written = term.writes.length;
+    act(() => ws.control({ type: 'replay', data: '', cols: h.FIT.cols, rows: h.FIT.rows, stream: '', offset: 500, resumed: true }));
+    expect(term.writes.slice(written).join('')).toBe('');
+    act(() => ws.binary('live'));
+    expect(term.writes.slice(written).join('')).toBe('live');
+    act(() => ws.serverClose());
+    act(() => void vi.advanceTimersByTime(10_000));
+    expect(FakeWebSocket.instances).toHaveLength(1); // where it stands is unknown: no reconnect in place
+    expect(term.writes.join('')).toMatch(/connection closed — press Enter to reconnect/);
   });
 
   it('a host from before (its replay says no stream): no reconnect in place, the old message at once', () => {

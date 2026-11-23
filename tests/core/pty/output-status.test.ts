@@ -59,6 +59,11 @@ describe('statusFromOutput: what the agent says beats the output guess', () => {
     expect(statusFromOutput(out(bar, STALE_WORKING_MS + 1), now)).toMatchObject({ state: 'idle', stale: true });
   });
 
+  it('a blocked kind this build does not know (a host of another build said it) waits for "you"', () => {
+    const unknownKind = { program: { id: '', state: 'blocked', kind: 'telepathy', since: ago(60_000) } } as unknown as StreamSignal;
+    expect(statusFromOutput(out(unknownKind, 0), now)?.summary).toBe('Waiting for you — codex says so in its terminal');
+  });
+
   it('blocked never expires: waiting on you is quiet', () => {
     expect(statusFromOutput(out(program({ state: 'blocked' }), STALE_WORKING_MS * 10), now)).toMatchObject({
       state: 'needs_input',
