@@ -6,7 +6,9 @@ import { sendTerminalPerf } from '../../api/client.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { startFailure, startRetryDelay } from '../../state/terminal-start.js';
 import { ask } from '../../state/ask.js';
-import { WebglRecovery } from '../../state/webgl-recovery.js';
+import { WebglRenderer } from '../../state/webgl-renderer.js';
+import { pageWebglRefusal } from '../../state/webgl-gate.js';
+import { onFontsSettled } from '../../state/font-settle.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
 import { writeRich } from '../../state/rich-copy.js';
 import { Terminal } from '@xterm/xterm';
@@ -83,10 +85,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
-  // Set by the connect effect: refit + resize-if-changed, and focus.
+  // Set by the connect effect: refit + resize-if-changed, and focus; hidden, its WebGL context goes after a while.
   const shown = useRef<(() => void) | null>(null);
+  const hidden = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (active) shown.current?.();
+    else hidden.current?.();
   }, [active]);
   // Until the first screen arrives: "Connecting…", then — when it takes a
   // while, i.e. Claude is being started — say so instead of a blank pane.
@@ -148,6 +152,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       scrollback: VIEW_SCROLLBACK,
       // Required by the unicode11 addon (proposed API in xterm 6).
       allowProposedApi: true,
+      // Block and box glyphs drawn to the cell by xterm, not taken from the font: Claude Code's logo and its boxes stay
+      // whole (with the font's glyphs they show gaps between cells). A glyph wider than its one cell (Ⅻ) is narrowed
+      // to it rather than drawn over the next. minimumContrastRatio stays 1: the agent's colours as it sent them.
+      // Measured: terminal-rendering.md, "Fonts and the renderer".
+      customGlyphs: true,
+      rescaleOverlappingGlyphs: true,
       // Links Claude prints as terminal hyperlinks (OSC 8). xterm's default
       // asks "could be dangerous?" and then opens a BLANK window it navigates
       // afterwards — the desktop app only sees about:blank and opens nothing.
@@ -175,53 +185,38 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     term.open(hostRef.current);
     // A view scrolled up stays on what you were reading when the agent reprints its transcript (repaint-scroll.ts).
     const repaint = new RepaintScroll(term);
-    // GPU renderer: the DOM renderer is what makes a busy Claude feel
-    // sluggish (every spinner frame re-lays out spans). Must load after
-    // open(). Falls back to DOM if WebGL is unavailable; a lost context (GPU
-    // reset, too many contexts) is tried again after a pause (webgl-recovery.ts).
-    const recovery = new WebglRecovery();
-    let webglRetry: ReturnType<typeof setTimeout> | undefined;
     let disposed = false;
-    // A lost context, or a try again that failed (the GPU still resetting):
-    // wait and try again, or stay on the DOM renderer.
-    const lostWebgl = () => {
-      const wait = recovery.lost(Date.now());
-      setRenderer(wait === null ? 'dom' : 'retrying');
-      if (wait !== null) webglRetry = setTimeout(() => loadWebgl(true), wait);
-    };
     // A drag fires the pane's observer every frame: fitted at most every FIT_MIN_MS, the last size always, each in a
     // task of its own (fit-scheduler.ts). The fit is applyGrid, below.
     const fits = new FitScheduler(() => applyGrid());
-    // The two renderers measure a cell differently: refit after a swap, or
-    // the grid is a column off until the next resize.
-    const rendererChanged = () => fits.request();
-    const loadWebgl = (retry: boolean) => {
-      if (disposed) return;
-      let webgl: WebglAddon | null = null;
-      try {
-        webgl = new WebglAddon();
-        const addon = webgl;
-        addon.onContextLoss(() => {
-          addon.dispose();
-          lostWebgl();
-          rendererChanged();
-        });
-        term.loadAddon(addon);
-        setRenderer('webgl');
-        if (retry) rendererChanged();
-      } catch {
-        // xterm registers an addon before activating it: one whose
-        // activate threw stays attached unless disposed.
-        try {
-          webgl?.dispose();
-        } catch {
-          /* half-built */
-        }
-        if (retry) lostWebgl();
-        else setRenderer('dom'); // no WebGL here at all: nothing to wait for
-      }
-    };
-    loadWebgl(false);
+    // GPU renderer: the DOM renderer is what makes a busy Claude feel sluggish (every spinner frame re-lays out spans).
+    // Loaded after open(), unless this is a software rasterizer (webgl-gate.ts). A lost context is tried again after a
+    // pause; hidden in the deck the terminal lets its context go and gets a new one when shown (webgl-renderer.ts).
+    const webgl = new WebglRenderer<WebglAddon>(
+      {
+        create: () => new WebglAddon(),
+        load: (addon) => term.loadAddon(addon),
+        canvases: () => term.element?.querySelectorAll('canvas') ?? [],
+        label: setRenderer,
+        // The two renderers measure a cell differently: refit after a swap, or the grid is a column off until the next resize.
+        refit: () => fits.request(),
+      },
+      activeRef.current,
+      pageWebglRefusal(),
+    );
+    // A web font of the stack that arrives after open(): the cell measured again (xterm does only when the option
+    // changes, so through a generic family and back), the atlas redrawn, the grid fitted — shown only (font-settle.ts).
+    const stopFonts = onFontsSettled(
+      document.fonts,
+      () => term.options.fontFamily ?? '',
+      () => {
+        const family = term.options.fontFamily;
+        term.options.fontFamily = 'monospace';
+        term.options.fontFamily = family;
+        term.clearTextureAtlas();
+        fits.request();
+      },
+    );
     // The grid this pane holds, or null when it can't be told: no size (not laid out, 0 × 0), or one the PTY host
     // wouldn't take (terminal-size.ts; FitAddon proposes 2 × 1 for an empty pane). Measured here; applied by applyGrid.
     const measure = (): Grid | null => {
@@ -525,9 +520,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     if (observer) observer.observe(hostRef.current);
     else window.addEventListener('resize', onWindowResize);
     shown.current = () => {
+      // WebGL back before the fit, so the grid is measured with the renderer that draws it.
+      webgl.shown();
       applyGrid(true);
       term.focus();
     };
+    hidden.current = () => webgl.hidden();
     // The terminal you type in sets the size.
     const onFocus = () => applyGrid(true);
     term.textarea?.addEventListener('focus', onFocus);
@@ -536,11 +534,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       disposed = true;
       clearTimeout(slowStart);
       clearTimeout(retryTimer);
-      clearTimeout(webglRetry);
       term.textarea?.removeEventListener('paste', onPaste, true);
       term.element?.removeEventListener('copy', onCopy, true);
       term.textarea?.removeEventListener('focus', onFocus);
       shown.current = null;
+      hidden.current = null;
+      stopFonts();
       fits.dispose();
       observer?.disconnect();
       window.removeEventListener('resize', onWindowResize);
@@ -556,6 +555,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         /* */
       }
       repaint.dispose();
+      // Before the terminal goes: its context lost, not left to the garbage collector (webgl-renderer.ts).
+      webgl.dispose();
       term.dispose();
     };
   }, [sessionId, generation]);

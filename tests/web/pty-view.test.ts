@@ -15,6 +15,8 @@ const h = vi.hoisted(() => {
   /** What each tab asked openTerminalSocket for. */
   const socketOpts: Array<{ flow?: boolean; grid?: { cols: number; rows: number } | null }> = [];
   let webglThrows = false;
+  /** What the page's WebGL gate says (webgl-gate.ts): null = may use it, 'software' = a software rasterizer. */
+  const gate = { refusal: null as 'software' | null };
 
   type KeyHandler = (e: KeyboardEvent) => boolean;
 
@@ -78,6 +80,12 @@ const h = vi.hoisted(() => {
       b.viewportY = viewportY === 'bottom' ? b.baseY : viewportY;
     }
     options: Record<string, unknown> = {};
+    /** Each value `options.fontFamily` was set to, and how often the glyph atlas was cleared. */
+    fontFamilies: unknown[] = [];
+    atlasCleared = 0;
+    clearTextureAtlas() {
+      this.atlasCleared += 1;
+    }
     /** How many lines a resize moves the scrollback by (a reflow): markers move with it, as xterm's do. */
     reflowShift = 0;
     markers: Array<{ line: number; isDisposed: boolean; dispose(): void }> = [];
@@ -224,6 +232,7 @@ const h = vi.hoisted(() => {
     FakeTerminal,
     FakeFit,
     FakeWebgl,
+    gate,
     setWebglThrows: (v: boolean) => {
       webglThrows = v;
     },
@@ -233,6 +242,8 @@ const h = vi.hoisted(() => {
 vi.mock('@xterm/xterm', () => ({ Terminal: h.FakeTerminal }));
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: h.FakeFit }));
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: h.FakeWebgl }));
+// jsdom has no WebGL to probe: the gate answers what a test says.
+vi.mock('../../src/web/src/state/webgl-gate.js', () => ({ pageWebglRefusal: () => h.gate.refusal }));
 vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: class {} }));
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
@@ -299,6 +310,8 @@ import { ACK_EVERY } from '../../src/core/pty/flow-control.js';
 import { WEBGL_RETRY_MS } from '../../src/web/src/state/webgl-recovery.js';
 import { requestTerminalReconnect } from '../../src/web/src/state/terminal-reconnect.js';
 import { FIT_MIN_MS } from '../../src/web/src/state/fit-scheduler.js';
+import { WEBGL_RELEASE_MS } from '../../src/web/src/state/webgl-renderer.js';
+import { FONT_SETTLE_MS } from '../../src/web/src/state/font-settle.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -316,6 +329,7 @@ beforeEach(() => {
   h.terms.length = 0;
   h.webgls.length = 0;
   h.setWebglThrows(false);
+  h.gate.refusal = null;
   FakeWebSocket.instances = [];
   (globalThis as { WebSocket: unknown }).WebSocket = FakeWebSocket;
   container = document.createElement('div');
@@ -884,6 +898,95 @@ describe('PtyView', () => {
       expect(h.webgls).toHaveLength(1);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('on a software rasterizer it never loads WebGL, and the corner says DOM', () => {
+    h.gate.refusal = 'software';
+    mount();
+    expect(h.webgls).toHaveLength(0);
+    expect(container.querySelector('.wd-pty-latency')!.textContent).toBe('DOM');
+  });
+
+  it('hidden in the deck it lets its WebGL context go after a while, and gets a new one when shown, before the fit', () => {
+    vi.useFakeTimers();
+    try {
+      const { ws, term } = mount();
+      ws.serverOpen();
+      act(() => ws.control({ type: 'replay', data: '', cols: 10, rows: 5 }));
+      act(() => root.render(createElement(PtyView, { sessionId: 's1', active: false })));
+      act(() => void vi.advanceTimersByTime(WEBGL_RELEASE_MS));
+      expect(h.webgls[0].disposed).toBe(true);
+      expect(container.querySelector('.wd-pty-latency')).toBeNull(); // not a lost context: nothing to say
+      ws.sent.length = 0;
+      act(() => root.render(createElement(PtyView, { sessionId: 's1', active: true })));
+      expect(h.webgls).toHaveLength(2);
+      expect(h.webgls[1].disposed).toBe(false);
+      expect(ws.sent).toContainEqual({ type: 'resize', cols: term.cols, rows: term.rows });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a quick flip away and back keeps its WebGL context', () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      act(() => root.render(createElement(PtyView, { sessionId: 's1', active: false })));
+      act(() => void vi.advanceTimersByTime(WEBGL_RELEASE_MS - 1));
+      act(() => root.render(createElement(PtyView, { sessionId: 's1', active: true })));
+      act(() => void vi.advanceTimersByTime(WEBGL_RELEASE_MS));
+      expect(h.webgls).toHaveLength(1);
+      expect(h.webgls[0].disposed).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('unmounted, it lets its WebGL context go with it', () => {
+    mount();
+    act(() => root.render(createElement('div')));
+    expect(h.webgls[0].disposed).toBe(true);
+  });
+
+  it('a web font of its stack arriving after the open: measured again, atlas cleared, fitted', () => {
+    const listeners: Array<(e: Event) => void> = [];
+    const fonts = {
+      ready: new Promise(() => {}),
+      [Symbol.iterator]: () => [][Symbol.iterator](),
+      addEventListener: (_t: string, fn: (e: Event) => void) => listeners.push(fn),
+      removeEventListener: () => {},
+    };
+    Object.defineProperty(document, 'fonts', { configurable: true, value: fonts });
+    vi.useFakeTimers();
+    try {
+      const { ws, term } = mount();
+      const family = '"Cascadia Code", monospace';
+      let current: unknown = family;
+      Object.defineProperty(term.options, 'fontFamily', {
+        get: () => current,
+        set: (v) => {
+          current = v;
+          term.fontFamilies.push(v);
+        },
+      });
+      ws.serverOpen();
+      act(() => ws.control({ type: 'replay', data: '', cols: 10, rows: 5 }));
+      ws.sent.length = 0;
+      h.FIT.cols = 96; // the real font is narrower than the fallback was
+      const done = (family: string) => Object.assign(new Event('loadingdone'), { fontfaces: [{ family }] });
+      act(() => listeners.forEach((fn) => fn(done('Inter'))));
+      act(() => void vi.advanceTimersByTime(FONT_SETTLE_MS));
+      expect(term.atlasCleared).toBe(0);
+      act(() => listeners.forEach((fn) => fn(done('Cascadia Code'))));
+      act(() => void vi.advanceTimersByTime(FONT_SETTLE_MS));
+      expect(term.fontFamilies).toEqual(['monospace', family]);
+      expect(term.atlasCleared).toBe(1);
+      act(() => void vi.advanceTimersByTime(FIT_MIN_MS));
+      expect(ws.sent).toContainEqual({ type: 'resize', cols: 96, rows: h.FIT.rows });
+    } finally {
+      vi.useRealTimers();
+      delete (document as { fonts?: unknown }).fonts;
     }
   });
 

@@ -311,3 +311,105 @@ Left open:
 - **A frame let go by a cap** reaches the tab split, as every frame did before, and so draws at the rate measured above. Upstream #6071 is still open.
 - **A repaint with no 2026** that spans several writes is put right at the end of its first write. A scrolled-up view can then land on the distance from the bottom instead of the text.
 - **Not seen on Windows**: ConPTY's read sizes, and so the arrival spans there.
+
+## Fonts and the renderer
+
+The Terminal tab draws with `@xterm/addon-webgl` 0.19 where it can, and with xterm's DOM renderer where it can't. Three pure modules decide, and `PtyView` wires them:
+
+- `state/webgl-gate.ts`: whether this machine gets WebGL at all.
+- `state/webgl-renderer.ts`: the renderer over the tab's life (loaded, lost, released while hidden, disposed), on top of `webgl-recovery.ts`.
+- `state/font-settle.ts`: when a font that arrived late makes the tab measure again.
+
+**Measured** in Chromium (Playwright's Chrome for Testing 159, Metal, M3 Pro), with xterm.js 6.0.0 and addon-webgl 0.19.0 set up as `PtyView` sets them up, on a harness page and in the real app with the fake agent. The scripts are not in the repo (a manual check, not a CI test).
+
+**What the addon does by itself.**
+
+- **A lost context.** On `webglcontextlost` it calls `preventDefault`, waits 3 s for a restore and only then fires `onContextLoss`.
+- **Dispose.** It removes the canvas but never calls `loseContext`, so the context stays alive until the canvas is garbage-collected.
+- **Refusals.** It throws without WebGL2, and on Safari below 16.
+
+**The cap.** Chromium keeps 16 live WebGL contexts per page. Measured: with 20 raw contexts, the first 4 were lost, each with "WARNING: Too many active WebGL contexts. Oldest context will be lost." The Chromium source wasn't read (rate-limited).
+
+§ **Every dispose loses the context too** (`loseContexts` on the canvases the dispose took out). Without it, each re-run of `PtyView`'s connect effect left a live context behind: the 6 s elsewhere check, a start retry, Reconnect, Enter after an exit. Measured: one kept terminal and 20 disposed after it.
+
+| | Kept terminal | Warnings |
+|---|---|---|
+| Dispose only (addon as is) | lost its context | 5 |
+| Dispose + `loseContext` | kept its context | 0 |
+
+Hermes does the same (`web/src/lib/xterm-webgl-release.ts`). VS Code (`src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts`) and waveterm (`frontend/app/view/term/termwrap.ts`) dispose only.
+
+§ **A terminal hidden in the deck lets its context go after `WEBGL_RELEASE_MS` = 10 s, and gets a new one when shown, before it is fitted.** The buffer stays, and while it is hidden the DOM renderer keeps it drawn, unseen. A deck item is `visibility: hidden`, so it keeps rendering.
+
+- **Cost while hidden.** Per second of a hidden terminal, measured in task ms/s: a spinner costs 71 on WebGL against 27 on DOM, and a 30 fps full repaint 492 against 197. Hidden, WebGL costs more than DOM and holds a context for nothing.
+- **Cost of a new context** (200×50 colourful screen, 15 tries), from the load to its first frame:
+  - 13 ms median, 19 ms max, while another terminal shares the glyph atlas;
+  - 64 ms median, 94 ms max, alone.
+- **In the real app**, A shown again had WebGL back in 15 ms.
+- **Why 10 s.** At that cost, 10 s means flipping between sessions makes no context per flip. A terminal opened hidden takes no context until it is first shown.
+- **Elsewhere.** None of the reference files read lets a hidden terminal's context go. Hermes loses it when it rebuilds a terminal (above), Paradev keeps it while parked (`apps/desktop/src/renderer/lib/terminal/terminal-parking.ts`), and coder and VS Code have no deck.
+
+§ **WebGL is not used on a software rasterizer**: a renderer name matching SwiftShader, llvmpipe, softpipe, "Software" or Microsoft Basic Render Driver (`webglRefusal`). The probe reads `WEBGL_debug_renderer_info`'s unmasked name, or `RENDERER` where it isn't offered, once per page, and loses its own context.
+
+- **Measured with forced SwiftShader:** the first terminal drew 3.8 frames/s on WebGL against 7.2 on DOM, at about 300 % CPU either way. WebGL there is a slower CPU renderer.
+- **A name that can't be read** is no reason to refuse: the addon tries, and falls back itself.
+- **Hermes** gates the same names (`web/src/lib/xterm-webgl-gating.ts`).
+
+§ **Safari is not refused.**
+
+- The addon refuses Safari below 16 itself.
+- The one report against later versions (Hermes #18773) names no cause.
+- VS Code, which runs in Safari as vscode.dev, gates nothing.
+- Refusing WebKit would put every macOS desktop-app user (Tauri's WKWebView) on DOM for no reason anyone has shown.
+
+§ **A lost context: DOM at once, a refit, and tries again** on `webgl-recovery.ts`'s pauses: 2 s, 10 s and 60 s, and DOM for good at the 4th loss in 10 minutes. So there is no loop.
+
+- **Due while hidden.** A try that falls due while the terminal is hidden waits until it is shown: then one try, not one per pause behind your back.
+- **A new context that can't be had** after one was had counts as a loss and is tried again.
+- **A first load that fails** means no WebGL here: DOM for good, nothing to wait for.
+- **Measured in the real app**, a forced `WEBGL_lose_context`:
+  - the corner said DOM after 3.9 s (the addon's 3 s wait);
+  - the DOM rows held the text, and typed input echoed;
+  - WebGL was back after 5.9 s;
+  - hidden, A let its context go after 9.9 s;
+  - shown, it had one again;
+  - 0 "too many contexts" warnings.
+- **Elsewhere.** VS Code, waveterm and Paradev (`apps/desktop/src/renderer/lib/terminal/terminal-addons.ts`) stay on DOM after a loss.
+
+§ **A web font of the stack that arrives after `open()` makes the tab measure again.** xterm measures its cell on open, on a `fontFamily`/`fontSize` change, or after a resize. A setting to the same value is a no-op.
+
+- **What it does.** Once `document.fonts.ready` resolves, for a face that was loading at the open, and on each `loadingdone` that brings a face of the stack, debounced by `FONT_SETTLE_MS` = 100 ms:
+  1. sets `fontFamily` to `monospace` and back (xterm measures again);
+  2. calls `clearTextureAtlas()`;
+  3. fits through `FitScheduler`.
+- **A face of another family** changes nothing.
+- **A hidden terminal** remeasures but doesn't resize: `applyGrid` returns while hidden, and the fit when shown takes the new cell.
+- **No web font yet.** The stack is local fonts only today (no `@font-face` in the SPA), so this is for the day it names one. In macOS Chrome it resolves to Courier, which is the font branch's question.
+- **Elsewhere.** coder clears its atlas on every `loadingdone` (`site/src/modules/terminal/WorkspaceTerminal.tsx`). Hermes waits for its bundled faces (`web/src/lib/terminal-font-refit.ts`). Paradev waits for `document.fonts.load` of its stack (`apps/desktop/src/renderer/lib/terminal/font-settle.ts`).
+
+**The glyph options.** Compared side by side on screenshots of Claude Code's logo, box lines and spinner symbols, with our font stack.
+
+§ **`customGlyphs: true`** (xterm's default, now stated): xterm draws box-drawing and block characters to the cell.
+
+- **Off**, they come from the font. Courier leaves gaps between cells, and Claude Code's logo and its boxes break apart.
+- **coder sets it false** (PR #25059, `WorkspaceTerminal.tsx`): its logo looked distorted with xterm's block geometry. coder ships a font that draws them and a Powerline fallback font. That distortion wasn't seen on xterm 6.0 / addon 0.19.
+- **VS Code** defaults to true (`src/vs/workbench/contrib/terminal/common/terminalConfiguration.ts`).
+
+§ **`rescaleOverlappingGlyphs: true`**: a glyph wider than its cell (Ⅻ and similar ambiguous-width ones) is narrowed to the cell instead of drawn over the next.
+
+- Claude Code's own symbols were unchanged pixel for pixel.
+- VS Code defaults to true. xterm's default is false.
+
+§ **`minimumContrastRatio` stays 1**: the agent's colours as it sent them.
+
+- **What 4.5 (VS Code's default) did on our #1e1e1e background:**
+  - black (46,52,54) became 133,138,138, and bright black (85,87,83) became 132,134,131: the two became the same grey;
+  - red 204,0,0 became pink 223,89,89;
+  - dim text was not touched (dim default stays 3.83:1, dim grey 2.49:1).
+- **The cost.** A cold atlas with 2000 distinct colour pairs took 339 ms to its first frame against 188 ms (+80 %).
+- **Elsewhere.** xterm, Paradev (`apps/desktop/src/renderer/lib/terminal/appearance/index.ts`) and coder keep 1.
+- **The real problem.** xterm's default blue, red, magenta and bright black are under 3:1 on #1e1e1e. That is the theme's to fix (the theme branch), not a per-cell rewrite.
+
+Left open:
+
+- **Not seen:** Safari/WebKit, Windows (ANGLE on D3D11, WARP), a real GPU reset (only `WEBGL_lose_context`), or a real web font arriving.
