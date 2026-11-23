@@ -422,6 +422,9 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     [canRevert, session.id, reload],
   );
 
+  // The group's repo switch: the same list until the repos or the diff change, so RepoSwitch measures the toolbar
+  // when they do, not on every render of this view.
+  const repoItems = useMemo(() => repoSwitch(sessionRepoNames(session.paths), diff?.repos), [session.paths, diff?.repos]);
   // ---- Hooks above this line, branches below ----------------------------
 
   // Busy: a pick or a session switch is loading. A quiet bar under the
@@ -441,13 +444,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const toolbar = (
     <div className="wd-web-difftoolbar wd-dash-difftoolbar" role="toolbar" aria-label="Diff">
       <div className="wd-dash-difftoolbar-pick">
-        {isGroup && (
-          <RepoSwitch
-            items={repoSwitch(sessionRepoNames(session.paths), diff?.repos)}
-            active={activeRepo?.name ?? activeRepoName}
-            onPick={switchRepo}
-          />
-        )}
+        {isGroup && <RepoSwitch items={repoItems} active={activeRepo?.name ?? activeRepoName} onPick={switchRepo} />}
         {groups.length > 0 && (
           <BranchSwitch
             current={currentBranch}

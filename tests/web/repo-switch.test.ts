@@ -202,3 +202,15 @@ describe('RepoSwitch', () => {
     expect(container.querySelector('.wd-diff-repo-pop')).toBeNull();
   });
 });
+
+describe('measuring', () => {
+  it('a render with the same list measures nothing again; a new list (the repos or the diff changed) does', async () => {
+    await renderSwitch(many, 'repo-01', 600);
+    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
+    const after = rect.mock.calls.length;
+    await renderSwitch(many, 'repo-01', 600); // DiffView re-rendering: the same memoised list
+    expect(rect.mock.calls.length).toBe(after);
+    await renderSwitch([...many], 'repo-01', 600);
+    expect(rect.mock.calls.length).toBeGreaterThan(after);
+  });
+});

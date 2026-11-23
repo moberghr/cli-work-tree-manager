@@ -1087,8 +1087,9 @@ button.wd-comment-fold:hover,
   max-width: 160px;
   white-space: nowrap;
 }
-/* No pill for the repo on screen (no room): the button says it is the one on, as the active pill would. */
-.wd-diff-repo-more-btn.wd-diff-repo-more-current {
+/* No pill for the repo on screen (no room): the button's name says it is the one on, as the active pill would. On the
+   label (this page's own), never the shared Button (web-ui.md: a page places a piece, it doesn't restyle it). */
+.wd-diff-repo-more-current .wd-diff-repo-more-label {
   font-weight: 600;
 }
 .wd-diff-repo-more-label {
