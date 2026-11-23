@@ -41,7 +41,6 @@ import {
   preloadAppearance,
   setAppTheme,
   subscribeAppearance,
-  toggleAppTheme,
   useAppearanceUpdates,
   useTerminalStyle,
 } from '../../src/web/src/state/appearance.js';
@@ -172,9 +171,14 @@ describe('the terminal style store', () => {
   });
 
   it('an answer that gives the same style tells nobody (an unrelated setting changed)', async () => {
+    const before = getTerminalStyle();
+    // The first answer makes the theme a setting (the theme menu hears that); the terminal's style keeps its object.
+    m.fetchSettings.mockResolvedValueOnce(wire({}));
+    await loadAppearance();
+    expect(getAppTheme().setting).toBe(true);
+    expect(getTerminalStyle()).toBe(before);
     const heard = vi.fn();
     subscribeAppearance(heard);
-    const before = getTerminalStyle();
     m.fetchSettings.mockResolvedValueOnce(wire({ 'prWatch.fixCi': false }));
     await loadAppearance();
     expect(heard).not.toHaveBeenCalled();
@@ -237,7 +241,7 @@ describe("the app's theme", () => {
 
     m.fetchSettings.mockResolvedValueOnce(wire({ theme: 'dracula' }));
     await loadAppearance();
-    expect(getAppTheme()).toEqual({ app: { id: 'dracula', base: 'dark', terminal: 'dracula' }, choice: 'dracula' });
+    expect(getAppTheme()).toEqual({ app: { id: 'dracula', base: 'dark', terminal: 'dracula' }, choice: 'dracula', setting: true });
     expect(html.dataset.theme).toBe('dark');
     expect(html.dataset.appTheme).toBe('dracula');
     expect(getTerminalStyle().themeId).toBe('dracula');
@@ -368,7 +372,7 @@ describe('choosing the theme', () => {
     await flush();
     expect(html.dataset.theme).toBe('light');
 
-    act(() => toggleAppTheme());
+    act(() => setAppTheme('dark'));
     expect(m.saveSetting).toHaveBeenCalledWith('theme', 'dark');
     expect(getAppTheme().choice).toBe('dark');
     expect(html.dataset.theme).toBe('dark');
@@ -381,8 +385,8 @@ describe('choosing the theme', () => {
     expect(html.dataset.appTheme).toBe('dracula');
     expect(getTerminalStyle().themeId).toBe('dracula');
 
-    // From a named (dark) theme the button goes light.
-    act(() => toggleAppTheme());
+    // From a named theme back to a base one: its own attribute goes.
+    act(() => setAppTheme('light'));
     expect(m.saveSetting).toHaveBeenLastCalledWith('theme', 'light');
     expect(html.dataset.appTheme).toBeUndefined();
     await flush();
@@ -431,8 +435,10 @@ describe('choosing the theme', () => {
   });
 
   it('a page without the dashboard (a diff or review page in work web) keeps its theme in config.json once its settings answer', async () => {
+    expect(getAppTheme().setting).toBe(false);
     m.fetchSettings.mockResolvedValueOnce(wire({ theme: 'dark' }));
     await loadAppearance();
+    expect(getAppTheme().setting).toBe(true); // the theme menu offers every app theme
     setAppTheme('midnight');
     expect(m.saveSetting).toHaveBeenCalledWith('theme', 'midnight');
     await flush();
@@ -442,6 +448,7 @@ describe('choosing the theme', () => {
   it("in wd the settings don't answer (404), so the choice stays this browser's", async () => {
     m.fetchSettings.mockRejectedValueOnce(new Error('404 Not Found for /api/settings'));
     await loadAppearance();
+    expect(getAppTheme().setting).toBe(false); // the theme menu offers System, Light and Dark
     setAppTheme('midnight');
     expect(m.saveSetting).not.toHaveBeenCalled();
     expect(cache()).toBe('midnight');
@@ -455,10 +462,10 @@ describe('choosing the theme', () => {
     expect(html.dataset.theme).toBe('dark');
     expect(html.dataset.appTheme).toBe('midnight');
 
-    toggleAppTheme();
+    setAppTheme('light');
     expect(cache()).toBe('light');
     expect(html.dataset.theme).toBe('light');
-    toggleAppTheme();
+    setAppTheme('dark');
     expect(cache()).toBe('dark');
 
     setAppTheme('system');

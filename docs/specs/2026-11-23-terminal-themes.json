@@ -792,6 +792,22 @@
         "behaviour_changes": [
           "Default dark's Connecting... grey: #9da5b4 -> about #959595 (bright black #555753 mixed with #d4d4d4); failed-start red: #e8b4b4 -> #d06a6a"
         ]
+      },
+      {
+        "lane": "User request: remove the top bar's light/dark switch; a quick theme menu there and on the review page (AskUserQuestion: 'Quick theme menu', 'Same as the top bar')",
+        "fixed": [
+          "ThemeToggle -> ThemeMenu (git mv): a palette button opening the shared Menu, one radio item per theme with the chosen one checked; top bar (with More in Settings...) and the review page's toolbar (SC19)",
+          "work web lists the six app themes and a pick saves theme; wd lists System / Light / Dark, kept by the browser (SC20)",
+          "shared Menu: MenuItem.checked (menuitemradio, aria-checked, a check mark; .wd-row-menu-check in ui.css)",
+          "store: AppThemeState.setting (the page's settings answered); toggleAppTheme and ThemeProvider's toggle / explicit removed with the button"
+        ],
+        "not_fixed": [],
+        "verification": {
+          "tests": "theme-provider 6, appearance, ui, settings-page, architecture: 145 passed",
+          "typecheck": "exit 0",
+          "lint": "exit 0",
+          "live": "dev server: the menu lists 6 themes + More in Settings..., the old button gone"
+        }
       }
     ]
   }

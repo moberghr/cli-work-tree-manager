@@ -165,3 +165,16 @@ The user asked for the suggestions left over from Part 2's review to be done too
 - **SC16**: the default of a choice setting shows as its option's label (settings tests).
 - **SC17**: the store stamps `--term-dim` / `--term-error` from the resolved palette; tokens.css's defaults are each palette's bright black and red (appearance, theme-tokens tests).
 - **SC18**: each named theme sets every `--syn-*` hljs.css reads, each at 4.5:1 or better on `--bg` and `--code-bg`; Dark sets none (theme-tokens test).
+
+## Part 4 — a theme menu instead of the light/dark button (added 2026-11-23, same PR)
+
+The user asked to remove the top bar's light/dark switch and offered either a quick theme switcher there or Settings only; they chose a quick theme menu, and the same on the review page.
+
+- The light/dark button (`ThemeToggle`) is gone; `ThemeMenu` takes its place on the top bar and the review page's toolbar: a palette button opening the shared `Menu` with one radio item per theme, ✓ on the one chosen (`MenuItem.checked`, new on the shared piece).
+- Where the theme is a setting (work web: the dashboard and its diff and review pages) it lists System, Light, Dark, Midnight, Dracula and Tokyo Night, and a pick saves `theme` at once (as Settings does); the top bar's adds More in Settings…. In `wd` it lists System, Light and Dark (the browser keeps the choice).
+- The store's app state says whether the theme is a setting (`setting`); `toggleAppTheme` and the provider's `toggle` / `explicit` went with the button.
+
+### Success criteria (part 4)
+
+- **SC19**: no light/dark button anywhere; the theme menu on the top bar and the review page, the chosen theme checked, a click on the button while open closes it (theme-provider test).
+- **SC20**: work web lists the six app themes (the top bar's with More in Settings…, which opens Settings) and a pick saves `theme`; `wd` lists System, Light and Dark and saves nothing (theme-provider, appearance tests).

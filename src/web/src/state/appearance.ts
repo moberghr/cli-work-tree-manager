@@ -6,7 +6,7 @@ import { fetchSettings, saveSetting } from '../api/panes.js';
 import { useSse } from '../api/events.js';
 
 /**
- * How the page looks: the app's theme (Settings → Theme, or the top bar's button) and the one style every terminal on
+ * How the page looks: the app's theme (Settings → Theme, or the theme menu) and the one style every terminal on
  * the page draws with, kept outside any component. Five terminals in the deck read the settings once, not five times,
  * and the whole page restyles together when a setting is saved.
  *
@@ -29,6 +29,8 @@ export interface AppThemeState {
   app: ResolvedAppTheme;
   /** What was chosen: `system` follows the computer. */
   choice: AppThemeId;
+  /** The theme is a setting (config.json): this page's settings answer. False in `wd`, where this browser keeps it. */
+  setting: boolean;
 }
 
 // The last settings read (null until the page has them).
@@ -46,7 +48,7 @@ let cached: AppThemeId | null = null;
 let osDark = false;
 let media: MediaQueryList | null = null;
 
-let appState: AppThemeState = { app: resolveAppTheme('system', false), choice: 'system' };
+let appState: AppThemeState = { app: resolveAppTheme('system', false), choice: 'system', setting: false };
 let terminal: TerminalStyle = resolveTerminalStyle({});
 const listeners = new Set<() => void>();
 
@@ -122,7 +124,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  */
 function recompute(force = false): void {
   const choice: AppThemeId = values ? (isAppThemeId(values.theme) ? values.theme : 'system') : (cached ?? 'system');
-  const nextApp: AppThemeState = { app: resolveAppTheme(choice, osDark), choice };
+  const nextApp: AppThemeState = { app: resolveAppTheme(choice, osDark), choice, setting: fromSettings };
   const nextTerminal = resolveTerminalStyle(values ?? {}, colors ?? undefined, nextApp.app.terminal);
   const appChanged = !same(nextApp, appState);
   const terminalChanged = !same(nextTerminal, terminal);
@@ -221,11 +223,6 @@ export function setAppTheme(id: AppThemeId): void {
   recompute();
 }
 
-/** The top bar's button: light ↔ dark from the base drawn now (a named theme is dark, so it goes light). */
-export function toggleAppTheme(): void {
-  setAppTheme(appState.app.base === 'dark' ? 'light' : 'dark');
-}
-
 /**
  * The page's one subscription (DashboardApp; one per terminal would read twice per change). It marks the page as one
  * whose theme is a setting before any read answers. The settings are read at the page's start, so they are in before a terminal's first replay
@@ -236,6 +233,7 @@ export function toggleAppTheme(): void {
 export function useAppearanceUpdates(): void {
   useEffect(() => {
     fromSettings = true;
+    recompute();
     preloadAppearance();
   }, []);
   useSse('/events', { events: { 'settings-changed': () => void loadAppearance() }, onOpen: () => void loadAppearance() });
