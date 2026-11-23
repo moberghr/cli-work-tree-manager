@@ -348,6 +348,28 @@ export async function markAgentStopped(sessionId: string, now: Date = new Date()
   await updateStatus(sessionId, (prev) => (prev ? { ...prev, stoppedAt: now.toISOString() } : prev));
 }
 
+/**
+ * Its agent exited (Claude Code's SessionEnd: you quit it, logged out, or it ended otherwise): a turn it was in, or
+ * a question it was asking, is over — idle, and nothing for you to look at (you ended it). Recorded as stopped too, as
+ * when work stops it. Before, a Claude quit mid-turn read "working" until its process was found gone, or for 15
+ * minutes. Not for `/clear` or `/resume`: that Claude goes on (`agentEnded`).
+ */
+export async function markAgentEnded(sessionId: string, now: Date = new Date()): Promise<void> {
+  const at = now.toISOString();
+  await updateStatus(sessionId, (prev) => {
+    if (!prev) return prev;
+    const mid = prev.state === 'working' || prev.state === 'needs_input';
+    return mid
+      ? { ...prev, state: 'idle', since: at, seen: true, updatedAt: at, prevState: prev.state, request: undefined, stoppedAt: at }
+      : { ...prev, stoppedAt: at };
+  });
+}
+
+/** Whether a SessionEnd's `reason` means the agent is gone. `clear` and `resume` end a conversation, not the agent. Pure. */
+export function agentEnded(reason: unknown): boolean {
+  return reason !== 'clear' && reason !== 'resume';
+}
+
 /** The user looked at it (opened it in the dashboard). */
 export async function markSeen(sessionId: string): Promise<SessionStatus | null> {
   const { next } = await updateStatus(sessionId, (prev) =>

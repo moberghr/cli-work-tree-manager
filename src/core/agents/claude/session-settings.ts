@@ -38,6 +38,8 @@ export function claudeSessionSettings(o: { statusLine: boolean; invocation?: Wor
   }
   // Claude's alone (no turn edge): a conversation's start tells it that it runs in work (work-intro.ts).
   hooks.SessionStart = [{ hooks: [{ type: 'command', command: workCommand(['hook', 'session-start'], o.invocation), timeout: 10 }] }];
+  // …and its exit: a turn or question it was in is over (session-status.ts markAgentEnded).
+  hooks.SessionEnd = [{ hooks: [{ type: 'command', command: workCommand(['hook', 'session-end'], o.invocation), timeout: 10 }] }];
   return {
     hooks,
     // A coordinator's own sessions (session-children.ts): `work child` acts only on the sessions the one running it

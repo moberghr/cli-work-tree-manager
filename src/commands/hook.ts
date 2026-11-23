@@ -12,7 +12,7 @@ import { isOwnCheckout, ownCheckoutNote } from '../core/worktree/own-checkout.js
 import { workSessionIntro } from '../core/sessions/work-intro.js';
 import { loadConfig } from '../core/platform/config.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
-import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
+import { agentEnded, markAgentEnded, recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
 import { recordCheckedOutBranches } from '../core/sessions/session-branches.js';
 import { bestEffort, bestEffortAsync, logSwallowed } from '../core/platform/best-effort.js';
 import { assistantContextDay, assistantContextMonth, assistantContextReview, readAssistantContext } from '../core/agents/assistant.js';
@@ -44,7 +44,9 @@ export type HookEvent =
   | 'turn-start'
   | 'turn-end'
   /** A conversation starts (or resumes, clears, compacts): what its agent is told about work (work-intro.ts). */
-  | 'session-start';
+  | 'session-start'
+  /** Its agent exits: a turn or question it was in is over (session-status.ts `markAgentEnded`). */
+  | 'session-end';
 
 const STATUS_EVENTS = new Set<HookEvent>(['status-prompt', 'status-stop', 'status-notify']);
 
@@ -194,6 +196,7 @@ const HOOK_EVENTS = [
   'turn-start',
   'turn-end',
   'session-start',
+  'session-end',
 ] as const;
 
 /** `work hook <event> [--agent <id>]` without the yargs router (bin.ts's fast path). An
@@ -238,6 +241,15 @@ export interface TurnHookIo {
 export function recordBranchesFor(cwd: string): void {
   const session = findSessionForCwd(cwd);
   if (session) recordCheckedOutBranches(session);
+}
+
+/** The agent of the session for `cwd` exited (`reason`: SessionEnd's); nothing outside a work session. */
+export async function sessionEnded(cwd: string, reason: unknown, now: Date = new Date()): Promise<boolean> {
+  if (!agentEnded(reason)) return false;
+  const session = findSessionForCwd(cwd);
+  if (!session) return false;
+  await markAgentEnded(sessionIdFor(session), now);
+  return true;
 }
 
 /** What a conversation starting in `cwd` is told about work: null outside a work session. */
@@ -379,6 +391,11 @@ async function handleHook(event: HookEvent, agentId = 'claude'): Promise<void> {
     // bookkeeping runs after, side by side.
     if (event === 'turn-start' || event === 'turn-end') {
       await runTurnHook(event === 'turn-start', payload, undefined, agent);
+      return;
+    }
+    // Its agent exited: a turn or question it was in is over.
+    if (event === 'session-end') {
+      await sessionEnded(cwd, payload.reason);
       return;
     }
     // Its stdout becomes the conversation's context: that it runs in work, and how to reach the other sessions.
