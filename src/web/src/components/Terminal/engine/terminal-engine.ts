@@ -59,6 +59,13 @@ export interface TerminalEngine {
   dispose(): void;
 }
 
+/** Open a link from the terminal: web addresses only, in a new tab (the
+ *  desktop app hands those to the default browser). Both engines' links. */
+export function openLink(uri: string): void {
+  if (!/^https?:\/\//i.test(uri)) return;
+  window.open(uri, '_blank', 'noopener');
+}
+
 export type EngineKind = 'xterm' | 'ghostty';
 
 const isKind = (v: unknown): v is EngineKind => v === 'xterm' || v === 'ghostty';

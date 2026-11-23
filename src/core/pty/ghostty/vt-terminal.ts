@@ -20,6 +20,7 @@ const OPT = {
   CONTINUATION_MAX_BYTES: 32,
   RESIZE_PULL_SCROLLBACK: 41,
   RENDER_HOLD: 42,
+  MODE_DEFAULT: 34,
   RESET: 44,
   PROGRAM_STATUS: 47,
 } as const;
@@ -108,6 +109,11 @@ export interface GhosttyOptions {
   pullScrollbackOnResize?: boolean;
   /** The cursor blinks until a program says otherwise (DECSCUSR 0 included), as xterm.js's `cursorBlink`. */
   cursorBlink?: boolean;
+  /**
+   * Grapheme clustering (mode 2027) on from the start, and after a reset (RIS): an emoji sequence (👍🏽, a ZWJ family,
+   * a flag) is one character of two columns, as xterm.js's Unicode 11 widths have it. A program may still turn it off.
+   */
+  graphemeClusters?: boolean;
 }
 
 export interface GridPoint {
@@ -319,6 +325,12 @@ export class VtTerminal {
     if (opts.cursorBlink) {
       dv().setUint8(e.value, 1);
       setValue(OPT.DEFAULT_CURSOR_BLINK, 'cursor blink');
+    }
+    if (opts.graphemeClusters) {
+      const mc = e.g.layout.modeConfig;
+      dv().setUint16(e.value + mc.mode, 2027, true);
+      dv().setUint8(e.value + mc.value, 1);
+      setValue(OPT.MODE_DEFAULT, 'grapheme clusters');
     }
     if (opts.colors) t.setColors(opts.colors);
     else if (opts.colorQueries) {

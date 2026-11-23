@@ -502,7 +502,7 @@ perf log and when to fit; what parses, draws, measures and turns keys into bytes
 - **libghostty-vt** (`engine/ghostty-engine.ts`, its own chunk, loaded with `import()` only when picked): the module is
   a served asset (`new URL(... .wasm, import.meta.url)`; `spa-handler.ts` serves it as `application/wasm`), compiled
   once per page, a fresh instance per terminal. The binding is the mirror's: `wasm-core.ts`, `vt-terminal.ts`,
-  `render-state.ts`, `key-encoder.ts` and `replies.ts` are pure (in `SPA_SHARED`); only `wasm.ts` (Node: reads the
+  `render-state.ts`, `key-encoder.ts`, `mouse-encoder.ts`, `pointer.ts` and `replies.ts` are pure (in `SPA_SHARED`); only `wasm.ts` (Node: reads the
   file) and `terminal.ts` stay Node-side. If it can't load, xterm.js draws and the corner says why (`cornerBadge`).
 - **Drawing:** one canvas, device pixels; a cell is `floor(advance × dpr)` wide like xterm.js's WebGL renderer, so both
   fit the same grid (FitAddon's measure, with its 14 px scrollbar gutter, which draws the thumb). Each animation frame
@@ -510,16 +510,43 @@ perf log and when to fit; what parses, draws, measures and turns keys into bytes
   box/block characters as shapes (`ghostty-draw.ts`, `boxShape`), then text by style with `letterSpacing` making the
   font's advance the cell's (a glyph wider than its cells is narrowed), then underlines (single, double, curly, dotted,
   dashed, in their colour), strike, overline, the cursor (block/bar/underline, blinking, hollow when unfocused). Nothing
-  is drawn while a program holds the screen (2026, libghostty's render-hold callback), for at most 1 s.
+  is drawn while a program holds the screen (2026, libghostty's render-hold callback), for at most 1 s. The frame loop
+  allocates little per frame (one repaint set, colour strings cached, the textarea moved only when the cursor moves);
+  the blink timer runs only while the terminal is focused and shown.
+- **Graphemes:** the tab's terminal is made with grapheme clustering (2027) on as the mode's reset default
+  (`graphemeClusters`, `OPT.MODE_DEFAULT`), so it survives the RIS a catch-up draw starts with: 👍🏽 and a ZWJ family are
+  one character of 2 columns, as xterm.js's Unicode 11 widths have them, drawn as one glyph in their cells (narrowed if
+  the emoji font draws them wider). A program may still turn it off.
 - **Input:** a hidden textarea; keys through libghostty's key encoder (kitty flags, DECCKM, modifyOtherKeys as the
   program set them; `keyInput` maps a browser event), pastes through its paste encoder (2004), focus reports (1004).
   Shift+Enter is ESC CR unless the program asked for kitty keys. Replies (`WRITE_PTY`) go out once, after the write,
   translated as the mirror's (`translateReplies`, colour replies passed through: this terminal has the real colours).
 - **Scrollback:** libghostty's viewport (wheel, Shift+PageUp/PageDown); new output never moves a view scrolled up;
-  typing returns it to the bottom. On the alternate screen the wheel is arrow keys, as xterm.js does.
-- **Not yet** (batch 2): selection and copy, mouse reporting, OSC 8 links and URL detection, search, an accessibility
-  tree, ligatures and font fallback tuning, e2e specs.
-- **Known differences from xterm.js:** emoji sequences take their code points' widths (👍🏽 4 columns, a ZWJ family 6;
-  xterm.js: 2), because neither libghostty screen turns grapheme clustering (2027) on unless the program does; shades
-  (░▒▓) are drawn as translucent fills, not dither patterns; `setWindowsPty` is a no-op (libghostty always reflows);
-  the corner never says DOM/WebGL (`ghostty`).
+  typing returns it to the bottom. On the alternate screen, when no program has the mouse, the wheel is arrow keys
+  while alternate scroll (1007, on by default) is.
+- **Selection** (`core/pty/ghostty/pointer.ts`): libghostty's selection gestures — a drag selects by cell (a cell counts
+  once the pointer passes its middle), a double click a word, a triple click the whole line (wrapped rows with it),
+  Shift+click moves the nearer end; a drag past the top or bottom edge scrolls the view a row every 50 ms
+  (`AUTOSCROLL_TICK`, our timer). The selection is the terminal's own, so it stays on its text as output scrolls and
+  works in the scrollback. Each row's selected columns come from the render state and are painted as xterm.js paints
+  its default selection: white at 30% over the backgrounds, under the text. Typing (or a paste) clears it, as xterm.js's
+  `onUserInput` does. While a program has the mouse, selecting needs Shift held.
+- **Copy:** Ctrl+C with a selection copies (and clears it), without one it is ^C; the browser's own copy (⌘C, menus) is
+  handled on the box's `copy` event — both as xterm-engine's. The text is libghostty's formatter over the selection
+  (soft-wrapped rows joined, trailing blanks trimmed), and its VT form gives the bold and italic marks (`markedVt`,
+  checked against the text with `markedOr`); then `terminalCopy` and `writeRich` as xterm's path.
+- **Mouse reporting** (`core/pty/ghostty/mouse-encoder.ts`): presses, releases, motion and the wheel (one report per wheel
+  event, as xterm.js) through libghostty's mouse encoder, in the mode and format the program set (9/1000/1002/1003;
+  X10, 1005, SGR 1006, 1015, SGR pixels 1016 in device pixels with the real cell size). The encoder is set from the
+  terminal only when those modes change, so its last-cell dedupe holds (a 1002 drag sends one report per cell).
+- **Links:** an OSC 8 link (the cell's hyperlink bit, its address from `ghostty_grid_ref_hyperlink_uri`) or a web
+  address found by xterm.js's WebLinksAddon rule (its regex and URL check, over the line with its wrapped rows;
+  `ghostty-pointer.ts`, `urlAt`) is underlined with a pointer cursor while hovered (an OSC 8 link's address in the
+  tooltip, as xterm's `linkHandler.hover`); a click without a drag opens it with `openLink` (http/https only), which
+  both engines share from `terminal-engine.ts`. Not while a program has the mouse.
+- **Testing:** the box has `wdScreenText()` (the rows as last drawn) for `e2e/ghostty-terminal.spec.ts`.
+- **Not yet:** search, an accessibility tree, ligatures and font fallback tuning.
+- **Known differences from xterm.js:** shades (░▒▓) are drawn as translucent fills, not dither patterns;
+  `setWindowsPty` is a no-op (libghostty always reflows); the corner never says DOM/WebGL (`ghostty`); a drag's end
+  cell follows libghostty's half-cell rule (xterm.js takes the cell under the pointer); Shift+click extends from the
+  selection's nearer end, not from the original press; middle-click and right-click do nothing without mouse reporting.

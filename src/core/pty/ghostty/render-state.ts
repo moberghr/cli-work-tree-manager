@@ -27,6 +27,13 @@ export interface RowCells {
   /** STYLE bits. */
   flags: Uint16Array;
   underline: Uint8Array;
+  /** 1 where the cell is part of an OSC 8 hyperlink (its address: `hyperlinkAt`). */
+  link: Uint8Array;
+  /** The row runs on into the next one (the terminal wrapped it, not a newline). */
+  wrapped: boolean;
+  /** The selected columns of this row (inclusive), -1 when it has none. */
+  selStart: number;
+  selEnd: number;
 }
 
 export type CursorStyle = 'bar' | 'block' | 'underline' | 'block_hollow';
@@ -54,7 +61,9 @@ export interface ColorState {
 export type Dirty = 'none' | 'partial' | 'full';
 
 const DATA = { COLS: 1, ROWS: 2, DIRTY: 3, ROW_ITERATOR: 4, CURSOR: 18, COLORS: 19 } as const;
-const ROW = { CELLS: 3, CELLS_RAW: 5 } as const;
+const ROW = { RAW: 2, CELLS: 3, SELECTION: 4, CELLS_RAW: 5 } as const;
+/** GhosttyRowData: a raw row's soft wrap. */
+const ROW_WRAP = 1;
 const CELL = { STYLE: 2, GRAPHEMES_UTF8: 9 } as const;
 const CURSOR_STYLES: readonly CursorStyle[] = ['bar', 'block', 'underline', 'block_hollow'];
 const GRAPHEME_CAP = 128;
@@ -87,7 +96,7 @@ export class RenderState {
   /** Where the handles of the iterator and the row's cells are kept (the get calls take their address). */
   private readonly handles: number;
   private readonly grapheme: number;
-  private readonly cell: { tag: Bits; content: Bits; style: Bits; wide: Bits };
+  private readonly cell: { tag: Bits; content: Bits; style: Bits; wide: Bits; link: Bits };
   private readonly tags: { grapheme: number; bgPalette: number; bgRgb: number };
   private readonly wides: { wide: number; tail: number };
   private readonly flagBits: { name: keyof typeof STYLE; bits: Bits }[];
@@ -96,6 +105,9 @@ export class RenderState {
   private readonly decoder = new TextDecoder();
   private colorState: ColorState = { background: 0, foreground: 0xffffff, cursor: -1, palette: new Int32Array(256) };
   private row: RowCells = blankRow(0);
+  /** Reused from row to row: a row's raw cells and the styles it has looked up. */
+  private raw = new Uint32Array(0);
+  private readonly styles = new Map<number, Style>();
 
   private constructor(t: VtTerminal) {
     const n = t.native;
@@ -117,7 +129,13 @@ export class RenderState {
     dv.setUint32(this.handles, this.iterator, true);
     dv.setUint32(this.handles + 4, this.cells, true);
     const C = 'GhosttyCell';
-    this.cell = { tag: m.bits(C, 'content_tag'), content: m.bits(C, 'content'), style: m.bits(C, 'style_id'), wide: m.bits(C, 'wide') };
+    this.cell = {
+      tag: m.bits(C, 'content_tag'),
+      content: m.bits(C, 'content'),
+      style: m.bits(C, 'style_id'),
+      wide: m.bits(C, 'wide'),
+      link: m.bits(C, 'hyperlink'),
+    };
     const T = 'GhosttyCellContentTag';
     this.tags = {
       grapheme: m.value(T, 'CODEPOINT_GRAPHEME'),
@@ -260,10 +278,13 @@ export class RenderState {
       }
       check(fn.ghostty_render_state_row_cells_select(this.cells, x), 'cell select');
     };
-    const styles = new Map<number, Style>();
+    this.styles.clear();
+    const styles = this.styles;
     // The raw cells first, all of them, while the view of them is valid (a later call may grow the memory).
-    const raw = new Uint32Array(len * 2);
+    if (this.raw.length < len * 2) this.raw = new Uint32Array(len * 2);
+    const raw = this.raw;
     if (ptr) raw.set(new Uint32Array(e.g.memory.buffer, ptr, len * 2));
+    this.readRowExtras(e, row);
     for (let x = 0; x < len; x++) {
       const lo = raw[x * 2]!;
       const hi = raw[x * 2 + 1]!;
@@ -286,6 +307,7 @@ export class RenderState {
       row.flags[x] = style?.flags ?? 0;
       row.underline[x] = style?.underline ?? 0;
       row.width[x] = wide === this.wides.wide ? 2 : wide === this.wides.tail ? 0 : 1;
+      row.link[x] = field(lo, hi, this.cell.link);
       if (tag === this.tags.bgPalette) {
         row.bg[x] = this.colorState.palette[content & 0xff]!;
         row.text[x] = '';
@@ -298,6 +320,28 @@ export class RenderState {
       }
     }
     return row;
+  }
+
+  /** The row's soft wrap (its raw value, read by libghostty) and its selected columns. */
+  private readRowExtras(e: VtEngine, row: RowCells): void {
+    const { fn, manifest: m } = e.g;
+    row.wrapped = false;
+    if (fn.ghostty_render_state_row_get(this.iterator, ROW.RAW, e.aux) === 0) {
+      const raw = e.dv().getBigUint64(e.aux, true);
+      e.dv().setUint8(e.out, 0);
+      if (fn.ghostty_row_get(raw, ROW_WRAP, e.out) === 0) row.wrapped = e.dv().getUint8(e.out) !== 0;
+    }
+    const S = 'GhosttyRenderStateRowSelection';
+    const size = m.size(S);
+    e.u8().fill(0, e.aux, e.aux + size);
+    e.dv().setUint32(e.aux + m.offset(S, 'size'), size, true);
+    if (fn.ghostty_render_state_row_get(this.iterator, ROW.SELECTION, e.aux) === 0) {
+      row.selStart = e.dv().getUint16(e.aux + m.offset(S, 'start_x'), true);
+      row.selEnd = e.dv().getUint16(e.aux + m.offset(S, 'end_x'), true);
+    } else {
+      row.selStart = -1;
+      row.selEnd = -1;
+    }
   }
 
   private color(dv: DataView, at: number, bold: boolean): number {
@@ -370,5 +414,9 @@ function blankRow(cols: number): RowCells {
     ul: new Int32Array(cols),
     flags: new Uint16Array(cols),
     underline: new Uint8Array(cols),
+    link: new Uint8Array(cols),
+    wrapped: false,
+    selStart: -1,
+    selEnd: -1,
   };
 }

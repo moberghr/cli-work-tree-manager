@@ -2,12 +2,32 @@ import { compileGhosttyAsync, instantiateGhosttyAsync } from '../../../../../cor
 import { VtTerminal } from '../../../../../core/pty/ghostty/vt-terminal.js';
 import { RenderState, type ColorState, type CursorState, type RowCells } from '../../../../../core/pty/ghostty/render-state.js';
 import { encodeFocus, encodePaste, KeyEncoder } from '../../../../../core/pty/ghostty/key-encoder.js';
+import { MouseEncoder, type MouseInput } from '../../../../../core/pty/ghostty/mouse-encoder.js';
+import {
+  SelectionGesture,
+  clearSelection,
+  extendSelection,
+  hasSelection,
+  hyperlinkAt,
+  selectedText,
+  type PointerAt,
+} from '../../../../../core/pty/ghostty/pointer.js';
 import { translateReplies } from '../../../../../core/pty/ghostty/replies.js';
 import { VIEW_SCROLLBACK } from '../../../../../core/pty/scrollback.js';
 import { themeRgb } from '../../../../../core/pty/terminal-colors.js';
 import { onFontsSettled } from '../../../state/font-settle.js';
+import { writeRich } from '../../../state/rich-copy.js';
+import { markedOr, markedVt, terminalCopy } from '../../../state/terminal-copy.js';
 import { boxShape, keyInput, rowRuns } from './ghostty-draw.js';
-import { TERMINAL_FONT, TERMINAL_FONT_SIZE, type Disposable, type EngineOptions, type TerminalEngine } from './terminal-engine.js';
+import { gridCell, heldButton, linkRun, mouseButton, urlAt, wheelButton, type LinkSpan } from './ghostty-pointer.js';
+import {
+  openLink,
+  TERMINAL_FONT,
+  TERMINAL_FONT_SIZE,
+  type Disposable,
+  type EngineOptions,
+  type TerminalEngine,
+} from './terminal-engine.js';
 
 /**
  * libghostty-vt in the Terminal tab (terminal-rendering.md, "The Terminal tab's engines"): the same binding as the PTY
@@ -15,7 +35,9 @@ import { TERMINAL_FONT, TERMINAL_FONT_SIZE, type Disposable, type EngineOptions,
  * drawn on one canvas. Each animation frame takes what changed from the render state and redraws only those rows —
  * backgrounds, then text by style, box and block characters as shapes — and the cursor; nothing is drawn while a
  * program holds the screen (synchronized output), for at most HOLD_MAX_MS. Keys go through libghostty's key encoder
- * (kitty, DECCKM, modifyOtherKeys as the program set them), pastes through its paste encoder.
+ * (kitty, DECCKM, modifyOtherKeys as the program set them), pastes through its paste encoder. The pointer selects through
+ * its selection gestures (Shift held while a program has the mouse), reports through its mouse encoder, and opens links
+ * (OSC 8, and web addresses as xterm.js's WebLinksAddon finds them); a copy goes through terminal-copy.ts as xterm's does.
  */
 
 /** The module, served next to the page (Vite copies it; the server knows its type). */
@@ -25,6 +47,10 @@ const HOLD_MAX_MS = 1000;
 const BLINK_MS = 600;
 /** The width FitAddon keeps for xterm.js's scrollbar: kept here too, so both engines fit the same grid (and the thumb is drawn in it). */
 const SCROLLBAR_CSS = 14;
+/** xterm.js's default selection: white at 30% over the cells' backgrounds, under their text. */
+const SELECTION = 'rgba(255,255,255,0.3)';
+/** How often a drag past the top or bottom edge scrolls the view a row. */
+const AUTOSCROLL_MS = 50;
 
 type Module = Awaited<ReturnType<typeof compileGhosttyAsync>>;
 let compiled: Promise<Module> | null = null;
@@ -43,7 +69,16 @@ function ghosttyModule(): Promise<Module> {
   return compiled;
 }
 
-const css = (rgb: number) => `#${(rgb & 0xffffff).toString(16).padStart(6, '0')}`;
+/** A colour as CSS, each made once (a busy screen sets a fill style per run, every frame). */
+const cssCache = new Map<number, string>();
+const css = (rgb: number) => {
+  let c = cssCache.get(rgb);
+  if (c === undefined) {
+    c = `#${(rgb & 0xffffff).toString(16).padStart(6, '0')}`;
+    if (cssCache.size < 4096) cssCache.set(rgb, c);
+  }
+  return c;
+};
 const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 interface Metrics {
@@ -93,6 +128,7 @@ const copyRow = (row: RowCells, into?: RowCells): RowCells => {
       ul: row.ul.slice(),
       flags: row.flags.slice(),
       underline: row.underline.slice(),
+      link: row.link.slice(),
     };
   }
   for (let i = 0; i < row.cols; i++) into.text[i] = row.text[i]!;
@@ -102,6 +138,10 @@ const copyRow = (row: RowCells, into?: RowCells): RowCells => {
   into.ul.set(row.ul);
   into.flags.set(row.flags);
   into.underline.set(row.underline);
+  into.link.set(row.link);
+  into.wrapped = row.wrapped;
+  into.selStart = row.selStart;
+  into.selEnd = row.selEnd;
   return into;
 };
 
@@ -120,7 +160,9 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     instance,
     80,
     24,
-    { scrollback: VIEW_SCROLLBACK, colors: theme, cursorBlink: true },
+    // Grapheme clusters (2027) on, also after a reset: an emoji sequence is one character of two columns, as xterm.js's
+    // Unicode 11 widths make it, and the PTY host's mirror has it.
+    { scrollback: VIEW_SCROLLBACK, colors: theme, cursorBlink: true, graphemeClusters: true },
     {
       reply: (data) => replies.push(data),
       renderHold: (on) => {
@@ -132,6 +174,8 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
   );
   const rs = RenderState.create(t);
   const keys = KeyEncoder.create(t);
+  const gesture = SelectionGesture.create(t);
+  const mouse = MouseEncoder.create(t);
 
   // ---- the DOM: a box filling the pane, the canvas in it, a hidden textarea for the keyboard and input methods.
   const box = document.createElement('div');
@@ -153,6 +197,8 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     box.remove();
     rs.free();
     keys.free();
+    gesture.free();
+    mouse.free();
     t.free();
     throw new Error('no 2D canvas');
   }
@@ -163,7 +209,12 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
   let snaps: RowCells[] = [];
   let cursor: CursorState | null = null;
   let focused = false;
+  let visible = true;
   let blinkOn = true;
+  let blink: ReturnType<typeof setInterval> | undefined;
+  /** The link under the pointer (underlined, a pointer cursor), and rows to draw again next frame (it moved). */
+  let hover: LinkSpan | null = null;
+  const extra = new Set<number>();
   let fullNext = true;
   let cursorDirty = false;
   let raf = 0;
@@ -182,9 +233,13 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     replies = [];
     for (const r of out) for (const answer of translateReplies(r)) emit(answer);
   };
-  /** Typed: the view goes back to the screen, as a terminal does. */
+  /** Typed: the view goes back to the screen, as a terminal does, and a selection goes (xterm.js's onUserInput). */
   const typed = (data: string) => {
     if (!data) return;
+    if (hasSelection(t)) {
+      clearSelection(t);
+      schedule();
+    }
     if (!t.viewportActive()) {
       t.scrollViewport('bottom');
       fullNext = true;
@@ -213,21 +268,27 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
       canvas.style.width = `${w / m.dpr}px`;
       canvas.style.height = `${h / m.dpr}px`;
     }
+    // SGR pixel reports (1016) count in device pixels, as everything here does.
+    mouse.resize({ width: w, height: h, cellWidth: m.cw, cellHeight: m.ch, paddingRight: gutter, paddingBottom: 0 });
     fullNext = true;
   };
 
-  const paintRow = (y: number) => {
+  const paintRow = (y: number, cols: number) => {
     const row = snaps[y];
     const top = y * m.ch;
     const { cw, ch } = m;
     ctx.globalAlpha = 1;
     ctx.fillStyle = css(colors.background);
-    ctx.fillRect(0, top, t.cols * cw, ch);
+    ctx.fillRect(0, top, cols * cw, ch);
     if (!row) return;
     const runs = rowRuns(row, { fg: colors.foreground, bg: colors.background });
     for (const b of runs.bgs) {
       ctx.fillStyle = css(b.color);
       ctx.fillRect(b.x * cw, top, b.cells * cw, ch);
+    }
+    if (row.selStart >= 0) {
+      ctx.fillStyle = SELECTION;
+      ctx.fillRect(row.selStart * cw, top, (row.selEnd - row.selStart + 1) * cw, ch);
     }
     for (const g of runs.boxes) {
       const shape = boxShape(g.cp, cw, ch, m.light);
@@ -256,9 +317,12 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
       ctx.font = font(r.bold, r.italic);
       for (const p of r.pieces) {
         const x = p.x * cw;
-        if (p.text.length === 1 || p.cells === p.text.length) {
+        // A run of plain narrow characters lands on its cells; anything else is one cell's character (a grapheme cluster
+        // like 👍🏽 among them: one glyph), measured.
+        const run = p.text.length > 1 && p.text.length === p.cells && p.text.charCodeAt(0) < 0x2000;
+        if (!run) {
           const width = p.text.length === 1 && p.text.charCodeAt(0) < 0x2000 ? cw : ctx.measureText(p.text).width;
-          if (width > p.cells * cw * 1.05 && p.text.length <= 2) {
+          if (width > p.cells * cw * 1.05) {
             // Wider than its cells (a fallback font's glyph): narrowed to them, as xterm.js's rescaleOverlappingGlyphs.
             ctx.save();
             ctx.translate(x, 0);
@@ -299,6 +363,13 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     }
     ctx.globalAlpha = 1;
     ctx.letterSpacing = '0px';
+    // The link under the pointer, underlined (xterm.js underlines a link it hovers).
+    if (hover) {
+      ctx.fillStyle = css(colors.foreground);
+      for (const c of hover.cells) {
+        if (c.y === y) ctx.fillRect(c.x0 * cw, Math.min(top + ch - m.light, top + m.baseline + m.light), (c.x1 - c.x0 + 1) * cw, m.light);
+      }
+    }
   };
 
   const drawCursor = () => {
@@ -346,6 +417,8 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     ctx.fillRect(gx + Math.round(m.dpr * 4), y, Math.round(m.dpr * 6), thumb);
   };
 
+  /** The rows a frame redraws: one set, cleared each frame. */
+  const repaint = new Set<number>();
   const frame = () => {
     raf = 0;
     if (disposed) return;
@@ -366,7 +439,7 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     let all = fullNext || c.changed || dirty === 'full' || snaps.length !== rows;
     fullNext = false;
     if (snaps.length !== rows) snaps = snaps.slice(0, rows);
-    const repaint = new Set<number>();
+    repaint.clear();
     if (all || dirty !== 'none')
       rs.eachRow(all, (y, row) => {
         snaps[y] = copyRow(row, snaps[y]);
@@ -384,13 +457,18 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
       sizeCanvas();
       all = true;
     }
-    if (all) for (let y = 0; y < rows; y++) paintRow(y);
-    else for (const y of repaint) if (y < rows) paintRow(y);
+    for (const y of extra) repaint.add(y);
+    extra.clear();
+    const cols = t.cols;
+    if (all) for (let y = 0; y < rows; y++) paintRow(y, cols);
+    else for (const y of repaint) if (y < rows) paintRow(y, cols);
     drawCursor();
     if (all) drawScrollbar();
-    // The textarea follows the cursor: an input method's window opens there.
-    textarea.style.left = `${(next.x * m.cw) / m.dpr}px`;
-    textarea.style.top = `${(next.y * m.ch) / m.dpr}px`;
+    // The textarea follows the cursor: an input method's window opens there (set when it moves: a style write a frame costs a recalc).
+    const left = `${(next.x * m.cw) / m.dpr}px`;
+    const top = `${(next.y * m.ch) / m.dpr}px`;
+    if (textarea.style.left !== left) textarea.style.left = left;
+    if (textarea.style.top !== top) textarea.style.top = top;
     if (all || repaint.size) for (const l of renderListeners) l();
   };
 
@@ -398,18 +476,42 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     if (!raf && !disposed) raf = requestAnimationFrame(frame);
   }
 
-  const blink = setInterval(() => {
-    blinkOn = !blinkOn;
-    if (focused && cursor?.visible && cursor.blinking) {
-      cursorDirty = true;
-      schedule();
+  /** The cursor blinks only while it is focused and shown: no timer otherwise. */
+  const blinking = () => {
+    const want = focused && visible && !disposed;
+    if (want && !blink) {
+      blink = setInterval(() => {
+        blinkOn = !blinkOn;
+        if (cursor?.visible && cursor.blinking) {
+          cursorDirty = true;
+          schedule();
+        }
+      }, BLINK_MS);
+    } else if (!want && blink) {
+      clearInterval(blink);
+      blink = undefined;
+      blinkOn = true;
     }
-  }, BLINK_MS);
+  };
 
   // ---- input
   const mac = isMac();
+  // A copy, put back together (terminal-copy.ts) with its bold and italic, as xterm-engine's: Ctrl+C with a selection
+  // (without one it stays an interrupt), and the browser's own copy (⌘C, Ctrl+Shift+C, a menu's Copy).
+  const selected = () => {
+    const s = selectedText(t);
+    return s ? terminalCopy(markedOr(s.text, markedVt(s.vt)), t.cols, s.startX) : null;
+  };
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'c' && e.ctrlKey && !e.shiftKey && hasSelection(t)) {
+      e.preventDefault();
+      const copy = selected();
+      if (copy) void writeRich(copy).catch(() => {});
+      clearSelection(t);
+      schedule();
+      return;
+    }
     // Paste: left to the browser, whose paste event comes here (Ctrl+V, Shift+Insert, and ⌘ shortcuts on a Mac).
     if ((e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'v') || (e.shiftKey && e.key === 'Insert') || (mac && e.metaKey)) return;
     if (e.shiftKey && !e.ctrlKey && !e.altKey && (e.key === 'PageUp' || e.key === 'PageDown')) {
@@ -454,15 +556,26 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     e.preventDefault();
     typed(encodePaste(t, text));
   };
+  const onCopy = (ev: ClipboardEvent) => {
+    if (!ev.clipboardData || !hasSelection(t)) return;
+    const copy = selected();
+    if (!copy) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    ev.clipboardData.setData('text/plain', copy.text);
+    if (copy.html) ev.clipboardData.setData('text/html', copy.html);
+  };
   const onFocus = () => {
     focused = true;
     blinkOn = true;
+    blinking();
     cursorDirty = true;
     schedule();
     if (t.mode(1004)) emit(encodeFocus(t, true));
   };
   const onBlur = () => {
     focused = false;
+    blinking();
     cursorDirty = true;
     schedule();
     if (t.mode(1004)) emit(encodeFocus(t, false));
@@ -475,9 +588,15 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
     const lines = Math.trunc(wheel);
     if (!lines) return;
     wheel -= lines;
+    // A program that has the mouse gets the wheel as button 4 or 5, one report per wheel event that scrolls, as xterm.js
+    // sends it (the program decides how far one goes); Shift scrolls the view instead.
+    if (t.mouseTracking() && !e.shiftKey) {
+      emit(mouse.encode(mouseInput(e, 'press', wheelButton(lines)), false));
+      return;
+    }
     if (t.screen() === 'alternate') {
-      // No scrollback there: the wheel is the arrow keys, as xterm.js does (mouse reporting is not drawn here yet).
-      if (!t.mouseTracking()) {
+      // No scrollback there: the wheel is the arrow keys, while the program leaves alternate scroll (1007) on.
+      if (t.mode(1007)) {
         const code = lines < 0 ? 'ArrowUp' : 'ArrowDown';
         const arrow = keys.encode({ code, text: '', unshifted: 0, shift: false, ctrl: false, alt: false, meta: false });
         emit(arrow.repeat(Math.abs(lines)));
@@ -494,6 +613,125 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
       textarea.focus();
     }
   };
+
+  // ---- the pointer: reports to a program that has the mouse, else selection (and Shift selects in spite of it), links.
+  /** A pointer event's place: in device pixels from the grid's corner (not clamped), and its cell (clamped). */
+  const pointerAt = (e: MouseEvent): PointerAt => {
+    const r = canvas.getBoundingClientRect();
+    const px = (e.clientX - r.left) * m.dpr;
+    const py = (e.clientY - r.top) * m.dpr;
+    return { px, py, cell: gridCell(px, py, m.cw, m.ch, t.cols, t.rows) };
+  };
+  const mouseInput = (e: MouseEvent, action: MouseInput['action'], button: number): MouseInput => {
+    const p = pointerAt(e);
+    return { action, button, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey, x: p.px, y: p.py };
+  };
+  const geometry = () => ({ cols: t.cols, cellWidth: m.cw, paddingLeft: 0, height: t.rows * m.ch });
+  /** What a press started: a report to the program, a selection, or nothing. */
+  let pressed: 'report' | 'select' | 'extend' | null = null;
+  let last: PointerAt | null = null;
+  let autoscroll: ReturnType<typeof setInterval> | undefined;
+  const stopAutoscroll = () => {
+    clearInterval(autoscroll);
+    autoscroll = undefined;
+  };
+  const followAutoscroll = () => {
+    if (gesture.autoscroll() === 'none') return stopAutoscroll();
+    autoscroll ??= setInterval(() => {
+      if (!last || gesture.autoscroll() === 'none') return stopAutoscroll();
+      gesture.tick(last, geometry());
+      fullNext = true;
+      schedule();
+    }, AUTOSCROLL_MS);
+  };
+  const setHover = (next: LinkSpan | null, title: string) => {
+    if (next?.uri === hover?.uri && next?.cells[0]?.y === hover?.cells[0]?.y && next?.cells[0]?.x0 === hover?.cells[0]?.x0) return;
+    for (const c of hover?.cells ?? []) extra.add(c.y);
+    hover = next;
+    for (const c of hover?.cells ?? []) extra.add(c.y);
+    host.title = title;
+    schedule();
+  };
+  /** The link under a cell: an OSC 8 one (its cells in the row), else a web address in the line's text. */
+  const linkAt = (cell: { x: number; y: number }): { span: LinkSpan; osc8: boolean } | null => {
+    const row = snaps[cell.y];
+    if (!row) return null;
+    const run = linkRun(row, cell.x);
+    if (run) {
+      const uri = hyperlinkAt(t, cell);
+      if (uri) return { span: { uri, cells: [{ y: cell.y, ...run }] }, osc8: true };
+    }
+    const url = urlAt(snaps, cell);
+    return url ? { span: url, osc8: false } : null;
+  };
+  const reportsMouse = (e: MouseEvent) => t.mouseTracking() && !e.shiftKey;
+  const onPointerDown = (e: PointerEvent) => {
+    const p = pointerAt(e);
+    last = p;
+    if (reportsMouse(e)) {
+      const out = mouse.encode(mouseInput(e, 'press', mouseButton(e.button)), true);
+      pressed = 'report';
+      box.setPointerCapture(e.pointerId);
+      emit(out);
+      return;
+    }
+    if (e.button !== 0) return;
+    box.setPointerCapture(e.pointerId);
+    if (e.shiftKey && hasSelection(t)) {
+      pressed = 'extend';
+      extendSelection(t, p.cell);
+    } else {
+      pressed = 'select';
+      gesture.press(p, e.timeStamp);
+    }
+    schedule();
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    const p = pointerAt(e);
+    last = p;
+    if (pressed === 'report' || (!pressed && reportsMouse(e))) {
+      box.style.cursor = 'default';
+      setHover(null, '');
+      emit(mouse.encode(mouseInput(e, 'motion', heldButton(e.buttons)), e.buttons !== 0));
+      return;
+    }
+    if (pressed === 'select') {
+      gesture.drag(p, geometry());
+      followAutoscroll();
+      schedule();
+      return;
+    }
+    if (pressed === 'extend') {
+      extendSelection(t, p.cell);
+      schedule();
+      return;
+    }
+    const link = linkAt(p.cell);
+    setHover(link?.span ?? null, link?.osc8 ? link.span.uri : '');
+    box.style.cursor = link ? 'pointer' : 'text';
+  };
+  const onPointerUp = (e: PointerEvent) => {
+    const p = pointerAt(e);
+    const was = pressed;
+    pressed = null;
+    stopAutoscroll();
+    if (box.hasPointerCapture(e.pointerId)) box.releasePointerCapture(e.pointerId);
+    if (was === 'report') {
+      emit(mouse.encode(mouseInput(e, 'release', mouseButton(e.button)), false));
+      return;
+    }
+    if (was !== 'select') return;
+    gesture.release(p);
+    // A click (no drag) on a link opens it, as xterm.js's links do.
+    if (e.type === 'pointerup' && !gesture.dragged() && gesture.clicks() === 1) {
+      const link = linkAt(p.cell);
+      if (link) openLink(link.span.uri);
+    }
+    schedule();
+  };
+  const onPointerLeave = () => {
+    if (!pressed) setHover(null, '');
+  };
   textarea.addEventListener('keydown', onKeyDown);
   textarea.addEventListener('keyup', onKeyUp);
   textarea.addEventListener('compositionend', onComposed);
@@ -503,6 +741,25 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
   textarea.addEventListener('blur', onBlur);
   box.addEventListener('wheel', onWheel, { passive: false });
   box.addEventListener('mousedown', onMouseDown);
+  box.addEventListener('pointerdown', onPointerDown);
+  box.addEventListener('pointermove', onPointerMove);
+  box.addEventListener('pointerup', onPointerUp);
+  box.addEventListener('pointercancel', onPointerUp);
+  box.addEventListener('pointerleave', onPointerLeave);
+  box.addEventListener('copy', onCopy, true);
+  // For tests (e2e/ghostty-terminal.spec.ts): the rows on screen as last drawn, one line each (a wide character's tail
+  // cell left out) — a canvas has no text to read.
+  Object.defineProperty(box, 'wdScreenText', {
+    value: () =>
+      snaps
+        .map((r) =>
+          r.text
+            .map((c, x) => (r.width[x] === 0 ? '' : c || ' '))
+            .join('')
+            .trimEnd(),
+        )
+        .join('\n'),
+  });
 
   // A font of the stack that arrives later: the cell measured again, everything redrawn, the grid fitted.
   const remeasure = () => {
@@ -577,16 +834,22 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
       return { dispose: () => renderListeners.delete(listener) };
     },
     shown() {
+      visible = true;
+      blinking();
       fullNext = true;
       schedule();
     },
-    hidden() {},
+    hidden() {
+      visible = false;
+      blinking();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
       clearTimeout(holdTimer);
       clearInterval(blink);
+      stopAutoscroll();
       stopFonts();
       textarea.removeEventListener('keydown', onKeyDown);
       textarea.removeEventListener('keyup', onKeyUp);
@@ -597,10 +860,18 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
       textarea.removeEventListener('blur', onBlur);
       box.removeEventListener('wheel', onWheel);
       box.removeEventListener('mousedown', onMouseDown);
+      box.removeEventListener('pointerdown', onPointerDown);
+      box.removeEventListener('pointermove', onPointerMove);
+      box.removeEventListener('pointerup', onPointerUp);
+      box.removeEventListener('pointercancel', onPointerUp);
+      box.removeEventListener('pointerleave', onPointerLeave);
+      box.removeEventListener('copy', onCopy, true);
       box.remove();
       dataListeners.clear();
       renderListeners.clear();
       keys.free();
+      gesture.free();
+      mouse.free();
       rs.free();
       t.free();
     },

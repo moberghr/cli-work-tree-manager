@@ -186,8 +186,72 @@ export function selectionText(term: TerminalLike): string {
   const text = term.getSelection();
   const range = term.getSelectionPosition();
   if (!range) return text;
-  const marked = markedSelection(term.buffer.active, range);
-  // xterm ends its lines with \r\n on Windows (every multi-line selection lost its styles to that); trailing blanks aside.
+  // xterm ends its lines with \r\n on Windows (every multi-line selection lost its styles to that): markedOr allows for it.
+  return markedOr(text, markedSelection(term.buffer.active, range));
+}
+
+/**
+ * A selection a terminal formatted as VT (libghostty's formatter: text with its SGR sequences) as marked text: bold
+ * and italic as `markedSelection` marks them, with its rules (a blank takes no style of its own, each line closes what
+ * it opened); every other sequence dropped. The ghostty engine's copy, where xterm's reads cells.
+ */
+export function markedVt(vt: string): string {
+  let bold = false;
+  let italic = false;
+  // The text as cells: each character with the style it was written in, lines apart.
+  const lines: Array<Array<{ ch: string; b: boolean; i: boolean }>> = [[]];
+  const seq = /\x1b\[([0-9;:]*)m|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[[\]()#][0-9;:?]*[ -/]*[@-~]?|\x1b./gsu;
+  let at = 0;
+  const text = (s: string) => {
+    for (const ch of s.replace(/\r\n?/gu, '\n')) {
+      if (ch === '\n') lines.push([]);
+      else lines[lines.length - 1]!.push({ ch, b: bold, i: italic });
+    }
+  };
+  for (const m of vt.matchAll(seq)) {
+    text(vt.slice(at, m.index));
+    at = m.index + m[0].length;
+    if (m[1] === undefined) continue;
+    const params = m[1] === '' ? ['0'] : m[1].split(';');
+    for (let k = 0; k < params.length; k++) {
+      const p = Number(params[k]!.split(':')[0] || 0);
+      if (p === 0) bold = italic = false;
+      else if (p === 1) bold = true;
+      else if (p === 22) bold = false;
+      else if (p === 3) italic = true;
+      else if (p === 23) italic = false;
+      else if ((p === 38 || p === 48 || p === 58) && !params[k]!.includes(':'))
+        k += params[k + 1] === '5' ? 2 : params[k + 1] === '2' ? 4 : 0;
+    }
+  }
+  text(vt.slice(at));
+  return lines
+    .map((cells) => {
+      let out = '';
+      let b = false;
+      let it = false;
+      for (const c of cells) {
+        const wantB: boolean = c.ch.trim() ? c.b : b;
+        const wantI: boolean = c.ch.trim() ? c.i : it;
+        if (wantB !== b || wantI !== it) {
+          if (it) out += I_OFF;
+          if (b) out += B_OFF;
+          if (wantB) out += B_ON;
+          if (wantI) out += I_ON;
+          b = wantB;
+          it = wantI;
+        }
+        out += c.ch;
+      }
+      if (it) out += I_OFF;
+      if (b) out += B_OFF;
+      return out;
+    })
+    .join('\n');
+}
+
+/** `marked` when it reads as `text` (trailing blanks aside), else `text`: a copy never loses text to its styles. */
+export function markedOr(text: string, marked: string): string {
   const same = (s: string) => s.replace(/\r\n/gu, '\n').replace(/[ \t]+$/gmu, '');
   return same(plain(marked)) === same(text) ? marked : text;
 }

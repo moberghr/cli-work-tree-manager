@@ -67,11 +67,43 @@ const FUNCTIONS = {
   ghostty_key_event_set_unshifted_codepoint: 2,
   ghostty_focus_encode: 4,
   ghostty_paste_encode: 6,
+  // Selection (selection.h): the terminal's own, made from pointer gestures (click, double, triple, drag, autoscroll).
+  ghostty_selection_gesture_new: 2,
+  ghostty_selection_gesture_free: 2,
+  ghostty_selection_gesture_reset: 2,
+  ghostty_selection_gesture_event: 4,
+  ghostty_selection_gesture_get: 4,
+  ghostty_selection_gesture_event_new: 3,
+  ghostty_selection_gesture_event_free: 1,
+  ghostty_selection_gesture_event_set: 3,
+  ghostty_terminal_selection_ordered: 4,
+  ghostty_terminal_point_from_grid_ref: 4,
+  // Links (grid_ref.h): an OSC 8 hyperlink's address.
+  ghostty_grid_ref_hyperlink_uri: 4,
+  // Mouse reporting (mouse/encoder.h, mouse/event.h): presses, releases, motion and the wheel as the program asked.
+  ghostty_mouse_encoder_new: 2,
+  ghostty_mouse_encoder_free: 1,
+  ghostty_mouse_encoder_set: 3,
+  ghostty_mouse_encoder_set_from_terminal: 2,
+  ghostty_mouse_encoder_encode: 5,
+  ghostty_mouse_event_new: 2,
+  ghostty_mouse_event_free: 1,
+  ghostty_mouse_event_set_action: 2,
+  ghostty_mouse_event_set_button: 2,
+  ghostty_mouse_event_clear_button: 1,
+  ghostty_mouse_event_set_mods: 2,
+  ghostty_mouse_event_set_position: 2,
 } as const;
 
-/** All of the C API used takes and returns i32 (pointers and size_t are 4 bytes on wasm32). */
+/** The exports that take a 64-bit value (a GhosttyRow) first, by value: a BigInt there, i32s after it. */
+const FUNCTIONS_64 = {
+  ghostty_row_get: 3,
+} as const;
+
+/** All of the C API used takes and returns i32 (pointers and size_t are 4 bytes on wasm32), but FUNCTIONS_64's first parameter. */
 export type WasmFn = (...args: number[]) => number;
-export type GhosttyFunctions = { readonly [K in keyof typeof FUNCTIONS]: WasmFn };
+export type WasmFn64 = (value: bigint, ...args: number[]) => number;
+export type GhosttyFunctions = { readonly [K in keyof typeof FUNCTIONS]: WasmFn } & { readonly [K in keyof typeof FUNCTIONS_64]: WasmFn64 };
 
 /** Byte offsets in the structs passed to and from the C API, read from the module's own `ghostty_type_json`. */
 export interface Layout {
@@ -167,8 +199,8 @@ function checked(module: WebAssembly.Module, exports: WebAssembly.Exports): Ghos
   const { memory, __indirect_function_table: table } = exports;
   if (!(memory instanceof WebAssembly.Memory)) throw new Error('libghostty-vt: no memory export');
   if (!(table instanceof WebAssembly.Table)) throw new Error('libghostty-vt: no function table export');
-  const fn: Partial<Record<keyof typeof FUNCTIONS, WasmFn>> = {};
-  for (const [name, arity] of Object.entries(FUNCTIONS)) {
+  const fn: Partial<Record<keyof typeof FUNCTIONS | keyof typeof FUNCTIONS_64, unknown>> = {};
+  for (const [name, arity] of [...Object.entries(FUNCTIONS), ...Object.entries(FUNCTIONS_64)]) {
     const f = exports[name];
     if (!isFn(f) || f.length !== arity) throw new Error(`libghostty-vt: ${name} missing or not ${arity} parameters`);
     fn[name as keyof typeof FUNCTIONS] = f;

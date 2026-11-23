@@ -94,6 +94,18 @@ describe('RenderState', () => {
     expect(row.text[2]).toBe('!');
   });
 
+  it('keeps grapheme clusters on from creation and through a reset (RIS) with the graphemeClusters option', () => {
+    const t = VtTerminal.create(instantiate(), 20, 5, { scrollback: 100, colors: theme, graphemeClusters: true });
+    const r = RenderState.create(t);
+    open.push({ t, r });
+    t.write('\x1bc👨‍👩‍👧|');
+    r.update();
+    const row = frame(r, true).get(0)!.row;
+    expect(row.text[0]).toBe('👨‍👩‍👧');
+    expect(row.width[0]).toBe(2);
+    expect(row.text[2]).toBe('|');
+  });
+
   it('says which rows changed since the last frame, and nothing once it is drawn', () => {
     const { t, r } = make();
     t.write('one\r\ntwo\r\nthree');

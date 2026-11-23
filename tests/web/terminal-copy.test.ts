@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   cleanTerminalCopy,
+  markedOr,
   markedSelection,
+  markedVt,
   plain,
   selectionText,
   tableRows,
@@ -232,5 +234,33 @@ describe('selectionText — the styles, never at the cost of the text', () => {
   it("the plain selection when they don't (a column selection, a buffer that moved), or there's no range", () => {
     expect(selectionText(term(['**Done**: all good'], 'something else'))).toBe('something else');
     expect(selectionText({ ...term(['x'], 'x'), getSelectionPosition: () => undefined })).toBe('x');
+  });
+});
+
+describe('markedVt (the ghostty engine: a selection formatted as VT)', () => {
+  const B = '\uE000';
+  const b = '\uE001';
+  const I = '\uE002';
+  const i = '\uE003';
+
+  it('marks bold and italic from SGR, drops colours and other sequences, closes each line', () => {
+    expect(markedVt('a \x1b[1mbold\x1b[0m \x1b[3mit\x1b[23m z')).toBe(`a ${B}bold ${b}${I}it ${i}z`);
+    expect(markedVt('\x1b[38;2;1;2;3m\x1b[1mx\r\ny\x1b[22m')).toBe(`${B}x${b}\n${B}y${b}`);
+    expect(markedVt('\x1b[38:5:9mred\x1b[m \x1b]8;;https://a.io\x1b\\link\x1b]8;;\x1b\\')).toBe('red link');
+    expect(plain(markedVt('\x1b[1;3mboth\x1b[0m'))).toBe('both');
+  });
+
+  it('a blank takes no style of its own, as markedSelection has it', () => {
+    expect(markedVt('\x1b[1mone two\x1b[0m three')).toBe(`${B}one two ${b}three`);
+  });
+
+  it('feeds terminalCopy the same marks xterm’s cells give', () => {
+    expect(terminalCopy(markedVt('see \x1b[1mthis\x1b[0m'), 80).html).toContain('<b>this</b>');
+  });
+
+  it('markedOr keeps the marks only when they read as the text', () => {
+    expect(markedOr('a b', `a ${B}b${b}`)).toBe(`a ${B}b${b}`);
+    expect(markedOr('a b', 'a c')).toBe('a b');
+    expect(markedOr('a\r\nb  ', 'a\nb')).toBe('a\nb');
   });
 });

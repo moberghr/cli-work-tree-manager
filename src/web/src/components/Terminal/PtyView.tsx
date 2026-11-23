@@ -19,7 +19,7 @@ import {
   type TerminalEngine,
 } from './engine/terminal-engine.js';
 
-export { openLink } from './engine/xterm-engine.js';
+export { openLink } from './engine/terminal-engine.js';
 
 interface Props {
   sessionId: string;

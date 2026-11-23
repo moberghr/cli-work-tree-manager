@@ -87,6 +87,8 @@ const SPA_SHARED = new Set([
   'src/core/pty/ghostty/vt-terminal.js', // pure: the terminal over an instance (write, resize, modes, viewport)
   'src/core/pty/ghostty/render-state.js', // pure: the render state's rows, cells, styles, cursor and colours
   'src/core/pty/ghostty/key-encoder.js', // pure: keys, focus and pastes as the terminal's modes want them
+  'src/core/pty/ghostty/mouse-encoder.js', // pure: mouse reports as the terminal's modes want them
+  'src/core/pty/ghostty/pointer.js', // pure: selection gestures, the selection and its text, OSC 8 links
   'src/core/pty/ghostty/replies.js', // pure, import-free: libghostty's replies as xterm.js gives them
   'src/core/worktree/repo-rules.js',
   'src/core/pr/pr-stage.js',

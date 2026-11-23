@@ -12,15 +12,15 @@ import { onFontsSettled } from '../../../state/font-settle.js';
 import { selectionText, terminalCopy } from '../../../state/terminal-copy.js';
 import { writeRich } from '../../../state/rich-copy.js';
 import { RepaintScroll } from '../../../state/repaint-scroll.js';
-import { TERMINAL_FONT, TERMINAL_FONT_SIZE, type Disposable, type EngineOptions, type TerminalEngine } from './terminal-engine.js';
+import {
+  openLink,
+  TERMINAL_FONT,
+  TERMINAL_FONT_SIZE,
+  type Disposable,
+  type EngineOptions,
+  type TerminalEngine,
+} from './terminal-engine.js';
 import '@xterm/xterm/css/xterm.css';
-
-/** Open a link from the terminal: web addresses only, in a new tab (the
- *  desktop app hands those to the default browser). */
-export function openLink(uri: string): void {
-  if (!/^https?:\/\//i.test(uri)) return;
-  window.open(uri, '_blank', 'noopener');
-}
 
 /** xterm.js: the Terminal tab's default engine, with its WebGL renderer, its fonts, copy and links. */
 export function createXtermEngine({ host, active, label, refit }: EngineOptions): TerminalEngine {

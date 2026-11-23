@@ -19,6 +19,10 @@ function row(
     ul: Int32Array.from(cells.map((c) => c[2]?.ul ?? -1)),
     flags: Uint16Array.from(cells.map((c) => c[2]?.flags ?? 0)),
     underline: Uint8Array.from(cells.map((c) => c[2]?.underline ?? 0)),
+    link: new Uint8Array(n),
+    wrapped: false,
+    selStart: -1,
+    selEnd: -1,
   };
   return r;
 }
