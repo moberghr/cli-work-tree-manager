@@ -277,12 +277,13 @@ describe('terminal relay', () => {
     const host = await fakeHost();
     ensureDelay = 0;
     const browser = new WebSocket((await relay()) + '?flow=1');
+    const frames: unknown[] = [];
+    browser.on('message', (d, bin) => !bin && frames.push(JSON.parse(d.toString())));
     await new Promise((r) => browser.on('open', r));
-    await sleep(100);
+    await vi.waitFor(() => expect(frames).toHaveLength(1)); // the host's replay: the relay is connected through
     browser.send(ackFrame(5000));
-    await sleep(150);
+    await vi.waitFor(() => expect(host.received).toEqual([ackFrame(5000)]));
     expect(new URL(host.urls[0], 'ws://h').searchParams.get('flow')).toBe('1');
-    expect(host.received).toEqual([ackFrame(5000)]);
     browser.close();
   });
 
@@ -291,8 +292,7 @@ describe('terminal relay', () => {
     ensureDelay = 0;
     const browser = new WebSocket(await relay());
     await new Promise((r) => browser.on('open', r));
-    await sleep(100);
-    expect(host.urls).toEqual(['/ptys/s/attach']);
+    await vi.waitFor(() => expect(host.urls).toEqual(['/ptys/s/attach']));
     browser.close();
   });
 
@@ -302,7 +302,7 @@ describe('terminal relay', () => {
     ensured.length = 0;
     const browser = new WebSocket((await relay()) + '?flow=1&cols=133&rows=41');
     await new Promise((r) => browser.on('open', r));
-    await sleep(100);
+    await vi.waitFor(() => expect(host.urls).toHaveLength(1));
     const params = new URL(host.urls[0], 'ws://h').searchParams;
     expect([params.get('flow'), params.get('cols'), params.get('rows')]).toEqual(['1', '133', '41']);
     expect(ensured.at(-1)).toEqual(['s', { grid: { cols: 133, rows: 41 } }]);
@@ -315,8 +315,7 @@ describe('terminal relay', () => {
     ensured.length = 0;
     const browser = new WebSocket((await relay()) + '?cols=1&rows=99999');
     await new Promise((r) => browser.on('open', r));
-    await sleep(100);
-    expect(host.urls).toEqual(['/ptys/s/attach']);
+    await vi.waitFor(() => expect(host.urls).toEqual(['/ptys/s/attach']));
     expect(ensured.at(-1)).toEqual(['s', {}]);
     browser.close();
   });
@@ -331,7 +330,7 @@ describe('terminal relay', () => {
       const frames: unknown[] = [];
       browser.on('message', (d, bin) => !bin && frames.push(JSON.parse(d.toString())));
       await new Promise((r) => browser.on('open', r));
-      await sleep(100);
+      await vi.waitFor(() => expect(frames).toHaveLength(1)); // the host's replay
       const params = new URL(host.urls[0], 'ws://h').searchParams;
       expect([params.get('flow'), params.get('cols'), params.get('rows'), params.get('resume')]).toEqual([
         '1',
@@ -354,8 +353,7 @@ describe('terminal relay', () => {
     ensured.length = 0;
     const browser = new WebSocket((await relay()) + '?resume=nonsense');
     await new Promise((r) => browser.on('open', r));
-    await sleep(100);
-    expect(host.urls).toEqual(['/ptys/s/attach']);
+    await vi.waitFor(() => expect(host.urls).toEqual(['/ptys/s/attach']));
     expect(ensured.at(-1)).toEqual(['s', {}]);
     browser.close();
   });

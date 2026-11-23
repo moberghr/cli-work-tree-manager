@@ -91,7 +91,7 @@ An agent asks its terminal things (device attributes, the cursor position, wheth
   - xterm answers: DA1, DA2, DSR 5n, CPR 6n, DECXCPR `? 6 n`, DECRQM (2026 included: the browser's xterm.js 6.0.0 answers the same), DECRQSS.
   - The host adds: OSC 10 / 11 / 12 and OSC 4 queries, which xterm.js leaves to its renderer. Answered from the last colour a client answered (`TerminalColors`, one per host process, fed every answer the host lets through), else the tab's theme (`TERMINAL_THEME`, shared with PtyView) and xterm.js's default palette, in xterm.js's `rgb:rrrr/gggg/bbbb` form. Only a colour value is ever repeated.
   - Silent, as in the browser: DA3, XTVERSION (xterm.js 6.0.0 has no handler), kitty `CSI ? u`, XTQMODKEYS, `CSI … t` window reports (windowOptions off), XTGETTCAP, OSC 52.
-- **Clients attached**: the host stays silent, and one client's answers go through: the one used last (it typed or resized, `attached.lead()`: it has the PTY's size), else the first attached. Every client is still sent the query; the others' answers are dropped (`attached.replies`). Focus and mouse-motion reports go through from any client, as before, and don't count as use. A frame with typing in it goes through whole, replies and all: typing is never dropped.
+- **Clients attached**: the host stays silent, and one client's answers go through: the one used last (it typed or resized, `attached.lead()`: it has the PTY's size), else the first attached. Every client is still sent the query; the others' answers are dropped (`attached.replies`). Focus and mouse-motion reports go through from any client, as before, and don't count as use. What a client sent on its own is told from typing by `replyParts` (`core/pty/terminal-replies.ts`: the replies a frame is made of, or null when anything in it is typing); A frame with typing in it goes through whole, replies and all: typing is never dropped.
 - **The answerer is fixed per chunk** until the next one arrives, so its late answer still goes through. A client that becomes the one used last after a query arrived (a new tab's post-replay resize) doesn't take that query over. When the answering client detaches, the next attached takes over (it was sent the same).
 - **A client drawing its replay** has the query held for it and answers once it draws it.
 - The relay (`terminal-ws.ts`) and `work attach` are clients like any other: one host connection each.
@@ -148,6 +148,12 @@ Output used to go to every client chunk by chunk, as fast as the agent wrote it.
 
 - **The browser** (`PtyView`) resizes to the snapshot's grid. It writes `ESC c` (RIS: in order with what was queued before it; it clears the scrollback too) followed by the screen, and stays at that grid, the PTY's (see "Resizing and attaching at a size"). It takes no focus, sends no size (that would take the PTY's size from the terminal in use), holds no input and leaves the phase alone.
 - **`work attach`** (`commands/shared/attach-output.ts`) asks for screen-only catch-ups (`withFlow(…, { screenOnly: true })`, `?catchup=screen`). Its mid-session screen is the visible screen without the scrollback (`snapshot({ scrollback: false })`), so a catch-up adds nothing to your terminal's history. The saved cursor and the scroll region are positions on the screen (the saved cursor's buffer line less `baseY`), so they come out the same without the scrollback (round-trip tests, over a fresh terminal and over one with history in it). Every screen is drawn over a cleared screen (`CLEAR_SCREEN`), never `CSI 3 J`, so your shell's history from before the attach is kept. The first screen still carries the session's scrollback.
+
+**A screen that can't be taken.** `ScreenMirror.snapshot()` gives `null` (logged, `logSwallowed`), never `''`: an empty screen would be drawn by a client over the one it has, blank. What the registry does (`pty-registry.ts`):
+
+- **A first attach** attaches all the same, on an empty screen the agent's next repaint fills, and reports it (`report('warn', …)`). A terminal that got no first frame would take no input.
+- **A catch-up** (a client that fell behind, caught up) sends a frame that changes nothing, `data: ''`, `stream: ''`, `resumed: true`, and reports it. The tab keeps its screen, draws nothing and no longer knows where it stands (no stream), so it never resumes from there. It missed output meanwhile.
+- **`work attach`** (`screenOnlyCatchUp`) is sent nothing: it draws every screen over a cleared one and never resumes.
 
 The browser also bounds each `term.write` at `WRITE_PIECE` (64 KiB). xterm.js parses one write whole before it looks at the clock, so a big frame or screen written at once is one long freeze. The keystroke-latency meter still marks the echo as the frame arrives.
 
@@ -246,7 +252,7 @@ Untested on a real Windows machine:
 
 Left open:
 
-- **Older resize frames.** A `resize` frame from an older client is bounded only by the registry's `validGrid`.
+- **Resize frames.** The host runs `validGrid` on a `resize` frame before the connection's size is taken or it becomes the one used last (`pty-host.ts`): an invalid grid is dropped whole, and it can no more lead than resize. The registry checks it again.
 - **Clients that don't lead aren't told.** They are not told that the PTY's grid changed. They find out from the next catch-up screen.
 - **The bundled ConPTY on a real Windows machine.** That it reflows as 21376 is from its version and Tabby's choice, not seen here.
 
@@ -288,7 +294,7 @@ Synthetic streams (frames sent from the page itself):
 
 **What the host does.**
 
-- **`core/pty/sync-output.ts`** follows only the set and the reset of 2026, as the output arrives. It also sees them among other modes (`CSI ? 2026 ; 25 h`) and when a read cuts one. A second set inside a frame changes nothing, a reset with no frame open is nothing, and RIS ends a frame, as each does in xterm.js. It doesn't use the mirror's parser, which is asynchronous.
+- **`core/pty/sync-output.ts`** (`SYNC_MODE` = 2026 is exported from it, and `state/repaint-scroll.ts` imports it) follows only the set and the reset of 2026, as the output arrives. It also sees them among other modes (`CSI ? 2026 ; 25 h`) and when a read cuts one. A second set inside a frame changes nothing, a reset with no frame open is nothing, and RIS ends a frame, as each does in xterm.js. It doesn't use the mirror's parser, which is asynchronous.
 - **`PtySession`** cuts its output just past each frame end (`cutAtFrameEnds`). For each piece, it writes the mirror at once and then hands the piece on. The answerer of a query is still designated as the output arrives (see "Who answers a query").
 - **The pacer** holds a frame from its BSU to its ESU, with whatever was pending before it, and sends it as one message. It is not split by `COALESCE_MS` or `MAX_FRAME_CHARS`. Pausing and falling behind are decided only between frames: `deliver` runs once per whole frame, and `evaluate` never pauses while a frame is held.
 - **`FRAME_HOLD_MS` = 200** is the time cap. That is 8 times the slowest arrival measured (1.5 MiB in 26 ms), well under xterm.js's own 1 s, and alacritty and zellij use 150 ms. A frame that doesn't end in time is let go, and the rest of it flows as ordinary output. The tab still holds it by its markers.
@@ -469,13 +475,13 @@ A Terminal tab whose connection dropped (Wi-Fi, sleep, work web or the host rest
 
 **Where a client stands.** Every `replay` frame says which output stream it belongs to and the offset it leaves the client at (`stream`, `offset`; `core/pty/resume.ts`).
 
-- **`stream`** is 16 hex characters from `randomBytes(8)`, one per registry entry. A new spawn under the same id, or a host started again, is another stream. A restart or halt in place keeps the entry, so it keeps the stream and the count: the new agent's output continues it, as an attached tab sees it.
+- **`stream`** is 16 hex characters from `randomBytes(8)`, one per registry entry. A new spawn under the same id after the entry ended, or a host started again, is another stream. A restart or halt in place keeps the entry, so it keeps the stream and the count: the new agent's output continues it, as an attached tab sees it, with no screen between, and a client resuming across it is sent the same characters from its offset. A resume that arrives during the restart is refused as `busy` (below) and gets a screen.
 - **`offset`** is the pacer's (see "Flow control and coalescing", Offsets).
 - **Live frames carry no stamp.** They are contiguous slices of the output, one host frame per WebSocket message, which the relay passes on as they are. So a client knows its offset: the last replay's, plus `utf16Length` of each binary frame (`StreamPosition`). Acks already rely on that count. A stamp per frame (Paradev's seq, sshx's chunk numbers) would add a header to every frame for something the client counts itself. A catch-up screen mid-session sets the position as the first screen does.
 
 **Asking.** Reconnecting, the tab states `?resume=<stream>-<offset>-<cols>x<rows>` on its attach address: straight to the host with a ticket, or through the relay, which passes it on as it does `flow` and the grid. A malformed one is ignored (a screen). A reconnect only attaches: it never starts an agent and is never told "elsewhere". The ticket request says `attachOnly: true` (`ensurePty(…, { attachOnly })`, which throws `NOT_RUNNING` when the terminal isn't running), and the relay takes the parameter itself for the same.
 
-**The tail.** The pacer keeps the last `RESUME_TAIL_CHARS` (64 Ki) characters of output as they arrived (`OutputTail`, `core/pty/output-tail.ts`). It is pushed first thing in `output()`, so its end is always `pacer.offset`. Why that size:
+**The tail.** The pacer keeps the last `RESUME_TAIL_CHARS` (64 Ki) characters of output as they arrived (`OutputTail`, `core/pty/output-tail.ts`). It is fed one piece at a time as the pacer takes each in (`piece()`: a chunk is cut where a synchronized frame opens or ends), and `pacer.offset` is the tail's end, so there is one count. Pushed whole at the top of `output()`, the tail would run ahead of a client that joins at a frame's end between two pieces of one chunk, and it would be sent from the tail what it is then sent live. Why that size:
 
 - It is under `HIGH_WATERMARK`, so a resume never sends more than a client may have outstanding anyway.
 - It is about a minute of a working Claude (~1 KB/s, pty-host.md), many minutes of one at its prompt.
@@ -508,9 +514,10 @@ A longer drop gets a screen, which is what a long absence wants anyway.
 - It keeps its Terminal, writes nothing in it, and queues input.
 - It reconnects after `RECONNECT_DELAYS_MS` (0, 1, 2, 4 s), each try from where it stands then. It states its grid when shown, none when hidden.
 - "Connecting…" covers the pane only after `RECONNECT_COVER_MS` (500 ms).
-- **Resumed**: the missed output is drawn on the screen as it is, and the scrollback, scroll position and selection stay. Then its size and queued input are sent, as after any first screen.
+- **Resumed**: the missed output is drawn on the screen as it is, and the scrollback, scroll position and selection stay. Then its size and queued input are sent, as after any first screen. A `resumed: true` frame is always drawn this way, whatever state the tab thinks it is in, never over a reset terminal (a catch-up the host couldn't take a screen for is one, see "A screen that can't be taken").
 - **Refused**: the screen is drawn over a reset terminal at its grid, as a catch-up is.
-- **After the last try**: the old message, and Enter starts over.
+- **After the last try**: the old message, with the host's reason when the last try was given one and "; what you typed meanwhile was not sent" when input was queued (`connection closed: <reason>; what you typed meanwhile was not sent — press Enter to reconnect`), and Enter starts over. The queued input is dropped, never sent to a new terminal.
+- **A frame is drawn after its connection closed.** xterm draws a write a while after the frame came, and the connection can close meanwhile. Each replay's completion is tied to the socket it came on (`live`, `finishReplay(sock)`): once that socket closed it makes nothing ready. Otherwise the next try's first frame would be taken for a catch-up (drawn over a reset terminal), and what was typed would go to a closed connection. What was given to xterm is still drawn, in order, so the position counts what was written.
 - **A host from before** (no `stream`): the old message at once.
 
 **Compatibility.** Additive: no `PROTOCOL_VERSION` bump, no `HOST_FEATURES` entry.
