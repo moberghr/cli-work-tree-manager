@@ -14,7 +14,18 @@ import {
   SINCE_BRANCH,
   UNCOMMITTED,
 } from '../../src/web/src/state/diff-history.js';
-import { emptyDiffMessage, orderRepoTabs, preferredRepo, repoSwitch, sessionRepoNames } from '../../src/web/src/state/diff-view.js';
+import {
+  emptyDiffMessage,
+  orderRepoTabs,
+  preferredRepo,
+  repoFilePath,
+  repoMenuSections,
+  repoMoreButton,
+  repoPills,
+  repoSwitch,
+  sessionRepoNames,
+  type RepoSwitchItem,
+} from '../../src/web/src/state/diff-view.js';
 
 const entry = (id: number, minute: number, label?: string) => ({
   id,
@@ -233,8 +244,113 @@ describe("the Diff toolbar's repo switch", () => {
     const f = (added: number, deleted: number) => ({ added, deleted });
     expect(repoSwitch(['backend', 'frontend'], [{ name: 'frontend', files: [f(3, 1), f(2, 0)] }])).toEqual([
       { name: 'backend', files: null, added: 0, deleted: 0 }, // not in this pick (a commit of frontend)
-      { name: 'frontend', files: 2, added: 5, deleted: 1 },
+      { name: 'frontend', files: 2, added: 5, deleted: 1, paths: [] },
     ]);
     expect(repoSwitch(['a', 'b'], undefined).map((r) => r.files)).toEqual([null, null]); // still loading
+  });
+
+  it("carries each changed file's path, named as repo/path, and a search finds a repo by one", () => {
+    const items = repoSwitch(
+      ['billing', 'catalog'],
+      [
+        { name: 'billing', files: [{ path: 'src/rate-limit.ts', added: 4, deleted: 0 }] },
+        { name: 'catalog', files: [{ path: 'src/search/index.ts', added: 1, deleted: 1 }] },
+      ],
+    );
+    expect(items[0].paths).toEqual(['src/rate-limit.ts']);
+    expect(repoFilePath('billing', 'src/rate-limit.ts')).toBe('billing/src/rate-limit.ts');
+    expect(repoMenuSections(items, 'search/index').flatMap((s) => s.repos.map((r) => r.name))).toEqual(['catalog']);
+    expect(repoMenuSections(items, 'billing/src').flatMap((s) => s.repos.map((r) => r.name))).toEqual(['billing']);
+  });
+});
+
+describe('a group of many repos in the switch: the pills that fit, the rest in a list', () => {
+  const item = (name: string, files: number | null): RepoSwitchItem => ({ name, files, added: files ?? 0, deleted: 0 });
+  // Ten pixels a letter; the list's button 30 counting the rest, 50 naming the repo on screen.
+  const width = (name: string) => name.length * 10;
+  const btn = { count: 30, named: 50 };
+  const names = (r: { pills: RepoSwitchItem[]; more: boolean }) => [...r.pills.map((p) => p.name), ...(r.more ? ['▾'] : [])];
+
+  const few = [item('api', 0), item('web', 2)];
+  it("every repo, in the session's order, while they all fit — a group of a few looks as it always did", () => {
+    expect(names(repoPills(few, 'web', 60, width, btn))).toEqual(['api', 'web']);
+  });
+
+  const many = [item('aaa', 0), item('bbb', 3), item('ccc', 0), item('ddd', 1), item('eee', 2), item('fff', 0)];
+  it("else the ones with changes, in the session's order, as many as fit beside the list's button", () => {
+    // 100 − 30 for the button: two of the three with changes.
+    expect(names(repoPills(many, 'bbb', 100, width, btn))).toEqual(['bbb', 'ddd', '▾']);
+    expect(names(repoPills(many, 'bbb', 150, width, btn))).toEqual(['bbb', 'ddd', 'eee', '▾']);
+  });
+
+  it('the repo on screen is always a pill — one with no changes too — in its place, the last ones taken giving way', () => {
+    expect(names(repoPills(many, 'eee', 100, width, btn))).toEqual(['bbb', 'eee', '▾']);
+    expect(names(repoPills(many, 'fff', 100, width, btn))).toEqual(['bbb', 'fff', '▾']);
+    expect(names(repoPills(many, 'aaa', 150, width, btn))).toEqual(['aaa', 'bbb', 'ddd', 'eee', '▾']);
+  });
+
+  it('a changed repo too wide to fit is skipped, not the end: the ones after it still get their pill', () => {
+    const items = [item('shared-infrastructure', 1), item('api', 1), item('web', 0)];
+    // 100 − 30 for the button − 30 for web, on screen: shared-infrastructure (210) can't fit, api (30) can.
+    expect(names(repoPills(items, 'web', 100, width, btn))).toEqual(['api', 'web', '▾']);
+  });
+
+  it('the repo on screen taken first, the changed ones fill what it leaves', () => {
+    const items = [item('aaaaaaaaaa', 1), item('bbbb', 1), item('ccccc', 0)];
+    // 170 − 30 − 50 for ccccc = 90: aaaaaaaaaa (100) is skipped, bbbb (40) fits. Giving way from the end showed ccccc alone.
+    expect(names(repoPills(items, 'ccccc', 170, width, btn))).toEqual(['bbbb', 'ccccc', '▾']);
+  });
+
+  it('the repo on screen too wide for the room: the changed ones still fill it, beside the button naming it', () => {
+    const items = [item('aaaaaaa', 1), item('bbbbbbb', 1), item('ccccccc', 1), item('frontend-admin-portal', 0)];
+    // 200 − 50 for the button naming frontend-admin-portal (210, no pill): two of the three 70 px pills.
+    const r = repoPills(items, 'frontend-admin-portal', 200, width, btn);
+    expect(names(r)).toEqual(['aaaaaaa', 'bbbbbbb', '▾']);
+    expect(repoMoreButton(items, r.pills, 'frontend-admin-portal')).toMatchObject({ label: 'frontend-admin-portal', current: true });
+  });
+
+  it("the changed ones fit beside the button as wide as it shows: naming the repo on screen, not '+N'", () => {
+    const items = [item('api', 1), item('frontend-admin-portal', 0)];
+    // 100 − 50 holds api (30)…
+    expect(names(repoPills(items, 'frontend-admin-portal', 100, width, btn))).toEqual(['api', '▾']);
+    // …75 − 50 doesn't, though beside '+N' (75 − 30) it would.
+    expect(names(repoPills(items, 'frontend-admin-portal', 75, width, btn))).toEqual(['▾']);
+  });
+
+  it("the repo on screen the button names is not also taken as a pill, even when '+N' would be wider than that button", () => {
+    const items = [item('bbbb', 1), item('a', 1), item('dddddddddd', 0)];
+    // Not pinned (40 > 90 − 60), so the room is budgeted beside the 30 px button naming bbbb: it must not become a pill too.
+    const r = repoPills(items, 'bbbb', 90, width, { count: 60, named: 30 });
+    expect(names(r)).toEqual(['a', '▾']);
+    expect(repoMoreButton(items, r.pills, 'bbbb')).toMatchObject({ label: 'bbbb', current: true });
+  });
+
+  it("no room even for the one on screen: the list's button alone, naming it", () => {
+    const r = repoPills(many, 'bbb', 40, width, btn);
+    expect(names(r)).toEqual(['▾']);
+    expect(repoMoreButton(many, r.pills, 'bbb')).toEqual({ label: 'bbb', current: true, hidden: 6, hiddenChanged: 2 });
+  });
+
+  it('the button says how many have no pill, and whether changes are among them', () => {
+    const r = repoPills(many, 'bbb', 100, width, btn);
+    expect(repoMoreButton(many, r.pills, 'bbb')).toEqual({ label: '+4', current: false, hidden: 4, hiddenChanged: 1 });
+    const all = repoPills(many, 'bbb', 150, width, btn);
+    expect(repoMoreButton(many, all.pills, 'bbb')).toMatchObject({ label: '+3', hiddenChanged: 0 });
+  });
+
+  it('the list: every repo, the changed first, then none, then not in this pick; found by every word typed, any case', () => {
+    const repos = [item('shop-api', 0), item('shop-web', 4), item('billing', null), item('docs', 1), item('infra', 0)];
+    expect(repoMenuSections(repos, '').map((s) => [s.title, s.repos.map((r) => r.name)])).toEqual([
+      ['Changed', ['shop-web', 'docs']],
+      ['No changes', ['shop-api', 'infra']],
+      ['Not in this pick', ['billing']],
+    ]);
+    expect(repoMenuSections(repos, 'SHOP').map((s) => [s.title, s.repos.map((r) => r.name)])).toEqual([
+      ['Changed', ['shop-web']],
+      ['No changes', ['shop-api']],
+    ]);
+    // One section: no heading.
+    expect(repoMenuSections(repos, 'shop api')).toEqual([{ title: '', repos: [repos[0]] }]);
+    expect(repoMenuSections(repos, 'nothing')).toEqual([]);
   });
 });

@@ -30,6 +30,16 @@ export interface RepoSwitchItem {
   files: number | null;
   added: number;
   deleted: number;
+  /** Its changed files' paths inside the repo, in the diff's order (the list names each as repo/path). */
+  paths?: string[];
+}
+
+/** How many of a repo's files the switch's list names before "+N more". */
+export const REPO_LIST_PATHS = 3;
+
+/** A changed file as the list shows it: the repo, then the path in it. */
+export function repoFilePath(repo: string, path: string): string {
+  return `${repo}/${path}`;
 }
 
 /** A session's repos by their folder's name (what the diff calls them), in the session's own order. */
@@ -49,7 +59,7 @@ export function sessionRepoNames(paths: readonly string[]): string[] {
  */
 export function repoSwitch(
   names: readonly string[],
-  repos: readonly { name: string; files: readonly { added: number; deleted: number }[] }[] | undefined,
+  repos: readonly { name: string; files: readonly { path?: string; added: number; deleted: number }[] }[] | undefined,
 ): RepoSwitchItem[] {
   return names.map((name) => {
     const r = repos?.find((x) => x.name === name);
@@ -58,6 +68,7 @@ export function repoSwitch(
       files: r ? r.files.length : null,
       added: r ? r.files.reduce((s, f) => s + f.added, 0) : 0,
       deleted: r ? r.files.reduce((s, f) => s + f.deleted, 0) : 0,
+      ...(r ? { paths: r.files.flatMap((f) => (f.path ? [f.path] : [])) } : {}),
     };
   });
 }
@@ -65,6 +76,91 @@ export function repoSwitch(
 /** Repos with changes first, in their own order; the rest after (shown dimmed). */
 export function orderRepoTabs<T extends RepoLike>(repos: readonly T[]): T[] {
   return [...repos.filter((r) => r.files.length > 0), ...repos.filter((r) => r.files.length === 0)];
+}
+
+/** The repos shown as pills in the switch; `more`: the rest are in its list (the button after the pills). */
+export interface RepoPills {
+  pills: RepoSwitchItem[];
+  more: boolean;
+}
+
+/** The list's button as wide as it is when it counts the rest ("+12 ▾") and when it names the repo on screen, its gap included. */
+export interface RepoMoreWidths {
+  count: number;
+  named: number;
+}
+
+/**
+ * Which of a group's repos are pills in the Diff toolbar, given the room the rest of the line leaves them: every repo,
+ * in the session's order, when they all fit (a group of a few looks as it always did); else the one on screen when it
+ * fits beside the list's button, then the ones with changes in this pick, in the session's order, each that still fits
+ * (one too wide is skipped, not the end). With no room for the one on screen, the button names it, and the others fit
+ * beside a button that wide.
+ */
+export function repoPills(
+  items: readonly RepoSwitchItem[],
+  active: string | null,
+  room: number,
+  widthOf: (name: string) => number,
+  more: RepoMoreWidths,
+): RepoPills {
+  const total = items.reduce((s, r) => s + widthOf(r.name), 0);
+  if (total <= room) return { pills: [...items], more: false };
+  const current = items.find((r) => r.name === active);
+  const pinned = current && widthOf(current.name) <= room - more.count ? current : undefined;
+  let left = room - (current && !pinned ? more.named : more.count) - (pinned ? widthOf(pinned.name) : 0);
+  const taken = pinned ? [pinned] : [];
+  for (const r of items) {
+    // The one on screen is never taken here: pinned already, or named by the button the room was budgeted for.
+    if (r === current || (r.files ?? 0) === 0 || widthOf(r.name) > left) continue;
+    taken.push(r);
+    left -= widthOf(r.name);
+  }
+  taken.sort((a, b) => items.indexOf(a) - items.indexOf(b));
+  return { pills: taken, more: true };
+}
+
+/** The list's button: how many repos aren't pills, or the repo on screen when it isn't one. */
+export interface RepoMoreButton {
+  label: string;
+  /** The label names the repo on screen (no pill for it). */
+  current: boolean;
+  /** Repos with no pill. */
+  hidden: number;
+  /** Of those, the ones with changes in this pick, the one on screen left out (it's the diff below). */
+  hiddenChanged: number;
+}
+
+export function repoMoreButton(items: readonly RepoSwitchItem[], pills: readonly RepoSwitchItem[], active: string | null): RepoMoreButton {
+  const rest = items.filter((r) => !pills.some((p) => p.name === r.name));
+  const hiddenChanged = rest.filter((r) => (r.files ?? 0) > 0 && r.name !== active).length;
+  const current = active !== null && rest.some((r) => r.name === active);
+  return { label: current ? active : `+${rest.length}`, current, hidden: rest.length, hiddenChanged };
+}
+
+/** A section of the switch's list: its heading (none when it's the only one) and its repos. */
+export interface RepoMenuSection {
+  title: string;
+  repos: RepoSwitchItem[];
+}
+
+/**
+ * The switch's list: every repo of the group whose name has every word typed (any case), those with changes in this
+ * pick first, then those with none, then those not in it (a commit is one repo's) — each in the session's order.
+ */
+export function repoMenuSections(items: readonly RepoSwitchItem[], query: string): RepoMenuSection[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  // A word finds a repo by its name or by a changed file's path in it.
+  const found = items.filter((r) => {
+    const hay = [r.name, ...(r.paths ?? []).map((p) => repoFilePath(r.name, p))].join('\n').toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+  const sections = [
+    { title: 'Changed', repos: found.filter((r) => r.files !== null && r.files > 0) },
+    { title: 'No changes', repos: found.filter((r) => r.files === 0) },
+    { title: 'Not in this pick', repos: found.filter((r) => r.files === null) },
+  ].filter((s) => s.repos.length > 0);
+  return sections.length === 1 ? [{ title: '', repos: sections[0].repos }] : sections;
 }
 
 /** What an empty diff says, for what was asked. */

@@ -473,6 +473,67 @@ export class DemoScenario {
       ]),
       5,
     );
+    // A group of many repos, most with changes: the Diff tab's repo switch runs out of room and lists them.
+    const MANY_REPOS = [
+      'billing',
+      'catalog',
+      'checkout',
+      'identity',
+      'inventory',
+      'notifications',
+      'orders',
+      'payments',
+      'search',
+      'shipping',
+      'reviews',
+      'recommendations',
+      'analytics',
+      'admin',
+    ];
+    this.add(
+      'platform',
+      'feat/rate-limits',
+      MANY_REPOS.map((name, i) => {
+        // Every third repo has nothing in it: dimmed in the switch, last in the list.
+        if (i % 3 === 2) return { name };
+        const ident = name.replace(/-/g, '_');
+        // How many files each repo changes, and how long the new ones are: one tiny file to a dozen big ones.
+        const fileCount = [1, 3, 0, 6, 2, 0, 12, 1, 0, 9, 4, 0, 7, 2][i];
+        const bodyLines = [4, 30, 0, 12, 90, 0, 8, 160, 0, 20, 55, 0, 6, 240][i];
+        const limiter = diffNew(`src/${name}/rate-limit.ts`, [
+          `export const ${ident}Limit = { perMinute: ${60 + i * 10}, burst: ${5 + i} };`,
+          'export function allow(count: number): boolean {',
+          `  return count <= ${ident}Limit.perMinute;`,
+          '}',
+        ]);
+        const extra = Array.from({ length: fileCount - 1 }, (_, k) => {
+          const dir = ['handlers', 'middleware', 'config', 'lib/util', 'routes/v2'][k % 5];
+          if (k % 3 === 2) {
+            // An edit of a file that was already there.
+            return diffEdit(
+              `src/${name}/${dir}/index.ts`,
+              10 + k,
+              [`  const limit = ${30 + k};`, '  return limit;'],
+              [`  const limit = ${ident}Limit.perMinute;`, '  if (limit <= 0) throw new Error("rate limit unset");', '  return limit;'],
+              ['export function limitFor(user: string): number {'],
+            );
+          }
+          const lines = Array.from({ length: Math.max(3, Math.round(bodyLines * (1 - k / (fileCount + 1)))) }, (_, n) =>
+            n % 5 === 0 ? `export function step${k}_${n}(input: number): number {` : n % 5 === 4 ? '}' : `  return input + ${n};`,
+          );
+          return diffNew(`src/${name}/${dir}/limit-${k}.ts`, lines);
+        });
+        const change = [limiter, ...extra].join('');
+        return { name, uncommitted: change, sinceBranch: change };
+      }),
+      { state: 'working', seen: true, summary: 'Add a rate limit to every service', minutesAgo: 3 },
+      claudeScreen('Add a rate limit to every service', [
+        '● Write(billing/src/billing/rate-limit.ts)',
+        '● Write(catalog/src/catalog/rate-limit.ts)',
+        '✻ Going through the other services…  (esc to interrupt)',
+      ]),
+      8,
+    );
     // Its turn ended, and the review it started runs on in the background: In background (teal), its prompt free.
     this.add(
       'api',
