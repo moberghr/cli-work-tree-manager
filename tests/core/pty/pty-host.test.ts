@@ -14,6 +14,7 @@ import { HIGH_WATERMARK, LOW_WATERMARK, ackFrame, withFlow } from '../../../src/
 import { CATCH_UP_MIN_MS } from '../../../src/core/pty/output-pacer.js';
 import { withGrid, type Grid } from '../../../src/core/pty/terminal-size.js';
 import { REDRAW_JIGGLE_MS } from '../../../src/core/pty/pty-registry.js';
+import { withResume, type ResumePoint } from '../../../src/core/pty/resume.js';
 
 class EchoPty implements PtyLike {
   readonly pty = { pid: 1 };
@@ -132,9 +133,9 @@ afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean; grid?: Grid } = {}) {
+function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean; grid?: Grid; resume?: ResumePoint } = {}) {
   const url = opts.flow ? withFlow(client.attachUrl(id), { screenOnly: opts.screenOnly }) : client.attachUrl(id);
-  const ws = new WebSocket(withGrid(url, opts.grid));
+  const ws = new WebSocket(withResume(withGrid(url, opts.grid), opts.resume));
   const binary: string[] = [];
   const control: unknown[] = [];
   ws.on('message', (d, isBinary) => {
@@ -175,7 +176,15 @@ describe('PTY host', () => {
     await b.opened;
     await tick();
     // Late attacher gets the screen as a replay control frame first.
-    expect(b.control[0]).toEqual({ type: 'replay', data: 'echo:hi', cols: 120, rows: 32 });
+    // The stream and the offset it stands at: where its live output starts (resume.ts).
+    expect(b.control[0]).toEqual({
+      type: 'replay',
+      data: 'echo:hi',
+      cols: 120,
+      rows: 32,
+      stream: expect.stringMatching(/^[0-9a-f]{16}$/),
+      offset: 7,
+    });
     expect(b.binary.join('')).toBe('');
     expect(await client.write('s1', 'x')).toBe(true);
     await tick();
@@ -394,7 +403,7 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     await a.opened;
     await tick();
     expect(pty.log).toEqual(['resize 100x30']);
-    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 100, rows: 30 });
+    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 100, rows: 30, stream: expect.any(String), offset: 0 });
     expect((await client.get('g1'))?.cols).toBe(100);
     a.ws.close();
   });
@@ -406,7 +415,7 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     await a.opened;
     await tick();
     expect(pty.log).toEqual([]);
-    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 120, rows: 32 });
+    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 120, rows: 32, stream: expect.any(String), offset: 0 });
     a.ws.close();
   });
 
@@ -872,5 +881,114 @@ describe('startup restore ordering (reviewed bug)', () => {
     const src = fs.readFileSync(path.resolve(__dirname, '../../../src/commands/pty-host.ts'), 'utf-8');
     expect(src).not.toMatch(/restore:\s*false/);
     expect(src).not.toMatch(/registry\.restore\(\)/);
+  });
+});
+
+describe('reattaching where it left off (terminal-rendering.md, "Reattach where you left off")', () => {
+  beforeEach(() => {
+    makePty = () => new MirrorPty();
+  });
+  afterEach(() => {
+    makePty = () => new EchoPty();
+  });
+  type Replay = { type: 'replay'; data: string; cols: number; rows: number; stream: string; offset: number; resumed?: true };
+
+  /** A client that drew the replay and every frame, then lost its connection: where it stands. */
+  async function leave(id: string): Promise<ResumePoint> {
+    const a = attach(id, { flow: true });
+    await a.opened;
+    await tick();
+    const replay = a.control[0] as Replay;
+    expect(replay.stream).toMatch(/^[0-9a-f]{16}$/);
+    const pty = spawned.at(-1) as MirrorPty;
+    pty.print('drawn ');
+    await tick();
+    const drawn = a.binary.join('');
+    a.ws.terminate();
+    await a.closed;
+    await tick();
+    return { stream: replay.stream, offset: replay.offset + drawn.length, cols: replay.cols, rows: replay.rows };
+  }
+
+  it('the direct path: a client stating ?resume= at its offset is sent only what it missed, then live output', async () => {
+    await client.spawn('r1', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    pty.print('before ');
+    const at = await leave('r1');
+    expect(at.offset).toBe('before drawn '.length);
+    pty.print('missed ');
+    const b = attach('r1', { flow: true, resume: at });
+    await b.opened;
+    await tick();
+    expect(b.control[0]).toEqual({
+      type: 'replay',
+      data: 'missed ',
+      cols: 120,
+      rows: 32,
+      stream: at.stream,
+      offset: at.offset + 7,
+      resumed: true,
+    });
+    pty.print('live');
+    await tick();
+    expect(b.binary.join('')).toBe('live');
+    b.ws.close();
+  });
+
+  it('…and the same through a ticket (a dashboard page connected straight to the host)', async () => {
+    await client.spawn('r2', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const at = await leave('r2');
+    pty.print('missed');
+    const page = 'http://127.0.0.1:54989';
+    const ws = new WebSocket(withResume(withFlow((await client.ticketUrl('r2', page))!), at), { headers: { Origin: page } });
+    const control: unknown[] = [];
+    ws.on('message', (d, isBinary) => !isBinary && control.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on('open', () => r()));
+    await tick();
+    expect(control[0]).toMatchObject({ type: 'replay', data: 'missed', resumed: true, offset: at.offset + 6 });
+    ws.close();
+  });
+
+  it('a query in what it missed was answered when it came (by the host, nobody attached): not again', async () => {
+    await client.spawn('r3', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const at = await leave('r3');
+    pty.print('\x1b[c');
+    await tick();
+    expect(pty.got).toEqual(['\x1b[?1;2c']);
+    const b = attach('r3', { flow: true, resume: at });
+    await b.opened;
+    await tick();
+    expect(b.control[0]).toMatchObject({ data: '\x1b[c', resumed: true });
+    await tick();
+    expect(pty.got).toEqual(['\x1b[?1;2c']);
+    b.ws.close();
+  });
+
+  it('a position it cannot prove (another stream: a host started again) is a screen, as on any attach', async () => {
+    await client.spawn('r4', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    pty.print('on screen');
+    const at = await leave('r4');
+    const b = attach('r4', { flow: true, resume: { ...at, stream: 'ffffffffffffffff' } });
+    await b.opened;
+    await tick();
+    const replay = b.control[0] as Replay;
+    expect(replay.resumed).toBeUndefined();
+    expect(replay.data).toContain('on screen');
+    expect(replay.stream).toBe(at.stream);
+    b.ws.close();
+  });
+
+  it('a malformed position is ignored (a screen); a client stating none attaches as before', async () => {
+    await client.spawn('r5', { cwd: dir, tool: tool as never });
+    const ws = new WebSocket(`${client.attachUrl('r5')}&resume=nonsense`);
+    const control: unknown[] = [];
+    ws.on('message', (d, isBinary) => !isBinary && control.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on('open', () => r()));
+    await tick();
+    expect((control[0] as Replay).resumed).toBeUndefined();
+    ws.close();
   });
 });

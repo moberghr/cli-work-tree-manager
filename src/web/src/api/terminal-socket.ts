@@ -1,6 +1,7 @@
 import type { TerminalTicketWire } from '../../../core/api-types.js';
 import { withFlow } from '../../../core/pty/flow-control.js';
 import { withGrid, type Grid } from '../../../core/pty/terminal-size.js';
+import { withResume, type ResumePoint } from '../../../core/pty/resume.js';
 
 /**
  * The Terminal tab's connection: straight to the PTY host when it can, else through work web's relay as before.
@@ -37,18 +38,28 @@ export interface TerminalSocketOptions {
    * request, so an agent started for it starts at it.
    */
   grid?: Grid | null;
+  /**
+   * It reconnects with its screen kept, and has drawn the PTY's output up to here (resume.ts): stated on whichever
+   * address it connects to (`?resume=…`), and the ticket request asks to attach only — nothing is started for it.
+   */
+  resume?: ResumePoint | null;
   /** Tests: the ticket request. */
-  askTicket?: (sessionId: string, force: boolean, grid?: Grid | null) => Promise<TerminalTicketWire | null>;
+  askTicket?: (sessionId: string, force: boolean, grid?: Grid | null, attachOnly?: boolean) => Promise<TerminalTicketWire | null>;
   /** Tests: the WebSocket class. */
   WebSocketImpl?: typeof WebSocket;
 }
 
-export async function askTerminalTicket(sessionId: string, force: boolean, grid?: Grid | null): Promise<TerminalTicketWire | null> {
+export async function askTerminalTicket(
+  sessionId: string,
+  force: boolean,
+  grid?: Grid | null,
+  attachOnly?: boolean,
+): Promise<TerminalTicketWire | null> {
   try {
     const res = await fetch(`/api/terminals/${encodeURIComponent(sessionId)}/ticket`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(grid ? { force, cols: grid.cols, rows: grid.rows } : { force }),
+      body: JSON.stringify({ force, ...(grid ? { cols: grid.cols, rows: grid.rows } : {}), ...(attachOnly ? { attachOnly: true } : {}) }),
     });
     // An older work web (404) or anything unexpected: the relay.
     if (res.status === 404 && !(res.headers.get('content-type') ?? '').includes('json')) return null;
@@ -82,7 +93,7 @@ export function openTerminalSocket(sessionId: string, opts: TerminalSocketOption
   const connect = (url: string, direct: boolean) => {
     if (closed) return;
     route = direct ? 'direct' : 'relay';
-    const sock = new Impl(withGrid(opts.flow ? withFlow(url) : url, opts.grid));
+    const sock = new Impl(withResume(withGrid(opts.flow ? withFlow(url) : url, opts.grid), opts.resume));
     sock.binaryType = socket.binaryType;
     ws = sock;
     let opened = false;
@@ -122,7 +133,7 @@ export function openTerminalSocket(sessionId: string, opts: TerminalSocketOption
     },
   };
 
-  void ask(sessionId, opts.force, opts.grid).then((answer) => {
+  void ask(sessionId, opts.force, opts.grid, opts.resume ? true : undefined).then((answer) => {
     if (closed) return;
     if (answer && 'url' in answer) return connect(answer.url, true);
     // As the relay would have said it: the tab explains, or shows why, then sees the connection end.

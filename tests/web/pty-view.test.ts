@@ -13,7 +13,7 @@ const h = vi.hoisted(() => {
   const PANE = { width: 800, height: 600 };
   const terms: FakeTerminal[] = [];
   /** What each tab asked openTerminalSocket for. */
-  const socketOpts: Array<{ flow?: boolean; grid?: { cols: number; rows: number } | null }> = [];
+  const socketOpts: Array<{ flow?: boolean; force?: boolean; grid?: { cols: number; rows: number } | null; resume?: unknown }> = [];
   let webglThrows = false;
   /** What the page's WebGL gate says (webgl-gate.ts): null = may use it, 'software' = a software rasterizer. */
   const gate = { refusal: null as 'software' | null };
@@ -143,6 +143,10 @@ const h = vi.hoisted(() => {
     }
     parsed() {
       for (const cb of this.unparsed.splice(0)) cb();
+    }
+    /** The next write parsed (its callback run), and only it. */
+    parseOne() {
+      this.unparsed.shift()?.();
     }
     // A frame drawn (the latency meter's "on screen"); tests call it to draw one.
     renderCb: (() => void) | null = null;
@@ -305,7 +309,14 @@ class FakeWebSocket {
   }
 }
 
-import { ELSEWHERE_RECHECK_MS, PtyView, WRITE_PIECE, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
+import {
+  ELSEWHERE_RECHECK_MS,
+  PtyView,
+  RECONNECT_COVER_MS,
+  RECONNECT_DELAYS_MS,
+  WRITE_PIECE,
+  openLink,
+} from '../../src/web/src/components/Terminal/PtyView.js';
 import { ACK_EVERY } from '../../src/core/pty/flow-control.js';
 import { WEBGL_RETRY_MS } from '../../src/web/src/state/webgl-recovery.js';
 import { requestTerminalReconnect } from '../../src/web/src/state/terminal-reconnect.js';
@@ -1323,5 +1334,189 @@ describe('PtyView: the view through an agent repainting its transcript (CSI 2 J,
     act(() => root.unmount());
     root = createRoot(container);
     expect(term.hooks).toBe(0);
+  });
+});
+
+describe('PtyView: reconnecting where it left off (terminal-rendering.md, "Reattach where you left off")', () => {
+  const S = 'abcdef0123456789';
+  /** `text` as the UTF-8 bytes the host sends, one char per byte (FakeWebSocket.binary sends char codes as bytes). */
+  const utf8 = (text: string) => String.fromCharCode(...new TextEncoder().encode(text));
+  const overlay = () => container.querySelector('.wd-pty-connecting')?.textContent ?? null;
+  const acks = (ws: FakeWebSocket) => ws.sent.filter((m) => (m as { type: string }).type === 'ack');
+  /** A tab drawn from a current host's screen (at the pane's grid, so nothing is resized), then output, then the drop. */
+  function connectedThenDropped(output: string[] = []) {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '<screen>', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1000 }));
+    for (const o of output) act(() => ws.binary(o));
+    const written = term.writes.length;
+    act(() => ws.serverClose());
+    return { ws, term, written };
+  }
+  const next = () => FakeWebSocket.instances.at(-1)!;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a dropped connection is reconnected in place, from where it stands: the replay’s offset plus each frame, counted as the host counts', () => {
+    const { term, written } = connectedThenDropped([utf8('aé😀'), utf8('bc')]); // 1 + 1 + 2, then 2
+    expect(term.writes.length).toBe(written); // nothing written on the screen it kept
+    act(() => void vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]));
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(h.terms).toHaveLength(1);
+    expect(term.disposed).toBe(false);
+    expect(h.socketOpts.at(-1)).toMatchObject({
+      force: false,
+      grid: { cols: h.FIT.cols, rows: h.FIT.rows },
+      resume: { stream: S, offset: 1006, cols: h.FIT.cols, rows: h.FIT.rows },
+    });
+  });
+
+  it('sent what it missed: drawn on the screen it kept (no reset, no resize; scroll position and selection stay), then input', () => {
+    const { term, written } = connectedThenDropped(['abc']);
+    term.selection = 'picked';
+    term.buffer.active.viewportY = 3;
+    const resizes = term.resizes.length;
+    act(() => term.type('typed'));
+    act(() => void vi.advanceTimersByTime(0));
+    const again = next();
+    expect(again.sent).toEqual([]);
+    again.serverOpen();
+    act(() =>
+      again.control({ type: 'replay', data: 'missed', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1009, resumed: true }),
+    );
+    const drawn = term.writes.slice(written);
+    expect(drawn.join('')).toBe('missed');
+    expect(drawn.join('')).not.toContain('\x1bc');
+    expect(term.resizes.length).toBe(resizes);
+    expect(term.selection).toBe('picked');
+    expect(term.buffer.active.viewportY).toBe(3);
+    expect(term.writes.join('')).not.toMatch(/connection closed/);
+    expect(again.sent).toEqual([
+      { type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows },
+      { type: 'input', data: 'typed' },
+    ]);
+    expect(overlay()).toBeNull();
+  });
+
+  it('a screen instead (the host could not tell that would be enough): drawn over a reset terminal, at its grid', () => {
+    const { term, written } = connectedThenDropped(['abc']);
+    act(() => void vi.advanceTimersByTime(0));
+    const again = next();
+    again.serverOpen();
+    act(() => again.control({ type: 'replay', data: '<new screen>', cols: 90, rows: 20, stream: 'ffffffffffffffff', offset: 7 }));
+    expect(term.writes.slice(written).join('')).toBe('\x1bc<new screen>');
+    expect(term.resizes).toContainEqual([90, 20]);
+    // …and it stands where that screen says.
+    act(() => again.serverClose());
+    act(() => void vi.advanceTimersByTime(0));
+    expect(h.socketOpts.at(-1)?.resume).toMatchObject({ stream: 'ffffffffffffffff', offset: 7 });
+  });
+
+  it('what xterm answers while it draws what it missed is dropped (those queries were answered when they came); typing is kept', () => {
+    const { term } = connectedThenDropped();
+    act(() => void vi.advanceTimersByTime(0));
+    const again = next();
+    again.serverOpen();
+    term.deferWrites = true;
+    act(() =>
+      again.control({ type: 'replay', data: '\x1b[c', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1003, resumed: true }),
+    );
+    act(() => term.parseOne()); // the mark before it
+    act(() => term.type('\x1b[?1;2c')); // xterm's answer, as it parses the query
+    act(() => term.type('q'));
+    act(() => term.type('\x1b[I')); // a focus report is no answer
+    act(() => term.parseOne()); // the missed output parsed: done
+    expect(again.sent).toEqual([
+      { type: 'resize', cols: h.FIT.cols, rows: h.FIT.rows },
+      { type: 'input', data: 'q' },
+      { type: 'input', data: '\x1b[I' },
+    ]);
+    // Live output's queries are answered again.
+    term.deferWrites = false;
+    act(() => again.binary('\x1b[c'));
+    act(() => term.type('\x1b[?1;2c'));
+    expect(again.sent.at(-1)).toEqual({ type: 'input', data: '\x1b[?1;2c' });
+  });
+
+  it('acks restart on the new connection: what it missed is not acked, and nothing owed on the old one is paid on it', () => {
+    const { ws } = connectedThenDropped(['a'.repeat(ACK_EVERY - 1)]);
+    expect(acks(ws)).toEqual([]);
+    act(() => void vi.advanceTimersByTime(0));
+    const again = next();
+    again.serverOpen();
+    act(() =>
+      again.control({
+        type: 'replay',
+        data: 'm'.repeat(ACK_EVERY),
+        cols: h.FIT.cols,
+        rows: h.FIT.rows,
+        stream: S,
+        offset: 9000,
+        resumed: true,
+      }),
+    );
+    act(() => again.binary('b'));
+    expect(acks(again)).toEqual([]);
+    act(() => again.binary('b'.repeat(ACK_EVERY - 1)));
+    expect(acks(again)).toEqual([{ type: 'ack', chars: ACK_EVERY }]);
+  });
+
+  it('a catch-up screen mid-session (it fell behind) moves where it stands', () => {
+    const { ws } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 10 }));
+    act(() => ws.binary('abc'));
+    act(() => ws.control({ type: 'replay', data: 'screen', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 5000 }));
+    act(() => ws.binary('de'));
+    act(() => ws.serverClose());
+    act(() => void vi.advanceTimersByTime(0));
+    expect(h.socketOpts.at(-1)?.resume).toMatchObject({ stream: S, offset: 5002 });
+  });
+
+  it('says "Connecting…" only if it takes RECONNECT_COVER_MS', () => {
+    connectedThenDropped();
+    act(() => void vi.advanceTimersByTime(RECONNECT_COVER_MS - 1));
+    expect(overlay()).toBeNull();
+    act(() => void vi.advanceTimersByTime(1));
+    expect(overlay()).toBe('Connecting…');
+    const again = next();
+    again.serverOpen();
+    act(() => again.control({ type: 'replay', data: '', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1000, resumed: true }));
+    expect(overlay()).toBeNull();
+  });
+
+  it('tries again after each delay; when none gets through, says so as before, and Enter starts over', () => {
+    const { term } = connectedThenDropped();
+    for (const delay of RECONNECT_DELAYS_MS) {
+      act(() => void vi.advanceTimersByTime(delay));
+      const attempt = next();
+      act(() => attempt.control({ type: 'error', message: 'its terminal is not running' }));
+      act(() => attempt.serverClose());
+    }
+    expect(FakeWebSocket.instances).toHaveLength(1 + RECONNECT_DELAYS_MS.length);
+    expect(term.writes.join('')).not.toMatch(/not running/); // a try's error isn't written on the screen it kept
+    expect(term.writes.join('')).toMatch(/connection closed.*press Enter to reconnect/);
+    expect(overlay()).toBeNull();
+    act(() => void vi.advanceTimersByTime(60_000));
+    expect(FakeWebSocket.instances).toHaveLength(1 + RECONNECT_DELAYS_MS.length);
+    act(() => term.type('\r'));
+    expect(h.socketOpts.at(-1)?.resume).toBeNull();
+    expect(h.terms).toHaveLength(2);
+  });
+
+  it('a host from before (its replay says no stream): no reconnect in place, the old message at once', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: h.FIT.cols, rows: h.FIT.rows }));
+    act(() => ws.binary('output'));
+    act(() => ws.serverClose());
+    act(() => void vi.advanceTimersByTime(10_000));
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(term.writes.join('')).toMatch(/connection closed.*press Enter to reconnect/);
   });
 });

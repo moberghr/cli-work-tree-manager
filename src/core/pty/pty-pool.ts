@@ -205,7 +205,10 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
  * needed) and return the host WebSocket URL to attach to. Null for an
  * unknown session.
  */
-export async function ensurePty(sessionId: string, extra: { initialPrompt?: string; grid?: Grid } = {}): Promise<string | null> {
+export async function ensurePty(
+  sessionId: string,
+  extra: { initialPrompt?: string; grid?: Grid; attachOnly?: boolean } = {},
+): Promise<string | null> {
   // An account's login terminal (the Accounts page) is no session: the agent's own CLI on that account (account-login.ts).
   const loginFor = accountOfLoginId(sessionId);
   // The dashboard assistant (Ctrl+K) is not a worktree: it runs in its own
@@ -225,6 +228,10 @@ export async function ensurePty(sessionId: string, extra: { initialPrompt?: stri
           ? spawnSpecFor(session)
           : null;
   if (!base) return null;
+  // A terminal reconnecting with its screen kept (`attachOnly`, resume.ts) attaches to what runs and starts nothing,
+  // neither a host nor an agent: one stopped on purpose (`work pty-host --stop`, a session that ended) stays stopped,
+  // and the tab says the connection closed, as before.
+  if (extra.attachOnly) return attachToRunning(sessionId);
   // The first prompt only applies to a fresh spawn (the host ignores the
   // spec when the session's PTY is already running), and so does the grid: the Terminal tab's that starts it
   // (terminal-size.ts), so its agent doesn't start at another size and paint again a moment later. None (a start
@@ -251,6 +258,26 @@ export async function ensurePty(sessionId: string, extra: { initialPrompt?: stri
   live.add(sessionId);
   return c.attachUrl(sessionId);
 }
+
+/** The host's attach address of a terminal that runs now; throws NOT_RUNNING when none does. Never starts anything. */
+async function attachToRunning(sessionId: string): Promise<string> {
+  const look = async (): Promise<{ c: PtyHostClient; info: PtyInfo | null } | null> => {
+    const c = await getClient(false);
+    return c ? { c, info: await c.get(sessionId) } : null;
+  };
+  let found = await look();
+  if (found && !found.info) {
+    // Not there, or a client of a host that was replaced since (another port, its calls fail): asked once more, fresh.
+    client = null;
+    found = await look();
+  }
+  if (!found?.info || found.info.exited) throw new Error(NOT_RUNNING);
+  live.add(sessionId);
+  return found.c.attachUrl(sessionId);
+}
+
+/** What a reconnect is told when its terminal no longer runs (nothing is started for it). */
+export const NOT_RUNNING = 'its terminal is not running';
 
 /**
  * Where a dashboard page connects a terminal straight to the PTY host (with a one-time ticket for its origin), once

@@ -1,5 +1,6 @@
 import { HIGH_WATERMARK, LOW_WATERMARK } from './flow-control.js';
 import { SyncScanner } from './sync-output.js';
+import { OutputTail } from './output-tail.js';
 
 /**
  * The output path of one PTY, between its arriving and its clients (terminal-rendering.md, "Flow control and
@@ -27,7 +28,8 @@ import { SyncScanner } from './sync-output.js';
  *   (`whenNoFrame`) wait for its end, so no client is ever sent half a frame, or a screen of one.
  *
  * Every frame ends at an offset: the characters of output since the PTY's entry was spawned (a restart keeps
- * counting). A reconnecting client may later ask to be sent only what it missed from there.
+ * counting). The last RESUME_TAIL_CHARS of it are kept (`tail`, output-tail.ts), so a client that reconnects can be sent
+ * only what it missed from where it stands (pty-registry.ts `attach`, resume.ts).
  */
 
 /** After the first output of a quiet moment, what arrives within this many ms goes out as one frame (VS Code's `throttleBy`). */
@@ -125,11 +127,14 @@ export class OutputPacer<K> {
   private letGo = false;
   /** What waits for no frame to be held (a client joining, a catch-up): `gone` once the PTY's entry is disposed. */
   private waiting: Array<(gone: boolean) => void> = [];
+  /** The last of the output as it arrived: what a reconnecting client missed, when it is still all here. Ends at `offset`. */
+  readonly tail: OutputTail;
 
-  constructor(deps: { flow: PtyFlow | null; holder: () => K | null; timers?: PacerTimers }) {
+  constructor(deps: { flow: PtyFlow | null; holder: () => K | null; timers?: PacerTimers; tail?: OutputTail }) {
     this.flow = deps.flow;
     this.holder = deps.holder;
     this.timers = deps.timers ?? realTimers;
+    this.tail = deps.tail ?? new OutputTail();
   }
 
   /** Characters of output so far: where the next frame starts, and where a snapshot taken now stands. */
@@ -153,6 +158,7 @@ export class OutputPacer<K> {
    */
   output(data: string): void {
     if (!data) return;
+    this.tail.push(data);
     let from = 0;
     for (const change of this.sync.feed(data)) {
       this.piece(data.slice(from, change.at), change.open);
@@ -272,6 +278,7 @@ export class OutputPacer<K> {
     this.clients.clear();
     this.pending = [];
     this.pendingLength = 0;
+    this.tail.clear();
     // Nobody waits for a frame of an entry that is gone.
     for (const fn of this.waiting.splice(0)) fn(true);
   }

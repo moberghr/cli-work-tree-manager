@@ -321,6 +321,45 @@ describe('terminal relay', () => {
     browser.close();
   });
 
+  it('a browser reconnecting with its screen kept (?resume=): the host is told it as it is, nothing is started, no "elsewhere"', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    elsewhere = { type: 'elsewhere', lastActivity: Date.now() - 10_000, state: 'working' };
+    try {
+      const browser = new WebSocket((await relay()) + '?flow=1&cols=80&rows=24&resume=abcdef0123456789-1234-80x24');
+      const frames: unknown[] = [];
+      browser.on('message', (d, bin) => !bin && frames.push(JSON.parse(d.toString())));
+      await new Promise((r) => browser.on('open', r));
+      await sleep(100);
+      const params = new URL(host.urls[0], 'ws://h').searchParams;
+      expect([params.get('flow'), params.get('cols'), params.get('rows'), params.get('resume')]).toEqual([
+        '1',
+        '80',
+        '24',
+        'abcdef0123456789-1234-80x24',
+      ]);
+      expect(ensured.at(-1)).toEqual(['s', { grid: { cols: 80, rows: 24 }, attachOnly: true }]);
+      // The host's frames, not an "elsewhere" one.
+      expect(frames).toEqual([{ type: 'replay', data: '', cols: 80, rows: 24 }]);
+      browser.close();
+    } finally {
+      elsewhere = null;
+    }
+  });
+
+  it('a position that is not one is not passed on: the browser attaches as before', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    const browser = new WebSocket((await relay()) + '?resume=nonsense');
+    await new Promise((r) => browser.on('open', r));
+    await sleep(100);
+    expect(host.urls).toEqual(['/ptys/s/attach']);
+    expect(ensured.at(-1)).toEqual(['s', {}]);
+    browser.close();
+  });
+
   it('a browser that leaves while the host is still starting never gets an upstream', async () => {
     const host = await fakeHost();
     ensureDelay = 300;

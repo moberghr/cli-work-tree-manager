@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { agentById, sessionToolFor } from '../agents/index.js';
 import type { AiToolSpec } from '../platform/ai-launcher.js';
 import { ASSISTANT_ID } from '../agents/assistant.js';
@@ -17,6 +18,8 @@ import { OutputPacer, realTimers, type PacerTimers, type PtyFlow } from './outpu
 import type { SnapshotOptions } from './screen-mirror.js';
 import type { StreamSignal } from './stream-status.js';
 import { MIN_ROWS, validGrid, type Grid, type WindowsPty } from './terminal-size.js';
+import { resumeFrom, type ResumeRefusal } from './output-tail.js';
+import type { ResumePoint } from './resume.js';
 
 const REPLAY_MAX = 256 * 1024;
 
@@ -96,6 +99,13 @@ export interface AttachOptions {
    * repaint for it follows as live output.
    */
   grid?: Grid;
+  /**
+   * It reconnects with its screen kept, and has drawn this PTY's output up to here (`?resume=…`, resume.ts): it is sent
+   * what it missed instead of a screen when that is provably all it needs (`resumeFrom`, output-tail.ts), else a screen.
+   */
+  resume?: ResumePoint;
+  /** Why it was sent a screen though it asked to resume (tests, the debug log). */
+  onResumeRefused?: (why: ResumeRefusal) => void;
 }
 
 /** What a newly attached client is sent first: the screen as it stands,
@@ -104,6 +114,11 @@ export interface ReplaySnapshot {
   data: string;
   cols: number;
   rows: number;
+  /** The PTY's output stream (one per entry: resume.ts) and the offset this screen stands at — where its live output starts. */
+  stream: string;
+  offset: number;
+  /** `data` is not a screen but the output the client missed, from where it said it stood up to `offset`: drawn on its screen as it is. */
+  resumed?: true;
   /** The PTY is ConPTY's (a host on Windows): the client's xterm.js sets this, so it doesn't reflow lines ConPTY reflows. */
   windowsPty?: WindowsPty;
 }
@@ -178,6 +193,10 @@ interface Entry {
   env?: Record<string, string>;
   /** A `redraw` under way: the timer that puts the grid back. */
   redrawing?: unknown;
+  /** Its output stream's id (resume.ts): a new one for every entry, so an offset of another process or host is never taken for one of this. */
+  stream: string;
+  /** The output offset its PTY's grid last changed at: output after it may be drawn for another grid than output before. */
+  gridAt: number;
 }
 
 export interface RegistryDeps {
@@ -339,6 +358,8 @@ export class PtyRegistry {
       pacer,
       exitCode: null,
       lastOutputAt: Date.now(),
+      stream: randomBytes(8).toString('hex'),
+      gridAt: 0,
     };
     this.wire(entry, pty);
     this.entries.set(id, entry);
@@ -453,6 +474,7 @@ export class PtyRegistry {
     e.cols = cols;
     e.rows = rows;
     e.pty.resize(cols, rows);
+    e.gridAt = e.pacer.offset;
     this.remember(grid);
   }
 
@@ -481,10 +503,14 @@ export class PtyRegistry {
     if (!e || e.pty.exited || e.restarting || e.halted) return false;
     if (e.redrawing !== undefined) return true;
     e.pty.resize(e.cols, e.rows > MIN_ROWS ? e.rows - 1 : e.rows + 1);
+    e.gridAt = e.pacer.offset;
     e.redrawing = (this.timers ?? realTimers).set(() => {
       e.redrawing = undefined;
       // Back to the grid it has now (a client may have set another meanwhile), unless it was killed or restarted.
-      if (this.entries.get(id) === e && !e.pty.exited && !e.restarting && !e.halted) e.pty.resize(e.cols, e.rows);
+      if (this.entries.get(id) === e && !e.pty.exited && !e.restarting && !e.halted) {
+        e.pty.resize(e.cols, e.rows);
+        e.gridAt = e.pacer.offset;
+      }
     }, REDRAW_JIGGLE_MS);
     return true;
   }
@@ -544,10 +570,13 @@ export class PtyRegistry {
     const sub = (d: string, end?: number) => (held ? held.push([d, end]) : onData(d, end));
     // On Windows (the host says so), the ConPTY this PTY runs on: the bundled one reflows as a newer build than the OS's.
     const windowsPty = this.windowsPty ? (e.pty.windowsPty ?? this.windowsPty) : undefined;
-    const snapshot = (data: string): ReplaySnapshot => ({
+    // A screen (or, resumed, what was missed) and where it stands in the output: where its live output starts.
+    const snapshot = (data: string, offset = e.pacer.offset): ReplaySnapshot => ({
       data,
       cols: e.cols,
       rows: e.rows,
+      stream: e.stream,
+      offset,
       ...(windowsPty ? { windowsPty } : {}),
     });
     // A screen being taken (its first, a catch-up): output held meanwhile, and the PTY's end, told after the screen.
@@ -565,8 +594,10 @@ export class PtyRegistry {
       // Mid-restart the old process's screen is gone with it: an empty screen, the new one draws from scratch.
       const between = !!e.restarting || !!e.halted;
       const settle = between ? undefined : e.pty.serializeSettled;
+      // The pacer sent what was pending to the others first: the screen is everything up to here, the output held from here.
+      const at = e.pacer.offset;
       if (!settle) {
-        opts.onReplay?.(snapshot(between ? '' : e.pty.serialize?.(shot) || e.replay));
+        opts.onReplay?.(snapshot(between ? '' : e.pty.serialize?.(shot) || e.replay, at));
         return;
       }
       const mine: Array<[string, number | undefined]> = [];
@@ -577,7 +608,7 @@ export class PtyRegistry {
         .catch(() => '')
         .then((data) => {
           if (gone || held !== mine) return;
-          opts.onReplay?.(snapshot(data || e.replay));
+          opts.onReplay?.(snapshot(data || e.replay, at));
           held = null;
           catchingUp = false;
           for (const [d, end] of mine) onData(d, end);
@@ -601,9 +632,32 @@ export class PtyRegistry {
       }
       e.pacer.add(sub, { metered: !!opts.metered, send: sub, resync });
       offset = e.pacer.offset;
-      if (settled) void settled.call(e.pty).then((d) => resolveReady(snapshot(d || e.replay)));
-      else resolveReady(snapshot(restarting ? '' : e.pty.serialize?.() || e.replay));
+      // Reconnecting with its screen kept: what it missed, from exactly where it stands, when that is provably enough
+      // (output-tail.ts); not a screen, not counted or acked (as a screen isn't), and the output from here held as for a screen.
+      if (opts.resume) {
+        const r = resumeFrom(
+          opts.resume,
+          {
+            stream: e.stream,
+            grid: { cols: e.cols, rows: e.rows },
+            gridBefore,
+            gridAt: e.gridAt,
+            busy: e.pty.exited || !!e.restarting || !!e.halted || e.redrawing !== undefined,
+          },
+          e.pacer.tail,
+          opts.grid,
+        );
+        if ('missed' in r) {
+          resolveReady({ ...snapshot(r.missed, offset), resumed: true });
+          return;
+        }
+        opts.onResumeRefused?.(r.refused);
+      }
+      if (settled) void settled.call(e.pty).then((d) => resolveReady(snapshot(d || e.replay, offset)));
+      else resolveReady(snapshot(restarting ? '' : e.pty.serialize?.() || e.replay, offset));
     };
+    // The PTY's grid before this attach resizes it to the one it states: a resume needs its own grid to have been the PTY's.
+    const gridBefore: Grid = { cols: e.cols, rows: e.rows };
     if (exitedWith === null) {
       e.subscribers.add(sub);
       e.exitSubscribers.add(exitSub);

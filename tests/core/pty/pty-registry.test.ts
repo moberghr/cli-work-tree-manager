@@ -6,11 +6,13 @@ import {
   DEFAULT_GRID,
   HALT_RESUME_MS,
   PtyRegistry,
+  type AttachOptions,
   REDRAW_JIGGLE_MS,
   type PtyLike,
   type PtySpawner,
 } from '../../../src/core/pty/pty-registry.js';
-import { COALESCE_MS, FRAME_HOLD_MS } from '../../../src/core/pty/output-pacer.js';
+import { CATCH_UP_MIN_MS, COALESCE_MS, FRAME_HOLD_MS } from '../../../src/core/pty/output-pacer.js';
+import { RESUME_TAIL_CHARS } from '../../../src/core/pty/output-tail.js';
 import { BSU, ESU } from '../../../src/core/pty/sync-output.js';
 import type { StreamSignal } from '../../../src/core/pty/stream-status.js';
 import { buildAiLaunchArgs, getAiTool, type AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
@@ -286,7 +288,7 @@ describe('PtyRegistry replay', () => {
         () => {},
         () => {},
       )?.replay,
-    ).toEqual({ data: '<screen>', cols: 90, rows: 20 });
+    ).toEqual({ data: '<screen>', cols: 90, rows: 20, stream: expect.any(String), offset: expect.any(Number) });
   });
 });
 
@@ -1002,7 +1004,7 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     expect(pty.log).toEqual(['resize 100x30', 'serialize', 'serializeSettled']);
     expect(att.replay).toMatchObject({ cols: 100, rows: 30 });
     pty.settle();
-    expect(await att.ready).toEqual({ data: 'screen@100x30', cols: 100, rows: 30 });
+    expect(await att.ready).toEqual({ data: 'screen@100x30', cols: 100, rows: 30, stream: expect.any(String), offset: 0 });
     expect(reg.get('a')).toMatchObject({ cols: 100, rows: 30 });
   });
 
@@ -1016,7 +1018,7 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     )!;
     expect(pty.log).toEqual(['serialize', 'serializeSettled']);
     pty.settle();
-    expect(await att.ready).toEqual({ data: 'screen@0x0', cols: 120, rows: 32 }); // never resized: the grid it started at
+    expect(await att.ready).toEqual({ data: 'screen@0x0', cols: 120, rows: 32, stream: expect.any(String), offset: 0 }); // never resized: the grid it started at
   });
 
   it('a grid that is not one (too small, too big, not whole) is ignored', () => {
@@ -1383,5 +1385,228 @@ describe('attaching during a synchronized frame (terminal-rendering.md, "Synchro
     await killed;
     const ready = await Promise.race([att.ready, new Promise((r) => setTimeout(() => r('stuck'), 0)).then(() => 'stuck')]);
     expect(ready).not.toBe('stuck');
+  });
+});
+
+describe('reattaching where it left off (terminal-rendering.md, "Reattach where you left off")', () => {
+  /** A PTY whose screen copy has parsed everything it emitted. */
+  class ScreenPty extends FakePty {
+    screen = '';
+    override emit(d: string) {
+      this.screen += d;
+      super.emit(d);
+    }
+    serialize() {
+      return this.screen;
+    }
+    serializeSettled() {
+      return Promise.resolve(this.screen);
+    }
+  }
+  const setup = () => {
+    const pty = new ScreenPty();
+    const reg = new PtyRegistry({ spawner: () => pty, hasConversation: () => false, sessionsPath, cwdExists: () => true });
+    reg.spawn('a', { cwd: '/x', tool, cols: 80, rows: 24 });
+    const first = reg.attach(
+      'a',
+      () => {},
+      () => {},
+    )!;
+    const stream = first.replay.stream;
+    first.detach();
+    return { pty, reg, stream };
+  };
+  const resumeAt = (
+    reg: PtyRegistry,
+    at: { stream: string; offset: number; cols?: number; rows?: number },
+    got: string[],
+    extra: Partial<AttachOptions> = {},
+  ) => {
+    const refused: string[] = [];
+    const att = reg.attach(
+      'a',
+      (d) => got.push(d),
+      () => {},
+      { resume: { cols: 80, rows: 24, ...at }, onResumeRefused: (why) => refused.push(why), ...extra },
+    )!;
+    return { att, refused };
+  };
+
+  it('is sent exactly what it missed, marked resumed, at the offset its live output starts: nothing twice, nothing lost', async () => {
+    vi.useFakeTimers();
+    const { pty, reg, stream } = setup();
+    pty.emit('seen ');
+    const n = 'seen '.length;
+    pty.emit('missed one, ');
+    pty.emit('missed two');
+    const got: string[] = [];
+    const { att, refused } = resumeAt(reg, { stream, offset: n }, got);
+    pty.emit(' live'); // after it joined: held for it until start(), as for a screen
+    const ready = await att.ready;
+    expect(ready).toMatchObject({ data: 'missed one, missed two', resumed: true, stream, offset: n + 'missed one, missed two'.length });
+    expect(refused).toEqual([]);
+    att.start();
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(got.join('')).toBe(' live');
+    expect(ready.data + got.join('')).toBe(pty.screen.slice(n));
+  });
+
+  it('a resume while a synchronized frame is open waits for its end: the frame reaches it whole, in what it missed', async () => {
+    vi.useFakeTimers();
+    const { pty, reg, stream } = setup();
+    pty.emit('seen ');
+    pty.emit(`${BSU}top half `);
+    const got: string[] = [];
+    const { att } = resumeAt(reg, { stream, offset: 'seen '.length }, got);
+    pty.emit(`bottom half${ESU}`);
+    pty.emit('after');
+    const ready = await att.ready;
+    expect(ready).toMatchObject({ data: `${BSU}top half bottom half${ESU}`, resumed: true });
+    att.start();
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(got).toEqual(['after']);
+  });
+
+  it('from its own offset a tail cut mid-escape or mid-surrogate is never sent; one standing mid-pair gets a screen', async () => {
+    const { pty, reg, stream } = setup();
+    pty.emit('a😀b');
+    const { att, refused } = resumeAt(reg, { stream, offset: 2 }, []);
+    const ready = await att.ready;
+    expect(ready.resumed).toBeUndefined();
+    expect(ready.data).toBe('a😀b');
+    expect(refused).toEqual(['split']);
+  });
+
+  it('another stream (the same id started again, or another host): a screen', async () => {
+    const { pty, reg } = setup();
+    pty.emit('hello');
+    const { att, refused } = resumeAt(reg, { stream: 'ffffffffffffffff', offset: 0 }, []);
+    expect(await att.ready).toMatchObject({ data: 'hello', offset: 5 });
+    expect((await att.ready).resumed).toBeUndefined();
+    expect(refused).toEqual(['stream']);
+  });
+
+  it('a new entry under the same id is a new stream', async () => {
+    const { reg, stream } = setup();
+    await reg.kill('a');
+    reg.spawn('a', { cwd: '/x', tool, cols: 80, rows: 24 });
+    const again = reg.attach(
+      'a',
+      () => {},
+      () => {},
+    )!;
+    expect(again.replay.stream).toMatch(/^[0-9a-f]{16}$/);
+    expect(again.replay.stream).not.toBe(stream);
+  });
+
+  it('too old for the tail: a screen', async () => {
+    const { pty, reg, stream } = setup();
+    pty.emit('x'.repeat(RESUME_TAIL_CHARS + 10));
+    const { att, refused } = resumeAt(reg, { stream, offset: 5 }, []);
+    expect((await att.ready).resumed).toBeUndefined();
+    expect(refused).toEqual(['too-old']);
+  });
+
+  it('racing a resize (the grid changed after its offset, even back to its own): a screen', async () => {
+    const { pty, reg, stream } = setup();
+    pty.emit('before ');
+    reg.resize('a', 100, 30);
+    pty.emit('reflowed ');
+    reg.resize('a', 80, 24);
+    pty.emit('reflowed again');
+    const { att, refused } = resumeAt(reg, { stream, offset: 'before '.length }, []);
+    expect((await att.ready).resumed).toBeUndefined();
+    expect(refused).toEqual(['resized']);
+  });
+
+  it('a resize it saw (before its offset) does not stop it', async () => {
+    const { pty, reg, stream } = setup();
+    reg.resize('a', 100, 30);
+    reg.resize('a', 80, 24);
+    pty.emit('seen');
+    const { att } = resumeAt(reg, { stream, offset: 4 }, []);
+    pty.emit('');
+    expect(await att.ready).toMatchObject({ data: '', resumed: true, offset: 4 });
+  });
+
+  it('stating a grid other than the PTY’s takes it (a resize) and gets a screen at it', async () => {
+    const { pty, reg, stream } = setup();
+    pty.emit('seen');
+    reg.resize('a', 100, 30); // another client
+    const { att, refused } = resumeAt(reg, { stream, offset: 4 }, [], { grid: { cols: 80, rows: 24 } });
+    const ready = await att.ready;
+    expect(ready.resumed).toBeUndefined();
+    expect(ready).toMatchObject({ cols: 80, rows: 24 });
+    expect(refused).toEqual(['grid']);
+  });
+
+  it('stating its own grid, which is the PTY’s: resumed (no resize)', async () => {
+    const { pty, reg, stream } = setup();
+    pty.emit('seen more');
+    const sizes = pty.sizes.length;
+    const { att } = resumeAt(reg, { stream, offset: 4 }, [], { grid: { cols: 80, rows: 24 } });
+    expect(await att.ready).toMatchObject({ data: ' more', resumed: true });
+    expect(pty.sizes.length).toBe(sizes);
+  });
+
+  it('while its agent is being redrawn: a screen', async () => {
+    vi.useFakeTimers();
+    const { pty, reg, stream } = setup();
+    pty.emit('seen');
+    reg.redraw('a');
+    const { att, refused } = resumeAt(reg, { stream, offset: 4 }, []);
+    expect((await att.ready).resumed).toBeUndefined();
+    expect(refused).toEqual(['busy']);
+    pty.emit('repaint at 80x23 ');
+    vi.advanceTimersByTime(REDRAW_JIGGLE_MS);
+    // The jiggle's resizes are grid changes: a client from before the last of them gets a screen after it too…
+    const again = resumeAt(reg, { stream, offset: 4 }, []);
+    expect((await again.att.ready).resumed).toBeUndefined();
+    expect(again.refused).toEqual(['resized']);
+    // …one that saw everything before it is sent what came after.
+    pty.emit('repaint at 80x24');
+    const after = resumeAt(reg, { stream, offset: 'seenrepaint at 80x23 '.length }, []);
+    expect(await after.att.ready).toMatchObject({ data: 'repaint at 80x24', resumed: true });
+  });
+
+  it('an agent that exited: its last screen and its end, no resume', async () => {
+    const { pty, reg, stream } = setup();
+    pty.emit('bye');
+    pty.exit(0);
+    const { att } = resumeAt(reg, { stream, offset: 0 }, []);
+    expect(att.exitedWith).toBe(0);
+    expect((await att.ready).resumed).toBeUndefined();
+  });
+
+  it('a metered client’s acks start from where it resumed: what it missed is not counted, as a screen is not', async () => {
+    vi.useFakeTimers();
+    const { pty, reg, stream } = setup();
+    const replays: Array<{ offset: number; stream: string }> = [];
+    pty.emit('seen ');
+    pty.emit('m'.repeat(60_000));
+    const got: string[] = [];
+    const { att } = resumeAt(reg, { stream, offset: 5 }, got, { metered: true, onReplay: (r) => replays.push(r) });
+    const ready = await att.ready;
+    expect(ready).toMatchObject({ resumed: true, offset: 60_005 });
+    att.start();
+    // 60 000 more, unacked: under HIGH_WATERMARK only if the 60 000 it missed were not counted.
+    pty.emit('l'.repeat(60_000));
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(got.join('').length).toBe(60_000);
+    // 50 000 more: now it is behind, and nothing more is sent to it.
+    pty.emit('b'.repeat(50_000));
+    vi.advanceTimersByTime(COALESCE_MS);
+    pty.emit('held');
+    vi.advanceTimersByTime(COALESCE_MS);
+    expect(got.join('').length).toBe(110_000);
+    // Acking what it was sent since it resumed (110 000) brings it to 0: caught up, a screen at the offset it stands at.
+    att.ack(110_000);
+    vi.advanceTimersByTime(CATCH_UP_MIN_MS);
+    await vi.waitFor(() => expect(replays).toHaveLength(1));
+    expect(replays[0]).toMatchObject({ stream, offset: pty.screen.length });
+    // …which is a position it can resume from in turn (StreamPosition takes a catch-up screen's offset).
+    pty.emit(' later');
+    const again = resumeAt(reg, { stream, offset: replays[0].offset }, []);
+    expect(await again.att.ready).toMatchObject({ data: ' later', resumed: true });
   });
 });

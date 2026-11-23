@@ -151,7 +151,7 @@ Output used to go to every client chunk by chunk, as fast as the agent wrote it.
 
 The browser also bounds each `term.write` at `WRITE_PIECE` (64 KiB). xterm.js parses one write whole before it looks at the clock, so a big frame or screen written at once is one long freeze. The keystroke-latency meter still marks the echo as the frame arrives.
 
-**Offsets.** Each frame ends at an offset: the characters of output since the entry was spawned (restarts keep counting), `pacer.offset`. `attach` returns the offset its snapshot stands at. Nothing uses them on the wire yet: they are for a reconnecting client to ask for only what it missed.
+**Offsets.** Each frame ends at an offset: the characters of output since the entry was spawned (restarts keep counting), `pacer.offset`. `attach` returns the offset its snapshot stands at. Every `replay` frame carries it (`offset`, with the stream's id), and a reconnecting tab asks for what it missed from its own: see "Reattach where you left off".
 
 **Negotiation and compatibility.** There is no protocol version bump and no `HOST_FEATURES` entry, because no client needs to know whether the host paces. An older host ignores the parameter and the `ack` frames (unknown types are dropped), so a new client behaves as before. An older client sends neither, so the host sends it everything, unpaced. The relay (`terminal-ws.ts`) passes `?flow=1` on to the host and the acks through as they are. A mid-session replay only ever goes to a client that asked for flow. `work attach` also sends `catchup=screen` (`CATCH_UP_PARAM`), which an older host ignores like `flow=1`. Its catch-up then carries the scrollback, drawn into your history again: a duplicate, nothing lost, nothing erased.
 
@@ -462,3 +462,96 @@ Left open:
 - **Done, unseen** (Codex's and opencode's `done`) shows as idle, seen: a stream status has no row for "Mark seen" to clear. Keeping "seen" for it in work web would let it reach the Inbox's Done section.
 - **The percent** reaches `SessionAttention.progress` and the summary; nothing draws it yet.
 - **`title`**, and `msg` other than a blocked one's (used as the summary), are validated but not shown.
+
+## Reattach where you left off
+
+A Terminal tab whose connection dropped (Wi-Fi, sleep, work web or the host restarted) wrote "[connection closed — press Enter to reconnect]", and Enter started over: a new terminal and the whole screen sent again (up to 129 KB with a full scrollback, measured below). The tab's own scrollback past `REPLAY_SCROLLBACK` (2 000 of its 5 000 lines), its scroll position and its selection were gone. Now it reconnects in place and is sent only what it missed, when the host can prove that is all it needs. Otherwise it gets a screen, as before.
+
+**Where a client stands.** Every `replay` frame says which output stream it belongs to and the offset it leaves the client at (`stream`, `offset`; `core/pty/resume.ts`).
+
+- **`stream`** is 16 hex characters from `randomBytes(8)`, one per registry entry. A new spawn under the same id, or a host started again, is another stream. A restart or halt in place keeps the entry, so it keeps the stream and the count: the new agent's output continues it, as an attached tab sees it.
+- **`offset`** is the pacer's (see "Flow control and coalescing", Offsets).
+- **Live frames carry no stamp.** They are contiguous slices of the output, one host frame per WebSocket message, which the relay passes on as they are. So a client knows its offset: the last replay's, plus `utf16Length` of each binary frame (`StreamPosition`). Acks already rely on that count. A stamp per frame (Paradev's seq, sshx's chunk numbers) would add a header to every frame for something the client counts itself. A catch-up screen mid-session sets the position as the first screen does.
+
+**Asking.** Reconnecting, the tab states `?resume=<stream>-<offset>-<cols>x<rows>` on its attach address: straight to the host with a ticket, or through the relay, which passes it on as it does `flow` and the grid. A malformed one is ignored (a screen). A reconnect only attaches: it never starts an agent and is never told "elsewhere". The ticket request says `attachOnly: true` (`ensurePty(…, { attachOnly })`, which throws `NOT_RUNNING` when the terminal isn't running), and the relay takes the parameter itself for the same.
+
+**The tail.** The pacer keeps the last `RESUME_TAIL_CHARS` (64 Ki) characters of output as they arrived (`OutputTail`, `core/pty/output-tail.ts`). It is pushed first thing in `output()`, so its end is always `pacer.offset`. Why that size:
+
+- It is under `HIGH_WATERMARK`, so a resume never sends more than a client may have outstanding anyway.
+- It is about a minute of a working Claude (~1 KB/s, pty-host.md), many minutes of one at its prompt.
+- It is at most 128 KiB per PTY, against the mirror's ~11.5 MiB. coder keeps the same 64 KiB.
+
+A longer drop gets a screen, which is what a long absence wants anyway.
+
+**Resume or screen.** `resumeFrom` (pure) decides as the client joins (`whenNoFrame`, right after `pacer.add`, where a screen is taken). What it missed is `tail.since(offset)`. It goes out as a `replay` with `resumed: true`, `data` = the missed output, `offset` = where its live output starts. Any doubt is a screen, sent as on any attach (`onResumeRefused` says why):
+
+- **`stream`**: another stream.
+- **`busy`**: the agent exited, is restarting or halted, or a redraw is changing the grid.
+- **`grid`**: the tab's grid isn't the PTY's. It is checked against the grid now, the grid before this attach's own resize (a tab states its grid as it attaches, and that resize would hide a mismatch), and the stated grid.
+- **`ahead`**: the offset is past the end.
+- **`resized`**: the PTY's grid changed after the offset (`gridAt`, set at every real resize, the redraw's two included). The mirror reflowed and the agent repainted for another grid meanwhile. A change at or before its offset the tab already saw: Paradev wants the offset strictly after the change, but equal is the same as an uninterrupted client (it drew everything before the change and is sent everything after).
+- **`too-old`**: what it missed is no longer all in the tail.
+- **`split`**: the offset falls between the halves of a surrogate pair, where no frame ends.
+
+§ Nothing twice, nothing lost. The missed output ends where the joined client's live output starts: the tail up to `pacer.offset` at the join, then the pacer's frames from there, held until `start()` as for a screen.
+
+- **An open synchronized frame**: a resume during one waits for its end (`whenNoFrame`), so the frame arrives whole inside the missed output.
+- **The tail's own cut** (mid-escape, mid-pair, mid-frame) is never sent: a resume starts at the tab's own offset, where its parser stands.
+- **Drawing**: missed output is written in `WRITE_PIECE`s like a screen, and never acked.
+
+§ Acks start again from the resumed offset. The missed output doesn't go through the pacer, so it isn't counted. The tab acks with a new counter per connection, so nothing owed on the old one is paid on the new.
+
+§ One answerer. Queries in the missed output were answered when they came: by the client chosen then, or by the host's screen copy when nobody was attached. While xterm parses the missed output, the tab drops what it answers (`quiet`: empty writes mark the start and end, as ScreenMirror marks a chunk; `replyParts`). Typing and reports still go through, and queries in later live output are answered as before.
+
+**The tab** (`PtyView`). When the connection closes unexpectedly after the first screen, and the host sent a `stream`:
+
+- It keeps its Terminal, writes nothing in it, and queues input.
+- It reconnects after `RECONNECT_DELAYS_MS` (0, 1, 2, 4 s), each try from where it stands then. It states its grid when shown, none when hidden.
+- "Connecting…" covers the pane only after `RECONNECT_COVER_MS` (500 ms).
+- **Resumed**: the missed output is drawn on the screen as it is, and the scrollback, scroll position and selection stay. Then its size and queued input are sent, as after any first screen.
+- **Refused**: the screen is drawn over a reset terminal at its grid, as a catch-up is.
+- **After the last try**: the old message, and Enter starts over.
+- **A host from before** (no `stream`): the old message at once.
+
+**Compatibility.** Additive: no `PROTOCOL_VERSION` bump, no `HOST_FEATURES` entry.
+
+- **An older host** sends no `stream`, so the tab never asks.
+- **A host started again** has another stream, so the tab gets a screen.
+- **An older client** never states `resume` and ignores the new fields.
+
+**`work attach`** stays on screens. It doesn't reconnect (its socket closing ends it), so it has nowhere to resume from. Reconnecting it is a change of its own.
+
+**Measured**: a real PTY through the host, 133 586 characters in about a second, with colours, wide and astral characters and synchronized frames. The numbers are from three scratch runs on macOS, with timings added, of an earlier, timed version of `tests/functional/pty-resume-real.test.ts`: a 30 ms drop, and a frame the stand-in agent held for a fixed time. The test itself now waits only on what was seen: the frame is held until the test says, and each cut waits on the clients' output and the host's screen. Each time includes opening the WebSocket.
+
+| What was sent | Size | Time to arrive |
+|---|---|---|
+| Resume after a 30 ms drop | 7.9–8.4 Ki characters (10.9–11.5 KB) | 7.5–15 ms |
+| Resume inside a held synchronized frame | 76 characters (238 B) | 40–66 ms (the wait for the frame's end) |
+| Screen at about the same moment | 43.6 Ki characters (56 KB) | 122–132 ms in four runs of five, 7 ms in one |
+| Screen at the end, full `REPLAY_SCROLLBACK` | 101 Ki characters (129 KB) | 17–31 ms |
+
+What the runs show:
+
+- **Equal**: the resumed client's serialized buffer (screen and 10 000-line scrollback) equaled the uninterrupted client's in every run.
+- **The check catches errors**: a client resuming 3 characters off, or dropping what it missed, came out different.
+- **A screen is not equal**: a client sent a screen instead (too old) differs by its scrollback, because a screen carries 2 000 lines.
+
+**Compared with others.**
+
+- **Paradev** (`packages/host-service/src/terminal/terminal.ts`; the renderer's `terminal-seq-anchor.ts`), the closest:
+  - `?seq=<epoch>:<n>`, the `epoch` from `randomBytes(8)` per session (our `stream`). It keeps a 2 MiB catch-up ring and sends a `synced {epoch, seq, head, mode}` message first.
+  - It resumes `exact` when the ring still holds `seq`, `seq` is past the last resize and not past the head. Otherwise it `reanchor`s: it keeps the client's screen and nudges a SIGWINCH instead of sending a screen. We send a screen.
+  - It keeps the anchor in localStorage. Ours dies with the page, whose terminal is new anyway.
+  - It notes that replayed bytes must not be answered, as we do.
+- **sshx** (`crates/sshx-server/src/session.rs`): it keeps 2 MiB per shell (`SHELL_STORED_BYTES`) and resumes by chunk number (`subscribe_chunks`). A request older than that is clamped silently (`saturating_sub`), with no screen and no stream id.
+- **opencode** (`packages/core/src/pty.ts`, `pty/protocol.ts`): a 2 Mi-character buffer, `?cursor=` and a meta frame with the cursor. A cursor that is too old silently replays the whole buffer; it has no incarnation id.
+- **coder** (`agent/reconnectingpty/buffered.go`): a 64 KiB ring (`circbuf.NewBuffer(64 << 10)`) replayed whole on every reconnect, with no offset.
+- **VS Code** (`platform/terminal/node/ptyService.ts`, `XtermSerializer`): always a serialized screen (`persistentSessionScrollback` 100 lines), no offset.
+- **zmx** (`serializeTerminalState`): always a ghostty-vt screen, no offset.
+- **tmux**: redraws from its grid and never sends raw output.
+
+Left open:
+
+- **Not seen in a real browser.** The tab is tested in jsdom with a fake xterm, and end to end with @xterm/headless clients over real sockets.
+- **The cover's 500 ms and the four tries** are judgement, not measured on a real outage. A drop that lasts longer than about 7 s gets the old message.
+- **`work attach`** doesn't reconnect.
