@@ -129,16 +129,18 @@ export function claudeEntries(lines: readonly unknown[]): ConversationEntry[] {
 }
 
 /**
- * Claude's standard window, and the 1M one: a `[1m]` model id, a model that
- * has 1M as it comes (`LARGE_MODELS`), or usage no 200k window could hold.
- * The transcript names the model and nothing more, so this decides it: Opus
- * 5.5 at 190k read as "96% full" while Claude Code's own line said 19%.
+ * A Claude conversation's window: 1M, as every current model has it as it comes (Opus and Sonnet 4.6 and later,
+ * Haiku 5.5, Fable, Mythos), or 200k for the older models (`SMALL_MODELS`) — unless the id says `[1m]` or the
+ * usage is more than 200k could hold. The transcript names the model and nothing more, so this decides it: Opus
+ * 5.5 at 190k read as "96% full" while Claude Code's own line said 19%, and Fable 5.2 at 163k as 82%.
  */
-export const DEFAULT_WINDOW = 200_000;
+export const SMALL_WINDOW = 200_000;
 export const LARGE_WINDOW = 1_000_000;
-/** Models with 1M context as they come, as Claude Code counts them: Opus 5 (`claude-opus-5-5`; on Bedrock
- *  `us.anthropic.claude-opus-5-5-v1:0`, on Vertex `claude-opus-5-5@…`). */
-const LARGE_MODELS = /(^|[./:])claude-opus-5(?!\d)/i;
+/** The 200k models: Claude 3.x (`claude-3-7-sonnet-…`) and Opus/Sonnet/Haiku 4 up to 4.5 (`claude-opus-4-…`,
+ *  `claude-opus-4-1`, `claude-sonnet-4-5-…`, `claude-haiku-4-5-…`), also on Bedrock (`us.anthropic.claude-sonnet-4-5-…-v1:0`)
+ *  and Vertex (`claude-sonnet-4-5@…`). 4.6 and later are 1M. */
+const SMALL_MODELS = /(^|[./:])claude-(?:[1-3](?!\d)|(?:opus|sonnet|haiku)-4(?:-[0-5])?(?!\d|-[6-9]))/i;
 export function claudeContextWindow(model: string | undefined, used: number): number {
-  return (model && (/\[1m\]/i.test(model) || LARGE_MODELS.test(model))) || used > DEFAULT_WINDOW ? LARGE_WINDOW : DEFAULT_WINDOW;
+  if (used > SMALL_WINDOW || (model && /\[1m\]/i.test(model))) return LARGE_WINDOW;
+  return model && SMALL_MODELS.test(model) ? SMALL_WINDOW : LARGE_WINDOW;
 }

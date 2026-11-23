@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentById, agentFor, agentOf, agentSettings, agentToRecord, agentWire, isKnownAgent } from '../../../src/core/agents/index.js';
 import { claudeAgent, claudeEntries } from '../../../src/core/agents/claude/adapter.js';
-import { claudeContextWindow, DEFAULT_WINDOW, LARGE_WINDOW } from '../../../src/core/agents/claude/entries.js';
+import { claudeContextWindow, LARGE_WINDOW, SMALL_WINDOW } from '../../../src/core/agents/claude/entries.js';
 import { encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
 import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 import type { TranscriptEntry } from '../../../src/core/agents/claude/transcript-entry.js';
@@ -56,14 +56,43 @@ describe('claudeEntries (pure): every line of a Claude transcript, in work’s o
     ]);
     expect(e).toMatchObject({ role: 'agent', usage: { prompt: 1015, reply: 7 }, model: 'claude-opus-5-5[1m]' });
     expect(claudeContextWindow('claude-opus-5-5[1m]', 10)).toBe(LARGE_WINDOW);
-    expect(claudeContextWindow('claude-sonnet-5', 250_000)).toBe(LARGE_WINDOW);
-    expect(claudeContextWindow('claude-sonnet-5', 10)).toBe(DEFAULT_WINDOW);
-    // Opus 5 has 1M as it comes: 190k is 19% (as Claude Code's own line says), not 96%.
-    expect(claudeContextWindow('claude-opus-5-5', 190_000)).toBe(LARGE_WINDOW);
-    expect(claudeContextWindow('claude-opus-4-1', 190_000)).toBe(DEFAULT_WINDOW);
+    expect(claudeContextWindow('claude-sonnet-4-5[1m]', 10)).toBe(LARGE_WINDOW);
+    // 1M is the default, as every current model has it: Opus 5.5 at 190k is 19% (as Claude Code's own line
+    // says), not 96%; Fable 5.2 at 163k is 16%, not 82%.
+    const current = [
+      'claude-opus-5-5',
+      'claude-opus-5',
+      'claude-fable-5-2',
+      'claude-fable-5',
+      'claude-mythos-5-2',
+      'claude-sonnet-5-5',
+      'claude-sonnet-5',
+      'claude-haiku-5-5',
+      'claude-opus-4-8',
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+    ];
+    for (const m of current) expect(claudeContextWindow(m, 190_000), m).toBe(LARGE_WINDOW);
+    expect(claudeContextWindow(undefined, 10)).toBe(LARGE_WINDOW);
+    // The older models are 200k, until the usage says more.
+    const older = [
+      'claude-opus-4-5',
+      'claude-opus-4-5-20251101',
+      'claude-opus-4-1',
+      'claude-opus-4-20250514',
+      'claude-sonnet-4-5-20250929',
+      'claude-haiku-4-5-20251001',
+      'claude-3-7-sonnet-20250219',
+      'claude-3-5-haiku-20241022',
+    ];
+    for (const m of older) expect(claudeContextWindow(m, 190_000), m).toBe(SMALL_WINDOW);
+    expect(claudeContextWindow('claude-sonnet-4-5', 250_000)).toBe(LARGE_WINDOW);
     // Through a cloud provider, the same model under its own name.
     expect(claudeContextWindow('us.anthropic.claude-opus-5-5-v1:0', 190_000)).toBe(LARGE_WINDOW);
     expect(claudeContextWindow('claude-opus-5-5@20260901', 190_000)).toBe(LARGE_WINDOW);
+    expect(claudeContextWindow('anthropic.claude-fable-5-2', 163_000)).toBe(LARGE_WINDOW);
+    expect(claudeContextWindow('us.anthropic.claude-sonnet-4-5-20250929-v1:0', 10)).toBe(SMALL_WINDOW);
+    expect(claudeContextWindow('claude-sonnet-4-5@20250929', 10)).toBe(SMALL_WINDOW);
   });
 
   it('marks Claude Code’s own lines (`meta`) and the user lines that are still a turn’s work (`turn`)', () => {
