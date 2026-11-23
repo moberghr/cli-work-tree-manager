@@ -6,6 +6,7 @@ import {
   backfillSessionBranches,
   branchHidden,
   MAX_WATCHED_BRANCHES,
+  needsBackfill,
   noteBranchFacts,
   readSessionBranches,
   repoNameOf,
@@ -254,8 +255,9 @@ export function branchesWire(
  * The sessions list's branches (work web): each row's recorded branches with
  * their facts — read in the background (BranchFactsCache), what it finds kept
  * (deleted, merged, pushed once) — and, once per session recorded before the
- * list began, its reflog read into the record (backfillSessionBranches), one
- * session at a time, off the request's path. `wire` never runs git.
+ * list began, its reflog read into the record (backfillSessionBranches; again
+ * for a record read before that was bounded, `needsBackfill`), one session at
+ * a time, off the request's path. `wire` never runs git.
  */
 export function createSessionBranches(
   opts: {
@@ -297,7 +299,7 @@ export function createSessionBranches(
     wire(s: WorktreeSession, rec: SessionBranches | null | undefined, ci: SessionCi | null | undefined): SessionBranchWire[] | null {
       if (s.archivedAt) return null;
       const id = sessionIdFor(s);
-      if (!rec?.backfilled && !asked.has(id)) {
+      if (needsBackfill(s, rec) && !asked.has(id)) {
         asked.add(id);
         waiting.push(s);
         pump();
@@ -356,7 +358,7 @@ export async function sessionBranchesNow(
 ): Promise<SessionBranchWire[] | null> {
   if (s.archivedAt) return null;
   let rec = readSessionBranches(sessionIdFor(s));
-  if (!rec?.backfilled) rec = bestEffort(`read the branches of ${s.target}:${s.branch}`, () => backfillSessionBranches(s), rec) ?? rec;
+  if (needsBackfill(s, rec)) rec = bestEffort(`read the branches of ${s.target}:${s.branch}`, () => backfillSessionBranches(s), rec) ?? rec;
   const plan = branchJobs(s, rec, now);
   if (!plan) return null;
   const found = await lookAt(plan.jobs, run);

@@ -187,17 +187,22 @@ function write(sessionId: string, rec: SessionBranches): void {
   withDb((d) => d.prepare('INSERT OR REPLACE INTO session_branches (session_id, data) VALUES (?, ?)').run(sessionId, JSON.stringify(rec)));
 }
 
-/** Record sightings, in one transaction over the row as it is now. Returns the record after; writes only when something moved. */
+/**
+ * Record sightings, in one transaction over the row as it is now; `drop`: recorded branches to take out first.
+ * Returns the record after; writes only when something moved.
+ */
 export function noteBranches(
   sessionId: string,
   seen: BranchSighting[],
   now = new Date(),
-  opts: { backfilled?: boolean } = {},
+  opts: { backfilled?: boolean; drop?: (b: RecordedBranch) => boolean } = {},
 ): SessionBranches {
   return tx((d) => {
     const row = d.prepare('SELECT data FROM session_branches WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
     const old = row ? cleanBranches(json.parse(row.data)) : null;
-    const next = withSightings(old, seen, now, opts);
+    const drop = opts.drop;
+    const kept = old && drop && old.branches.some(drop) ? { ...old, branches: old.branches.filter((b) => !drop(b)) } : old;
+    const next = withSightings(kept, seen, now, opts);
     if (next !== old) write(sessionId, next);
     return next;
   });
@@ -293,10 +298,27 @@ export function recordCheckedOutBranches(
 }
 
 /**
+ * A recorded branch last checked out before the session began: not its work. Only the reflog read before it
+ * was bounded (`backfillSessionBranches`) put one there — a session on a repo's own checkout took in every
+ * branch that folder had been on for months (reported: "23 branches", 12 of them from before the session).
+ * The session's own branch excepted: its checkout can have been on it before the session was made. Pure.
+ */
+export function branchFromBefore(s: Pick<WorktreeSession, 'branch' | 'createdAt'>, b: Pick<RecordedBranch, 'name' | 'lastSeen'>): boolean {
+  return b.name !== s.branch && Date.parse(b.lastSeen) < Date.parse(s.createdAt);
+}
+
+/** Is the reflog still to be read into the record: never read, or read before it was bounded (`branchFromBefore`)? Pure. */
+export function needsBackfill(s: Pick<WorktreeSession, 'branch' | 'createdAt'>, rec: SessionBranches | null | undefined): boolean {
+  return !rec?.backfilled || rec.branches.some((b) => branchFromBefore(s, b));
+}
+
+/**
  * Once per session recorded before the list began: the branches its repos'
- * reflogs show they were on (the session's own branch included), merged into
- * the record and marked backfilled. File reads only; run it in the
- * background, never on a request's path. Returns the record after.
+ * reflogs show they were on since the session began (the session's own branch
+ * included), merged into the record and marked backfilled; branches recorded
+ * from before the session began are taken out (`branchFromBefore`). File
+ * reads only; run it in the background, never on a request's path. Returns
+ * the record after.
  */
 export function backfillSessionBranches(
   s: Pick<WorktreeSession, 'target' | 'branch' | 'isGroup' | 'paths' | 'createdAt'>,
@@ -304,9 +326,10 @@ export function backfillSessionBranches(
 ): SessionBranches {
   const id = sessionIdFor(s);
   const seen: BranchSighting[] = [];
+  const began = Date.parse(s.createdAt);
   for (const p of s.paths) {
     const repo = repoNameOf(s, p);
-    const history = checkoutBranchHistory(p, s.branch);
+    const history = checkoutBranchHistory(p, s.branch, Number.isFinite(began) ? began : undefined);
     if (!history.some((b) => b.name === s.branch) && s.createdAt) {
       // The session's own branch, even when its reflog is gone or cut short.
       seen.push({ repo, name: s.branch, firstSeen: s.createdAt, lastSeen: s.createdAt });
@@ -322,7 +345,7 @@ export function backfillSessionBranches(
       });
     }
   }
-  return noteBranches(id, seen, now, { backfilled: true });
+  return noteBranches(id, seen, now, { backfilled: true, drop: (b) => branchFromBefore(s, b) });
 }
 
 /** A recorded branch that was seen on origin once (its PR is worth asking about even with origin's copy gone). */
