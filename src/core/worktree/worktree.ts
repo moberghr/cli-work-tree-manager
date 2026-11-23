@@ -299,14 +299,16 @@ function makeSingleWorktree(
 
     // The freshest copy of the base: a local one nothing pulls (not checked out) can be far behind origin's.
     const baseRef = freshestRef(repoPath, baseBranch) ?? (baseLocal ? baseBranch : `origin/${baseBranch}`);
-    result = git([...WORKTREE_ADD, worktreePath, '-b', branchName, baseRef], repoPath);
+    // --no-track: started from `origin/<base>`, git would make the base the new branch's upstream, and a plain
+    // `git push` / `git pull` from the session would then go to main (reported, more than once).
+    result = git([...WORKTREE_ADD, worktreePath, '--no-track', '-b', branchName, baseRef], repoPath);
   } else {
     // If pulling the base repo branch failed, use origin/<baseRepoBranch> as the
     // source so the new branch isn't created from a stale local HEAD.
     const fallbackToRemote = baseRepoPullFailed && !!baseRepoBranch && remoteBranchExists(baseRepoBranch, repoPath);
     if (fallbackToRemote) {
       report('step', `  Using origin/${baseRepoBranch} as base (local '${baseRepoBranch}' is stale)`);
-      result = git([...WORKTREE_ADD, worktreePath, '-b', branchName, `origin/${baseRepoBranch}`], repoPath);
+      result = git([...WORKTREE_ADD, worktreePath, '--no-track', '-b', branchName, `origin/${baseRepoBranch}`], repoPath);
     } else {
       result = git([...WORKTREE_ADD, worktreePath, '-b', branchName], repoPath);
     }
