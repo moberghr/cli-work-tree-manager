@@ -266,7 +266,7 @@ An agent wraps each repaint in `CSI ? 2026 h` … `CSI ? 2026 l` (BSU … ESU) s
 **Measured** in Chromium (Playwright's Chrome for Testing, Metal GPU, M3 Pro), with xterm.js 6.0.0 and addon-webgl 0.19.0 set up as `PtyView` sets them up. A page counts `onRender` rows: a paint is whole when every row shows the same frame, torn otherwise. Frames were 200×50 and about 30 KiB. The scripts are not in the repo (a manual check, not a CI test).
 
 - **The real stream.** A fake agent wrote one frame per `write` at 60 and 30 fps through a real PTY (node-pty, macOS). The PTY delivers it in 1 KiB reads. A 30 KiB frame arrives whole within 0.4 ms (median) to 5 ms (max). 400 KiB takes 6 to 8 ms, 1.5 MiB 21 to 26 ms.
-- **The old pacer split every frame.** That stream was replayed through the old and the new pacer in virtual time, and what each sent was replayed into the page at the same times, in `WRITE_PIECE` writes. The old pacer sends the first read of a quiet moment at once. So every frame went out as two messages, 1 KiB and then the rest: 361 messages for 180 frames, 181 of them ending mid-frame.
+- **The old pacer split every frame.** The "old pacer" is this branch's earlier one (see "What before means here", below the table). That stream was replayed through the old and the new pacer in virtual time, and what each sent was replayed into the page at the same times, in `WRITE_PIECE` writes. The old pacer sends the first read of a quiet moment at once. So every frame went out as two messages, 1 KiB and then the rest: 361 messages for 180 frames, 181 of them ending mid-frame.
 
 | What the tab got (60 fps agent) | DOM renderer | WebGL renderer |
 |---|---|---|
@@ -277,6 +277,8 @@ An agent wraps each repaint in `CSI ? 2026 h` … `CSI ? 2026 l` (BSU … ESU) s
 
 At 30 fps all of them drew 30 whole frames/s, except stripped markers on the old pacer: about 90 torn paints in 3 s.
 
+§ **What "before" means here.** The "old pacer" is this branch's own earlier pacer (the coalescing one, which sent a frame's first read alone and so split every frame across writes), not the base. 3.7 whole frames/s is that pacer's figure, and the gain over it is a fix of this branch's own regression. Against the base commit (`e2b36c31`: no pacer, each read sent as it came) a fast machine already drew about 60 whole frames/s: benchmark, base → this branch, 59 → 60 whole frames/s, longest gap 34 → 20 ms. The gain over the base is the gap, not the rate.
+
 Synthetic streams (frames sent from the page itself):
 
 - **Each frame in 3 writes 2 ms apart**, markers kept: 7 to 21 whole frames/s at 30 fps, and 1.5 to 1.8/s at 60 fps, with 1 to 1.5 s gaps. 0 torn.
@@ -284,11 +286,20 @@ Synthetic streams (frames sent from the page itself):
 - **One write per frame**, markers or not: 23 to 38 whole frames/s on DOM, 0 torn. So did 100 KiB and 300 KiB frames on WebGL. Without markers they were also 0 torn, because xterm.js parses a write whole and draws after it.
 - **Without markers, each frame in pieces**: 100 to 230 torn paints in 4 s.
 
+**Frames bigger than `WRITE_PIECE`, in the real app** (work web, the PTY host, a stand-in agent writing one synchronized frame per write at 60 fps, every cell in true colour, Chrome for Testing headless with Metal, M3 Pro; 159 × 49; a scratch check, not in the repo). The tab writes such a frame in 64 KiB pieces, all in the same task, so xterm.js parses them in one go and the frame is whole before the next animation frame:
+
+| Frame | Writes per frame | WebGL | Same, written unsplit | DOM |
+|---|---|---|---|---|
+| 136 KB | 3 | 56 whole frames/s, 0 torn, longest gap 33 ms | 55.8/s, 0 torn, 35 ms | 20/s, 0 torn, 99 ms |
+| 486 KB | 8 | 56/s, 0 torn, 40 ms | 55.8/s, 0 torn, 38 ms | — |
+
+At 30 fps every WebGL run drew 29 to 29.1/s. 12 screenshots taken during each run, with alternate frames on red and blue backgrounds, showed no half-drawn frame. So splitting a write at `WRITE_PIECE` doesn't cost WebGL frames: what did was a frame split across messages (the old pacer, above).
+
 **Parse rate**: 18 to 34 ms per MiB once warm, so a 64 KiB piece takes 1.2 to 2 ms. The first 16 KiB after the page loaded took 46 to 161 ms (JIT warm-up). xterm.js checks its 12 ms slice only between writes. So a frame with no markers is drawn whole up to about 350 to 650 KiB in the pieces of one message, and less when the page is cold. Past that only the markers keep it whole.
 
 **What was seen before.** Each of these follows from the code and the replay above.
 
-- **A frame split by the coalescing.** Every frame was split. A WebGL tab drew about 4 frames a second, with half-second stalls, while the agent animated at 60.
+- **A frame split by the coalescing** (this branch's earlier pacer, not the base). Every frame was split. A WebGL tab drew about 4 frames a second, with half-second stalls, while the agent animated at 60. The base, which had no coalescing, drew about 60 (above).
 - **A pause, or a client falling behind, mid-frame.** The half sent was held by the tab until the rest came, for up to `PAUSE_TIMEOUT_MS`.
 - **A catch-up or an attach mid-frame.** The screen was taken from the mirror as it stood: the top of the new frame over the bottom of the old one. A snapshot carries no 2026, and a catch-up starts with RIS, which ends the tab's frame. So the rest of the frame was drawn as it came, torn.
 
@@ -304,18 +315,20 @@ Synthetic streams (frames sent from the page itself):
 
 **Scroll after a repaint.** Claude Code reprints its whole transcript after a resize or a toggle: `CSI 2 J`, `CSI 3 J`, then every line, inside one frame. In xterm.js 6 (measured in the same Chromium, with or without 2026, and split into 4 writes), a view at the bottom stays at the bottom and follows. A view scrolled up 50 lines lands at line 0 of the new scrollback and stops following. Before, the top of the view showed "line 221"; after, "line 0".
 
-`state/repaint-scroll.ts` fixes it with xterm's public parser hooks. Its handlers run before xterm's and fall through (`return false`), so the view is noted before anything is cleared. It is put right at the frame's ESU, or, with no frame, once the write the clear came in is parsed:
+`state/repaint-scroll.ts` fixes it with xterm's public parser hooks. Its handlers run before xterm's and fall through (`return false`), so the view is noted before anything is cleared. It is put right at the frame's ESU. With no frame it is placed after each write as far as the reprint has come, and put right for good once no write has come for `REPAINT_QUIET_MS` (50), or `REPAINT_SETTLE_MS` (500) after the clear, whichever is first (output that goes on after a repaint doesn't hold the view longer than that):
 
 - **at the bottom**: kept at the bottom (`scrollToBottom`, as Wave Terminal does);
 - **scrolled up**: the same text stays at the top of the view. The view's top 3 lines are looked for in the reprint, starting from the same distance from the bottom and going out from there. If they are not found, that distance alone is used. It stays scrolled up and doesn't follow.
 
 Measured with the fix, "line 221" stayed at the top in every case, including a reprint 20 lines shorter. A cleared screen alone (`2 J`), the alternate screen and a reset move nothing.
 
+A repaint with no 2026 is not one write in the real app: the PTY is read 1 KiB at a time and the first read of a quiet moment is sent alone, so the clear and the first lines come in a write of their own. Putting the view right at the end of that write (as at first) found only the first lines of the reprint: a view scrolled up 120 lines in a 552-line scrollback went from "line 432" to "line 0", for a 5.9 KB reprint as for a 68 KB one (the Terminal tab against a real PTY host, Chrome for Testing 159). With 2026 it stayed on "line 432". `tests/web/repaint-scroll.test.ts` writes such a repaint in three writes into a headless xterm.
+
 Left open:
 
 - **8-bit CSI** (`0x9b`) is not recognised by the scanner. Agents write the 7-bit form.
 - **A frame let go by a cap** reaches the tab split, as every frame did before, and so draws at the rate measured above. Upstream #6071 is still open.
-- **A repaint with no 2026** that spans several writes is put right at the end of its first write. A scrolled-up view can then land on the distance from the bottom instead of the text.
+- **A repaint with no 2026 and a pause in it** longer than `REPAINT_QUIET_MS` is put right where the reprint had come to then; the view stays there, scrolled up, while the rest arrives.
 - **Not seen on Windows**: ConPTY's read sizes, and so the arrival spans there.
 
 ## Fonts and the renderer

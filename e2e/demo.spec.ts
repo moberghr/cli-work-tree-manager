@@ -573,13 +573,14 @@ test('the terminal follows the window both ways: it grows, and shrinks back', as
   await page.setViewportSize({ width: 1280, height: 700 });
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
-  // What xterm drew (its canvas) against the box it sits in.
+  // What xterm drew against the box it sits in. `.xterm-screen` is sized to the grid by either renderer: the WebGL
+  // canvas is inside it, and a software rasterizer (Playwright's headless shell, CI) gets the DOM renderer and no canvas.
   const term = page.locator('.wd-term-deck .wd-term-deck-item[aria-hidden="false"] .xterm');
   await expect(term).toBeVisible();
   const widths = async () =>
     term.evaluate((el) => {
       const host = el.closest('.wd-pty-host') as HTMLElement;
-      const drawn = Math.max(0, ...[...el.querySelectorAll('canvas')].map((c) => c.getBoundingClientRect().width));
+      const drawn = (el.querySelector('.xterm-screen') as HTMLElement | null)?.getBoundingClientRect().width ?? 0;
       return { screen: drawn, host: host.getBoundingClientRect().width };
     });
   const small = await widths();
