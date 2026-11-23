@@ -5,6 +5,7 @@ import { sessionIdFor } from '../../core/sessions/web-state.js';
 import { spawnSpecFor } from '../../core/pty/pty-pool.js';
 import { ensureHost, PtyHostClient } from '../../core/pty/pty-host-client.js';
 import { resolveWorkBinPath } from '../../core/platform/work-bin.js';
+import { TERMINAL_RESET } from '../../core/pty/terminal-reset.js';
 
 // Bridges this terminal to a session in the PTY host. Shared by
 // `work attach` and `work tree --host`; it lives here rather than in either
@@ -140,6 +141,8 @@ export async function attachSession(session: WorktreeSession, launch: AttachSpaw
   });
   restoreTty();
   process.stdout.off('resize', onResize);
+  // The agent's modes (mouse, paste, kitty keys, hidden cursor, alternate screen…) off again in your own terminal.
+  if (process.stdout.isTTY) process.stdout.write(TERMINAL_RESET);
   if (message) process.stderr.write('\r\n' + chalk.gray(message) + '\r\n');
   // Let the event loop drain instead of process.exit(): on Windows,
   // exiting while a fetch's AbortSignal.timeout is still pending trips a

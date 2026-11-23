@@ -34,6 +34,7 @@ export default defineConfig({
     'better-sqlite3',
     '@xterm/headless',
     '@xterm/addon-serialize',
+    '@xterm/addon-unicode11',
   ],
   banner: {
     js: '#!/usr/bin/env node',

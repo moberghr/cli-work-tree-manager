@@ -14,6 +14,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { VIEW_SCROLLBACK } from '../../../../core/pty/scrollback.js';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -116,7 +117,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       fontFamily: '"Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, "Liberation Mono", monospace',
       theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
       convertEol: false,
-      scrollback: 5000,
+      // Kept while connected; a reattach brings back the PTY host's REPLAY_SCROLLBACK (core/pty/scrollback.ts).
+      scrollback: VIEW_SCROLLBACK,
       // Required by the unicode11 addon (proposed API in xterm 6).
       allowProposedApi: true,
       // Links Claude prints as terminal hyperlinks (OSC 8). xterm's default

@@ -1,8 +1,6 @@
 import pty, { type IPty } from 'node-pty';
 import { agentById } from '../agents/index.js';
 import crossSpawn from 'cross-spawn';
-import xtermHeadless from '@xterm/headless';
-import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../platform/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../platform/ai-launcher.js';
 import { batchArgProblem, programFor } from '../platform/batch-launch.js';
@@ -14,6 +12,7 @@ import path from 'node:path';
 import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
+import { ScreenMirror, type HeadlessTerminal } from './screen-mirror.js';
 
 type Fork = typeof childProcess.fork;
 const HIDDEN = Symbol.for('work.forkHidesConsole');
@@ -63,9 +62,6 @@ function ensureSpawnHelper(): void {
     debug('spawn-helper check failed', (err as Error).message);
   }
 }
-
-const { Terminal } = xtermHeadless;
-const { SerializeAddon } = xtermSerialize;
 
 export interface PtyAiOptions {
   /** Resolved AI tool spec (from `getAiTool(config)`). */
@@ -231,8 +227,8 @@ export function slowStart(ms: number): { note: string; warn: string | null } {
 
 export class PtySession {
   readonly pty: IPty;
-  readonly terminal: InstanceType<typeof Terminal>;
-  private readonly serializer = new SerializeAddon();
+  /** The PTY host's copy of the screen (screen-mirror.ts): what a client attaching is sent first. */
+  private readonly mirror: ScreenMirror;
   readonly cwd: string;
   private outputHandler?: (data: string) => void;
   private _exited = false;
@@ -242,13 +238,7 @@ export class PtySession {
 
   constructor(cwd: string, cols: number, rows: number, command?: { cmd: string; args: string[] }, aiOptions?: PtyAiOptions) {
     this.cwd = cwd;
-    this.terminal = new Terminal({
-      cols,
-      rows,
-      scrollback: 200,
-      allowProposedApi: true,
-    });
-    this.terminal.loadAddon(this.serializer);
+    this.mirror = new ScreenMirror(cols, rows);
 
     let rawCmd: string;
     let rawArgs: string[];
@@ -309,7 +299,7 @@ export class PtySession {
     }
 
     this.pty.onData((data) => {
-      this.terminal.write(data);
+      this.mirror.write(data);
       this.outputHandler?.(data);
       // Log first 500 chars of PTY output for debugging early exits
       if (!this._loggedOutput) {
@@ -366,22 +356,23 @@ export class PtySession {
       } catch {
         // PTY already exited natively before our flag was set — ignore
       }
-      this.terminal.resize(cols, rows);
+      this.mirror.resize(cols, rows);
     }
+  }
+
+  /** The headless terminal the screen is kept in. */
+  get terminal(): HeadlessTerminal {
+    return this.mirror.terminal;
   }
 
   /**
    * The current screen + scrollback as escape sequences that redraw it
-   * exactly (colors, cursor, modes, alt screen). What a late attacher is
+   * exactly (colors, cursor, modes, alt screen — ScreenMirror.snapshot). What a late attacher is
    * sent instead of raw output history — raw bytes can start mid-sequence
    * and were drawn for another client's grid (VS Code does the same).
    */
   serialize(): string {
-    try {
-      return this.serializer.serialize();
-    } catch {
-      return '';
-    }
+    return this.mirror.snapshot();
   }
 
   /**
@@ -390,28 +381,13 @@ export class PtySession {
    * is parsed — before any written later. What a new client is sent first.
    */
   serializeSettled(): Promise<string> {
-    return new Promise((resolve) => {
-      try {
-        this.terminal.write('', () => resolve(this.serialize()));
-      } catch {
-        resolve(this.serialize());
-      }
-    });
+    return this.mirror.snapshotSettled();
   }
 
   /** The visible screen as plain text, one line per row (no colors).
    *  What the dashboard checks before answering a prompt by keystroke. */
   screenText(): string {
-    try {
-      const buf = this.terminal.buffer.active;
-      const lines: string[] = [];
-      for (let y = buf.viewportY; y < buf.viewportY + this.terminal.rows; y++) {
-        lines.push(buf.getLine(y)?.translateToString(true) ?? '');
-      }
-      return lines.join('\n');
-    } catch {
-      return '';
-    }
+    return this.mirror.screenText();
   }
 
   setOutputHandler(handler?: (data: string) => void) {
@@ -427,6 +403,6 @@ export class PtySession {
         /* PTY already exited */
       }
     }
-    this.terminal.dispose();
+    this.mirror.dispose();
   }
 }
