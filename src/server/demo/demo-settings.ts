@@ -20,6 +20,9 @@ export function createDemoSettings(repoPathOf: (alias: string) => string | null)
     editor: 'code',
     'prWatch.trustedBots': ['copilot-pull-request-reviewer', 'github-actions'],
     'time.gapTicket': 'OPS-1',
+    // Answered: the dashboard's one-time question (StatusLineAsk) sits in the corner over the pages' own buttons
+    // until it is, and the demo shows work's own line anyway.
+    claudeStatusLine: 'work',
   };
   const repos = new Map<string, RepoSettingsValues>([
     [

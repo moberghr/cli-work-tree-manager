@@ -79,3 +79,9 @@ describe('a setting work needs, in both servers', () => {
     }
   });
 });
+
+describe('the demo', () => {
+  it("has answered the status-line question: its corner card would sit over the pages' own buttons (Clean up's Apply)", () => {
+    expect(createDemoSettings(() => null).read().values).toHaveProperty('claudeStatusLine', 'work');
+  });
+});
