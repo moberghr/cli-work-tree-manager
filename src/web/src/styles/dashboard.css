@@ -1282,7 +1282,7 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  background: #1e1e1e;
+  background: var(--term-bg);
 }
 .wd-assistant-body .wd-pty-host {
   flex: 1;
@@ -1310,7 +1310,7 @@
 .wd-term-slot {
   flex: 1;
   min-height: 0;
-  background: #1e1e1e;
+  background: var(--term-bg);
 }
 .wd-term-deck {
   position: fixed;

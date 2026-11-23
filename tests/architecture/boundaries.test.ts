@@ -56,6 +56,7 @@ const SPA_SHARED = new Set([
   'src/core/api-types.js',
   'src/core/diff/diff-parse.js',
   'src/core/sessions/saved-prompts.js',
+  'src/core/settings/terminal-style.js', // pure, import-free: the terminal's themes and fonts
   'src/core/sessions/process-view.js', // pure: a session's processes in words (sizes, ages)
   'src/core/sessions/branch-view.js', // pure: a session's branches in words (Ship's dialog)
   'src/core/conversations/digest-view.js',

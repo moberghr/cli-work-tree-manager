@@ -5,6 +5,7 @@ import { atomicWriteFile } from './fs-safe.js';
 import { validatePrompts } from '../sessions/saved-prompts.js';
 import { isIssueKey } from '../time/allocate.js';
 import { getConfigDir } from './config-dir.js';
+import { checkTerminalColors, type TerminalColorKey } from '../settings/terminal-style.js';
 import type { SavedPrompt } from '../api-types.js';
 
 /**
@@ -15,6 +16,15 @@ import type { SavedPrompt } from '../api-types.js';
 export interface StatusHook {
   on: 'idle' | 'needs_input';
   command: string;
+}
+
+/** `terminal` in config.json, as written (see `WorkConfig.terminal`). */
+export interface TerminalConfig {
+  theme?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  lineHeight?: number;
+  colors?: Partial<Record<TerminalColorKey, string>>;
 }
 
 export interface WorkConfig {
@@ -150,6 +160,11 @@ export interface WorkConfig {
    * Default off.
    */
   agentsLowPriority?: boolean;
+  /**
+   * How work web's terminals look (Settings → Terminal; core/settings/terminal-style.ts resolves it, a value out of
+   * range to its default). Loaded so that a command that saves config.json (`work config remove-repo`) keeps it.
+   */
+  terminal?: TerminalConfig;
   /**
    * Archived conversations (archive-retention.ts): gzip them once this many
    * days old (default 30; 0 = never; lossless), and delete them after this
@@ -360,6 +375,7 @@ export function loadConfig(): WorkConfig | null {
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       useBundledConpty: typeof parsed.useBundledConpty === 'boolean' ? parsed.useBundledConpty : undefined,
       agentsLowPriority: typeof parsed.agentsLowPriority === 'boolean' ? parsed.agentsLowPriority : undefined,
+      terminal: terminalConfigOf(parsed.terminal),
       prompts: validatePrompts(parsed.prompts),
       time: validateTime(parsed.time),
       archive:
@@ -467,6 +483,21 @@ export function loadConfig(): WorkConfig | null {
   } catch {
     return null;
   }
+}
+
+/** config.json's `terminal`: its fields by their type, the colours that fit (`checkTerminalColors`); undefined when nothing does. */
+function terminalConfigOf(raw: unknown): TerminalConfig | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const t = raw as Record<string, unknown>;
+  const colors = checkTerminalColors(t.colors);
+  const out: TerminalConfig = {
+    ...(typeof t.theme === 'string' ? { theme: t.theme } : {}),
+    ...(typeof t.fontFamily === 'string' ? { fontFamily: t.fontFamily } : {}),
+    ...(typeof t.fontSize === 'number' ? { fontSize: t.fontSize } : {}),
+    ...(typeof t.lineHeight === 'number' ? { lineHeight: t.lineHeight } : {}),
+    ...(Object.keys(colors).length ? { colors } : {}),
+  };
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** `prWatch.requiredChecks` as written: repo → check names (strings only, none empty); null when there's none. */

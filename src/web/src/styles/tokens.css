@@ -41,6 +41,9 @@
   --space-4: 16px;
   --space-6: 24px;
   --space-8: 32px;
+  /* The terminal's background and text: its own theme, not the app's (the store sets them from Settings → Terminal). */
+  --term-bg: #1e1e1e;
+  --term-fg: #d4d4d4;
 }
 
 :root,

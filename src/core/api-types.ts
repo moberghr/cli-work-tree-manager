@@ -1958,6 +1958,8 @@ export interface SettingsWire {
   values: Record<string, unknown>;
   /** The user has a status line of their own (an agent's settings): the dashboard doesn't ask about work's (`StatusLineAsk`). */
   ownStatusLine?: boolean;
+  /** config.json's `terminal.colors`, written by hand: the terminal's own colours over its theme — only the ones that fit. */
+  terminalColors?: Record<string, string>;
   /** Where config.json is, for what isn't on the page. */
   configPath: string;
 }

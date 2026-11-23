@@ -93,6 +93,7 @@ import {
 } from '../state/dashboard-route.js';
 import { readRailFolded, writeRailFolded } from '../state/review-prefs.js';
 import { dashboardDialogOpen, modalOpen as aModalIsOpen } from '../state/modal-open.js';
+import { useTerminalStyleUpdates } from '../state/terminal-style.js';
 import { Menu, type MenuItem } from '../ui/index.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
@@ -140,6 +141,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     return parseHash(hash);
   });
   useEffect(() => saveLastRoute(route, safeLocalStorage()), [route]);
+  // The terminals' style (Settings → Terminal): read now, in before a terminal's first replay (so it is fitted once), and
+  // again when a setting is saved.
+  useTerminalStyleUpdates();
   const [sessionRows, setSessions] = useState<SessionSummary[]>([]);
   // Archiving shows from the click (archive-pending.ts), before the server's own flag comes.
   const sessions = useMarkArchiving(sessionRows);

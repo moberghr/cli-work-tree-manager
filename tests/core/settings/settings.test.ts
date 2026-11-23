@@ -10,9 +10,19 @@ import {
   setValueAt,
   settingAt,
   SETTINGS,
+  SETTING_PATTERNS,
   SETTING_SECTIONS,
   valueAt,
 } from '../../../src/core/settings/settings-schema.js';
+import {
+  DEFAULT_TERMINAL_FONT_SIZE,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+  DEFAULT_TERMINAL_THEME,
+  TERMINAL_FONT_PATTERN,
+  TERMINAL_FONT_SIZE_RANGE,
+  TERMINAL_LINE_HEIGHT_RANGE,
+  TERMINAL_THEMES,
+} from '../../../src/core/settings/terminal-style.js';
 import { originShown, readRepoSettings, readSettings, writeRepoSetting, writeSetting } from '../../../src/core/settings/settings-admin.js';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
 import { DEFAULT_TRUSTED_BOTS } from '../../../src/core/pr/pr-review.js';
@@ -27,6 +37,27 @@ describe('the settings schema (pure)', () => {
       expect(SETTING_SECTIONS).toContain(f.section);
       if (f.default !== null) expect(checkSetting(f, f.default)).toMatchObject({ ok: true });
     }
+  });
+
+  it('the Terminal fields are the terminal module’s: its defaults, ranges, themes and font rule', () => {
+    expect(field('terminal.theme').section).toBe('Terminal');
+    expect(field('terminal.theme').default).toBe(DEFAULT_TERMINAL_THEME);
+    expect(field('terminal.theme').kind).toEqual({
+      type: 'choice',
+      options: TERMINAL_THEMES.map((t) => ({ value: t.id, label: t.label })),
+    });
+    expect(field('terminal.fontSize').default).toBe(DEFAULT_TERMINAL_FONT_SIZE);
+    expect(field('terminal.fontSize').kind).toEqual({ type: 'number', ...TERMINAL_FONT_SIZE_RANGE });
+    expect(field('terminal.lineHeight').default).toBe(DEFAULT_TERMINAL_LINE_HEIGHT);
+    expect(field('terminal.lineHeight').kind).toEqual({ type: 'number', ...TERMINAL_LINE_HEIGHT_RANGE });
+    expect(field('terminal.fontFamily').default).toBeNull();
+    expect(SETTING_PATTERNS.fontFamily).toBe(TERMINAL_FONT_PATTERN);
+  });
+
+  it('the terminal’s font size and font name are checked', () => {
+    expect(checkSetting(field('terminal.fontSize'), 40)).toMatchObject({ ok: false });
+    expect(checkSetting(field('terminal.fontFamily'), 'Hack; color: red')).toMatchObject({ ok: false });
+    expect(checkSetting(field('terminal.fontFamily'), 'JetBrains Mono, Hack')).toMatchObject({ ok: true });
   });
 
   it("the defaults it shows are the ones work uses (time, trusted bots), so the page doesn't lie", () => {
@@ -149,6 +180,45 @@ describe('settings over config.json', () => {
     expect(s.values['jiraWorklog.site']).toBe('acme.atlassian.net');
     expect(JSON.stringify(s)).not.toContain('SECRET-TOKEN');
     expect(s.values['prWatch.fixCi']).toBeUndefined(); // not written: its default
+  });
+
+  it('the terminal’s hand-written colours leave config.json, only the ones that fit', () => {
+    const cfg = raw();
+    fs.writeFileSync(
+      getConfigPath(),
+      JSON.stringify({
+        ...cfg,
+        terminal: {
+          colors: { background: '#000', red: 'red', bogus: '#fff', selectionBackground: '#00ff0080', green: '#00ff0080', blue: 4 },
+        },
+      }),
+    );
+    expect(readSettings().terminalColors).toEqual({ background: '#000', selectionBackground: '#00ff0080' });
+  });
+
+  it('no terminalColors when terminal.colors is absent or has nothing that fits', () => {
+    expect('terminalColors' in readSettings()).toBe(false);
+    fs.writeFileSync(getConfigPath(), JSON.stringify({ ...raw(), terminal: { colors: { bogus: '#fff', red: 'nope' } } }));
+    expect('terminalColors' in readSettings()).toBe(false);
+    fs.writeFileSync(getConfigPath(), JSON.stringify({ ...raw(), terminal: { colors: ['#fff'] } }));
+    expect('terminalColors' in readSettings()).toBe(false);
+  });
+
+  it('a Terminal setting saved or reset keeps the hand-written colours beside it', async () => {
+    fs.writeFileSync(getConfigPath(), JSON.stringify({ ...raw(), terminal: { colors: { background: '#000' } } }));
+    await writeSetting('terminal.theme', 'dracula');
+    await writeSetting('terminal.fontSize', 16);
+    expect(raw().terminal).toEqual({ colors: { background: '#000' }, theme: 'dracula', fontSize: 16 });
+    expect(readSettings()).toMatchObject({
+      values: { 'terminal.theme': 'dracula', 'terminal.fontSize': 16 },
+      terminalColors: { background: '#000' },
+    });
+    expect(loadConfig()?.terminal).toEqual({ theme: 'dracula', fontSize: 16, colors: { background: '#000' } });
+
+    await writeSetting('terminal.theme', null);
+    await writeSetting('terminal.fontSize', null);
+    expect(raw().terminal).toEqual({ colors: { background: '#000' } });
+    expect(readSettings().terminalColors).toEqual({ background: '#000' });
   });
 
   it('a change is written under the lock, unknown keys and the token kept, and work reads it', async () => {

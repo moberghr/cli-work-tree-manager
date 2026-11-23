@@ -220,6 +220,44 @@ describe('loadConfig', () => {
   });
 });
 
+describe("the terminal's look (terminal)", () => {
+  it('kept through a load and a save (a command that saves config.json, work config remove-repo, would drop it); a colour that does not fit goes', () => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    const file = path.join(tmpDir, '.work', 'config.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        worktreesRoot: '/w',
+        repos: {},
+        terminal: {
+          theme: 'midnight',
+          fontFamily: 'Hack',
+          fontSize: 15,
+          lineHeight: 1.2,
+          colors: { background: '#101014', cursor: 'red', nope: '#fff' },
+        },
+      }),
+    );
+    saveConfig(loadConfig()!);
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8')).terminal).toEqual({
+      theme: 'midnight',
+      fontFamily: 'Hack',
+      fontSize: 15,
+      lineHeight: 1.2,
+      colors: { background: '#101014' },
+    });
+  });
+
+  it('absent when not written, or when nothing in it fits', () => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    const file = path.join(tmpDir, '.work', 'config.json');
+    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {} }));
+    expect(loadConfig()?.terminal).toBeUndefined();
+    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, terminal: { fontSize: 'big', colors: [] } }));
+    expect(loadConfig()?.terminal).toBeUndefined();
+  });
+});
+
 describe("the Time tab's settings (time)", () => {
   it('kept when loaded (reported: they were dropped, so a gap ticket never applied); a bad value is left to its default', () => {
     fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });

@@ -37,7 +37,7 @@ describe('reading settings for the screen (pure)', () => {
     expect(settingSections('idle').map((s) => [s.section, s.fields.map((f) => f.path)])).toEqual([
       ['Agents & terminals', ['sleepIdleAfterMinutes']],
     ]);
-    expect(settingSections('').length).toBe(7);
+    expect(settingSections('').length).toBe(8);
   });
 
   it('#/settings and #/repos/<alias> are pages of their own; g , opens Settings', () => {
@@ -90,6 +90,7 @@ describe('the Settings page', () => {
     expect([...host.querySelectorAll('h2')].map((h) => h.textContent)).toEqual([
       'General',
       'Agents & terminals',
+      'Terminal',
       'Pull requests',
       'Reviews',
       'Issues',

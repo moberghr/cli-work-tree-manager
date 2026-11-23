@@ -20,6 +20,6 @@ describe('the terminal host', () => {
   });
 
   it("paints what the rows don't cover in the terminal's colour, not xterm.css's black", () => {
-    expect(css).toMatch(/\.wd-pty-host \.xterm \.xterm-viewport \{\s*background-color: #1e1e1e;/);
+    expect(css).toMatch(/\.wd-pty-host \.xterm \.xterm-viewport \{\s*background-color: var\(--term-bg\);/);
   });
 });

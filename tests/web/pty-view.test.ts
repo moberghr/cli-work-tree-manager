@@ -32,7 +32,10 @@ const h = vi.hoisted(() => {
     buffer = { active: { getLine: () => undefined } };
     /** Where the selection starts (its column: the first line's text began there). */
     selectionStart = { x: 0, y: 0 };
-    constructor(readonly opts: unknown) {
+    /** What it was built with, then changed in place (a restyle sets `options.fontSize` and the rest). */
+    options: Record<string, unknown>;
+    constructor(readonly opts: Record<string, unknown>) {
+      this.options = { ...opts };
       terms.push(this);
     }
     loadAddon(a: { activate?: (t: FakeTerminal) => void }) {
@@ -155,6 +158,10 @@ vi.mock('../../src/web/src/api/terminal-socket.js', () => ({
   },
 }));
 
+// The style every terminal shares (Settings → Terminal): the test sets it, a re-render hands it to PtyView.
+const st = vi.hoisted(() => ({ style: undefined as TerminalStyle | undefined }));
+vi.mock('../../src/web/src/state/terminal-style.js', () => ({ useTerminalStyle: () => st.style! }));
+
 // ---- WebSocket fake ----------------------------------------------------------
 
 type Listener = (e: { data?: unknown }) => void;
@@ -205,6 +212,7 @@ class FakeWebSocket {
 import { ELSEWHERE_RECHECK_MS, PtyView, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
 import { WEBGL_RETRY_MS } from '../../src/web/src/state/webgl-recovery.js';
 import { requestTerminalReconnect } from '../../src/web/src/state/terminal-reconnect.js';
+import { DEFAULT_TERMINAL_STYLE, TERMINAL_THEMES, type TerminalStyle } from '../../src/core/settings/terminal-style.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -214,6 +222,7 @@ beforeEach(() => {
   h.terms.length = 0;
   h.webgls.length = 0;
   h.setWebglThrows(false);
+  st.style = DEFAULT_TERMINAL_STYLE;
   FakeWebSocket.instances = [];
   (globalThis as { WebSocket: unknown }).WebSocket = FakeWebSocket;
   container = document.createElement('div');
@@ -756,5 +765,126 @@ describe('PtyView', () => {
     act(() => root.render(createElement('div')));
     expect(ws.closed).toBe(true);
     expect(term.disposed).toBe(true);
+  });
+});
+
+describe('PtyView takes Settings → Terminal', () => {
+  const tokyo: TerminalStyle = {
+    themeId: 'tokyo-night',
+    theme: { ...TERMINAL_THEMES.find((t) => t.id === 'tokyo-night')!.palette },
+    fontFamily: `"JetBrains Mono", ${DEFAULT_TERMINAL_STYLE.fontFamily}`,
+    fontSize: 16,
+    lineHeight: 1.2,
+  };
+  const render = (active = true) => act(() => root.render(createElement(PtyView, { sessionId: 's1', active })));
+  const resizes = (ws: FakeWebSocket) => ws.sent.filter((m) => (m as { type: string }).type === 'resize');
+  /** Mounted and past the replay: the socket ready, our size sent once. */
+  const ready = () => {
+    render();
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
+    return { ws, term: h.terms.at(-1)! };
+  };
+
+  it('with nothing set it is built as before: 13 px, the Cascadia stack, #1e1e1e / #d4d4d4', () => {
+    const { term } = mount();
+    expect(term.opts).toMatchObject({ fontSize: 13, lineHeight: 1, fontFamily: DEFAULT_TERMINAL_STYLE.fontFamily });
+    expect(term.opts.fontFamily).toMatch(/^"Cascadia Code"/);
+    expect(term.opts.theme).toMatchObject({ background: '#1e1e1e', foreground: '#d4d4d4' });
+    expect(term.opts.theme).toEqual(DEFAULT_TERMINAL_STYLE.theme);
+  });
+
+  it("is built with the style's font, size, line height and colours (a copy of the theme: xterm keeps it)", () => {
+    st.style = tokyo;
+    const { term } = mount();
+    expect(term.opts).toMatchObject({ fontSize: 16, lineHeight: 1.2, fontFamily: tokyo.fontFamily });
+    expect(term.opts.theme).toEqual(tokyo.theme);
+    expect(term.opts.theme).not.toBe(tokyo.theme);
+  });
+
+  it('a changed style restyles the open terminal: same terminal, same socket, the PTY resized only when the grid changed', () => {
+    const { ws, term } = ready();
+    expect(resizes(ws)).toHaveLength(1);
+    const before = { ...h.FIT };
+    try {
+      // A bigger font: fewer columns and rows fit.
+      h.FIT.cols = 90;
+      h.FIT.rows = 28;
+      st.style = tokyo;
+      render();
+      expect(h.terms).toEqual([term]);
+      expect(FakeWebSocket.instances).toEqual([ws]);
+      expect(ws.closed).toBe(false);
+      expect(term.disposed).toBe(false);
+      expect(term.options).toMatchObject({ fontSize: 16, lineHeight: 1.2, fontFamily: tokyo.fontFamily });
+      expect(term.options.theme).toEqual(tokyo.theme);
+      expect(resizes(ws)).toHaveLength(2);
+      expect(resizes(ws).at(-1)).toEqual({ type: 'resize', cols: 90, rows: 28 });
+
+      // Only the colours: the grid stays, nothing is sent.
+      st.style = { ...tokyo, themeId: 'dracula', theme: { ...TERMINAL_THEMES.find((t) => t.id === 'dracula')!.palette } };
+      render();
+      expect(term.options.theme).toMatchObject({ background: '#282a36' });
+      expect(resizes(ws)).toHaveLength(2);
+      expect(FakeWebSocket.instances).toEqual([ws]);
+    } finally {
+      Object.assign(h.FIT, before);
+    }
+  });
+
+  it('a font change that still fits the same grid restyles without resizing the PTY', () => {
+    const { ws, term } = ready();
+    st.style = { ...DEFAULT_TERMINAL_STYLE, fontSize: 14, fontFamily: tokyo.fontFamily };
+    render();
+    expect(term.options).toMatchObject({ fontSize: 14, fontFamily: tokyo.fontFamily });
+    expect(resizes(ws)).toHaveLength(1);
+  });
+
+  it('a reconnect after a restyle builds the new terminal with the style it has now; the next change goes to it, never the disposed one', () => {
+    const { term: first } = ready();
+    st.style = tokyo;
+    render();
+    act(() => requestTerminalReconnect('s1'));
+    const second = h.terms.at(-1)!;
+    expect(second).not.toBe(first);
+    expect(first.disposed).toBe(true);
+    expect(second.opts).toMatchObject({ fontSize: 16, lineHeight: 1.2, fontFamily: tokyo.fontFamily });
+    expect(second.opts.theme).toEqual(tokyo.theme);
+
+    const firstOptions = { ...first.options };
+    st.style = DEFAULT_TERMINAL_STYLE;
+    render();
+    expect(second.options).toMatchObject({ fontSize: 13, lineHeight: 1, fontFamily: DEFAULT_TERMINAL_STYLE.fontFamily });
+    expect(second.options.theme).toEqual(DEFAULT_TERMINAL_STYLE.theme);
+    expect(first.options).toEqual(firstOptions);
+  });
+
+  it('a re-render with the same style sends nothing', () => {
+    const { ws } = ready();
+    const sent = ws.sent.length;
+    render();
+    render();
+    expect(ws.sent).toHaveLength(sent);
+  });
+
+  it('hidden in the deck it restyles but sends nothing; shown, it refits and sends its size', () => {
+    const { ws, term } = ready();
+    render(false);
+    const before = { ...h.FIT };
+    try {
+      h.FIT.cols = 90;
+      h.FIT.rows = 28;
+      st.style = tokyo;
+      render(false);
+      expect(term.options).toMatchObject({ fontSize: 16 });
+      expect(resizes(ws)).toHaveLength(1);
+
+      render(true);
+      expect(resizes(ws).at(-1)).toEqual({ type: 'resize', cols: 90, rows: 28 });
+      expect(FakeWebSocket.instances).toEqual([ws]);
+    } finally {
+      Object.assign(h.FIT, before);
+    }
   });
 });

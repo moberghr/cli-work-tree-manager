@@ -1,0 +1,442 @@
+{
+  "slug": "terminal-themes",
+  "date": "2026-11-23",
+  "scope": "new-feature",
+  "change_manifest": [
+    {
+      "path": "src/core/settings/terminal-style.ts",
+      "action": "create",
+      "purpose": "themes, defaults, colour check, resolve (pure, shared with the SPA)",
+      "mechanical": false
+    },
+    {
+      "path": "src/core/settings/settings-schema.ts",
+      "action": "modify",
+      "purpose": "Terminal section, four fields, SETTINGS_ELSEWHERE mentions terminal.colors",
+      "mechanical": false
+    },
+    {
+      "path": "src/core/settings/settings-admin.ts",
+      "action": "modify",
+      "purpose": "readSettings carries the checked terminal.colors",
+      "mechanical": false
+    },
+    {
+      "path": "src/core/api-types.ts",
+      "action": "modify",
+      "purpose": "SettingsWire.terminalColors (optional)",
+      "mechanical": false
+    },
+    {
+      "path": "tests/core/settings/terminal-style.test.ts",
+      "action": "create",
+      "purpose": "SC1, SC3",
+      "mechanical": false
+    },
+    {
+      "path": "tests/core/settings/settings.test.ts",
+      "action": "modify",
+      "purpose": "SC2, SC4",
+      "mechanical": false
+    },
+    {
+      "path": "tests/architecture/boundaries.test.ts",
+      "action": "modify",
+      "purpose": "the SPA may import the new pure module (SPA_SHARED)",
+      "mechanical": false
+    },
+    {
+      "path": "tests/web/settings-page.test.ts",
+      "action": "modify",
+      "purpose": "the page now has 8 sections, Terminal among them",
+      "mechanical": false
+    },
+    {
+      "path": "src/web/src/state/terminal-style.ts",
+      "action": "create",
+      "purpose": "SPA store + useTerminalStyle hook + CSS variables",
+      "mechanical": false
+    },
+    {
+      "path": "src/web/src/components/Terminal/PtyView.tsx",
+      "action": "modify",
+      "purpose": "terminal built from the style and restyled live",
+      "mechanical": false
+    },
+    {
+      "path": "src/web/src/styles/tokens.css",
+      "action": "modify",
+      "purpose": "--term-bg / --term-fg defaults",
+      "mechanical": false
+    },
+    {
+      "path": "src/web/src/styles/global.css",
+      "action": "modify",
+      "purpose": "pty host, viewport, connecting overlay use the variables",
+      "mechanical": false
+    },
+    {
+      "path": "src/web/src/styles/dashboard.css",
+      "action": "modify",
+      "purpose": "assistant body and terminal slot use the variable",
+      "mechanical": false
+    },
+    {
+      "path": "src/web/src/styles/pages/accounts.css",
+      "action": "modify",
+      "purpose": "sign-in terminal box uses the variables",
+      "mechanical": false
+    },
+    {
+      "path": "tests/web/terminal-style.test.ts",
+      "action": "create",
+      "purpose": "SC5",
+      "mechanical": false
+    },
+    {
+      "path": "tests/web/pty-view.test.ts",
+      "action": "modify",
+      "purpose": "fake Terminal gets options; store mocked; SC6 restyle-without-reconnect test",
+      "mechanical": false
+    },
+    {
+      "path": ".claude/references/work/terminal-appearance.md",
+      "action": "create",
+      "purpose": "the area's reference",
+      "mechanical": true
+    },
+    {
+      "path": ".claude/references/work/settings.md",
+      "action": "modify",
+      "purpose": "the Terminal section",
+      "mechanical": true
+    },
+    {
+      "path": ".claude/references/work/configuration.md",
+      "action": "modify",
+      "purpose": "terminal.* keys",
+      "mechanical": true
+    },
+    {
+      "path": "CLAUDE.md",
+      "action": "modify",
+      "purpose": "list the new reference file",
+      "mechanical": true
+    },
+    {
+      "path": "src/core/platform/config.ts",
+      "action": "modify",
+      "purpose": "loadConfig keeps terminal, so a command that saves config.json (work config remove-repo, add-group, remove-group, init) doesn't drop it",
+      "mechanical": false,
+      "deviation": true
+    },
+    {
+      "path": "tests/core/platform/config.test.ts",
+      "action": "modify",
+      "purpose": "terminal survives a load + save; nothing that fits -> absent",
+      "mechanical": false,
+      "deviation": true
+    },
+    {
+      "path": "tests/web/pty-host-size.test.ts",
+      "action": "modify",
+      "purpose": "the viewport's background is var(--term-bg) now, not the literal #1e1e1e",
+      "mechanical": true,
+      "deviation": true
+    },
+    {
+      "path": "src/web/src/apps/DashboardApp.tsx",
+      "action": "modify",
+      "purpose": "preloadTerminalStyle() at the page's start, so a terminal is fitted once at the user's size (review fix)",
+      "mechanical": true,
+      "deviation": true
+    },
+    {
+      "path": ".claude/references/work/pty-host.md",
+      "action": "modify",
+      "purpose": "one-sentence pointer: a terminal-style change refits and resizes only when the grid changed (context-miner)",
+      "mechanical": true,
+      "deviation": true
+    }
+  ],
+  "public_contracts": [
+    {
+      "kind": "cli-flag",
+      "signature": "config.json terminal.theme | terminal.fontFamily | terminal.fontSize | terminal.lineHeight | terminal.colors",
+      "change": "new",
+      "surface": "external"
+    },
+    {
+      "kind": "endpoint",
+      "signature": "GET /api/settings → SettingsWire.terminalColors?",
+      "change": "modified",
+      "surface": "internal-tooling"
+    }
+  ],
+  "success_criteria": [
+    {
+      "id": "SC1",
+      "description": "Each of the 5 themes defines all 21 colours as hex; Default dark is today's look exactly",
+      "verification": "tests/core/settings/terminal-style.test.ts",
+      "evidence_channel": "test-run",
+      "observable": "the theme tests pass"
+    },
+    {
+      "id": "SC2",
+      "description": "Terminal section with theme/fontFamily/fontSize/lineHeight; options and defaults equal the module's; bad values refused",
+      "verification": "tests/core/settings/settings.test.ts",
+      "evidence_channel": "test-run",
+      "observable": "the schema tests pass"
+    },
+    {
+      "id": "SC3",
+      "description": "resolveTerminalStyle: defaults when unset, per-field fallback, user font followed by default stack, overrides only for known keys with hex",
+      "verification": "tests/core/settings/terminal-style.test.ts",
+      "evidence_channel": "test-run",
+      "observable": "the resolve tests pass"
+    },
+    {
+      "id": "SC4",
+      "description": "readSettings carries terminalColors with only valid entries, absent when none",
+      "verification": "tests/core/settings/settings.test.ts",
+      "evidence_channel": "test-run",
+      "observable": "the settings-over-config tests pass"
+    },
+    {
+      "id": "SC5",
+      "description": "SPA store loads once, reloads on settings-changed, notifies subscribers, sets --term-bg/--term-fg on html",
+      "verification": "tests/web/terminal-style.test.ts",
+      "evidence_channel": "test-run",
+      "observable": "the store tests pass"
+    },
+    {
+      "id": "SC6",
+      "description": "An open terminal restyles without reconnecting; grid refit and PTY resized when cols/rows change",
+      "verification": "tests/web/pty-view.test.ts (same Terminal, same socket, options changed, resize sent when the grid changed); then work web from this worktree: change theme and font size on Settings, look at an open session's terminal",
+      "evidence_channel": "test-run",
+      "observable": "the restyle test passes (colours additionally checked by eye in the running app)"
+    },
+    {
+      "id": "SC7",
+      "description": "Type check, lint, format check, full tests and build pass",
+      "verification": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build",
+      "evidence_channel": "build-output",
+      "observable": "every command exits 0"
+    }
+  ],
+  "test_manifest": [
+    {
+      "path": "tests/core/settings/terminal-style.test.ts",
+      "covers": [
+        "SC1",
+        "SC3"
+      ]
+    },
+    {
+      "path": "tests/core/settings/settings.test.ts",
+      "covers": [
+        "SC2",
+        "SC4"
+      ]
+    },
+    {
+      "path": "tests/web/terminal-style.test.ts",
+      "covers": [
+        "SC5"
+      ]
+    },
+    {
+      "path": "tests/web/pty-view.test.ts",
+      "covers": [
+        "SC6"
+      ]
+    },
+    {
+      "path": "tests/architecture/boundaries.test.ts",
+      "covers": [
+        "SC7"
+      ]
+    },
+    {
+      "path": "tests/web/settings-page.test.ts",
+      "covers": [
+        "SC2",
+        "SC7"
+      ]
+    }
+  ],
+  "out_of_scope": [
+    "a colour editor on the Settings page",
+    "bundling or loading web fonts",
+    "following the app's light/dark switch automatically",
+    "the diff renderer and code view",
+    "Claude Code's own theme",
+    "the main checkout's uncommitted changes (entries.ts, agent/context-usage tests, attention-inbox.md)"
+  ],
+  "security_impact": "none",
+  "assumptions": [
+    "[VERIFIED:node_modules/@xterm/xterm/lib/xterm.mjs] xterm defaults: Tango ANSI, cursor #ffffff, accent #000000, selection rgba(255,255,255,0.3)",
+    "[VERIFIED:node_modules/@xterm/xterm/typings/xterm.d.ts] terminal.options is settable at runtime",
+    "[VERIFIED:src/web/src/api/events.ts] useSse shares one EventSource per URL",
+    "[VERIFIED:src/web/src/state/settings-view.ts] Settings page lists sections from SETTING_SECTIONS",
+    "[VERIFIED:src/server/demo/demo-settings.ts] the demo checks settings through checkSetting",
+    "[VERIFIED:src/web/src/components/Terminal/PtyView.tsx] onResize fits only while active; shown.current refits when shown"
+  ],
+  "risks": [
+    "A font not installed falls back to the default stack",
+    "GitHub Light with Claude Code's dark theme: some text light-on-light; the help says to switch Claude's theme",
+    "A font size change resizes the PTY and Claude redraws",
+    "trap: localStorage storage rejected (user chose config.json)",
+    "trap: separate /api/terminal-style route rejected (more surface, demo copy)",
+    "trap: palettes imported into settings-schema rejected (schema is import-free; a test ties them)",
+    "trap: bundled font rejected (install weight)"
+  ],
+  "plan": {
+    "batches": [
+      {
+        "id": "B1",
+        "files": [
+          "src/core/settings/terminal-style.ts",
+          "src/core/settings/settings-schema.ts",
+          "src/core/settings/settings-admin.ts",
+          "src/core/api-types.ts",
+          "tests/core/settings/terminal-style.test.ts",
+          "tests/core/settings/settings.test.ts",
+          "tests/architecture/boundaries.test.ts",
+          "tests/web/settings-page.test.ts"
+        ],
+        "acceptance": "SC1-SC4 tests pass; settings-schema.ts stays import-free; readSettings still returns only schema paths plus the checked colours",
+        "verification": "npx vitest run tests/core tests/architecture tests/web/settings-page.test.ts && npm run typecheck && npm run lint (CLAUDE.md Tech Stack)",
+        "boundary": "core stays pure and print-free; the theme module imports nothing; nothing of config.json beyond schema paths and checked colours reaches the wire",
+        "depends": [],
+        "depends_rationale": "independent: first batch, creates the module everything else reads",
+        "governing_constraints": [
+          "§0.1",
+          "§2.1",
+          "§2.7",
+          "§2.8",
+          "§4.1",
+          "§4.2",
+          "§5.1"
+        ]
+      },
+      {
+        "id": "B2",
+        "files": [
+          "src/web/src/state/terminal-style.ts",
+          "src/web/src/components/Terminal/PtyView.tsx",
+          "src/web/src/styles/tokens.css",
+          "src/web/src/styles/global.css",
+          "src/web/src/styles/dashboard.css",
+          "src/web/src/styles/pages/accounts.css",
+          "tests/web/terminal-style.test.ts",
+          "tests/web/pty-view.test.ts"
+        ],
+        "acceptance": "SC5 and SC6 tests pass; a style change never reconnects a terminal; with nothing set the terminal looks exactly as before; a failed settings fetch keeps the current style",
+        "verification": "npx vitest run tests/web tests/architecture && npm run typecheck && npm run lint (CLAUDE.md Tech Stack)",
+        "boundary": "React stays in src/web; the terminal's connect effect does not depend on the style; page stylesheets only swap literal colours for the variables, no shared ui class restyled (web-ui.md)",
+        "depends": [
+          "B1"
+        ],
+        "governing_constraints": [
+          "§0.1",
+          "§0.3",
+          "§2.3",
+          "§4.1",
+          "§4.2"
+        ]
+      },
+      {
+        "id": "B3",
+        "files": [
+          ".claude/references/work/terminal-appearance.md",
+          ".claude/references/work/settings.md",
+          ".claude/references/work/configuration.md",
+          "CLAUDE.md"
+        ],
+        "acceptance": "the area file describes what was built; settings.md and configuration.md mention the Terminal section and terminal.* keys; CLAUDE.md lists the file",
+        "verification": "npm run format:check (CLAUDE.md Tech Stack; markdown is not formatted, so this only guards nothing else changed)",
+        "boundary": "docs describe the code as built, nothing more",
+        "depends": [
+          "B2"
+        ],
+        "governing_constraints": [
+          "CLAUDE.md Reference: when you change behaviour, update that area's file"
+        ]
+      }
+    ]
+  },
+  "implement": {
+    "completed_batches": [
+      {
+        "id": "B1",
+        "status": "completed",
+        "model": "sonnet",
+        "files": [
+          "src/core/settings/terminal-style.ts",
+          "src/core/settings/settings-schema.ts",
+          "src/core/settings/settings-admin.ts",
+          "src/core/api-types.ts",
+          "tests/core/settings/terminal-style.test.ts",
+          "tests/core/settings/settings.test.ts",
+          "tests/architecture/boundaries.test.ts",
+          "tests/web/settings-page.test.ts"
+        ],
+        "drift": {
+          "extra_files": [],
+          "missing_files": []
+        },
+        "verification": {
+          "typecheck": ".mtk/evidence/20261123-164651-B1-typecheck-26142.log (exit 0)",
+          "lint": ".mtk/evidence/20261123-164711-B1-lint-28059.log (exit 0)",
+          "tests": ".mtk/evidence/20261123-164605-B1-tests-92413.log (2990 passed, 2 failed: both base-red: status-hooks cwd, dev-server startDev)"
+        },
+        "traps": [
+          "TERMINAL_FONT_PATTERN and SETTING_PATTERNS.fontFamily hold the same literal (schema stays import-free); a test asserts they agree"
+        ]
+      },
+      {
+        "id": "B2",
+        "status": "completed",
+        "model": "opus",
+        "files": [
+          "src/web/src/state/terminal-style.ts",
+          "src/web/src/components/Terminal/PtyView.tsx",
+          "src/web/src/styles/tokens.css",
+          "src/web/src/styles/global.css",
+          "src/web/src/styles/dashboard.css",
+          "src/web/src/styles/pages/accounts.css",
+          "tests/web/terminal-style.test.ts",
+          "tests/web/pty-view.test.ts"
+        ],
+        "drift": {
+          "extra_files": [
+            "tests/web/pty-host-size.test.ts (orchestrator: its regex asserted the literal #1e1e1e the batch replaced with var(--term-bg))"
+          ],
+          "missing_files": []
+        },
+        "orchestrator_followups": [
+          "global.css .wd-pty-failed p:first-child: #e8b4b4 -> color-mix(#fc9494 50%, var(--term-fg)) (same colour on the default theme, a readable dark red on GitHub Light)"
+        ],
+        "verification": {
+          "batch": ".mtk/evidence/20261123-165448-B2-vitest-final-80804.log (1277/1278; the 1 = pty-host-size regex, fixed by the orchestrator), .mtk/evidence/20261123-165521-B2-static-final-84107.log (typecheck, lint, prettier pass)"
+        }
+      }
+    ],
+    "deviations": [
+      "Orchestrator, after B1: every other Settings key is read by loadConfig, terminal was not; saveConfig writes the typed WorkConfig, so work config remove-repo / add-group / remove-group / init would have dropped the user's terminal settings. Fixed inline in config.ts (TerminalConfig, terminalConfigOf) + 2 tests.",
+      "Orchestrator, after B2: tests/web/pty-host-size.test.ts asserted the literal #1e1e1e the batch replaced with var(--term-bg); regex updated.",
+      "Orchestrator, after B2: .wd-pty-failed p:first-child (global.css, in B2's list) #e8b4b4 -> color-mix(#fc9494 50%, var(--term-fg)): same colour on the default theme, readable on GitHub Light.",
+      "Review fix (compliance): fonts are trimmed and quoted one by one (fontList) so a stray quote cannot void today's stack; generic families stay bare.",
+      "Review fix (compliance): #rrggbbaa only for selectionBackground (a see-through background would leave the terminal's frame see-through).",
+      "Review fix (compliance): the style is preloaded by DashboardApp (src/web/src/apps/DashboardApp.tsx, outside the manifest: the SPA entry is shared with wd's review mode, which has no /api/settings) and re-read when the event stream (re)connects.",
+      "Review fix (compliance): .wd-pty-connecting text is color-mix(#667694 50%, var(--term-fg)): #9da5b4 on the default theme, readable on GitHub Light.",
+      "Review fix (context-miner): pty-host.md gets a pointer to terminal-appearance.md."
+    ],
+    "drift_check": {
+      "extra_files": [],
+      "missing_files": [],
+      "note": "all changed files are in the manifest (5 entries added as deviations)"
+    }
+  }
+}

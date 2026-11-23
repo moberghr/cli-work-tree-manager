@@ -160,7 +160,7 @@
   min-height: 0;
   display: flex;
   margin: 0 16px;
-  background: #1e1e1e;
+  background: var(--term-bg);
 }
 .wd-account-login-term .wd-pty-host {
   flex: 1;
@@ -168,5 +168,5 @@
 }
 .wd-account-login-term > p {
   margin: 12px;
-  color: #d4d4d4;
+  color: var(--term-fg);
 }
