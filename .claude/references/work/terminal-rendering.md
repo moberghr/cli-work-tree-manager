@@ -82,3 +82,34 @@ When `work attach` stops showing a session (Ctrl+], the agent ended, the host we
 - **xterm.js master** (addon still 0.14.0):
   - The addon now writes `? 25 l` and the scroll region, the latter read from xterm's internals. It still writes no mouse encoding, cursor shape, saved cursor, character sets or kitty flags, and origin mode still comes after the cursor.
   - Kitty keyboard support is on master only, after 6.0.0, behind `vtExtensions.kittyKeyboard`, which is off by default. xterm.js 6.0 ignores the kitty sequences we replay.
+
+## Who answers a query
+
+An agent asks its terminal things (device attributes, the cursor position, whether a mode is on, the background colour) and waits for the answer. Before, the host passed on whatever each attached client answered: nobody answered with no client attached (Claude Code waits out its probe timeouts), and N clients answered N times. Now exactly one answers each query, decided as the output **arrives** at the host, not when anyone parses it.
+
+- **No client attached**: the host's screen copy answers (`ScreenMirror.answerQueries`). The registry asks `now()` as each chunk arrives (`PtyRegistry.designate`); `ScreenMirror.write` marks that chunk with empty writes around it (xterm runs a write's callback after parsing it and before the next), and the answers xterm gives through `onData` while a marked chunk is parsed go to the PTY. So a chunk that arrived before a client attached is still the host's to answer when xterm parses it after the attach, and the client is not sent it (its snapshot has no query in it).
+  - xterm answers: DA1, DA2, DSR 5n, CPR 6n, DECXCPR `? 6 n`, DECRQM (2026 included: the browser's xterm.js 6.0.0 answers the same), DECRQSS.
+  - The host adds: OSC 10 / 11 / 12 and OSC 4 queries, which xterm.js leaves to its renderer. Answered from the last colour a client answered (`TerminalColors`, one per host process, fed every answer the host lets through), else the tab's theme (`TERMINAL_THEME`, shared with PtyView) and xterm.js's default palette, in xterm.js's `rgb:rrrr/gggg/bbbb` form. Only a colour value is ever repeated.
+  - Silent, as in the browser: DA3, XTVERSION (xterm.js 6.0.0 has no handler), kitty `CSI ? u`, XTQMODKEYS, `CSI … t` window reports (windowOptions off), XTGETTCAP, OSC 52.
+- **Clients attached**: the host stays silent, and one client's answers go through: the one used last (it typed or resized, `attached.lead()`: it has the PTY's size), else the first attached. Every client is still sent the query; the others' answers are dropped (`attached.replies`). Focus and mouse-motion reports go through from any client, as before, and don't count as use. A frame with typing in it goes through whole, replies and all: typing is never dropped.
+- **The answerer is fixed per chunk** until the next one arrives, so its late answer still goes through. A client that becomes the one used last after a query arrived (a new tab's post-replay resize) doesn't take that query over. When the answering client detaches, the next attached takes over (it was sent the same).
+- **A client drawing its replay** has the query held for it and answers once it draws it.
+- The relay (`terminal-ws.ts`) and `work attach` are clients like any other: one host connection each.
+- **Windows**: nothing assumes ConPTY passes every query on. Whatever reaches the host is handled the same; what ConPTY answers itself never arrives.
+
+Left open: a query whose answering client leaves with no other attached stays unanswered (the screen copy parsed it as a client's). A double answer is possible if the answering client's reply comes after the next chunk designated another client. `CSI ? 997 ; n` colour-scheme reports are not recognised as replies, so they count as typing.
+
+Compared: **opencode** answers every query in its daemon and drops what its client terminal answers. **Superset** v1 always answers in its headless emulator, and drops the renderer's answers only until the shell is ready (two answers after that); v2 has the renderer send its theme (`colors` frame) for the host to answer colour queries. **tmux** is itself the terminal: it answers everything and never forwards a client's answer.
+
+## Terminal identity
+
+What Claude Code (2.1.330, its bundled JS) reads to decide how to draw:
+
+- **Colour depth**: `TERM_PROGRAM` first (iTerm.app, ghostty, WezTerm → 24-bit; Apple_Terminal → 256), then `COLORTERM === "truecolor" || "24bit"`, then `TERM` starting `xterm-256` → 256. The host now sets `COLORTERM=truecolor` when the environment has none (`terminalEnv`, `pty-session.ts`): xterm.js draws 24-bit, and without it Claude drew its theme in 256 colours and suggested "Set COLORTERM=truecolor".
+- **Rendering profile** (`LS`): from the XTVERSION reply when there is one, else `TERM`, the multiplexer, then the terminal's name (`TERM_PROGRAM` verbatim, or `WT_SESSION` → windows-terminal …). The profile sets the widths it assumes (unless it measured them at startup, by CPR, which the host now answers), erase/insert behaviour and cursor resync.
+- **Wheel**: `TERM_PROGRAM=vscode` (some versions) or an XTVERSION name starting `xterm.js` turns on its xterm.js wheel tuning (`wheelFlood`); otherwise the native-terminal curve.
+
+Left as is, and why:
+
+- **XTVERSION**: not answered. Answering `xterm.js(…)` would switch on the wheel tuning and change the profile for every session at once. Superset answers `Paradev (xterm.js)` only because it ships a wheel handler that sends what native terminals send. Measure Claude's scrolling in the tab with and without it before choosing.
+- **TERM_PROGRAM and the other identity variables**: inherited from the terminal that started the host (`WT_SESSION` on purpose, so `work tree --host` matches in Windows Terminal). Right for that native view, wrong for the tab: a host started from Ghostty tells Claude it draws into Ghostty (profile `ghostty`) while xterm.js draws. Options: drop them for sessions the dashboard starts, or set `TERM_PROGRAM=xterm.js` there (Claude's `xtermjs` profile).

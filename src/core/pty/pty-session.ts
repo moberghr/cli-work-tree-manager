@@ -13,6 +13,7 @@ import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
 import { ScreenMirror, type HeadlessTerminal } from './screen-mirror.js';
+import type { TerminalColors } from './terminal-colors.js';
 
 type Fork = typeof childProcess.fork;
 const HIDDEN = Symbol.for('work.forkHidesConsole');
@@ -127,6 +128,16 @@ export function resolvePtyCommand(
     return { file: parsed.command, args: parsed.args.join(' '), env };
   }
   return { file: parsed.file ?? parsed.command, args: parsed.args, env };
+}
+
+/**
+ * The environment as the terminal the agent draws into says it: xterm.js (the Terminal tab, and the PTY host's own copy
+ * of the screen) shows 24-bit colour, so `COLORTERM=truecolor` unless the environment says something itself. Without
+ * it Claude Code, under `TERM=xterm-256color`, draws its truecolor theme in 256 colours (and suggests setting it).
+ * The launching terminal's identity (TERM_PROGRAM, WT_SESSION …) is kept: terminal-rendering.md, "Terminal identity".
+ */
+export function terminalEnv(env: Record<string, string>): Record<string, string> {
+  return env.COLORTERM ? env : { ...env, COLORTERM: 'truecolor' };
 }
 
 /** How long a terminal must have been quiet after its first output before a prompt is typed into it. */
@@ -267,9 +278,11 @@ export class PtySession {
     }
 
     // A session of its own: never another agent's child (its adapter knows what a parent sets).
-    const env: Record<string, string> = Object.fromEntries(
-      Object.entries(agentById(aiOptions?.tool.cmd ?? 'claude').launch.cleanEnv(aiOptions?.env ?? process.env)).filter(
-        (e): e is [string, string] => e[1] != null,
+    const env: Record<string, string> = terminalEnv(
+      Object.fromEntries(
+        Object.entries(agentById(aiOptions?.tool.cmd ?? 'claude').launch.cleanEnv(aiOptions?.env ?? process.env)).filter(
+          (e): e is [string, string] => e[1] != null,
+        ),
       ),
     );
     if (aiOptions?.port !== undefined) {
@@ -358,6 +371,14 @@ export class PtySession {
       }
       this.mirror.resize(cols, rows);
     }
+  }
+
+  /**
+   * The agent's queries in output that arrives while `now()` says so (no client attached: pty-registry.ts) are answered
+   * by the screen's copy, colour queries from `colors` (ScreenMirror.answerQueries).
+   */
+  answerQueries(now: () => boolean, colors: Pick<TerminalColors, 'reply'>): void {
+    this.mirror.answerQueries({ now, colors, send: (reply) => this.write(reply) });
   }
 
   /** The headless terminal the screen is kept in. */

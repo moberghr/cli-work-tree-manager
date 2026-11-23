@@ -3,6 +3,7 @@ import xtermHeadless from '@xterm/headless';
 import xtermUnicode11 from '@xterm/addon-unicode11';
 import { ScreenMirror, type HeadlessTerminal, type MirrorState } from '../../../src/core/pty/screen-mirror.js';
 import { REPLAY_SCROLLBACK, VIEW_SCROLLBACK } from '../../../src/core/pty/scrollback.js';
+import { TerminalColors } from '../../../src/core/pty/terminal-colors.js';
 
 const { Terminal } = xtermHeadless;
 const { Unicode11Addon } = xtermUnicode11;
@@ -272,5 +273,47 @@ describe('ScreenMirror snapshot round trip', () => {
     const r = await roundTrip(`${CSI}?1049h${CSI}2;5r${CSI}>3u${CSI}?1049l`);
     expect(r.source.state().alternate).toMatchObject({ scrollRegion: null, keyboardFlags: [] });
     await expectSame(r);
+  });
+});
+
+describe('ScreenMirror answering queries', () => {
+  function answering(now: () => boolean) {
+    const m = mirror(80, 24);
+    const sent: string[] = [];
+    m.answerQueries({ now, send: (r) => sent.push(r), colors: new TerminalColors() });
+    return { m, sent };
+  }
+
+  it('answers nothing unless told to (no answers given, or output written while a client is attached)', async () => {
+    const quiet = mirror(80, 24);
+    const heard: string[] = [];
+    quiet.terminal.onData((d) => heard.push(d));
+    await write(quiet, `${CSI}c`); // xterm answers through onData, but nobody sends it on
+    const { m, sent } = answering(() => false);
+    await write(m, `${CSI}c${CSI}6n${ESC}]11;?${ESC}\\`);
+    expect(sent).toEqual([]);
+    expect(heard).toEqual([`${CSI}?1;2c`]);
+  });
+
+  it('decides as the output arrives, not when xterm parses it', async () => {
+    let nobody = true;
+    const { m, sent } = answering(() => nobody);
+    m.write(`${CSI}5n`); // arrived with nobody attached…
+    nobody = false; // …parsed after someone attached: still answered here
+    m.write(`${CSI}c`); // arrived with a client attached: its to answer
+    nobody = true;
+    await write(m, `${ESC}]12;?\x07`);
+    expect(sent).toEqual([`${CSI}0n`, `${ESC}]12;rgb:ffff/ffff/ffff${ESC}\\`]);
+  });
+
+  it('answers OSC 10;?;? as two queries and OSC 4 index;? pairs, ignoring a colour being set', async () => {
+    const { m, sent } = answering(() => true);
+    await write(m, `${ESC}]10;?;?${ESC}\\${ESC}]4;0;?;300;?;15;#fff;16;?${ESC}\\${ESC}]10;#123456${ESC}\\`);
+    expect(sent).toEqual([
+      `${ESC}]10;rgb:d4d4/d4d4/d4d4${ESC}\\`,
+      `${ESC}]11;rgb:1e1e/1e1e/1e1e${ESC}\\`,
+      `${ESC}]4;0;rgb:2e2e/3434/3636${ESC}\\`,
+      `${ESC}]4;16;rgb:0000/0000/0000${ESC}\\`,
+    ]);
   });
 });

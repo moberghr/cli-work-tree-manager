@@ -78,6 +78,7 @@ const SPA_SHARED = new Set([
   'src/core/pty/host-health.js',
   'src/core/pty/restart-view.js', // pure: how a restart of agents is said
   'src/core/pty/scrollback.js', // pure, import-free: how much history the Terminal tab and the PTY host's mirror keep
+  'src/core/pty/terminal-colors.js', // pure, import-free: the Terminal tab's colours, which the PTY host answers colour queries with
   'src/core/worktree/repo-rules.js',
   'src/core/pr/pr-stage.js',
   'src/core/pr/branch-work.js',

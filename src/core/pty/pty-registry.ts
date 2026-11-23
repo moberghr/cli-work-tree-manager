@@ -11,6 +11,8 @@ import { applyEnvDelta, hasEnvDelta, type EnvDelta } from '../platform/env-delta
 import { isPersistedPty, keepEnv, type PersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { logSwallowed, swallow } from '../platform/best-effort.js';
 import { report } from '../platform/report.js';
+import { TerminalColors } from './terminal-colors.js';
+import type { ReplyPart } from './terminal-replies.js';
 
 const REPLAY_MAX = 256 * 1024;
 
@@ -46,6 +48,9 @@ export interface PtyLike {
   serializeSettled?(): Promise<string>;
   /** Visible screen as plain text (PtySession.screenText). */
   screenText?(): string;
+  /** Its screen's copy answers the agent's queries in output arriving while `now()` says so (PtySession.answerQueries).
+   *  Optional: a fake has no screen to answer from. */
+  answerQueries?(now: () => boolean, colors: Pick<TerminalColors, 'reply'>): void;
 }
 
 /** What a newly attached client is sent first: the screen as it stands,
@@ -71,6 +76,9 @@ export const defaultSpawner: PtySpawner = (spec) =>
     env: spec.env,
   });
 
+/** An attached client, as its subscription to the output. */
+type Client = (data: string) => void;
+
 interface Entry {
   id: string;
   spec: Omit<PersistedPty, 'startedAt'>;
@@ -80,8 +88,13 @@ interface Entry {
   startedAt: string;
   restored: boolean;
   replay: string;
-  subscribers: Set<(data: string) => void>;
+  /** The attached clients, the first attached first. */
+  subscribers: Set<Client>;
   exitSubscribers: Set<(code: number) => void>;
+  /** The client used last — typed in or resized (`lead`); the PTY has its size. Null: none since, or it left. */
+  leader: Client | null;
+  /** Who answers the queries in the output that arrived last (`designate`): its answers go through, the others' don't. */
+  answerer: Client | null;
   /** Set once the process exited (the entry lingers FORGET_EXITED_MS). */
   exitCode: number | null;
   /** When it last printed anything (ms): an idle Claude at its prompt prints nothing. */
@@ -152,6 +165,8 @@ export class PtyRegistry {
   private readonly sessionTool: (tool: AiToolSpec) => AiToolSpec;
   /** Serializes persistence writes inside this process. */
   private writeChain: Promise<void> = Promise.resolve();
+  /** The colours the host answers a colour query with itself: the last a terminal attached to any PTY answered with. */
+  readonly colors = new TerminalColors();
 
   constructor(deps: RegistryDeps = {}) {
     this.spawner = deps.spawner ?? defaultSpawner;
@@ -227,6 +242,8 @@ export class PtyRegistry {
       replay: '',
       subscribers: new Set(),
       exitSubscribers: new Set(),
+      leader: null,
+      answerer: null,
       exitCode: null,
       lastOutputAt: Date.now(),
     };
@@ -257,7 +274,10 @@ export class PtyRegistry {
     // Raw history is only a fallback for PTYs that can't serialize their
     // screen (test fakes) — real sessions replay PtySession.serialize().
     const keepRaw = !pty.serialize;
+    // Asked as the output arrives (before its screen parses it): with no client attached, the screen's copy answers.
+    pty.answerQueries?.(() => this.designate(entry) === null, this.colors);
     pty.setOutputHandler((data) => {
+      this.designate(entry);
       entry.lastOutputAt = Date.now();
       if (keepRaw) {
         entry.replay += data;
@@ -290,6 +310,18 @@ export class PtyRegistry {
         }
       }, FORGET_EXITED_MS).unref?.();
     };
+  }
+
+  /**
+   * Who answers the agent's queries in the output arriving now: exactly one, decided as it arrives (terminal-rendering.md,
+   * "Who answers a query"). The client used last (it typed or resized: it has the PTY's size), else the first attached;
+   * null when none is attached — then the PTY's screen copy answers. Kept until the next output, so the answers to it
+   * that come back from that client go through.
+   */
+  private designate(e: Entry): Client | null {
+    const who = e.leader && e.subscribers.has(e.leader) ? e.leader : (e.subscribers.values().next().value ?? null);
+    e.answerer = who;
+    return who;
   }
 
   /** The live PTY's visible screen as text; null when there is none (or
@@ -332,6 +364,10 @@ export class PtyRegistry {
    * arriving from the attach on is held for this client until `start()`, and
    * `ready` is the screen exactly as of the attach — nothing lost, nothing
    * twice. `replay` (taken at once) is for screens with no parsing step.
+   *
+   * `lead()`: this client was used (typed in, resized), so it answers the agent's queries from the next output on.
+   * `replies(parts)`: what of what this client sent on its own goes to the agent — its focus and mouse-motion reports
+   * always, its answers only if it answers the queries in the output that arrived last (`designate`).
    */
   attach(
     id: string,
@@ -342,6 +378,8 @@ export class PtyRegistry {
     ready: Promise<ReplaySnapshot>;
     start: () => void;
     detach: () => void;
+    lead: () => void;
+    replies: (parts: ReplyPart[]) => string;
     exitedWith: number | null;
   } | null {
     const e = this.entries.get(id);
@@ -375,6 +413,24 @@ export class PtyRegistry {
       detach: () => {
         e.subscribers.delete(sub);
         e.exitSubscribers.delete(onExit);
+        if (e.leader === sub) e.leader = null;
+        // It left before answering, maybe: the next in line answers what it was sent (it was sent the same).
+        if (e.answerer === sub) this.designate(e);
+      },
+      lead: () => {
+        e.leader = sub;
+      },
+      replies: (parts) => {
+        const answers = e.answerer === sub;
+        let out = '';
+        for (const part of parts) {
+          if (!part.answer) out += part.text;
+          else if (answers) {
+            out += part.text;
+            this.colors.remember(part.text);
+          }
+        }
+        return out;
       },
     };
   }

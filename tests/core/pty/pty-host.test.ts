@@ -3,8 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
-import { isTerminalReply, startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
+import { startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
 import { PtyRegistry, type PtyLike } from '../../../src/core/pty/pty-registry.js';
+import { isTerminalReply, replyParts } from '../../../src/core/pty/terminal-replies.js';
+import { ScreenMirror } from '../../../src/core/pty/screen-mirror.js';
+import type { TerminalColors } from '../../../src/core/pty/terminal-colors.js';
 import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
 import { VERSION } from '../../../src/version.js';
 
@@ -37,8 +40,50 @@ class EchoPty implements PtyLike {
   }
 }
 
+/** A PTY with a real copy of its screen (ScreenMirror), passing the agent's output on as PtySession does. */
+class MirrorPty implements PtyLike {
+  readonly pty = { pid: 2 };
+  exited = false;
+  /** What reached the agent, in order. */
+  readonly got: string[] = [];
+  onExit?: (code: number) => void;
+  readonly mirror = new ScreenMirror(120, 32);
+  private out?: (d: string) => void;
+  setOutputHandler(h?: (d: string) => void) {
+    this.out = h;
+  }
+  write(d: string) {
+    this.got.push(d);
+  }
+  resize(cols: number, rows: number) {
+    this.mirror.resize(cols, rows);
+  }
+  dispose() {
+    if (this.exited) return;
+    this.exited = true;
+    this.mirror.dispose();
+    this.onExit?.(0);
+  }
+  serialize() {
+    return this.mirror.snapshot();
+  }
+  serializeSettled() {
+    return this.mirror.snapshotSettled();
+  }
+  answerQueries(now: () => boolean, colors: Pick<TerminalColors, 'reply'>) {
+    this.mirror.answerQueries({ now, colors, send: (reply) => this.write(reply) });
+  }
+  /** The agent printed `data`: to the screen's copy, then to the host (PtySession's onData). */
+  print(data: string) {
+    this.mirror.write(data);
+    this.out?.(data);
+  }
+}
+
 /** Every PTY the host spawned, newest last. */
-const spawned: EchoPty[] = [];
+const spawned: PtyLike[] = [];
+/** What the host spawns: an echo, unless a test wants a screen. */
+let makePty: () => PtyLike = () => new EchoPty();
 let dir: string;
 let host: PtyHostHandle;
 let client: PtyHostClient;
@@ -48,7 +93,7 @@ beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-host-'));
   const registry = new PtyRegistry({
     spawner: () => {
-      const p = new EchoPty();
+      const p = makePty();
       spawned.push(p);
       return p;
     },
@@ -182,7 +227,7 @@ describe('PTY host', () => {
 
   it('the client used last sets the size: typing in a terminal brings the PTY back to its grid after the app resized it', async () => {
     await client.spawn('s4', { cwd: dir, tool: tool as never });
-    const pty = spawned.at(-1)!;
+    const pty = spawned.at(-1) as EchoPty;
     const terminal = attach('s4');
     const app = attach('s4');
     await Promise.all([terminal.opened, app.opened]);
@@ -201,11 +246,15 @@ describe('PTY host', () => {
     app.ws.send(JSON.stringify({ type: 'input', data: 'x' }));
     await tick();
     expect(pty.log.slice(-2)).toEqual(['resize 90x30', 'write x']);
-    // The terminal answering a query, or losing focus, isn't someone using it: the grid stays the app's.
+    // The terminal answering a query, or losing focus, isn't someone using it: the grid stays the app's. Its answer
+    // doesn't reach the agent either: the app, used last, answers (terminal-rendering.md, "Who answers a query").
     terminal.ws.send(JSON.stringify({ type: 'input', data: '\x1b[O' }));
     terminal.ws.send(JSON.stringify({ type: 'input', data: '\x1b[?62;22c' }));
     await tick();
-    expect(pty.log.slice(-2)).toEqual(['write \x1b[O', 'write \x1b[?62;22c']);
+    expect(pty.log.slice(-2)).toEqual(['write x', 'write \x1b[O']);
+    app.ws.send(JSON.stringify({ type: 'input', data: '\x1b[?1;2c' }));
+    await tick();
+    expect(pty.log.slice(-2)).toEqual(['write \x1b[O', 'write \x1b[?1;2c']);
     terminal.ws.close();
     app.ws.close();
   });
@@ -217,6 +266,7 @@ describe('PTY host', () => {
       '\x1b[?1;2c',
       '\x1b[>0;276;0c',
       '\x1b[12;40R',
+      '\x1b[?12;40R', // DECXCPR
       '\x1b[0n',
       '\x1b[?1u',
       '\x1b[?2004;1$y',
@@ -247,11 +297,11 @@ describe('PTY host', () => {
 
   it('restart: a new agent in place, the attached terminals kept and not told the old one ended', async () => {
     await client.spawn('s5', { cwd: dir, tool: tool as never });
-    const before = spawned.at(-1)!;
+    const before = spawned.at(-1) as EchoPty;
     const a = attach('s5');
     await a.opened;
     expect(await client.restart('s5')).toBe('restarted');
-    const after = spawned.at(-1)!;
+    const after = spawned.at(-1) as EchoPty;
     expect(after).not.toBe(before);
     expect(before.exited).toBe(true);
     a.ws.send(JSON.stringify({ type: 'input', data: 'hi' }));
@@ -266,7 +316,7 @@ describe('PTY host', () => {
 
   it('restart with an agent environment: the host takes it (echoes it applied) and restarts in place; a malformed one is ignored', async () => {
     await client.spawn('s6', { cwd: dir, tool: tool as never, agentEnv: { CLAUDE_CONFIG_DIR: '/acc/old' } });
-    const before = spawned.at(-1)!;
+    const before = spawned.at(-1) as EchoPty;
     expect(await client.restart('s6', { agentEnv: { CLAUDE_CONFIG_DIR: '/acc/new' } })).toBe('restarted');
     expect(before.exited).toBe(true);
     expect(spawned.at(-1)).not.toBe(before);
@@ -282,7 +332,7 @@ describe('PTY host', () => {
 
   it('halt keeps the session and its terminals; resume starts it again in place; guards answer', async () => {
     await client.spawn('s7', { cwd: dir, tool: tool as never });
-    const before = spawned.at(-1)!;
+    const before = spawned.at(-1) as EchoPty;
     const a = attach('s7');
     await a.opened;
     expect(await client.halt('s7')).toBe('halted');
@@ -292,7 +342,7 @@ describe('PTY host', () => {
     expect((await client.list()).find((p) => p.id === 's7')).toMatchObject({ clients: 1 });
     await expect(client.halt('s7')).rejects.toThrow(/already/); // a second halt is refused
     expect(await client.resume('s7', { agentEnv: { CLAUDE_CONFIG_DIR: '/acc/new' } })).toBe('resumed');
-    const after = spawned.at(-1)!;
+    const after = spawned.at(-1) as EchoPty;
     expect(after).not.toBe(before);
     a.ws.send(JSON.stringify({ type: 'input', data: 'hi' }));
     await tick();
@@ -304,6 +354,149 @@ describe('PTY host', () => {
 
   it('refuses a spawn whose cwd does not exist', async () => {
     await expect(client.spawn('s3', { cwd: path.join(dir, 'nope'), tool: tool as never })).rejects.toThrow(/cwd/);
+  });
+});
+
+describe('who answers a query (terminal-rendering.md): exactly one, decided as the output arrives', () => {
+  beforeEach(() => {
+    makePty = () => new MirrorPty();
+  });
+  afterEach(() => {
+    makePty = () => new EchoPty();
+  });
+  const input = (c: { ws: WebSocket }, data: string) => c.ws.send(JSON.stringify({ type: 'input', data }));
+  const ST = '\x1b\\';
+
+  it('no client attached: the host answers what xterm answers, and colour queries with the tab’s colours — once', async () => {
+    await client.spawn('q1', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    pty.print(`\x1b[c\x1b[?2026$p\x1b[6n\x1b[?6n\x1b]11;?${ST}\x1b]10;?;?\x07\x1b]4;1;?${ST}`);
+    await tick();
+    expect(pty.got).toEqual([
+      '\x1b[?1;2c',
+      '\x1b[?2026;2$y',
+      '\x1b[1;1R',
+      '\x1b[?1;1R',
+      `\x1b]11;rgb:1e1e/1e1e/1e1e${ST}`,
+      `\x1b]10;rgb:d4d4/d4d4/d4d4${ST}`,
+      `\x1b]11;rgb:1e1e/1e1e/1e1e${ST}`,
+      `\x1b]4;1;rgb:cccc/0000/0000${ST}`,
+    ]);
+    // A colour being set is not a query.
+    pty.print(`\x1b]11;#ffffff${ST}`);
+    await tick();
+    expect(pty.got).toHaveLength(8);
+  });
+
+  it('clients attached: only the client used last answers (else the first attached), and the host stays silent', async () => {
+    await client.spawn('q2', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const a = attach('q2');
+    await a.opened;
+    const b = attach('q2');
+    await b.opened;
+    await tick();
+    pty.print('\x1b[c');
+    await tick();
+    expect(a.binary.join('') + b.binary.join('')).toBe('\x1b[c\x1b[c'); // both were sent it…
+    input(b, '\x1b[?62;22c');
+    input(a, '\x1b[?1;2c');
+    await tick();
+    expect(pty.got).toEqual(['\x1b[?1;2c']); // …the first attached answered, alone; the host didn't
+    b.ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 })); // b used now
+    await tick();
+    pty.print(`\x1b]11;?${ST}`);
+    await tick();
+    input(a, `\x1b]11;rgb:0000/0000/0000${ST}`);
+    input(b, `\x1b]11;rgb:ffff/ffff/ffff${ST}`);
+    await tick();
+    expect(pty.got.slice(1)).toEqual([`\x1b]11;rgb:ffff/ffff/ffff${ST}`]);
+    // Its colours are what the host answers with once nobody is attached.
+    a.ws.close();
+    b.ws.close();
+    await Promise.all([a.closed, b.closed]);
+    await tick();
+    pty.print(`\x1b]11;?${ST}`);
+    await tick();
+    expect(pty.got.slice(2)).toEqual([`\x1b]11;rgb:ffff/ffff/ffff${ST}`]);
+  });
+
+  it('typing makes a client the one that answers; reports from any client, and typing with replies in it, still go through', async () => {
+    await client.spawn('q3', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const a = attach('q3');
+    await a.opened;
+    const b = attach('q3');
+    await b.opened;
+    await tick();
+    input(b, '\x1b[O\x1b[<35;3;3M'); // focus out, the mouse hovering: b not used, but sent on
+    input(b, '\x1b[?1;2ck'); // an answer and a key in one frame: whole, never dropped — and b was used
+    await tick();
+    expect(pty.got).toEqual(['\x1b[O\x1b[<35;3;3M', '\x1b[?1;2ck']);
+    pty.print('\x1b[5n');
+    await tick();
+    input(a, '\x1b[0n');
+    input(b, '\x1b[3n');
+    await tick();
+    expect(pty.got.slice(2)).toEqual(['\x1b[3n']);
+  });
+
+  it('the client answering leaves before it did: the next attached answers what it was sent', async () => {
+    await client.spawn('q4', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const a = attach('q4');
+    await a.opened;
+    const b = attach('q4');
+    await b.opened;
+    await tick();
+    pty.print('\x1b[c');
+    await tick();
+    a.ws.close();
+    await a.closed;
+    await tick();
+    input(b, '\x1b[?62;22c');
+    await tick();
+    expect(pty.got).toEqual(['\x1b[?62;22c']);
+    b.ws.close();
+  });
+
+  it('a query that arrived before a client attached (parsed after) is the host’s to answer, not the client’s', async () => {
+    await client.spawn('q5', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const sent: string[] = [];
+    pty.print('\x1b[c');
+    // Attached in the same turn: the screen's copy has not parsed the query yet.
+    const late = host.registry.attach(
+      'q5',
+      (d) => sent.push(d),
+      () => {},
+    )!;
+    await tick();
+    expect(pty.got).toEqual(['\x1b[?1;2c']);
+    expect((await late.ready).data).not.toContain('\x1b[c'); // its screen has no query in it…
+    late.start();
+    expect(sent).toEqual([]); // …nor was it sent one
+    expect(late.replies(replyParts('\x1b[?62;22c')!)).toBe(''); // and an answer from it would not go through
+    late.detach();
+  });
+
+  it('a client still drawing its screen answers the query held for it', async () => {
+    await client.spawn('q6', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const sent: string[] = [];
+    const drawing = host.registry.attach(
+      'q6',
+      (d) => sent.push(d),
+      () => {},
+    )!;
+    pty.print('\x1b[5n'); // held until its screen is drawn
+    await tick();
+    expect(pty.got).toEqual([]); // the host leaves it to the client
+    await drawing.ready;
+    drawing.start();
+    expect(sent).toEqual(['\x1b[5n']);
+    expect(drawing.replies(replyParts('\x1b[0n')!)).toBe('\x1b[0n');
+    drawing.detach();
   });
 });
 

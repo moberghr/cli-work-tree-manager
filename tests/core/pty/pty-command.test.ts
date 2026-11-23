@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PtySession, resolvePtyCommand, startsAsBatch } from '../../../src/core/pty/pty-session.js';
+import { PtySession, resolvePtyCommand, startsAsBatch, terminalEnv } from '../../../src/core/pty/pty-session.js';
 import type { AiToolSpec } from '../../../src/core/platform/ai-launcher.js';
 
 const SHIM = path.resolve(__dirname, '../../functional/fixtures/echo-ai.cmd');
@@ -211,4 +211,16 @@ describe.runIf(win)('the first prompt reaches a batch-file agent intact (Windows
     },
     40_000,
   );
+});
+
+describe('terminalEnv', () => {
+  it('says 24-bit colour (what xterm.js draws) unless the environment says something itself', () => {
+    expect(terminalEnv({ TERM: 'xterm-256color' })).toEqual({ TERM: 'xterm-256color', COLORTERM: 'truecolor' });
+    expect(terminalEnv({ COLORTERM: '24bit' })).toEqual({ COLORTERM: '24bit' });
+  });
+
+  it('keeps the launching terminal\'s identity (terminal-rendering.md, "Terminal identity")', () => {
+    const env = { TERM_PROGRAM: 'ghostty', WT_SESSION: 'x' };
+    expect(terminalEnv(env)).toMatchObject(env);
+  });
 });

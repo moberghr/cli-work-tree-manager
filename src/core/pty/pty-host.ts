@@ -11,24 +11,11 @@ import { HOST_FEATURES, PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type H
 import { report } from '../platform/report.js';
 import { isEnvDelta } from '../platform/env-delta.js';
 import { createTicketBook } from './terminal-tickets.js';
+import { replyParts } from './terminal-replies.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
 const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart|\/halt|\/resume)?$/;
 const MAX_BODY = 1024 * 1024;
-
-/**
- * Input a terminal sends on its own, with nobody typing: focus in/out, answers to the agent's queries (device
- * attributes, cursor position, status, mode and keyboard-flag reports, window size), OSC / DCS / APC replies — and
- * the mouse moving with no button down (SGR motion reports, codes 35 + modifiers), which hovering over a terminal
- * sends. Every attached client answers a query, and a hidden one still reports focus, so these must not count as
- * using a client — only typing (keys, a paste, a click, a drag) does. A cursor-position report at row 1 and columns
- * 2–8 looks just like Shift/Alt/Ctrl+F3 (`ESC[1;2R` …), so it is taken for the key. Pure.
- */
-const REPLY =
-  /^(?:\x1b\[[IO]|\x1b\[[?>=][\d;]*c|\x1b\[(?!1;[2-8]R)\d+;\d+R|\x1b\[\??\d*n|\x1b\[\?\d*u|\x1b\[\??[\d;]*\$y|\x1b\[\d+(?:;\d+)*t|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][\s\S]*?\x1b\\|\x1b\[<(?:35|39|43|47|51|55|59|63);\d+;\d+M)+$/;
-export function isTerminalReply(data: string): boolean {
-  return REPLY.test(data);
-}
 
 export interface PtyHostHandle {
   info: HostInfo;
@@ -248,11 +235,22 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           return;
         }
         if (msg.type === 'input' && typeof msg.data === 'string') {
-          // Back to this client's grid first (a no-op when it is) — when someone typed in it, not for its own replies.
-          if (size && !isTerminalReply(msg.data)) registry.resize(id, size.cols, size.rows);
+          const parts = replyParts(msg.data);
+          if (parts) {
+            // What it sent on its own (terminal-replies.ts): not someone using it, and only one client answers the
+            // agent's queries (terminal-rendering.md, "Who answers a query").
+            const out = attached.replies(parts);
+            if (out) registry.write(id, out);
+            return;
+          }
+          // Someone typed in it (a frame with typing in it goes through whole, any replies in it too): back to this
+          // client's grid first (a no-op when it is), and it answers the agent from now on.
+          attached.lead();
+          if (size) registry.resize(id, size.cols, size.rows);
           registry.write(id, msg.data);
         } else if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
           size = { cols: msg.cols, rows: msg.rows };
+          attached.lead();
           registry.resize(id, msg.cols, msg.rows);
         }
       });

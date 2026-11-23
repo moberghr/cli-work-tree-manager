@@ -2,6 +2,7 @@ import xtermHeadless from '@xterm/headless';
 import xtermSerialize from '@xterm/addon-serialize';
 import xtermUnicode11 from '@xterm/addon-unicode11';
 import { REPLAY_SCROLLBACK } from './scrollback.js';
+import type { TerminalColors } from './terminal-colors.js';
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
@@ -89,6 +90,19 @@ const nums = (params: Params): number[] => params.filter((p): p is number => typ
 const decModes = (modes: number[], final: 'h' | 'l'): string => (modes.length ? `${CSI}?${modes.join(';')}${final}` : '');
 const cup = (row: number, col: number): string => `${CSI}${row + 1};${col + 1}H`;
 
+/** The OSC colour queries xterm.js leaves to its renderer (CoreBrowserTerminal), which a headless one never answers. */
+const SPECIAL_COLORS = ['10', '11', '12'] as const;
+
+/** How the mirror answers the agent's queries in the output it is written while no client is attached (`answerQueries`). */
+export interface MirrorAnswers {
+  /** Whether the mirror answers the queries in output written now: decided as it arrives, not when it is parsed. */
+  now(): boolean;
+  /** Where the answers go: the PTY. */
+  send(reply: string): void;
+  /** The colours colour queries are answered with. */
+  colors: Pick<TerminalColors, 'reply'>;
+}
+
 /**
  * The PTY host's copy of a terminal's screen: an @xterm/headless terminal fed everything the PTY prints, and the
  * snapshot a newly attached client is sent first (`replay`). The serialize addon draws the screen and scrollback
@@ -96,12 +110,16 @@ const cup = (row: number, col: number): string => `${CSI}${row + 1};${col + 1}H`
  * the title, the scroll region, the kitty keyboard flags — and places the cursor wrong after origin mode or a
  * full row. That state is followed here with xterm's own parser hooks (each returns false, so xterm still handles
  * the sequence; a sequence split across writes reaches them whole) and written after the addon's output, so a
- * fresh terminal written the snapshot ends in the same state. Uses Unicode 11 widths, as the browser does.
+ * fresh terminal written the snapshot ends in the same state. Uses Unicode 11 widths, as the browser does. In output
+ * that arrived with no client attached, it answers the agent's queries too (`answerQueries`, terminal-rendering.md).
  */
 export class ScreenMirror {
   readonly terminal: HeadlessTerminal;
   private readonly serializer = new SerializeAddon();
   private st: MirrorState = freshState();
+  private answers: MirrorAnswers | null = null;
+  /** The chunk being parsed is one the mirror answers the queries in (set and cleared by the write queue's callbacks). */
+  private answering = false;
 
   constructor(cols: number, rows: number, scrollback: number = REPLAY_SCROLLBACK) {
     this.terminal = new Terminal({ cols, rows, scrollback, allowProposedApi: true });
@@ -111,10 +129,36 @@ export class ScreenMirror {
     this.terminal.loadAddon(new Unicode11Addon());
     this.terminal.unicode.activeVersion = '11';
     this.track();
+    // xterm answers DA, DSR / CPR, DECRQM and DECRQSS itself, through onData, while it parses the query.
+    this.terminal.onData((reply) => {
+      if (this.answering) this.answers?.send(reply);
+    });
+    this.answerColors();
   }
 
+  /**
+   * From now on, the agent's queries in output written while `answers.now()` says so (no client attached) are
+   * answered here: what xterm answers itself, and the colour queries it leaves to a renderer (OSC 10, 11, 12 and 4).
+   */
+  answerQueries(answers: MirrorAnswers): void {
+    this.answers = answers;
+  }
+
+  /**
+   * Output, queued for parsing. Whether its queries are answered here is decided now, as it arrives: xterm parses it a
+   * moment later, by when a client may have attached (and been sent a screen with no query in it) or detached. A
+   * write's callback runs once it is parsed and before the next write is, so empty writes around it mark the chunk.
+   */
   write(data: string, done?: () => void): void {
-    this.terminal.write(data, done);
+    if (!this.answers?.now()) {
+      this.terminal.write(data, done);
+      return;
+    }
+    this.terminal.write('', () => (this.answering = true));
+    this.terminal.write(data, () => {
+      this.answering = false;
+      done?.();
+    });
   }
 
   resize(cols: number, rows: number): void {
@@ -351,6 +395,34 @@ export class ScreenMirror {
     p.registerCsiHandler({ prefix: '>', final: 'n' }, (params) => {
       const resource = nums(params)[0] ?? 0;
       if (resource === 4 || resource === 0) this.st.modifyOtherKeys = null;
+      return false;
+    });
+  }
+
+  /**
+   * OSC 10 / 11 / 12 / 4 with `?`: xterm.js leaves the answer to its renderer, so a headless one stays silent. Answered
+   * as the browser's xterm.js does (`_setOrReportSpecialColor`, `setOrReportIndexedColor`): OSC 10 ; ? ; ? asks for 10
+   * and 11, OSC 4 takes index ; ? pairs. Each handler returns false: xterm still handles a colour being set.
+   */
+  private answerColors(): void {
+    const p = this.terminal.parser;
+    SPECIAL_COLORS.forEach((first, offset) =>
+      p.registerOscHandler(Number(first), (data) => {
+        const a = this.answering ? this.answers : null;
+        data.split(';').forEach((spec, i) => {
+          const slot = SPECIAL_COLORS[offset + i];
+          if (a && slot && spec === '?') a.send(a.colors.reply(slot));
+        });
+        return false;
+      }),
+    );
+    p.registerOscHandler(4, (data) => {
+      const a = this.answering ? this.answers : null;
+      const slots = data.split(';');
+      for (let i = 0; a && i + 1 < slots.length; i += 2) {
+        const index = /^\d+$/.test(slots[i]) ? Number(slots[i]) : -1;
+        if (index >= 0 && index <= 255 && slots[i + 1] === '?') a.send(a.colors.reply(`4;${index}`));
+      }
       return false;
     });
   }

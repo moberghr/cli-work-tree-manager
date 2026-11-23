@@ -15,6 +15,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { VIEW_SCROLLBACK } from '../../../../core/pty/scrollback.js';
+import { TERMINAL_THEME } from '../../../../core/pty/terminal-colors.js';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -115,7 +116,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       fontSize: 13,
       // Cascadia is Windows Terminal's default — same glyphs, same widths.
       fontFamily: '"Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, "Liberation Mono", monospace',
-      theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
+      // The PTY host answers an agent's colour query with these when no tab is open to (core/pty/terminal-colors.ts).
+      theme: TERMINAL_THEME,
       convertEol: false,
       // Kept while connected; a reattach brings back the PTY host's REPLAY_SCROLLBACK (core/pty/scrollback.ts).
       scrollback: VIEW_SCROLLBACK,
