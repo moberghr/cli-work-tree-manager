@@ -53,15 +53,21 @@ export interface ReflogBranch {
  * The branches a checkout's HEAD reflog shows it on, in the order it came to
  * them. `start`: the branch it was on before the first move the reflog shows
  * (the session's own); `current`: what HEAD names now — a reflog cut short
- * still has it. Pure.
+ * still has it; `since` (ms): only what HEAD was on from then — the lines
+ * before it are followed (where HEAD was) but nothing in them is seen. A
+ * repo's own checkout has a reflog going back long before its session. Pure.
  */
-export function branchesFromReflog(lines: ReflogLine[], opts: { start?: string | null; current?: string | null } = {}): ReflogBranch[] {
+export function branchesFromReflog(
+  lines: ReflogLine[],
+  opts: { start?: string | null; current?: string | null; since?: number } = {},
+): ReflogBranch[] {
   const out = new Map<string, ReflogBranch>();
   const firstMove = lines.map((l) => moveOf(l.message)).find((m) => m !== null);
   // Before the first move HEAD was on the branch it moved from — the start branch, when the reflog has no move.
   let on: string | null = firstMove?.from ?? opts.start ?? opts.current ?? null;
+  const since = opts.since ?? -Infinity;
   const see = (name: string | null, at: number, from?: string) => {
-    if (!name || !looksLikeBranch(name)) return;
+    if (!name || !looksLikeBranch(name) || at < since) return;
     const b = out.get(name);
     if (b) b.lastSeen = Math.max(b.lastSeen, at);
     else out.set(name, { name, firstSeen: at, lastSeen: at, ...(from && looksLikeBranch(from) ? { movedFrom: from } : {}) });
@@ -80,7 +86,7 @@ export function branchesFromReflog(lines: ReflogLine[], opts: { start?: string |
     see(on, l.at);
   }
   if (opts.current && !out.has(opts.current) && looksLikeBranch(opts.current)) {
-    const at = lines.length ? lines[lines.length - 1].at : 0;
+    const at = Math.max(lines.length ? lines[lines.length - 1].at : 0, opts.since ?? 0);
     out.set(opts.current, { name: opts.current, firstSeen: at, lastSeen: at });
   }
   return [...out.values()];
@@ -234,13 +240,18 @@ export function branchLogChangedSince(commonDir: string, name: string, since: st
 /**
  * The branches a checkout has been on (its HEAD reflog), each with where it
  * was made from when its own reflog says, and the commit it was made at. File reads only. `start`: the
- * session's branch. [] when it isn't a checkout.
+ * session's branch; `since` (ms): only from then on (the session began). [] when it isn't a checkout.
  */
-export function checkoutBranchHistory(checkout: string, start?: string | null): Array<ReflogBranch & { from?: string; start?: string }> {
+export function checkoutBranchHistory(
+  checkout: string,
+  start?: string | null,
+  since?: number,
+): Array<ReflogBranch & { from?: string; start?: string }> {
   const dirs = gitDirs(checkout);
   if (!dirs) return [];
   const lines = readReflog(path.join(dirs.gitDir, 'logs', 'HEAD'));
-  return branchesFromReflog(lines, { start: start ?? null, current: checkedOutBranch(checkout) }).map((b) => {
+  const opts = { start: start ?? null, current: checkedOutBranch(checkout), ...(since !== undefined ? { since } : {}) };
+  return branchesFromReflog(lines, opts).map((b) => {
     const from = branchCreatedFrom(dirs.commonDir, b.name, b.movedFrom);
     const at = branchStart(dirs.commonDir, b.name);
     return { ...b, ...(from && from !== b.name ? { from } : {}), ...(at ? { start: at } : {}) };

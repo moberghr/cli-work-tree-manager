@@ -70,7 +70,7 @@ const session = (agent?: string): WorktreeSession => ({
 describe('the session’s agent decides what its conversation is', () => {
   it('Claude’s session: read through Claude’s adapter', async () => {
     const s = session();
-    expect(readContextUsage(s)).toMatchObject({ used: 5100, window: 200_000 });
+    expect(readContextUsage(s)).toMatchObject({ used: 5100, window: 1_000_000 });
     expect(sessionTitle(s)).toBe('Add the CSV export');
     expect((await sessionWorkTime(s)).prompts).toBe(1);
     expect((await sessionTimeline(s, { run: async () => ({ code: 1, stdout: '', stderr: '' }) })).some((e) => e.kind === 'prompt')).toBe(

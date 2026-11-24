@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { contextUsageFrom, readContextUsage } from '../../../src/core/conversations/context-usage.js';
-import { claudeContextWindow, claudeEntries, DEFAULT_WINDOW, LARGE_WINDOW } from '../../../src/core/agents/claude/entries.js';
+import { claudeContextWindow, claudeEntries, LARGE_WINDOW, SMALL_WINDOW } from '../../../src/core/agents/claude/entries.js';
 import { encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
 import type { TranscriptEntry } from '../../../src/core/agents/claude/transcript.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -24,7 +24,7 @@ describe('contextUsageFrom', () => {
       { type: 'user', message: { content: 'next' } },
       reply({ input_tokens: 20, cache_read_input_tokens: 50_000, cache_creation_input_tokens: 2_000, output_tokens: 300 }),
     ]);
-    expect(u).toEqual({ used: 52_320, window: DEFAULT_WINDOW, model: 'claude-sonnet-5' });
+    expect(u).toEqual({ used: 52_320, window: LARGE_WINDOW, model: 'claude-sonnet-5' });
   });
 
   it('skips subagent turns (they have their own context) and entries without usage', () => {
@@ -41,6 +41,8 @@ describe('contextUsageFrom', () => {
     expect(usageOf([reply({ input_tokens: 300_000 })])?.window).toBe(LARGE_WINDOW);
     const m = usageOf([{ type: 'assistant', message: { model: 'claude-opus-5-5[1m]', usage: { input_tokens: 5 } } }]);
     expect(m?.window).toBe(LARGE_WINDOW);
+    const old = usageOf([{ type: 'assistant', message: { model: 'claude-sonnet-4-5-20250929', usage: { input_tokens: 5 } } }]);
+    expect(old?.window).toBe(SMALL_WINDOW);
   });
 });
 

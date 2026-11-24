@@ -11,6 +11,7 @@ import {
   GONE_SHOWN_MS,
   LAST_SEEN_STEP_MS,
   MAX_WATCHED_BRANCHES,
+  needsBackfill,
   noteBranches,
   noteBranchFacts,
   otherBranchesToWatch,
@@ -312,6 +313,97 @@ describe('reflog parsing (pure)', () => {
       ['fix/a', 200, 500, 'feat/x'],
       ['fix/b', 600, 600, null],
     ]);
+  });
+
+  it('since the session began: the lines before it are followed, not seen; the branch HEAD was on then is', () => {
+    const lines = [
+      line(100, 'checkout: moving from main to old/one'),
+      line(200, 'checkout: moving from old/one to spaces'),
+      line(300, 'commit: on spaces'),
+      line(500, 'checkout: moving from spaces to whats-new'),
+      line(600, 'commit: on whats-new'),
+    ].map((l) => parseReflogLine(l)!);
+    const out = branchesFromReflog(lines, { start: 'spaces', current: 'whats-new', since: 400_000 });
+    expect(out.map((b) => [b.name, b.firstSeen / 1000, b.lastSeen / 1000])).toEqual([
+      ['spaces', 500, 500],
+      ['whats-new', 500, 600],
+    ]);
+    // Nothing since: only what HEAD is on now, seen from when the session began.
+    expect(branchesFromReflog(lines, { current: 'whats-new', since: 700_000 }).map((b) => [b.name, b.firstSeen / 1000])).toEqual([
+      ['whats-new', 700],
+    ]);
+  });
+});
+
+describe("a session on a repo's own checkout (reported: 23 branches, 12 of them from before the session)", () => {
+  const branch = (name: string, lastSeen: string) => ({ repo: 'ai-proxy', name, firstSeen: lastSeen, lastSeen });
+
+  it('a record holding branches from before its session began is read again; its own branch may predate it', () => {
+    const s = { branch: 'spaces', createdAt: '2026-10-06T08:26:13Z' };
+    expect(needsBackfill(s, null)).toBe(true);
+    expect(needsBackfill(s, { branches: [branch('dev', '2026-11-23T15:00:00Z')] })).toBe(true);
+    const done = '2026-11-23T15:15:10Z';
+    expect(
+      needsBackfill(s, { backfilled: done, branches: [branch('dev', '2026-11-23T15:00:00Z'), branch('beacon', '2026-10-01T10:27:04Z')] }),
+    ).toBe(true);
+    // The checkout was on spaces when the session was made: its own branch.
+    expect(
+      needsBackfill(s, { backfilled: done, branches: [branch('spaces', '2026-10-05T10:00:41Z'), branch('dev', '2026-11-23T15:00:00Z')] }),
+    ).toBe(false);
+  });
+
+  it('the backfill reads the reflog from when the session began, and takes out what an unbounded read put in', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'own-checkout-'));
+    try {
+      // Each step at its own date: a reflog line carries the committer date.
+      const at = (date: string, ...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {
+          cwd: dir,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, GIT_COMMITTER_DATE: date, GIT_AUTHOR_DATE: date },
+        });
+      at('2026-07-01T09:00:00Z', 'init', '-q', '-b', 'main');
+      fs.writeFileSync(path.join(dir, 'readme.md'), 'hi\n');
+      at('2026-07-01T09:00:00Z', 'add', '.');
+      at('2026-07-01T09:00:00Z', 'commit', '-q', '-m', 'first');
+      at('2026-07-22T09:00:00Z', 'checkout', '-q', '-b', 'old/one');
+      at('2026-09-28T12:00:00Z', 'checkout', '-q', '-b', 'old/two');
+      at('2026-10-05T10:00:00Z', 'checkout', '-q', '-b', 'spaces');
+      // The session is made on the checkout as it is (on spaces); then the folder moves on.
+      at('2026-10-06T14:00:00Z', 'checkout', '-q', '-b', 'whats-new');
+      at('2026-11-09T13:00:00Z', 'checkout', '-q', '-b', 'data-crawler');
+      const own: WorktreeSession = {
+        target: 'own',
+        branch: 'spaces',
+        isGroup: false,
+        paths: [dir],
+        createdAt: '2026-10-06T08:26:13Z',
+        lastAccessedAt: '2026-10-06T08:26:13Z',
+      };
+      const id = sessionIdFor(own);
+      // What the unbounded read recorded: every branch the folder was ever on.
+      const all = checkoutBranchHistory(dir, own.branch);
+      expect(all.map((b) => b.name)).toEqual(['main', 'old/one', 'old/two', 'spaces', 'whats-new', 'data-crawler']);
+      const iso = (ms: number) => new Date(ms).toISOString();
+      noteBranches(
+        id,
+        all.map((b) => ({ repo: 'own', name: b.name, firstSeen: iso(b.firstSeen), lastSeen: iso(b.lastSeen) })),
+        T0,
+        {
+          backfilled: true,
+        },
+      );
+      expect(needsBackfill(own, readSessionBranches(id))).toBe(true);
+      const rec = backfillSessionBranches(own, T0);
+      expect(rec.branches.map((b) => b.name)).toEqual(['spaces', 'whats-new', 'data-crawler']);
+      expect(needsBackfill(own, rec)).toBe(false);
+      expect(readSessionBranches(id)).toEqual(rec);
+      // A session read for the first time gets the same.
+      const fresh = backfillSessionBranches({ ...own, target: 'fresh' }, T0);
+      expect(fresh.branches.map((b) => b.name)).toEqual(['spaces', 'whats-new', 'data-crawler']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
