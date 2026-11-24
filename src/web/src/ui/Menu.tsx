@@ -9,6 +9,8 @@ export interface MenuItem {
   danger?: boolean;
   /** A line above it, to set a group apart. */
   separated?: boolean;
+  /** One of a set of which one is on (the theme menu's themes): a radio item, ✓ when it is the one. */
+  checked?: boolean;
 }
 
 /** One pick of a row of swatches (the rail's colors): its name is its tooltip and what a screen reader says. */
@@ -141,7 +143,8 @@ export function Menu({ x, y, items, onClose, footer, anchor = 'left' }: MenuProp
           <button
             key={it.label}
             type="button"
-            role="menuitem"
+            role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={it.checked}
             className={
               'wd-row-menu-item' + (it.danger ? ' wd-row-menu-item-danger' : '') + (it.separated ? ' wd-row-menu-item-separated' : '')
             }
@@ -152,6 +155,11 @@ export function Menu({ x, y, items, onClose, footer, anchor = 'left' }: MenuProp
           >
             <span>{it.label}</span>
             {it.hint && <kbd className="wd-row-menu-hint">{it.hint}</kbd>}
+            {it.checked && (
+              <span className="wd-row-menu-check" aria-hidden="true">
+                ✓
+              </span>
+            )}
           </button>
         ),
       )}

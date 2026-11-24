@@ -9,6 +9,8 @@ import { ask } from '../../state/ask.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
 import { writeRich } from '../../state/rich-copy.js';
+import { useTerminalStyle } from '../../state/appearance.js';
+import type { TerminalStyle } from '../../../../core/settings/terminal-style.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -66,8 +68,15 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
+  // Settings → Theme: the terminal is built with it (read through the ref, so a change never reconnects) and an
+  // open one takes a change through `restyle`.
+  const style = useTerminalStyle();
+  const styleRef = useRef(style);
+  styleRef.current = style;
   // Set by the connect effect: refit + resize-if-changed, and focus.
   const shown = useRef<(() => void) | null>(null);
+  // Set by the connect effect: the open terminal takes a new style, then refits.
+  const restyle = useRef<((s: TerminalStyle) => void) | null>(null);
   useEffect(() => {
     if (active) shown.current?.();
   }, [active]);
@@ -109,12 +118,15 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
 
   useEffect(() => {
     if (!hostRef.current) return;
+    // The style it is built with (today's look by default: core/settings/terminal-style.ts); `restyle` skips it.
+    let styled = styleRef.current;
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
-      // Cascadia is Windows Terminal's default — same glyphs, same widths.
-      fontFamily: '"Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, "Liberation Mono", monospace',
-      theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
+      fontSize: styled.fontSize,
+      fontFamily: styled.fontFamily,
+      lineHeight: styled.lineHeight,
+      // A copy: xterm keeps the object it is given.
+      theme: { ...styled.theme },
       convertEol: false,
       scrollback: 5000,
       // Required by the unicode11 addon (proposed API in xterm 6).
@@ -441,6 +453,17 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       onResize(true);
       term.focus();
     };
+    // A new font or size changes the grid: refit, and resize the PTY only if its columns or rows changed. Hidden in
+    // the deck, onResize does nothing and `shown` refits when it is shown.
+    restyle.current = (s) => {
+      if (s === styled) return;
+      styled = s;
+      term.options.theme = { ...s.theme };
+      term.options.fontFamily = s.fontFamily;
+      term.options.fontSize = s.fontSize;
+      term.options.lineHeight = s.lineHeight;
+      onResize();
+    };
     // The terminal you type in sets the size.
     const onFocus = () => onResize(true);
     term.textarea?.addEventListener('focus', onFocus);
@@ -454,6 +477,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       term.element?.removeEventListener('copy', onCopy, true);
       term.textarea?.removeEventListener('focus', onFocus);
       shown.current = null;
+      restyle.current = null;
       observer?.disconnect();
       window.removeEventListener('resize', onWindowResize);
       inputSub.dispose();
@@ -470,6 +494,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       term.dispose();
     };
   }, [sessionId, generation]);
+  // After the connect effect: a style that changes while it is open restyles it in place, never reconnects.
+  useEffect(() => {
+    restyle.current?.(style);
+  }, [style]);
 
   // Look again (the panel stays up meanwhile): attaches as soon as the other
   // Claude is gone — by itself every few seconds, or on "Check again".

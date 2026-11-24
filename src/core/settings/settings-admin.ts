@@ -5,6 +5,7 @@ import path from 'node:path';
 import { hostForRepo } from '../hosts/index.js';
 import { chooseWorktreesRoot, expandHome } from '../worktree/worktrees-root.js';
 import { hostName } from '../hosts/commands.js';
+import { checkTerminalColors } from './terminal-style.js';
 import type { RepoSettingsWire, SettingsWire } from '../api-types.js';
 import type { SettingsSource } from './settings-source.js';
 import {
@@ -25,7 +26,8 @@ export { SettingsError };
 /**
  * The Settings page and a repo's settings, over config.json (settings-schema.ts says which settings and how each is
  * checked). Read from the file as it is — so a setting not written reads as its default, not as a value — and only
- * the schema's settings ever leave it: nothing else in config.json (a token) reaches the page. Written one setting at
+ * the schema's settings ever leave it (and the terminal's hand-written colours, checked): nothing else in config.json
+ * (a token) reaches the page. Written one setting at
  * a time under config.json's lock, keys the schema doesn't know kept (repo-admin.ts `editConfig`).
  */
 
@@ -47,7 +49,8 @@ export function readSettings(): SettingsWire {
     const v = valueAt(raw, f.path);
     if (v !== undefined) values[f.path] = v;
   }
-  return { values, configPath: getConfigPath() };
+  const colors = checkTerminalColors(valueAt(raw, 'terminal.colors'));
+  return { values, ...(Object.keys(colors).length ? { terminalColors: colors } : {}), configPath: getConfigPath() };
 }
 
 /** Change one setting (`null`: back to its default). Refused: a path not on the page, a value that doesn't fit. */

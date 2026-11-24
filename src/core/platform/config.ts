@@ -340,6 +340,9 @@ export function loadConfig(): WorkConfig | null {
     const raw = fs.readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
     return {
+      // What this doesn't model (the Settings page's `theme` and `terminal`, a key written by hand or by a newer work)
+      // rides along as written, so a command that saves config.json (`work config remove-repo`) keeps it.
+      ...(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}),
       worktreesRoot: parsed.worktreesRoot ?? '',
       repos: parsed.repos ?? {},
       groups: parsed.groups ?? {},

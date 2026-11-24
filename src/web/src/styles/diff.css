@@ -1,16 +1,17 @@
 /* Diff-specific tokens. Two themes, keyed by `data-theme` on <html> — see
    tokens.css for the theme mechanism. Values mirror GitHub's Primer diff
-   palette (light default / dark default). */
+   palette (light default / dark default); the surfaces (empty side, line numbers, binary badge) follow the
+   --code-bg / --hover tokens, so a named theme re-colours them. */
 :root,
 :root[data-theme='light'] {
   --add-bg: #e6ffec;
   --add-line-bg: #abf2bc;
   --del-bg: #ffebe9;
   --del-line-bg: #fdb8c0;
-  --empty-bg: #f6f8fa;
+  --empty-bg: var(--code-bg);
   --hunk-bg: #ddf4ff;
   --hunk-fg: #0969da;
-  --ln-bg: #f6f8fa;
+  --ln-bg: var(--code-bg);
   --ln-fg: #8b949e;
   --status-added-bg: #dafbe1;
   --status-added-fg: #1a7f37;
@@ -20,7 +21,7 @@
   --status-modified-fg: #9a6700;
   --status-renamed-bg: #ddf4ff;
   --status-renamed-fg: #0969da;
-  --status-binary-bg: #eaeef2;
+  --status-binary-bg: var(--hover);
   --status-binary-fg: #57606a;
 }
 
@@ -29,10 +30,10 @@
   --add-line-bg: #1f572c;
   --del-bg: #25171c;
   --del-line-bg: #6f2226;
-  --empty-bg: #161b22;
+  --empty-bg: var(--code-bg);
   --hunk-bg: rgba(56, 139, 253, 0.1);
   --hunk-fg: #58a6ff;
-  --ln-bg: #161b22;
+  --ln-bg: var(--code-bg);
   --ln-fg: #6e7681;
   --status-added-bg: rgba(63, 185, 80, 0.15);
   --status-added-fg: #3fb950;
@@ -42,7 +43,7 @@
   --status-modified-fg: #d29922;
   --status-renamed-bg: rgba(56, 139, 253, 0.15);
   --status-renamed-fg: #58a6ff;
-  --status-binary-bg: #21262d;
+  --status-binary-bg: var(--hover);
   --status-binary-fg: #8b949e;
 }
 

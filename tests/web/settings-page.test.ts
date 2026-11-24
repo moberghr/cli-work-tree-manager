@@ -27,6 +27,10 @@ describe('reading settings for the screen (pure)', () => {
     expect(defaultText(settingAt('copyFiles')!)).toBe('none');
     expect(defaultText(settingAt('archive.dropTranscriptsAfterDays')!)).toBe('0 (off)');
     expect(defaultText(settingAt('time.gapTicket')!)).toBeNull();
+    // A choice: its option's label, not the value config.json holds.
+    expect(defaultText(settingAt('theme')!)).toBe('System');
+    expect(defaultText(settingAt('terminal.theme')!)).toBe('Match the app');
+    expect(defaultText(settingAt('claudeStatusLine')!)).toBe('Yours (from your Claude settings)');
   });
 
   it('a list is one entry a line (a glob keeps its commas)', () => {
@@ -37,7 +41,7 @@ describe('reading settings for the screen (pure)', () => {
     expect(settingSections('idle').map((s) => [s.section, s.fields.map((f) => f.path)])).toEqual([
       ['Agents & terminals', ['sleepIdleAfterMinutes']],
     ]);
-    expect(settingSections('').length).toBe(7);
+    expect(settingSections('').length).toBe(8);
   });
 
   it('#/settings and #/repos/<alias> are pages of their own; g , opens Settings', () => {
@@ -90,6 +94,7 @@ describe('the Settings page', () => {
     expect([...host.querySelectorAll('h2')].map((h) => h.textContent)).toEqual([
       'General',
       'Agents & terminals',
+      'Theme',
       'Pull requests',
       'Reviews',
       'Issues',
