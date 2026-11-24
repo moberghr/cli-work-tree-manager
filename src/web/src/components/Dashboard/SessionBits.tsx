@@ -4,7 +4,7 @@ import type { PrInfo } from '../../api/panes.js';
 import { DISPLAY_LABEL, displayStatus, formatDiffStat, agentName, owedClass } from '../../state/session-display.js';
 import { badgeClass, type BadgeTone } from '../../ui/index.js';
 import { relativeTime } from '../../utils/time.js';
-import { DEFAULT_ACCOUNT, pendingText } from '../../state/accounts.js';
+import { DEFAULT_ACCOUNT } from '../../state/accounts.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
 import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../../../core/pr/pr-stage.js';
 
@@ -390,12 +390,8 @@ export function OtherBranchChip({ session }: { session: SessionSummary }) {
  */
 export function AccountChip({ session, onOpen }: { session: SessionSummary; onOpen?: () => void }) {
   const account = session.account ?? DEFAULT_ACCOUNT;
-  const pending = session.accountPending;
-  if (account === DEFAULT_ACCOUNT && !pending) return null;
-  const title =
-    `Its ${agentName(session)} runs on the “${account}” account.` +
-    (pending ? ` It moves to “${pending}” when its turn ends.` : '') +
-    (onOpen ? ' Click to change it.' : '');
+  if (account === DEFAULT_ACCOUNT) return null;
+  const title = `Its ${agentName(session)} runs on the “${account}” account.` + (onOpen ? ' Click to change it.' : '');
   // The status line's chip style (the stack chip's): muted text, the account a link when it opens the dialog.
   return (
     <span className="wd-stack wd-account-chip" title={title}>
@@ -407,7 +403,6 @@ export function AccountChip({ session, onOpen }: { session: SessionSummary; onOp
       ) : (
         <span className="wd-overlap-name">{account}</span>
       )}
-      {pending && <span className="wd-account-pending"> {pendingText(pending)}</span>}
     </span>
   );
 }

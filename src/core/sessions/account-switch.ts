@@ -1,5 +1,4 @@
 import type { AccountInfo } from '../agents/types.js';
-import { createRestarter, type Restarter } from '../pty/agent-restart.js';
 import type { WorktreeSession } from './session-types.js';
 import type { ActivityLog } from '../platform/activity.js';
 import { switchRefusal } from './account-switch-rules.js';
@@ -9,13 +8,14 @@ import { switchRefusal } from './account-switch-rules.js';
  * The policy is here; I/O is passed in (account-routes.ts and web-server.ts give the real one, tests a fake).
  *
  * Refused: an unknown or archived session, an agent with no accounts, an unknown account, one nobody is logged in to, the
- * account it is on, a Claude running in a terminal outside work (a switch can't stop it), one switch already waiting.
+ * account it is on, a Claude running in a terminal outside work (a switch can't stop it), one switch already being done.
  *
  * Not running in the PTY host: its conversations move and the account is recorded — the next start uses it. Running and
  * idle: its Claude is halted in the host (stopped, its terminals kept), the conversations move, the account is recorded, and it
  * is resumed in place on the new account — in that order, so nothing writes into the old folder while it moves. Working, or waiting
- * on you: after its turn — through the agent restarter's queue (agent-restart.ts), so the rule for "not mid-turn" is the
- * restart's own, with a switch as the thing that runs when its turn ends.
+ * on you: the same, at once — its turn is interrupted (asked for: a switch that waited for the turn to end kept a session
+ * whose limit ran out on the old account), and the answer and Activity say to tell it to continue. An agent restart waiting
+ * for that turn is dropped (the switch restarts it), and one asked for meanwhile is folded into it (account-switch-link.ts).
  */
 
 export interface AccountSwitchDeps {
@@ -37,7 +37,7 @@ export interface AccountSwitchDeps {
   othersRunningIn?: (session: WorktreeSession, id: string) => string | null;
   /** Why the PTY host can't run it on another account (one from before accounts), or null. Asked before anything stops. */
   hostRefusal?: () => Promise<string | null>;
-  /** Working, or waiting on you (`turnEnded`: its turn just ended, so what it printed a moment ago isn't work going on). */
+  /** Working, or waiting on you: a switch doesn't wait for it, but says the turn it interrupted. */
   busy: (id: string, opts?: { turnEnded?: boolean }) => boolean;
   /** Stop its Claude in the host and keep its session (terminals attached) until `resume`: the files move only after it is stopped.
    *  `stopped`: an older host stopped it the old way; `gone`: nothing was running. */
@@ -48,25 +48,23 @@ export interface AccountSwitchDeps {
   /** One line of what a switch decided, for the Activity panel. */
   note?: (id: string, text: string, level: 'action' | 'info' | 'warn') => void;
   changed?: () => void;
-  scheduled?: (nextAt: number | null) => void;
-  /** A look again a little later (the restarter's own default: setTimeout). */
-  later?: (fn: () => void, ms: number) => void;
   /** Drop an agent restart waiting for its turn (agent-restart.ts): the switch restarts it anyway. True when one was waiting. */
   cancelRestart?: (id: string) => boolean;
 }
 
-export type SwitchOutcome = 'switched' | 'queued' | 'recorded';
+export type SwitchOutcome = 'switched' | 'recorded';
 
 export type SwitchResult =
-  { ok: true; outcome: SwitchOutcome; moved?: number } | { ok: false; status: 400 | 404 | 409 | 502; error: string };
+  { ok: true; outcome: SwitchOutcome; moved?: number; interrupted?: boolean } | { ok: false; status: 400 | 404 | 409 | 502; error: string };
+
+/** Said of a switch that stopped its Claude mid-turn: the conversation is there, the turn's remaining work isn't done. */
+export const INTERRUPTED = '; it was working or waiting on you, so that turn was interrupted: tell it to continue';
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function createAccountSwitcher(deps: AccountSwitchDeps) {
-  /** Where each waiting (or running) switch goes. */
+  /** Where each switch being done goes. */
   const targets = new Map<string, string>();
-  /** How many entries each finished switch moved, for the answer. */
-  const movedBy = new Map<string, number>();
 
   const name = (s: WorktreeSession) => `${s.target} ${s.branch}`;
 
@@ -87,24 +85,25 @@ export function createAccountSwitcher(deps: AccountSwitchDeps) {
     return moved.length;
   };
 
-  /** What the restarter runs for a session (at once when idle, after its turn when not): the move, the record, the restart. */
-  const perform = async (id: string): Promise<string | void> => {
-    const to = targets.get(id);
+  /** A switch of a session running in the host: the stop, the move, the record, the start again. */
+  const perform = async (id: string, to: string): Promise<{ moved: number; interrupted: boolean }> => {
     const s = deps.session(id);
     try {
-      if (!to || !s) throw new Error('the session is gone');
+      if (!s) throw new Error('the session is gone');
       if (s.archivedAt || deps.beingArchived(id)) throw new Error('it was archived meanwhile');
       const acc = deps.accounts(s);
       if (!acc) throw new Error('its agent has no accounts');
       const from = acc.current;
-      if (from === to) return `already on ${to}`;
+      if (from === to) return { moved: 0, interrupted: false };
       const before = await refusalBeforeStop(s, id);
       if (before) throw new Error(`stays on ${from}: ${before}`);
       // A restart of its agent that waited for this turn too would stop it a second time: the switch's restart does its job.
       if (deps.cancelRestart?.(id)) deps.note?.(id, 'its agent restart that waited for this turn is done by the switch instead', 'info');
       // Stopped first: a running (or just exiting) Claude writes to its transcript, and on Windows holds the file.
       let halted: 'halted' | 'stopped' | null = null;
+      let interrupted = false;
       if (deps.hostRuns(id)) {
+        interrupted = deps.busy(id);
         let h: 'halted' | 'stopped' | 'gone';
         try {
           h = await deps.halt(id);
@@ -126,15 +125,15 @@ export function createAccountSwitcher(deps: AccountSwitchDeps) {
         );
         throw new Error(`stays on ${from}: ${msg(err)}${back}`, { cause: err });
       }
-      movedBy.set(id, moved);
       if (!halted) {
         deps.note?.(id, `moved to the ${to} account (${moved} entries moved; its next start uses it)`, 'action');
-        return `moved to the ${to} account`;
+        return { moved, interrupted: false };
       }
       try {
         const how = await resume();
-        deps.note?.(id, `moved to the ${to} account: its Claude restarted on it${how ? ` (${how})` : ''}`, 'action');
-        return how || `moved to the ${to} account: its Claude restarted on it`;
+        const cut = interrupted ? INTERRUPTED : '';
+        deps.note?.(id, `moved to the ${to} account: its Claude restarted on it${how ? ` (${how})` : ''}${cut}`, 'action');
+        return { moved, interrupted };
       } catch (err) {
         // The account is recorded and the files are there: opening the session starts it on the new one.
         const why = `moved to the ${to} account, but its Claude couldn't be restarted: ${msg(err)} (opening the session starts it on ${to})`;
@@ -144,20 +143,8 @@ export function createAccountSwitcher(deps: AccountSwitchDeps) {
     } catch (err) {
       if (s && !String(msg(err)).startsWith('moved to')) deps.note?.(id, `couldn't switch: ${msg(err)}`, 'warn');
       throw err;
-    } finally {
-      targets.delete(id);
     }
   };
-
-  const restarter: Restarter = createRestarter({
-    restart: perform,
-    busy: deps.busy,
-    // A queued switch is never dropped as "stopped meanwhile": perform handles a Claude no longer running (it records the account).
-    running: () => true,
-    changed: deps.changed,
-    scheduled: deps.scheduled,
-    later: deps.later,
-  });
 
   /** What stops a switch before anything is stopped or moved: an older PTY host, another Claude in one of its folders. */
   const refusalBeforeStop = async (s: WorktreeSession, id: string): Promise<string | null> => {
@@ -165,8 +152,6 @@ export function createAccountSwitcher(deps: AccountSwitchDeps) {
     if (other) return `a Claude outside this session runs in ${other}`;
     return deps.hostRuns(id) ? ((await deps.hostRefusal?.()) ?? null) : null;
   };
-
-  const pending = (id: string) => restarter.queued().includes(id) || restarter.restarting().includes(id);
 
   async function switchAccount(id: string, to: string): Promise<SwitchResult> {
     const s = deps.session(id);
@@ -176,7 +161,7 @@ export function createAccountSwitcher(deps: AccountSwitchDeps) {
     const refused = switchRefusal(to, {
       archived: !!s.archivedAt || deps.beingArchived(id),
       accounts: acc,
-      pendingTo: pending(id) ? (targets.get(id) ?? '') : null,
+      pendingTo: targets.get(id) ?? null,
       inHost,
       runningOutside: !inHost && deps.runningOutside(id),
     });
@@ -199,51 +184,29 @@ export function createAccountSwitcher(deps: AccountSwitchDeps) {
       }
     }
 
+    // At once, working or not: a switch is asked for when the account must change now (its limit ran out).
     targets.set(id, to);
-    movedBy.delete(id);
-    const r = await restarter.request([id]);
-    if (r.later.includes(id)) {
-      deps.note?.(id, `will move to the ${to} account when its turn ends (it is working or waiting on you)`, 'info');
-      return { ok: true, outcome: 'queued' };
+    try {
+      const { moved, interrupted } = await perform(id, to);
+      return { ok: true, outcome: 'switched', moved, ...(interrupted ? { interrupted: true } : {}) };
+    } catch (err) {
+      return { ok: false, status: 502, error: msg(err) };
+    } finally {
+      targets.delete(id);
+      deps.changed?.();
     }
-    const failed = r.failed.find((f) => f.id === id);
-    if (failed) return { ok: false, status: 502, error: failed.error };
-    return { ok: true, outcome: 'switched', moved: movedBy.get(id) };
   }
 
   return {
     switchAccount,
-    /** Its turn ended: do the switch that waited for it. */
-    turnEnded: (id: string) => restarter.turnEnded(id),
-    /** Do the waiting switches that can go now (a turn whose end no hook reported). */
-    retry: () => restarter.retry(),
-    /** Sessions waiting for their turn to end, and where each goes. */
-    waiting: (): Array<{ id: string; to: string }> => restarter.queued().map((id) => ({ id, to: targets.get(id) ?? '' })),
-    /** The account a switch waiting for its turn, or being done now, moves it to; null: none. Either way its agent restarts. */
-    restartsAnyway: (id: string): string | null => (pending(id) ? (targets.get(id) ?? '') : null),
-    /** The account a session is waiting to move to (its turn first), or null. Kept in memory: a work web restart drops it. */
-    pendingFor: (id: string): string | null => (restarter.queued().includes(id) ? (targets.get(id) ?? null) : null),
-    /**
-     * Drop the switch waiting for its turn to end. `running`: it is being done right now (too late to cancel); `none`:
-     * nothing waits for it.
-     */
-    cancel: (id: string): 'cancelled' | 'running' | 'none' => {
-      if (restarter.restarting().includes(id)) return 'running';
-      const to = targets.get(id);
-      if (!restarter.cancel(id)) return 'none';
-      targets.delete(id);
-      deps.note?.(id, `no longer moves to the ${to ?? 'other'} account: the switch was cancelled`, 'info');
-      return 'cancelled';
-    },
+    /** The account a switch being done now moves it to; null: none. Its agent restarts with it. */
+    restartsAnyway: (id: string): string | null => targets.get(id) ?? null,
   };
 }
 
 export type AccountSwitcher = ReturnType<typeof createAccountSwitcher>;
 
-/**
- * The switcher's `note` as Activity runs: one run per note, a failure (`warn`) failing it — so a switch that waited for its
- * turn and then couldn't be done lights the Activity dot, rather than passing as a run that went fine.
- */
+/** The switcher's `note` as Activity runs: one run per note, a failure (`warn`) failing it, so the Activity dot lights. */
 export function accountSwitchNote(
   activity: Pick<ActivityLog, 'start'>,
   label: (id: string) => string | null,

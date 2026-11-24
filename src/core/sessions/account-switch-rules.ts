@@ -15,7 +15,7 @@ export interface SwitchFacts {
   archived: boolean;
   /** Its agent's accounts and the one it is on; null: its agent has none. */
   accounts: { list: readonly SwitchAccountInfo[]; current: string } | null;
-  /** Where a switch already waiting for its turn (or being done now) goes; null: none. */
+  /** Where a switch being done now goes; null: none. */
   pendingTo: string | null;
   /** Its agent runs in the PTY host (a switch can stop and start it there). */
   inHost: boolean;
@@ -33,8 +33,7 @@ export function switchRefusal(to: string, f: SwitchFacts): SwitchRefusal | null 
   if (!target) return { status: 400, error: `no account “${to}” (see \`work account list\`)` };
   if (target.loggedIn === false)
     return { status: 409, error: `nobody is logged in on “${to}”: run \`work account add ${to}\` again to log in, or /login on it` };
-  if (f.pendingTo !== null)
-    return { status: 409, error: `a switch is already waiting for its turn to end (to ${f.pendingTo || 'another account'})` };
+  if (f.pendingTo !== null) return { status: 409, error: `a switch is already being done (to ${f.pendingTo || 'another account'})` };
   if (f.accounts.current === to) return { status: 409, error: `it already runs on “${to}”` };
   if (!f.inHost && f.runningOutside)
     return {

@@ -59,10 +59,7 @@
   font-size: 11px;
   color: var(--muted);
 }
-/* The account chip (AccountChip) is the stack chip's style (.wd-stack, .wd-overlap-link); a switch waiting for its turn after it. */
-.wd-account-pending {
-  color: var(--accent, inherit);
-}
+/* The account chip (AccountChip) is the stack chip's style (.wd-stack, .wd-overlap-link). */
 .wd-account-add-link {
   margin-right: auto;
 }

@@ -6,8 +6,8 @@ import type { WorktreeSession } from '../../../src/core/sessions/session-types.j
 
 /**
  * The agent restarter and the account switcher as work web ties them (account-switch-link.ts): the real two, over fake
- * I/O and a clock of our own. One agent is restarted once for one turn, whichever was asked first (T6), and a turn's end,
- * the sweep and the session rows reach the switcher through the link (T5).
+ * I/O and a clock of our own. One agent is restarted once, whichever was asked first (T6); a turn's end and the sweep
+ * reach the restarter through the link (T5). A switch goes at once, so only a restart ever waits for a turn.
  */
 
 const ID = 'api:feat/x';
@@ -36,7 +36,11 @@ function world() {
     foldedInto: link.foldedInto,
     report: (n) => notes.push(...n.map((x) => `restarter: ${x.text}`)),
   });
-  const halt = vi.fn(async () => 'halted' as const);
+  const gate = { hold: null as Promise<void> | null };
+  const halt = vi.fn(async () => {
+    await gate.hold;
+    return 'halted' as const;
+  });
   const deps: AccountSwitchDeps = {
     session: () => session,
     beingArchived: () => false,
@@ -55,7 +59,6 @@ function world() {
     halt,
     resume: vi.fn(async () => undefined),
     note: (_id, text) => void notes.push(`switch: ${text}`),
-    later,
     cancelRestart: link.cancelRestart,
   };
   const switcher = createAccountSwitcher(deps);
@@ -72,51 +75,38 @@ function world() {
       await settle();
     }
   };
-  return { state, notes, link, restarter, switcher, restart, halt, run, timers };
+  return { state, notes, link, restarter, switcher, restart, halt, run, timers, gate };
 }
 
 describe('a switch of account and an agent restart on one session (T6)', () => {
-  it('restart asked first, then a switch: when the turn ends and the switch goes first, it drops the waiting restart', async () => {
+  it('a restart waiting for the turn, then a switch: the switch goes at once (mid-turn) and drops the waiting restart', async () => {
     const w = world();
     expect((await w.restarter.request([ID])).later).toEqual([ID]);
-    expect((await w.switcher.switchAccount(ID, 'work')).ok).toBe(true);
-    expect(w.restarter.queued()).toEqual([ID]);
-    w.state.busy = false;
-    w.link.turnEnded(ID);
-    expect(w.timers).toHaveLength(2); // the restarter's look, then the switcher's
-    await w.run([1, 0]); // the switch's turn comes first
+    expect(await w.switcher.switchAccount(ID, 'work')).toMatchObject({ ok: true, outcome: 'switched', interrupted: true });
     expect(w.halt).toHaveBeenCalledTimes(1);
-    expect(w.restart).not.toHaveBeenCalled();
     expect(w.restarter.queued()).toEqual([]);
     expect(w.notes, w.notes.join(' | ')).toContain('switch: its agent restart that waited for this turn is done by the switch instead');
-  });
-
-  it('restart asked first, then a switch: when the restarter looks first, it sees the switch coming and stands down', async () => {
-    const w = world();
-    await w.restarter.request([ID]);
-    await w.switcher.switchAccount(ID, 'work');
+    // Its turn's end then restarts nothing.
     w.state.busy = false;
     w.link.turnEnded(ID);
-    await w.run([0, 1]);
+    await w.run();
     expect(w.restart).not.toHaveBeenCalled();
-    expect(w.halt).toHaveBeenCalledTimes(1);
-    expect(w.notes.some((n) => n.startsWith('restarter: no longer waits to restart: its switch to the work account restarts it'))).toBe(
-      true,
-    );
   });
 
-  it('a switch waiting, then a restart asked: folded into the switch (answered as waiting, never queued twice)', async () => {
+  it('a switch being done, then a restart asked: folded into the switch (answered as waiting, never queued)', async () => {
     const w = world();
-    expect(await w.switcher.switchAccount(ID, 'work')).toEqual({ ok: true, outcome: 'queued' });
+    let release!: () => void;
+    w.gate.hold = new Promise((r) => (release = r));
+    const going = w.switcher.switchAccount(ID, 'work');
+    await vi.waitFor(() => expect(w.halt).toHaveBeenCalledTimes(1));
     const r = await w.restarter.request([ID]);
     expect(r).toEqual({ now: [], later: [ID], failed: [] });
     expect(w.restarter.queued()).toEqual([]);
     expect(w.notes).toContain('restarter: restarts with its switch to the work account (no second restart)');
-    w.state.busy = false;
-    w.link.turnEnded(ID);
-    await w.run();
-    expect(w.halt).toHaveBeenCalledTimes(1);
+    release();
+    expect((await going).ok).toBe(true);
     expect(w.restart).not.toHaveBeenCalled();
+    expect(w.link.foldedInto(ID)).toBeNull();
   });
 
   it('with no switch about, a restart is a restart', async () => {
@@ -129,22 +119,8 @@ describe('a switch of account and an agent restart on one session (T6)', () => {
 });
 
 describe('the link: what work web wires through it (T5)', () => {
-  it('pendingFor names where a waiting switch goes; turnEnded and retry reach both', async () => {
-    const w = world();
-    expect(w.link.pendingFor(ID)).toBeNull();
-    await w.switcher.switchAccount(ID, 'work');
-    expect(w.link.pendingFor(ID)).toBe('work');
-    // The sweep: a turn whose end no hook reported — not busy any more, the switch goes.
-    w.state.busy = false;
-    await w.link.retry();
-    await w.run();
-    expect(w.halt).toHaveBeenCalledTimes(1);
-    expect(w.link.pendingFor(ID)).toBeNull();
-  });
-
-  it('retry never rejects, and before connect everything is a no-op', async () => {
+  it('turnEnded and retry reach the restarter; retry never rejects, and before connect everything is a no-op', async () => {
     const link = createAccountSwitchLink();
-    expect(link.pendingFor(ID)).toBeNull();
     expect(link.cancelRestart(ID)).toBe(false);
     expect(link.foldedInto(ID)).toBeNull();
     link.turnEnded(ID);
@@ -154,14 +130,14 @@ describe('the link: what work web wires through it (T5)', () => {
       retry: vi.fn(async () => {
         throw new Error('x');
       }),
-      cancel: vi.fn(() => false),
+      cancel: vi.fn(() => true),
     };
-    const sw = { turnEnded: vi.fn(), retry: vi.fn(async () => {}), pendingFor: vi.fn(() => null), restartsAnyway: vi.fn(() => null) };
-    link.connect(failing, sw);
+    link.connect(failing, { restartsAnyway: vi.fn(() => 'work') });
     await expect(link.retry()).resolves.toBeUndefined();
-    expect(sw.retry).toHaveBeenCalled();
+    expect(failing.retry).toHaveBeenCalled();
     link.turnEnded(ID);
     expect(failing.turnEnded).toHaveBeenCalledWith(ID);
-    expect(sw.turnEnded).toHaveBeenCalledWith(ID);
+    expect(link.cancelRestart(ID)).toBe(true);
+    expect(link.foldedInto(ID)).toBe('its switch to the work account');
   });
 });

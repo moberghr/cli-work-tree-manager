@@ -74,7 +74,7 @@ import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.j
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
 import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
 import { AccountDialog } from '../components/Dashboard/AccountDialog.js';
-import { accountAction, cancelledText, switchText } from '../state/accounts.js';
+import { accountAction, switchText } from '../state/accounts.js';
 import { AccountsTab } from '../components/Dashboard/tabs/AccountsTab.js';
 import { SettingsTab } from '../components/Dashboard/tabs/SettingsTab.js';
 import { addedRepoText, canAddRepo, withWarnings } from '../state/add-repo.js';
@@ -1199,12 +1199,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           onSwitched={(to, w) => {
             setSwitchingAccount(null);
             refetch.trigger();
-            showToast({ text: switchText(w.outcome, to) });
-          }}
-          onCancelled={(to) => {
-            setSwitchingAccount(null);
-            refetch.trigger();
-            showToast({ text: cancelledText(to) });
+            showToast({ text: switchText(w.outcome, to, w.interrupted) });
           }}
           onAddAccount={() => {
             setSwitchingAccount(null);

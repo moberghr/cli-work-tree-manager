@@ -144,8 +144,6 @@ export interface SessionSummary {
   agent?: import('../../../core/api-types.js').SessionAgentWire;
   /** The account (login) its agent runs on; absent = the default account. */
   account?: string;
-  /** The account a switch waiting for its turn to end will move it to. */
-  accountPending?: string;
   /** What its archive kept (archived sessions). */
   archive?: SessionArchiveInfo;
   /** Its name: yours, else its first prompt, else its Jira key. */
@@ -349,8 +347,8 @@ export function fetchAccounts(): Promise<import('../../../core/api-types.js').Ac
 }
 
 /**
- * Move a session's Claude to another account (POST /api/sessions/:id/account): switched, queued
- * for when its turn ends, or recorded for its next start. Throws the server's reason when refused.
+ * Move a session's Claude to another account (POST /api/sessions/:id/account): switched at once (even
+ * mid-turn: `interrupted`), or recorded for its next start. Throws the server's reason when refused.
  */
 type AccountSetup = import('../../../core/api-types.js').AccountSetupWire;
 
@@ -456,14 +454,6 @@ export async function switchSessionAccount(sessionId: string, to: string): Promi
     throw new Error(why || text || `${res.status} ${res.statusText}`);
   }
   return JSON.parse(text) as import('../../../core/api-types.js').AccountSwitchWire;
-}
-
-/** Drop the switch of account waiting for its turn (DELETE /api/sessions/:id/account). Throws the server's reason when refused. */
-export async function cancelAccountSwitch(sessionId: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/account`, { method: 'DELETE' });
-  if (res.ok) return;
-  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-  throw new Error(typeof body?.error === 'string' ? body.error : `${res.status} ${res.statusText}`);
 }
 
 // ---- the Accounts page (account-routes.ts) ----

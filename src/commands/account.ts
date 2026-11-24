@@ -126,9 +126,10 @@ async function remove(name: string | undefined, force: boolean): Promise<void> {
   console.log(chalk.green(`Removed account ${name} (its folder is left as it is).`));
 }
 
+const INTERRUPTED_TEXT = 'It was working or waiting on you, so that turn was interrupted: tell it to continue.';
+
 const OUTCOME_TEXT: Record<AccountSwitchWire['outcome'], string> = {
   switched: 'its Claude restarted on it (its conversation goes on)',
-  queued: 'it is working or waiting on you: the switch happens when its turn ends',
   recorded: 'its Claude is not running: the next start uses it',
 };
 
@@ -179,7 +180,11 @@ async function switchAll(to: string | undefined, from: string | undefined): Prom
   if (!r.ok) return fail(r.status === 0 ? 'work web is not running: start it (or open the app) and run this again' : r.error);
   console.log(chalk.green(r.body.summary));
   for (const s of r.body.sessions)
-    console.log(s.outcome ? chalk.gray(`  ${s.label}: ${OUTCOME_TEXT[s.outcome]}`) : chalk.yellow(`  ${s.label}: ${s.error}`));
+    console.log(
+      s.outcome
+        ? chalk.gray(`  ${s.label}: ${OUTCOME_TEXT[s.outcome]}${s.interrupted ? '; its turn was interrupted: tell it to continue' : ''}`)
+        : chalk.yellow(`  ${s.label}: ${s.error}`),
+    );
 }
 
 /** Move the session for `target` / `branch` (or this folder) to the account `to`. */
@@ -194,6 +199,7 @@ async function switchSession(target: string | undefined, branch: string | undefi
   if (r.ok) {
     console.log(chalk.green(`${label}: moved to the ${to} account${r.body.moved ? ` (${r.body.moved} conversation entries moved)` : ''}`));
     console.log(chalk.gray(OUTCOME_TEXT[r.body.outcome]));
+    if (r.body.interrupted) console.log(chalk.yellow(INTERRUPTED_TEXT));
     return;
   }
   if (r.status !== 0) return fail(`${label}: ${r.error}`);

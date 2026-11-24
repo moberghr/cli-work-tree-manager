@@ -313,7 +313,7 @@ export function AccountsTab({ api = httpAccounts, startAdding, onAddingShown, Lo
                         )
                       }
                       disabled={busy !== null}
-                      title={`Moves the ${sessionsElsewhere(data, r.name)} session(s) on other accounts to this one, with their conversations: an idle Claude restarts on it, a working one switches when its turn ends`}
+                      title={`Moves the ${sessionsElsewhere(data, r.name)} session(s) on other accounts to this one, with their conversations: a running Claude restarts on it at once (a working one's turn is interrupted)`}
                     >
                       {busy === `moveall:${r.name}` ? 'Moving…' : 'Move all sessions here'}
                     </Button>

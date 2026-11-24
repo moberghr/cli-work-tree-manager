@@ -1149,10 +1149,6 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     if (!r) return notFound(c);
     return r.ok ? c.json(r.body) : c.json({ error: r.error }, r.status);
   });
-  // A demo switch is recorded at once: nothing ever waits for its turn.
-  app.delete('/api/sessions/:id/account', (c) =>
-    scenario.sessions.has(c.req.param('id')) ? c.json({ error: 'no switch is waiting for its turn' }, 409) : notFound(c),
-  );
   app.get('/api/updates', (c) => c.json(demoUpdates()));
   app.post('/api/updates/check', (c) => c.json(demoUpdates()));
   app.post('/api/updates/restart', (c) => c.json({ error: 'No downloaded update to restart into.' }, 409));

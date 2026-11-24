@@ -466,7 +466,6 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
                 branchesFor: (id, s) => sessionBranches.wire(s, branchRecords.get(id), prWatch.state(id)),
                 replyDraftsFor: (id) => drafts.get(id) ?? 0,
                 hasNote: (id) => noted.has(id),
-                accountPendingFor: (id) => accountLink.pendingFor(id),
                 blockedByFor: (id) =>
                   (blocks.get(id)?.by ?? [])
                     .filter((b) => !blockerDone(b, (x) => !live.has(x)))
@@ -659,9 +658,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     // The dev server shares the real PTY host and acts on nothing: the real work web restarts.
     lookOnly: dev ? 'the dev server restarts nothing: use the real work web (the app, or `work restart`)' : undefined,
   });
-  // Moving a session to another Claude account (account-switch.ts): idle now, working or waiting after its turn,
-  // through the same queue rule as a restart. Not in the dev server, which acts on nothing.
-  const accountSchedule = dev ? null : activity.schedule('accounts', 'Account switches waiting for a turn', QUEUE_RECHECK_MS);
+  // Moving a session to another Claude account (account-switch.ts): at once, working or not (`busy` only says whether a
+  // turn was interrupted). Not in the dev server, which acts on nothing.
   const accountSwitcher = createAccountSwitcher(
     defaultAccountSwitchDeps({
       busy: restartBusy,
@@ -670,7 +668,6 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
         return s ? `${s.target} ${s.branch}` : null;
       }),
       changed: () => broadcast('sessions-changed', { ts: Date.now() }),
-      scheduled: (nextAt) => accountSchedule?.next(nextAt),
       cancelRestart: accountLink.cancelRestart,
     }),
   );
@@ -1097,7 +1094,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
       sessionBranches.invalidate(id); // a turn may have committed, pushed or made a branch
-      accountLink.turnEnded(id); // a restart, or a switch of account, that waited for this turn to end
+      accountLink.turnEnded(id); // a restart that waited for this turn to end
       timeKeeper?.soon(); // today's hours, after this turn
       if (jobs) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)

@@ -38,8 +38,6 @@ import { DEFAULT_ACCOUNT, getConfigPath, loadConfig, type WorkConfig } from '../
  * context, archive state. Built in one place so the two can't drift.
  */
 export interface SessionWireOptions {
-  /** The account a switch waiting for its turn will move it to (account-switch.ts), or null. */
-  accountPendingFor?: (id: string) => string | null;
   /** The session's `+N −M`, when the caller has one (the web cache). */
   diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null;
   /** Whether its Claude runs in the PTY host (the CLI asks the host; the
@@ -133,7 +131,6 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     agent: agentWire(agentOf(s)),
     // Only a session on an account other than the default says which.
     ...(s.account && s.account !== DEFAULT_ACCOUNT ? { account: s.account } : {}),
-    ...(!s.archivedAt && opts.accountPendingFor?.(id) ? { accountPending: opts.accountPendingFor(id)! } : {}),
     ...(s.archivedAt ? archiveInfo(id) : {}),
     title: bestEffort(
       `title of ${s.target}:${s.branch}`,
