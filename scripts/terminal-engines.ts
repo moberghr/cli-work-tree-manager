@@ -348,7 +348,7 @@ async function snapshots(): Promise<unknown[]> {
     for (let i = -2; i < SNAP_REPS; i++) {
       for (const e of order(Math.max(i, 0))) {
         const t0 = performance.now();
-        const s = mirrors[e].snapshot(c.opts);
+        const s = mirrors[e].snapshot(c.opts) ?? "";
         const t = performance.now() - t0;
         sizes[e] = Buffer.byteLength(s);
         if (i >= 0) times[e].push(t);
@@ -604,7 +604,7 @@ async function fidelity(): Promise<unknown[]> {
       const m = make(e, c.cols, c.rows, REPLAY_SCROLLBACK);
       await feed(m, chunks);
       own[e] = m.screenText().split('\n');
-      const snap = m.snapshot();
+      const snap = m.snapshot() ?? "";
       m.dispose();
       const fresh = freshTerminal(c.cols, c.rows);
       await termWrite(fresh, snap);

@@ -1070,7 +1070,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // (terminal-routes.ts), else through the relay — the upgrade is handled by the server's `upgrade` event below.
   mountTerminalRoutes(app, {
     elsewhere: defaultElsewhere,
-    ensure: (id, grid) => ensurePty(id, { grid }),
+    ensure: (id, grid, attachOnly) => ensurePty(id, { grid, attachOnly }),
     ticket: terminalTicketUrl,
     log: (line) => debugLog('INFO', line),
   });

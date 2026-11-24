@@ -4,6 +4,7 @@ import { REPLAY_SCROLLBACK } from './scrollback.js';
 import { StreamStatus, type ProgramKind, type ProgramRecord, type ProgramState, type StreamSignal } from './stream-status.js';
 import type { WindowsPty } from './terminal-size.js';
 import { translateReplies } from './ghostty/replies.js';
+import { logSwallowed } from '../platform/best-effort.js';
 
 const ESC = '\x1b';
 const CSI = '\x1b[';
@@ -165,7 +166,7 @@ export class GhosttyMirror implements TerminalMirror {
     return t ? { cols: t.cols, rows: t.rows } : { cols: 0, rows: 0 };
   }
 
-  snapshot(opts: SnapshotOptions = {}): string {
+  snapshot(opts: SnapshotOptions = {}): string | null {
     const t = this.term;
     if (!t) return '';
     let probe: GhosttyTerminal | null = null;
@@ -213,15 +214,17 @@ export class GhosttyMirror implements TerminalMirror {
       }
       const cursorStyle = style ? Number(style[1]) : DEFAULT_CURSOR_STYLE;
       return START + this.graphemes(t) + body + this.rehydrate(t, { cursorStyle, region, saved }) + t.continuation();
-    } catch {
-      return '';
+    } catch (err) {
+      // Never an empty screen in its place, which a client would draw over the one it has (screen-mirror.ts).
+      logSwallowed('screen copy: take a snapshot', err);
+      return null;
     } finally {
       probe?.free();
     }
   }
 
   /** Nothing waits: every write is parsed in its call. */
-  snapshotSettled(opts: SnapshotOptions = {}): Promise<string> {
+  snapshotSettled(opts: SnapshotOptions = {}): Promise<string | null> {
     return Promise.resolve(this.snapshot(opts));
   }
 

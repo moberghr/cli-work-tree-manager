@@ -10,9 +10,13 @@
  * - at the bottom → kept at the bottom (xterm does it already; this makes sure, as Wave Terminal does);
  * - scrolled up → the same text at the top of the view: the lines that were there are looked for in the reprint,
  *   nearest to the same distance from the bottom; if they are not in it, that distance alone.
- * It is put right when the frame ends (the reprint is all there then); a repaint with no frame around it, once the
- * write it arrived in is parsed (`written`). The alternate screen (no scrollback) is left alone.
+ * It is put right when the frame ends (the reprint is all there then). A repaint with no frame around it comes in several
+ * writes (the PTY is read 1 KiB at a time, and the first read of a quiet moment is sent alone): it is placed after each
+ * write as far as the reprint has come (`written`), and put right for good once no write has come for REPAINT_QUIET_MS,
+ * or REPAINT_SETTLE_MS after it began, whichever is first — so output that goes on after it never holds the view. The
+ * alternate screen (no scrollback) is left alone.
  */
+import { SYNC_MODE } from '../../../core/pty/sync-output.js';
 
 /** The part of xterm.js's Terminal used here (public API). */
 export interface RepaintTerminal {
@@ -33,9 +37,29 @@ export interface RepaintTerminal {
   scrollToLine(line: number): void;
 }
 
-const SYNC_MODE = 2026;
 /** How many lines from the top of the view are looked for in the reprint (one alone is often a blank or a rule). */
 const ANCHOR_LINES = 3;
+
+/**
+ * A repaint with no frame around it is over once no write has come for this long. Its writes come within a few ms of
+ * each other (a 400 KiB reprint arrives in 6 to 8 ms, terminal-rendering.md "Synchronized output").
+ */
+export const REPAINT_QUIET_MS = 50;
+/** …and is put right for good at the latest this long after it began, if output goes on: the view is yours again. */
+export const REPAINT_SETTLE_MS = 500;
+
+/** A clock and timers (the page's by default; a test's by hand). */
+export interface RepaintTimers {
+  now(): number;
+  set(fn: () => void, ms: number): unknown;
+  clear(id: unknown): void;
+}
+
+const pageTimers: RepaintTimers = {
+  now: () => performance.now(),
+  set: (fn, ms) => setTimeout(fn, ms),
+  clear: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+};
 
 interface View {
   atBottom: boolean;
@@ -45,6 +69,8 @@ interface View {
   anchor: string[] | null;
   /** The scrollback was cleared (`CSI 3 J`): a repaint, not just a cleared screen. */
   repaint: boolean;
+  /** When it was noted (the first erase). */
+  since: number;
 }
 
 export class RepaintScroll {
@@ -52,8 +78,13 @@ export class RepaintScroll {
   /** The view as it was at the first erase of this frame (or write), until the frame (or write) ends. */
   private view: View | null = null;
   private readonly hooks: Array<{ dispose(): void }>;
+  /** A repaint with no frame around it: put right for good when this fires (REPAINT_QUIET_MS after its last write). */
+  private quiet: unknown = null;
 
-  constructor(private readonly term: RepaintTerminal) {
+  constructor(
+    private readonly term: RepaintTerminal,
+    private readonly timers: RepaintTimers = pageTimers,
+  ) {
     const sync = (params: (number | number[])[]) => params.some((p) => (Array.isArray(p) ? p[0] : p) === SYNC_MODE);
     this.hooks = [
       term.parser.registerCsiHandler({ final: 'J' }, (params) => {
@@ -76,18 +107,33 @@ export class RepaintScroll {
       term.parser.registerEscHandler({ final: 'c' }, () => {
         this.inFrame = false;
         this.view = null;
+        if (this.quiet !== null) this.timers.clear(this.quiet);
+        this.quiet = null;
         return false;
       }),
     ];
   }
 
-  /** A write was parsed: a repaint outside a synchronized frame is put right now. */
+  /**
+   * A write was parsed. A repaint outside a synchronized frame may go on in the next write: placed as far as it has come,
+   * and put right for good once the writes stop (REPAINT_QUIET_MS), or REPAINT_SETTLE_MS after it began.
+   */
   written(): void {
-    if (!this.inFrame) this.settle();
+    const view = this.view;
+    if (this.inFrame || !view) return;
+    if (this.timers.now() - view.since >= REPAINT_SETTLE_MS) return this.settle();
+    this.place(view);
+    if (this.quiet !== null) this.timers.clear(this.quiet);
+    this.quiet = this.timers.set(() => {
+      this.quiet = null;
+      if (!this.inFrame) this.settle();
+    }, REPAINT_QUIET_MS);
   }
 
   dispose(): void {
     for (const h of this.hooks) h.dispose();
+    if (this.quiet !== null) this.timers.clear(this.quiet);
+    this.quiet = null;
   }
 
   private erase(scrollback: boolean): void {
@@ -95,7 +141,13 @@ export class RepaintScroll {
     if (b.type === 'alternate') return;
     if (!this.view) {
       const atBottom = b.viewportY >= b.baseY;
-      this.view = { atBottom, fromBottom: b.baseY - b.viewportY, anchor: atBottom ? null : this.linesAt(b.viewportY), repaint: false };
+      this.view = {
+        atBottom,
+        fromBottom: b.baseY - b.viewportY,
+        anchor: atBottom ? null : this.linesAt(b.viewportY),
+        repaint: false,
+        since: this.timers.now(),
+      };
     }
     if (scrollback) this.view.repaint = true;
   }
@@ -103,7 +155,14 @@ export class RepaintScroll {
   private settle(): void {
     const view = this.view;
     this.view = null;
-    if (!view?.repaint) return;
+    if (this.quiet !== null) this.timers.clear(this.quiet);
+    this.quiet = null;
+    if (view) this.place(view);
+  }
+
+  /** The view where it belongs in the reprint as it stands. Nothing for a cleared screen alone (no `CSI 3 J`). */
+  private place(view: View): void {
+    if (!view.repaint) return;
     if (view.atBottom) {
       this.term.scrollToBottom();
       return;

@@ -97,7 +97,33 @@ describe('openTerminalSocket', () => {
     );
     await askTerminalTicket('s1', false, { cols: 100, rows: 30 });
     await askTerminalTicket('s1', true, null);
-    expect(bodies).toEqual([{ force: false, cols: 100, rows: 30 }, { force: true }]);
+    await askTerminalTicket('s1', false, { cols: 80, rows: 24 }, true);
+    expect(bodies).toEqual([
+      { force: false, cols: 100, rows: 30 },
+      { force: true },
+      { force: false, cols: 80, rows: 24, attachOnly: true },
+    ]);
+  });
+
+  it('a tab reconnecting with its screen kept states where it stands on either address, and asks only to attach', async () => {
+    FakeWs.made = [];
+    const asked: unknown[] = [];
+    openTerminalSocket('s1', {
+      force: false,
+      flow: true,
+      grid: { cols: 80, rows: 24 },
+      resume: { stream: 'abcdef0123456789', offset: 42, cols: 80, rows: 24 },
+      relayUrl: relay,
+      askTicket: async (_id, _f, _grid, attachOnly) => (asked.push(attachOnly), { url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=old' }),
+      WebSocketImpl: FakeWs as unknown as typeof WebSocket,
+    });
+    await flush();
+    FakeWs.made[0].refused();
+    expect(asked).toEqual([true]);
+    expect(FakeWs.made.map((w) => w.url)).toEqual([
+      'ws://127.0.0.1:1/ptys/s1/attach?ticket=old&flow=1&cols=80&rows=24&resume=abcdef0123456789-42-80x24',
+      relay + '?flow=1&cols=80&rows=24&resume=abcdef0123456789-42-80x24',
+    ]);
   });
 
   it('goes straight to the PTY host with the ticket; what is sent before it opens goes once it does', async () => {

@@ -46,12 +46,18 @@ class Clock implements PacerTimers {
 class Client implements PacedClient {
   frames: Array<[string, number]> = [];
   resyncs = 0;
+  /** What each catch-up was given: the offset it was sent output up to, or null (a screen wanted). */
+  froms: Array<number | null> = [];
+  /** Whether the registry would continue it from the tail when it may (else it always sends a screen). */
+  continues = false;
   constructor(readonly metered = true) {}
   send = (frame: string, end: number) => {
     this.frames.push([frame, end]);
   };
-  resync = () => {
+  resync = (from: number | null) => {
     this.resyncs++;
+    this.froms.push(from);
+    return this.continues && from !== null;
   };
   get text() {
     return this.frames.map(([f]) => f).join('');
@@ -160,6 +166,19 @@ describe('coalescing', () => {
 });
 
 describe('offsets', () => {
+  it('a frame cut at MAX_FRAME_CHARS ends where the chunk that did not fit starts (a catch-up continues from there)', () => {
+    const s = setup();
+    const a = new Client(false);
+    s.pacer.add('a', a);
+    s.pacer.output('k'); // opens a window
+    s.pacer.output('x'.repeat(MAX_FRAME_CHARS - 10)); // pending
+    s.pacer.output('y'.repeat(20)); // does not fit: what is pending goes first
+    s.clock.advance(COALESCE_MS);
+    let at = 0;
+    for (const [frame, end] of a.frames) expect(end).toBe((at += frame.length));
+    expect(at).toBe(s.pacer.offset);
+  });
+
   it('end each frame at the characters of output since the start, for every client, through a change of process', () => {
     const s = setup();
     s.pacer.output('before'); // nobody attached: still counted
@@ -385,6 +404,7 @@ describe('a client that is not the holder', () => {
     a.resync = () => {
       a.resyncs++;
       seen.push(h.text.endsWith('t2')); // the last output went out before the final screen
+      return false;
     };
     expect(s.clock.t).toBeLessThan(CATCH_UP_MIN_MS);
     s.pacer.end();
@@ -410,6 +430,107 @@ describe('a client that is not the holder', () => {
     s.clock.advance(CATCH_UP_MIN_MS);
     expect(a.resyncs).toBe(0);
     expect(s.clock.pending).toBe(0);
+  });
+});
+
+describe('a client caught up from the tail (terminal-rendering.md, "Flow control and coalescing")', () => {
+  /** `a` (metered, never the holder) behind after a flood, with an unmetered `o` that is sent everything. */
+  function behind() {
+    const s = setup();
+    const a = new Client();
+    a.continues = true;
+    const o = new Client(false);
+    s.pacer.add('a', a);
+    s.pacer.add('o', o);
+    flood(s, HIGH_WATERMARK + 1);
+    expect(s.pacer.live('a')).toBe(false);
+    return { s, a, o };
+  }
+
+  it('is given the offset it was sent output up to: the end of its last frame, where its screen will stand', () => {
+    const { s, a } = behind();
+    const sentTo = a.frames.at(-1)![1];
+    expect(sentTo).toBe(a.chars);
+    flood(s, 30_000); // missed
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    expect(a.froms).toEqual([sentTo]);
+    expect(s.pacer.tail.since(sentTo)).toHaveLength(30_000); // all still in the tail: what the registry sends it
+    expect(s.pacer.live('a')).toBe(true);
+    s.pacer.output('live');
+    expect(a.frames.at(-1)).toEqual(['live', s.pacer.offset]); // live again, right after what it missed
+  });
+
+  it('the holder that timed out is given the offset of what was pending when it did (sent to it first)', () => {
+    const s = setup();
+    const a = new Client();
+    a.continues = true;
+    s.pacer.add('a', a);
+    s.hold('a');
+    flood(s, HIGH_WATERMARK + 1);
+    s.pacer.output('pending');
+    s.clock.advance(PAUSE_TIMEOUT_MS);
+    expect(s.pacer.live('a')).toBe(false);
+    const sentTo = s.pacer.offset;
+    expect(a.text.endsWith('pending')).toBe(true);
+    flood(s, 10_000);
+    s.pacer.ack('a', a.chars);
+    expect(a.froms).toEqual([sentTo]);
+  });
+
+  it('behind again before it drew past what it missed: its next catch-up is a screen (null), then the tail again', () => {
+    const { s, a } = behind();
+    flood(s, 30_000);
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    expect(a.froms).toHaveLength(1);
+    expect(a.froms[0]).not.toBeNull();
+    // Still drawing what it missed (it acks nothing sent since): behind again.
+    flood(s, HIGH_WATERMARK + 1);
+    expect(s.pacer.live('a')).toBe(false);
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    expect(a.froms[1]).toBeNull(); // a screen: it skips to where the output stands
+    // After a screen, a client behind again is continued from the tail as before.
+    flood(s, HIGH_WATERMARK + 1);
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    expect(a.froms[2]).toBe(a.frames.at(-1)![1]);
+  });
+
+  it('behind again after it drew past what it missed (it acked output sent since): the tail again', () => {
+    const { s, a } = behind();
+    flood(s, 30_000);
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    const sentAtCatchUp = a.chars;
+    flood(s, 20_000);
+    s.pacer.ack('a', 10_000); // drew what it missed and 10 000 sent since
+    expect(s.pacer.stats('a')!.acked).toBeGreaterThan(sentAtCatchUp);
+    flood(s, HIGH_WATERMARK + 1);
+    expect(s.pacer.live('a')).toBe(false);
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    expect(a.froms[1]).toBe(a.frames.at(-1)![1]);
+  });
+
+  it('what it missed is not counted: its unacked count starts where it was (as after a screen)', () => {
+    const { s, a } = behind();
+    flood(s, 50_000);
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    expect(s.pacer.stats('a')).toMatchObject({ unacked: 0, behind: false });
+  });
+
+  it('a registry that sends a screen instead (false) leaves the next catch-up free to use the tail', () => {
+    const { s, a } = behind();
+    a.continues = false;
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    flood(s, HIGH_WATERMARK + 1); // behind again at once: no tail catch-up to blame
+    s.clock.advance(CATCH_UP_MIN_MS);
+    s.pacer.ack('a', a.chars);
+    expect(a.froms[1]).not.toBeNull();
   });
 });
 

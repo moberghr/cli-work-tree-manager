@@ -84,7 +84,7 @@ async function roundTrip(input: string | string[], cols = 30, rows = 8) {
     await write(source, chunk);
     await write(raw, chunk);
   }
-  const snap = source.snapshot();
+  const snap = source.snapshot()!;
   const target = browserLike(cols, rows);
   const title = titled(target);
   await write(target, snap);
@@ -237,7 +237,7 @@ describe('GhosttyMirror snapshot round trip', () => {
     const m = ghostty(30, 8);
     await write(m, Array.from({ length: REPLAY_SCROLLBACK + 3000 }, (_, i) => `l${i}`).join('\r\n'));
     const t = browserLike(30, 8);
-    await write(t, m.snapshot());
+    await write(t, m.snapshot()!);
     expect(t.buffer.active.length).toBe(REPLAY_SCROLLBACK + 8);
     expect(lines(t).at(-1)).toBe(`l${REPLAY_SCROLLBACK + 2999}`);
   });
@@ -291,7 +291,7 @@ describe('GhosttyMirror snapshot round trip', () => {
     it('a snapshot taken mid-sequence leaves the sequence to finish', async () => {
       const m = ghostty(30, 8);
       m.write(`ab${CSI}3`);
-      const snap = m.snapshot();
+      const snap = m.snapshot()!;
       expect(snap.endsWith(`${CSI}3`)).toBe(true);
       m.write('1mred');
       expect(m.screenText().split('\n')[0]).toBe('abred');
@@ -370,7 +370,7 @@ describe('GhosttyMirror snapshot round trip', () => {
     await write(m, `${CSI}2;5r`);
     m.resize(30, 10);
     const t = browserLike(30, 10);
-    await write(t, m.snapshot());
+    await write(t, m.snapshot()!);
     expect(await regionReply(t)).toBe(`${ESC}P1$r1;10r${ESC}\\`);
   });
 
@@ -383,7 +383,7 @@ describe('GhosttyMirror snapshot round trip', () => {
   it('a snapshot taken mid-sequence ends with what came of it, so the rest of the sequence continues it', async () => {
     const m = ghostty(30, 8);
     await write(m, `before${CSI}3`);
-    const snap = m.snapshot();
+    const snap = m.snapshot()!;
     expect(snap.endsWith(`${CSI}3`)).toBe(true);
     const t = browserLike(30, 8);
     await write(t, snap + ';5Hafter');
@@ -472,7 +472,7 @@ describe('a screen-only GhosttyMirror snapshot (scrollback: false): the catch-up
       await write(source, chunk);
       await write(raw, chunk);
     }
-    const snap = source.snapshot({ scrollback: false });
+    const snap = source.snapshot({ scrollback: false })!;
     const fresh = browserLike(cols, rows);
     await write(fresh, snap);
     const used = browserLike(cols, rows);

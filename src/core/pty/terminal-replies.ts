@@ -35,8 +35,3 @@ export function replyParts(data: string): ReplyPart[] | null {
   }
   return parts;
 }
-
-/** Whether `data` is only what a terminal sends on its own (`replyParts`): not someone using it. */
-export function isTerminalReply(data: string): boolean {
-  return replyParts(data) !== null;
-}

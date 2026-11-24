@@ -1307,7 +1307,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // JSON input/resize from the browser.
   const wss = new WebSocketServer({ noServer: true });
   handle.httpServer.on('upgrade', (req, socket, head) => {
-    const m = (req.url ?? '').match(/^\/ws\/sessions\/([^/]+)\/terminal$/);
+    // The tab states its flow, grid and resume point on the address (`?flow=1&cols=…`): taken and ignored, as an older host does.
+    const m = (req.url ?? '').match(/^\/ws\/sessions\/([^/?]+)\/terminal(?:\?.*)?$/);
     const reason = refuseReason({ method: 'GET', upgrade: true, host: req.headers.host, origin: req.headers.origin }, handle.port);
     if (!m || reason) {
       socket.destroy();

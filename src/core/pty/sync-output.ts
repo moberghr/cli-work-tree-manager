@@ -15,7 +15,8 @@
 export const BSU = '\x1b[?2026h';
 export const ESU = '\x1b[?2026l';
 
-const SYNC_MODE = 2026;
+/** DEC private mode 2026: synchronized output (the Terminal tab's repaint-scroll.ts follows it too). */
+export const SYNC_MODE = 2026;
 /** Longer parameters than this are no mode list an agent writes: the sequence is dropped (bounded state). */
 const MAX_PARAMS = 64;
 

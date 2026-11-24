@@ -41,7 +41,12 @@ export function statusFromOutput(p: PtyOutput, now: number): SessionAttention | 
   };
 }
 
-const WAITING_FOR: Record<ProgramKind, string> = { permission: 'your permission', question: 'your answer', auth: 'you to sign in' };
+/** What a blocked agent waits for, by its `kind`; any other (or none): "you". */
+const WAITING_FOR = new Map<string, string>([
+  ['permission', 'your permission'],
+  ['question', 'your answer'],
+  ['auth', 'you to sign in'],
+] satisfies Array<[ProgramKind, string]>);
 
 /**
  * What the agent said in-band, as a status; null where it says nothing that decides one (no signal, a cleared one, a
@@ -84,7 +89,7 @@ export function statusFromSignal(
           state: 'needs_input',
           seen: false,
           stale: false,
-          summary: program.message ?? `Waiting for ${program.kind ? WAITING_FOR[program.kind] : 'you'}${percent} — ${by}`,
+          summary: program.message ?? `Waiting for ${WAITING_FOR.get(program.kind ?? '') ?? 'you'}${percent} — ${by}`,
         };
       case 'done':
         return { ...base, state: 'idle', seen: true, stale: false, summary: program.message ?? `Finished — ${by}` };

@@ -482,7 +482,7 @@ export class PtySession {
    * sent instead of raw output history — raw bytes can start mid-sequence
    * and were drawn for another client's grid (VS Code does the same).
    */
-  serialize(opts?: SnapshotOptions): string {
+  serialize(opts?: SnapshotOptions): string | null {
     return this.mirror.snapshot(opts);
   }
 
@@ -491,7 +491,7 @@ export class PtySession {
    * xterm queues writes, and a write's callback runs right after that write
    * is parsed — before any written later. What a new client is sent first.
    */
-  serializeSettled(opts?: SnapshotOptions): Promise<string> {
+  serializeSettled(opts?: SnapshotOptions): Promise<string | null> {
     return this.mirror.snapshotSettled(opts);
   }
 

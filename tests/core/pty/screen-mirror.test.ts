@@ -1,7 +1,20 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import xtermHeadless from '@xterm/headless';
 import xtermUnicode11 from '@xterm/addon-unicode11';
 import { ScreenMirror, type HeadlessTerminal, type MirrorState } from '../../../src/core/pty/screen-mirror.js';
+
+// What was logged as swallowed (the real logger runs too).
+const swallowed = vi.hoisted(() => [] as string[]);
+vi.mock('../../../src/core/platform/best-effort.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/core/platform/best-effort.js')>();
+  return {
+    ...real,
+    logSwallowed: (label: string, err: unknown) => {
+      swallowed.push(label);
+      real.logSwallowed(label, err);
+    },
+  };
+});
 import { REPLAY_SCROLLBACK, VIEW_SCROLLBACK } from '../../../src/core/pty/scrollback.js';
 import { TerminalColors } from '../../../src/core/pty/terminal-colors.js';
 
@@ -75,7 +88,7 @@ function carried(s: MirrorState, active: 'normal' | 'alternate'): MirrorState {
 async function roundTrip(input: string | string[], cols = 30, rows = 8) {
   const source = mirror(cols, rows);
   for (const chunk of [input].flat()) await write(source, chunk);
-  const snap = source.snapshot();
+  const snap = source.snapshot()!;
   const target = browserLike(cols, rows);
   let title: string | undefined;
   target.onTitleChange((x) => (title = x));
@@ -310,6 +323,20 @@ describe('ScreenMirror resize, in order with the output (terminal-rendering.md, 
     expect([m.terminal.cols, m.terminal.rows]).toEqual([50, 7]);
   });
 
+  it('a snapshot that cannot be taken is null, never an empty screen, and is logged', async () => {
+    const m = new ScreenMirror(40, 5);
+    await new Promise<void>((r) => m.terminal.write('on screen', r));
+    const serializer = (m as unknown as { serializer: { serialize: () => string } }).serializer;
+    vi.spyOn(serializer, 'serialize').mockImplementation(() => {
+      throw new Error('serializer broke');
+    });
+    swallowed.length = 0;
+    expect(m.snapshot()).toBeNull();
+    expect(await m.snapshotSettled()).toBeNull();
+    expect(swallowed).toEqual(['screen copy: take a snapshot', 'screen copy: take a snapshot']);
+    m.dispose();
+  });
+
   it('disposed while a snapshot waits for its parse: the snapshot is empty, never left hanging', async () => {
     const m = new ScreenMirror(40, 5);
     m.write('x'.repeat(100_000));
@@ -329,7 +356,7 @@ describe('a screen-only snapshot (scrollback: false): the catch-up screen work a
   async function screenOnly(input: string | string[], cols = 30, rows = 8) {
     const source = mirror(cols, rows);
     for (const chunk of [input].flat()) await write(source, chunk);
-    const snap = source.snapshot({ scrollback: false });
+    const snap = source.snapshot({ scrollback: false })!;
     const fresh = browserLike(cols, rows);
     await write(fresh, snap);
     const used = browserLike(cols, rows);

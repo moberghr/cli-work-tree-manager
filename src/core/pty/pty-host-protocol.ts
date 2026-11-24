@@ -167,6 +167,21 @@ export type HostControlFrame =
       rows: number;
       /** The host runs on Windows: its PTYs are ConPTY's, which reflows lines itself (terminal-size.ts). Additive. */
       windowsPty?: WindowsPty;
+      /**
+       * The PTY's output stream and the offset this frame leaves the client at: the start of the live output that
+       * follows (resume.ts). Additive: a host from before sends neither, and its clients never ask to resume.
+       */
+      stream?: string;
+      offset?: number;
+      /**
+       * `data` is the output the client missed, to draw on its screen as it is — no reset, no resize — up to `offset`.
+       * Its queries were answered when they came: the client doesn't answer them again. Sent to a client that asked to
+       * resume (`?resume=…`), from where it said it stood; and mid-session to a paced client other than `work attach`
+       * (`?flow=1`, no `catchup=screen`) that fell behind and caught up, from where its live output stopped. Also, mid-
+       * session, to such a client whose catch-up screen couldn't be taken: `data` '' and `stream` '' — it keeps its
+       * screen, and no longer knows where it stands (it never resumes from there).
+       */
+      resumed?: true;
     }
   | { type: 'exit'; code: number }
   | { type: 'error'; message: string };

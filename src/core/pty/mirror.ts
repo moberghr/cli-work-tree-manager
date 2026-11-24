@@ -32,10 +32,10 @@ export interface TerminalMirror {
   resize(cols: number, rows: number): void;
   /** Answer the agent's queries in output written while `answers.now()` says so. */
   answerQueries(answers: MirrorAnswers): void;
-  /** The screen (and scrollback) and the state after it, as escape sequences; '' if it can't be taken. */
-  snapshot(opts?: SnapshotOptions): string;
+  /** The screen (and scrollback) and the state after it, as escape sequences; null if it can't be taken (never an empty screen in its place). */
+  snapshot(opts?: SnapshotOptions): string | null;
   /** snapshot(), once everything written so far is parsed. */
-  snapshotSettled(opts?: SnapshotOptions): Promise<string>;
+  snapshotSettled(opts?: SnapshotOptions): Promise<string | null>;
   /** The visible screen as plain text, one line per row. */
   screenText(): string;
   /** What the agent last said about itself in-band (stream-status.ts). */

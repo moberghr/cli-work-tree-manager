@@ -1,19 +1,18 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
 import { startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
 import { PtyRegistry, type PtyLike } from '../../../src/core/pty/pty-registry.js';
-import { isTerminalReply, replyParts } from '../../../src/core/pty/terminal-replies.js';
+import { replyParts } from '../../../src/core/pty/terminal-replies.js';
 import { ScreenMirror, type SnapshotOptions } from '../../../src/core/pty/screen-mirror.js';
 import type { TerminalColors } from '../../../src/core/pty/terminal-colors.js';
 import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
 import { VERSION } from '../../../src/version.js';
 import { HIGH_WATERMARK, LOW_WATERMARK, ackFrame, withFlow } from '../../../src/core/pty/flow-control.js';
-import { CATCH_UP_MIN_MS } from '../../../src/core/pty/output-pacer.js';
 import { withGrid, type Grid } from '../../../src/core/pty/terminal-size.js';
-import { REDRAW_JIGGLE_MS } from '../../../src/core/pty/pty-registry.js';
+import { withResume, type ResumePoint } from '../../../src/core/pty/resume.js';
 
 class EchoPty implements PtyLike {
   readonly pty = { pid: 1 };
@@ -132,9 +131,9 @@ afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean; grid?: Grid } = {}) {
+function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean; grid?: Grid; resume?: ResumePoint } = {}) {
   const url = opts.flow ? withFlow(client.attachUrl(id), { screenOnly: opts.screenOnly }) : client.attachUrl(id);
-  const ws = new WebSocket(withGrid(url, opts.grid));
+  const ws = new WebSocket(withResume(withGrid(url, opts.grid), opts.resume));
   const binary: string[] = [];
   const control: unknown[] = [];
   ws.on('message', (d, isBinary) => {
@@ -146,6 +145,8 @@ function attach(id: string, opts: { flow?: boolean; screenOnly?: boolean; grid?:
   return { ws, binary, control, opened, closed };
 }
 const tick = () => new Promise((r) => setTimeout(r, 50));
+/** The client was sent its first control frame (the replay): the host has finished attaching it. */
+const attached = (...cs: Array<{ control: unknown[] }>) => vi.waitFor(() => cs.forEach((c) => expect(c.control.length).toBeGreaterThan(0)));
 
 describe('PTY host', () => {
   it('rejects requests without the token', async () => {
@@ -175,7 +176,15 @@ describe('PTY host', () => {
     await b.opened;
     await tick();
     // Late attacher gets the screen as a replay control frame first.
-    expect(b.control[0]).toEqual({ type: 'replay', data: 'echo:hi', cols: 120, rows: 32 });
+    // The stream and the offset it stands at: where its live output starts (resume.ts).
+    expect(b.control[0]).toEqual({
+      type: 'replay',
+      data: 'echo:hi',
+      cols: 120,
+      rows: 32,
+      stream: expect.stringMatching(/^[0-9a-f]{16}$/),
+      offset: 7,
+    });
     expect(b.binary.join('')).toBe('');
     expect(await client.write('s1', 'x')).toBe(true);
     await tick();
@@ -278,8 +287,7 @@ describe('PTY host', () => {
     await tick();
     expect(pty.log.slice(-2)).toEqual(['write x', 'write \x1b[O']);
     app.ws.send(JSON.stringify({ type: 'input', data: '\x1b[?1;2c' }));
-    await tick();
-    expect(pty.log.slice(-2)).toEqual(['write \x1b[O', 'write \x1b[?1;2c']);
+    await vi.waitFor(() => expect(pty.log.slice(-2)).toEqual(['write \x1b[O', 'write \x1b[?1;2c']));
     terminal.ws.close();
     app.ws.close();
   });
@@ -303,7 +311,7 @@ describe('PTY host', () => {
       '\x1b[<35;10;5M', // the mouse moving, no button down (hovering)
       '\x1b[<39;10;5M\x1b[<35;11;5M', // …with Shift, then without
     ])
-      expect(isTerminalReply(reply), JSON.stringify(reply)).toBe(true);
+      expect(replyParts(reply), JSON.stringify(reply)).not.toBeNull();
     for (const typed of [
       'k',
       '\r',
@@ -317,7 +325,7 @@ describe('PTY host', () => {
       '\x1b[O' + 'k',
       '\x03',
     ])
-      expect(isTerminalReply(typed), JSON.stringify(typed)).toBe(false);
+      expect(replyParts(typed), JSON.stringify(typed)).toBeNull();
   });
 
   it('restart: a new agent in place, the attached terminals kept and not told the old one ended', async () => {
@@ -392,9 +400,10 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     const pty = spawned.at(-1) as EchoPty;
     const a = attach('g1', { flow: true, grid: { cols: 100, rows: 30 } });
     await a.opened;
-    await tick();
-    expect(pty.log).toEqual(['resize 100x30']);
-    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 100, rows: 30 });
+    await vi.waitFor(() => expect(pty.log).toEqual(['resize 100x30']));
+    await vi.waitFor(() =>
+      expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 100, rows: 30, stream: expect.any(String), offset: 0 }),
+    );
     expect((await client.get('g1'))?.cols).toBe(100);
     a.ws.close();
   });
@@ -404,9 +413,9 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     const pty = spawned.at(-1) as EchoPty;
     const a = attach('g2', { flow: true });
     await a.opened;
-    await tick();
+    await attached(a);
     expect(pty.log).toEqual([]);
-    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 120, rows: 32 });
+    expect(a.control[0]).toEqual({ type: 'replay', data: '', cols: 120, rows: 32, stream: expect.any(String), offset: 0 });
     a.ws.close();
   });
 
@@ -427,7 +436,8 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     const a = attach('g3', { flow: true, grid: { cols: 60, rows: 20 } });
     await a.opened;
     pty.print('after'); // the agent repainting for the new grid, while the snapshot is taken
-    await tick();
+    await attached(a);
+    await vi.waitFor(() => expect((a.binary.join('') + (a.control[0] as { data: string }).data).match(/after/g) ?? []).toHaveLength(1));
     const replay = a.control[0] as { type: string; data: string; cols: number; rows: number };
     expect(replay).toMatchObject({ type: 'replay', cols: 60, rows: 20 });
     expect(pty.shotsAt).toEqual(['60x20']);
@@ -444,10 +454,28 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     const app = attach('g4');
     await app.opened;
     app.ws.send(JSON.stringify({ type: 'resize', cols: 90, rows: 30 }));
-    await tick();
+    await vi.waitFor(() => expect(pty.log).toEqual(['resize 200x50', 'resize 90x30']));
     terminal.ws.send(JSON.stringify({ type: 'input', data: 'k' }));
-    await tick();
-    expect(pty.log).toEqual(['resize 200x50', 'resize 90x30', 'resize 200x50', 'write k']);
+    await vi.waitFor(() => expect(pty.log).toEqual(['resize 200x50', 'resize 90x30', 'resize 200x50', 'write k']));
+    terminal.ws.close();
+    app.ws.close();
+  });
+
+  it('a resize to a grid the PTY would not take changes nothing: not its size, not the one used last', async () => {
+    await client.spawn('g6', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as EchoPty;
+    const terminal = attach('g6', { grid: { cols: 200, rows: 50 } });
+    await terminal.opened;
+    const app = attach('g6');
+    await app.opened;
+    app.ws.send(JSON.stringify({ type: 'resize', cols: 90, rows: 30 }));
+    await vi.waitFor(() => expect(pty.log).toEqual(['resize 200x50', 'resize 90x30']));
+    terminal.ws.send(JSON.stringify({ type: 'resize', cols: 0, rows: 0 })); // a pane not laid out
+    terminal.ws.send(JSON.stringify({ type: 'resize', cols: 2.5, rows: 30 }));
+    // Typing in it still brings back its own grid: the bad sizes were never taken for its own (its frames arrive in order, so
+    // the input comes after them: the log would show a resize to them before the write).
+    terminal.ws.send(JSON.stringify({ type: 'input', data: 'k' }));
+    await vi.waitFor(() => expect(pty.log).toEqual(['resize 200x50', 'resize 90x30', 'resize 200x50', 'write k']));
     terminal.ws.close();
     app.ws.close();
   });
@@ -458,10 +486,8 @@ describe('attaching at a size (terminal-rendering.md, "Resizing and attaching at
     const a = attach('g5', { flow: true });
     await a.opened;
     a.ws.send(JSON.stringify({ type: 'redraw' }));
-    await tick();
-    expect(pty.log).toEqual(['resize 120x31']);
-    await new Promise((r) => setTimeout(r, REDRAW_JIGGLE_MS + 50));
-    expect(pty.log).toEqual(['resize 120x31', 'resize 120x32']);
+    await vi.waitFor(() => expect(pty.log).toEqual(['resize 120x31']));
+    await vi.waitFor(() => expect(pty.log).toEqual(['resize 120x31', 'resize 120x32']), { timeout: 3000 });
     a.ws.close();
   });
 });
@@ -480,21 +506,22 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
     await client.spawn('q1', { cwd: dir, tool: tool as never });
     const pty = spawned.at(-1) as MirrorPty;
     pty.print(`\x1b[c\x1b[?2026$p\x1b[6n\x1b[?6n\x1b]11;?${ST}\x1b]10;?;?\x07\x1b]4;1;?${ST}`);
-    await tick();
-    expect(pty.got).toEqual([
-      '\x1b[?1;2c',
-      '\x1b[?2026;2$y',
-      '\x1b[1;1R',
-      '\x1b[?1;1R',
-      `\x1b]11;rgb:1e1e/1e1e/1e1e${ST}`,
-      `\x1b]10;rgb:d4d4/d4d4/d4d4${ST}`,
-      `\x1b]11;rgb:1e1e/1e1e/1e1e${ST}`,
-      `\x1b]4;1;rgb:cccc/0000/0000${ST}`,
-    ]);
-    // A colour being set is not a query.
-    pty.print(`\x1b]11;#ffffff${ST}`);
-    await tick();
-    expect(pty.got).toHaveLength(8);
+    await vi.waitFor(() =>
+      expect(pty.got).toEqual([
+        '\x1b[?1;2c',
+        '\x1b[?2026;2$y',
+        '\x1b[1;1R',
+        '\x1b[?1;1R',
+        `\x1b]11;rgb:1e1e/1e1e/1e1e${ST}`,
+        `\x1b]10;rgb:d4d4/d4d4/d4d4${ST}`,
+        `\x1b]11;rgb:1e1e/1e1e/1e1e${ST}`,
+        `\x1b]4;1;rgb:cccc/0000/0000${ST}`,
+      ]),
+    );
+    // A colour being set is not a query: only the query after it (the marker that it was parsed) is answered.
+    pty.print(`\x1b]11;#ffffff${ST}\x1b[c`);
+    await vi.waitFor(() => expect(pty.got).toHaveLength(9));
+    expect(pty.got.slice(8)).toEqual(['\x1b[?1;2c']);
   });
 
   it('clients attached: only the client used last answers (else the first attached), and the host stays silent', async () => {
@@ -504,30 +531,26 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
     await a.opened;
     const b = attach('q2');
     await b.opened;
-    await tick();
+    await attached(a, b);
     pty.print('\x1b[c');
-    await tick();
-    expect(a.binary.join('') + b.binary.join('')).toBe('\x1b[c\x1b[c'); // both were sent it…
+    await vi.waitFor(() => expect(a.binary.join('') + b.binary.join('')).toBe('\x1b[c\x1b[c')); // both were sent it…
     input(b, '\x1b[?62;22c');
     input(a, '\x1b[?1;2c');
-    await tick();
-    expect(pty.got).toEqual(['\x1b[?1;2c']); // …the first attached answered, alone; the host didn't
+    await vi.waitFor(() => expect(pty.got).toEqual(['\x1b[?1;2c'])); // …the first attached answered, alone; the host didn't
     b.ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 })); // b used now
-    await tick();
+    await vi.waitFor(() => expect(pty.mirror.terminal.cols).toBe(100));
     pty.print(`\x1b]11;?${ST}`);
-    await tick();
+    await vi.waitFor(() => expect([a, b].map((c) => c.binary.join('').endsWith(`\x1b]11;?${ST}`))).toEqual([true, true]));
     input(a, `\x1b]11;rgb:0000/0000/0000${ST}`);
     input(b, `\x1b]11;rgb:ffff/ffff/ffff${ST}`);
-    await tick();
-    expect(pty.got.slice(1)).toEqual([`\x1b]11;rgb:ffff/ffff/ffff${ST}`]);
+    await vi.waitFor(() => expect(pty.got.slice(1)).toEqual([`\x1b]11;rgb:ffff/ffff/ffff${ST}`]));
     // Its colours are what the host answers with once nobody is attached.
     a.ws.close();
     b.ws.close();
     await Promise.all([a.closed, b.closed]);
-    await tick();
+    await tick(); // (the host noticing they left is not visible from here)
     pty.print(`\x1b]11;?${ST}`);
-    await tick();
-    expect(pty.got.slice(2)).toEqual([`\x1b]11;rgb:ffff/ffff/ffff${ST}`]);
+    await vi.waitFor(() => expect(pty.got.slice(2)).toEqual([`\x1b]11;rgb:ffff/ffff/ffff${ST}`]));
   });
 
   it('typing makes a client the one that answers; reports from any client, and typing with replies in it, still go through', async () => {
@@ -537,17 +560,15 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
     await a.opened;
     const b = attach('q3');
     await b.opened;
-    await tick();
+    await attached(a, b);
     input(b, '\x1b[O\x1b[<35;3;3M'); // focus out, the mouse hovering: b not used, but sent on
     input(b, '\x1b[?1;2ck'); // an answer and a key in one frame: whole, never dropped — and b was used
-    await tick();
-    expect(pty.got).toEqual(['\x1b[O\x1b[<35;3;3M', '\x1b[?1;2ck']);
+    await vi.waitFor(() => expect(pty.got).toEqual(['\x1b[O\x1b[<35;3;3M', '\x1b[?1;2ck']));
     pty.print('\x1b[5n');
-    await tick();
+    await vi.waitFor(() => expect(a.binary.join('') + b.binary.join('')).toBe('\x1b[5n\x1b[5n'));
     input(a, '\x1b[0n');
     input(b, '\x1b[3n');
-    await tick();
-    expect(pty.got.slice(2)).toEqual(['\x1b[3n']);
+    await vi.waitFor(() => expect(pty.got.slice(2)).toEqual(['\x1b[3n']));
   });
 
   it('the client answering leaves before it did: the next attached answers what it was sent', async () => {
@@ -557,15 +578,14 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
     await a.opened;
     const b = attach('q4');
     await b.opened;
-    await tick();
+    await attached(a, b);
     pty.print('\x1b[c');
-    await tick();
+    await vi.waitFor(() => expect(a.binary.join('') + b.binary.join('')).toBe('\x1b[c\x1b[c'));
     a.ws.close();
     await a.closed;
-    await tick();
+    await tick(); // (the host noticing a left is not visible from here)
     input(b, '\x1b[?62;22c');
-    await tick();
-    expect(pty.got).toEqual(['\x1b[?62;22c']);
+    await vi.waitFor(() => expect(pty.got).toEqual(['\x1b[?62;22c']));
     b.ws.close();
   });
 
@@ -580,8 +600,7 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
       (d) => sent.push(d),
       () => {},
     )!;
-    await tick();
-    expect(pty.got).toEqual(['\x1b[?1;2c']);
+    await vi.waitFor(() => expect(pty.got).toEqual(['\x1b[?1;2c']));
     expect((await late.ready).data).not.toContain('\x1b[c'); // its screen has no query in it…
     late.start();
     expect(sent).toEqual([]); // …nor was it sent one
@@ -599,9 +618,8 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
       () => {},
     )!;
     pty.print('\x1b[5n'); // held until its screen is drawn
-    await tick();
+    await drawing.ready; // its screen has parsed it by now: the host would have answered
     expect(pty.got).toEqual([]); // the host leaves it to the client
-    await drawing.ready;
     drawing.start();
     expect(sent).toEqual(['\x1b[5n']);
     expect(drawing.replies(replyParts('\x1b[0n')!)).toBe('\x1b[0n');
@@ -630,9 +648,8 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
     pty.print('\x1b[c'); // within COALESCE_MS: waits for its frame — and is b's to answer, b being the one used last
     a.lead(); // a typed before the frame went out
     expect(got.a).toEqual(['x']);
-    await tick();
-    expect(got.a).toEqual(['x', '\x1b[c']);
-    expect(got.b).toEqual(['x', '\x1b[c']);
+    await vi.waitFor(() => expect(got.a).toEqual(['x', '\x1b[c']), { timeout: 3000 });
+    await vi.waitFor(() => expect(got.b).toEqual(['x', '\x1b[c']), { timeout: 3000 });
     expect(b.replies(replyParts('\x1b[?62;22c')!)).toBe('\x1b[?62;22c');
     expect(a.replies(replyParts('\x1b[?1;2c')!)).toBe('');
     a.detach();
@@ -642,9 +659,10 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
   it('a client that fell behind is never chosen to answer (it is sent no output): the next live one is', async () => {
     await client.spawn('q8', { cwd: dir, tool: tool as never }); // a MirrorPty: no pausing, so even the one used last falls behind
     const pty = spawned.at(-1) as MirrorPty;
+    const liveGot: string[] = [];
     const live = host.registry.attach(
       'q8',
-      () => {},
+      (d) => liveGot.push(d),
       () => {},
     )!;
     const slow = host.registry.attach(
@@ -658,9 +676,10 @@ describe('who answers a query (terminal-rendering.md): exactly one, decided as t
     slow.start();
     slow.lead();
     pty.print('y'.repeat(HIGH_WATERMARK + 1));
-    await tick();
+    await vi.waitFor(() => expect(liveGot.join('')).toHaveLength(HIGH_WATERMARK + 1));
     pty.print('\x1b[c');
-    await tick();
+    await vi.waitFor(() => expect(liveGot.join('')).toHaveLength(HIGH_WATERMARK + 1 + 3), { timeout: 3000 });
+    await pty.serializeSettled(); // its screen has parsed everything: the host would have answered by now
     expect(slow.replies(replyParts('\x1b[?62;22c')!)).toBe('');
     expect(live.replies(replyParts('\x1b[?1;2c')!)).toBe('\x1b[?1;2c');
     expect(pty.got).toEqual([]); // and the host left it to the client
@@ -690,21 +709,18 @@ describe('flow control (terminal-rendering.md, "Flow control and coalescing")', 
     const pty = spawned.at(-1) as FlowPty;
     const c = attach('f1', { flow: true });
     await c.opened;
-    await tick();
+    await attached(c);
     flood(pty, HIGH_WATERMARK + 10_000);
-    await tick();
-    expect(chars(c)).toBe(HIGH_WATERMARK + 10_000); // all of it was sent…
+    await vi.waitFor(() => expect(chars(c)).toBe(HIGH_WATERMARK + 10_000)); // all of it was sent…
     expect(pty.paused).toBe(true); // …and the agent waits for it to be drawn
     c.ws.send(ackFrame(HIGH_WATERMARK));
-    await tick();
+    await tick(); // (nothing to wait for: it must stay paused)
     expect(pty.paused).toBe(true); // 10 000 still to draw: more than LOW_WATERMARK
     c.ws.send(ackFrame(10_000 - LOW_WATERMARK + 1));
-    await tick();
-    expect(pty.paused).toBe(false);
+    await vi.waitFor(() => expect(pty.paused).toBe(false));
     expect([pty.pauses, pty.resumes]).toEqual([1, 1]);
     pty.print('still live');
-    await tick();
-    expect(c.binary.at(-1)).toBe('still live');
+    await vi.waitFor(() => expect(c.binary.at(-1)).toBe('still live'));
     c.ws.close();
   });
 
@@ -713,16 +729,15 @@ describe('flow control (terminal-rendering.md, "Flow control and coalescing")', 
     const pty = spawned.at(-1) as FlowPty;
     const old = attach('f2');
     await old.opened;
-    await tick();
+    await attached(old);
     flood(pty, HIGH_WATERMARK * 3);
     pty.print('end');
-    await tick();
-    expect(chars(old)).toBe(HIGH_WATERMARK * 3 + 3);
+    await vi.waitFor(() => expect(chars(old)).toBe(HIGH_WATERMARK * 3 + 3));
     expect(old.binary.join('').endsWith('end')).toBe(true);
     expect(pty.pauses).toBe(0);
     // Acks it sends anyway are ignored, as an older host ignores a new client's.
     old.ws.send(ackFrame(HIGH_WATERMARK));
-    await tick();
+    await tick(); // (nothing to wait for: it must stay open)
     expect(old.ws.readyState).toBe(WebSocket.OPEN);
     old.ws.close();
   });
@@ -734,20 +749,19 @@ describe('flow control (terminal-rendering.md, "Flow control and coalescing")', 
     await holder.opened;
     const view = attach('f3', { flow: true });
     await view.opened;
-    await tick();
+    await attached(view);
     expect(view.control.filter((m) => (m as { type: string }).type === 'replay')).toHaveLength(1);
     flood(pty, HIGH_WATERMARK + 10_000);
-    await tick();
+    await vi.waitFor(() => expect(chars(view)).toBe(HIGH_WATERMARK + 10_000));
     const drawn = chars(view);
-    expect(drawn).toBe(HIGH_WATERMARK + 10_000);
     pty.print('\r\nmissed by the view');
-    await tick();
+    await vi.waitFor(() => expect(holder.binary.join('').endsWith('missed by the view')).toBe(true)); // it had gone out by then
     expect(chars(view)).toBe(drawn); // behind: sent nothing
-    expect(holder.binary.join('').endsWith('missed by the view')).toBe(true);
     expect(pty.pauses).toBe(0);
     view.ws.send(ackFrame(drawn));
-    await new Promise((r) => setTimeout(r, CATCH_UP_MIN_MS + 100));
-    const replays = view.control.filter((m) => (m as { type: string }).type === 'replay') as Array<{
+    const isReplay = (m: unknown) => (m as { type: string }).type === 'replay';
+    await vi.waitFor(() => expect(view.control.filter(isReplay)).toHaveLength(2), { timeout: 3000 });
+    const replays = view.control.filter(isReplay) as Array<{
       data: string;
       cols: number;
       rows: number;
@@ -773,17 +787,17 @@ describe('flow control (terminal-rendering.md, "Flow control and coalescing")', 
     await holder.opened;
     const view = attach('f6', { flow: true });
     await view.opened;
-    await tick();
+    await attached(view);
     flood(pty, HIGH_WATERMARK + 10_000);
-    await tick();
+    await vi.waitFor(() => expect(chars(view)).toBe(HIGH_WATERMARK + 10_000));
     pty.print('\r\nlast words');
-    await tick();
+    await vi.waitFor(() => expect(holder.binary.join('').endsWith('last words')).toBe(true)); // it had gone out by then
     expect(view.binary.join('').includes('last words')).toBe(false); // behind
-    const exited = Date.now();
     pty.end(0);
     await view.closed;
-    expect(Date.now() - exited).toBeLessThan(CATCH_UP_MIN_MS); // not left waiting for its catch-up time
     const types = view.control.map((m) => (m as { type: string }).type);
+    // The attach's replay, the final screen, the end: no catch-up of its own came between (it was not left waiting for one).
+    expect(types).toEqual(['replay', 'replay', 'exit']);
     expect(types.slice(-3)).toEqual(['replay', 'replay', 'exit']);
     expect(replays(view)[1].data).toContain('last words');
     expect(view.control.at(-1)).toEqual({ type: 'exit', code: 0 });
@@ -801,14 +815,14 @@ describe('flow control (terminal-rendering.md, "Flow control and coalescing")', 
     const full = attach('f7', { flow: true });
     const screen = attach('f7', { flow: true, screenOnly: true });
     await Promise.all([full.opened, screen.opened]);
-    await tick();
+    await attached(full, screen);
     expect(replays(screen)[0].data).toContain('first line'); // attaching: the session's history too
     flood(pty, HIGH_WATERMARK + 10_000);
-    await tick();
+    await vi.waitFor(() => expect([chars(full), chars(screen)]).toEqual([HIGH_WATERMARK + 10_000, HIGH_WATERMARK + 10_000]));
     pty.print('\r\nscrolled off\r\n' + Array.from({ length: 40 }, (_, i) => `after ${i}`).join('\r\n'));
-    await tick();
+    await vi.waitFor(() => expect(holder.binary.join('')).toContain('after 39')); // it had gone out by then
     for (const c of [full, screen]) c.ws.send(ackFrame(chars(c)));
-    await new Promise((r) => setTimeout(r, CATCH_UP_MIN_MS + 100));
+    await vi.waitFor(() => expect([replays(full).length, replays(screen).length]).toEqual([2, 2]), { timeout: 3000 });
     const [f, s] = [replays(full), replays(screen)];
     expect([f.length, s.length]).toEqual([2, 2]);
     expect(f[1].data).toContain('scrolled off');
@@ -824,23 +838,20 @@ describe('flow control (terminal-rendering.md, "Flow control and coalescing")', 
     const pty = spawned.at(-1) as FlowPty;
     const c = attach('f4', { flow: true });
     await c.opened;
-    await tick();
+    await attached(c);
     flood(pty, HIGH_WATERMARK + 1);
-    await tick();
-    expect(pty.paused).toBe(true);
+    await vi.waitFor(() => expect(pty.paused).toBe(true));
     c.ws.close();
     await c.closed;
-    await tick();
-    expect(pty.paused).toBe(false);
+    await vi.waitFor(() => expect(pty.paused).toBe(false));
 
     await client.spawn('f5', { cwd: dir, tool: tool as never });
     const pty5 = spawned.at(-1) as FlowPty;
     const d = attach('f5', { flow: true });
     await d.opened;
-    await tick();
+    await attached(d);
     flood(pty5, HIGH_WATERMARK + 1);
-    await tick();
-    expect(pty5.paused).toBe(true);
+    await vi.waitFor(() => expect(pty5.paused).toBe(true));
     await client.kill('f5');
     expect(pty5.paused).toBe(false);
     expect(pty5.exited).toBe(true);
@@ -872,5 +883,111 @@ describe('startup restore ordering (reviewed bug)', () => {
     const src = fs.readFileSync(path.resolve(__dirname, '../../../src/commands/pty-host.ts'), 'utf-8');
     expect(src).not.toMatch(/restore:\s*false/);
     expect(src).not.toMatch(/registry\.restore\(\)/);
+  });
+});
+
+describe('reattaching where it left off (terminal-rendering.md, "Reattach where you left off")', () => {
+  beforeEach(() => {
+    makePty = () => new MirrorPty();
+  });
+  afterEach(() => {
+    makePty = () => new EchoPty();
+  });
+  type Replay = { type: 'replay'; data: string; cols: number; rows: number; stream: string; offset: number; resumed?: true };
+
+  /** A client that drew the replay and every frame, then lost its connection: where it stands. */
+  async function leave(id: string): Promise<ResumePoint> {
+    const a = attach(id, { flow: true });
+    await a.opened;
+    await attached(a);
+    const replay = a.control[0] as Replay;
+    expect(replay.stream).toMatch(/^[0-9a-f]{16}$/);
+    const pty = spawned.at(-1) as MirrorPty;
+    pty.print('drawn ');
+    await vi.waitFor(() => expect(a.binary.join('').endsWith('drawn ')).toBe(true));
+    const drawn = a.binary.join('');
+    a.ws.terminate();
+    await a.closed;
+    await tick(); // (the host noticing it left is not visible from here)
+    return { stream: replay.stream, offset: replay.offset + drawn.length, cols: replay.cols, rows: replay.rows };
+  }
+
+  it('the direct path: a client stating ?resume= at its offset is sent only what it missed, then live output', async () => {
+    await client.spawn('r1', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    pty.print('before ');
+    const at = await leave('r1');
+    expect(at.offset).toBe('before drawn '.length);
+    pty.print('missed ');
+    const b = attach('r1', { flow: true, resume: at });
+    await b.opened;
+    await vi.waitFor(() =>
+      expect(b.control[0]).toEqual({
+        type: 'replay',
+        data: 'missed ',
+        cols: 120,
+        rows: 32,
+        stream: at.stream,
+        offset: at.offset + 7,
+        resumed: true,
+      }),
+    );
+    pty.print('live');
+    await vi.waitFor(() => expect(b.binary.join('')).toBe('live'));
+    b.ws.close();
+  });
+
+  it('…and the same through a ticket (a dashboard page connected straight to the host)', async () => {
+    await client.spawn('r2', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const at = await leave('r2');
+    pty.print('missed');
+    const page = 'http://127.0.0.1:54989';
+    const ws = new WebSocket(withResume(withFlow((await client.ticketUrl('r2', page))!), at), { headers: { Origin: page } });
+    const control: unknown[] = [];
+    ws.on('message', (d, isBinary) => !isBinary && control.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on('open', () => r()));
+    await vi.waitFor(() => expect(control[0]).toMatchObject({ type: 'replay', data: 'missed', resumed: true, offset: at.offset + 6 }));
+    ws.close();
+  });
+
+  it('a query in what it missed was answered when it came (by the host, nobody attached): not again', async () => {
+    await client.spawn('r3', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    const at = await leave('r3');
+    pty.print('\x1b[c');
+    await vi.waitFor(() => expect(pty.got).toEqual(['\x1b[?1;2c']));
+    const b = attach('r3', { flow: true, resume: at });
+    await b.opened;
+    await vi.waitFor(() => expect(b.control[0]).toMatchObject({ data: '\x1b[c', resumed: true }));
+    await pty.serializeSettled(); // its screen has parsed everything: the host would have answered again by now
+    expect(pty.got).toEqual(['\x1b[?1;2c']);
+    b.ws.close();
+  });
+
+  it('a position it cannot prove (another stream: a host started again) is a screen, as on any attach', async () => {
+    await client.spawn('r4', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1) as MirrorPty;
+    pty.print('on screen');
+    const at = await leave('r4');
+    const b = attach('r4', { flow: true, resume: { ...at, stream: 'ffffffffffffffff' } });
+    await b.opened;
+    await attached(b);
+    const replay = b.control[0] as Replay;
+    expect(replay.resumed).toBeUndefined();
+    expect(replay.data).toContain('on screen');
+    expect(replay.stream).toBe(at.stream);
+    b.ws.close();
+  });
+
+  it('a malformed position is ignored (a screen); a client stating none attaches as before', async () => {
+    await client.spawn('r5', { cwd: dir, tool: tool as never });
+    const ws = new WebSocket(`${client.attachUrl('r5')}&resume=nonsense`);
+    const control: unknown[] = [];
+    ws.on('message', (d, isBinary) => !isBinary && control.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on('open', () => r()));
+    await vi.waitFor(() => expect(control).toHaveLength(1));
+    expect((control[0] as Replay).resumed).toBeUndefined();
+    ws.close();
   });
 });

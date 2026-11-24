@@ -90,6 +90,9 @@ const SPA_SHARED = new Set([
   'src/core/pty/ghostty/mouse-encoder.js', // pure: mouse reports as the terminal's modes want them
   'src/core/pty/ghostty/pointer.js', // pure: selection gestures, the selection and its text, OSC 8 links
   'src/core/pty/ghostty/replies.js', // pure, import-free: libghostty's replies as xterm.js gives them
+  'src/core/pty/resume.js', // pure: where a client stands in a PTY's output, the resume parameter (a dropped tab reconnects in place)
+  'src/core/pty/terminal-replies.js', // pure, import-free: what a terminal sends on its own (a resumed tab answers no query in what it missed)
+  'src/core/pty/sync-output.js', // pure, import-free: synchronized output's mode (the Terminal tab keeps the view through a repaint in one)
   'src/core/worktree/repo-rules.js',
   'src/core/pr/pr-stage.js',
   'src/core/pr/branch-work.js',

@@ -91,7 +91,7 @@ An agent asks its terminal things (device attributes, the cursor position, wheth
   - xterm answers: DA1, DA2, DSR 5n, CPR 6n, DECXCPR `? 6 n`, DECRQM (2026 included: the browser's xterm.js 6.0.0 answers the same), DECRQSS.
   - The host adds: OSC 10 / 11 / 12 and OSC 4 queries, which xterm.js leaves to its renderer. Answered from the last colour a client answered (`TerminalColors`, one per host process, fed every answer the host lets through), else the tab's theme (`TERMINAL_THEME`, shared with PtyView) and xterm.js's default palette, in xterm.js's `rgb:rrrr/gggg/bbbb` form. Only a colour value is ever repeated.
   - Silent, as in the browser: DA3, XTVERSION (xterm.js 6.0.0 has no handler), kitty `CSI ? u`, XTQMODKEYS, `CSI … t` window reports (windowOptions off), XTGETTCAP, OSC 52.
-- **Clients attached**: the host stays silent, and one client's answers go through: the one used last (it typed or resized, `attached.lead()`: it has the PTY's size), else the first attached. Every client is still sent the query; the others' answers are dropped (`attached.replies`). Focus and mouse-motion reports go through from any client, as before, and don't count as use. A frame with typing in it goes through whole, replies and all: typing is never dropped.
+- **Clients attached**: the host stays silent, and one client's answers go through: the one used last (it typed or resized, `attached.lead()`: it has the PTY's size), else the first attached. Every client is still sent the query; the others' answers are dropped (`attached.replies`). Focus and mouse-motion reports go through from any client, as before, and don't count as use. What a client sent on its own is told from typing by `replyParts` (`core/pty/terminal-replies.ts`: the replies a frame is made of, or null when anything in it is typing); A frame with typing in it goes through whole, replies and all: typing is never dropped.
 - **The answerer is fixed per chunk** until the next one arrives, so its late answer still goes through. A client that becomes the one used last after a query arrived (a new tab's post-replay resize) doesn't take that query over. When the answering client detaches, the next attached takes over (it was sent the same).
 - **A client drawing its replay** has the query held for it and answers once it draws it.
 - The relay (`terminal-ws.ts`) and `work attach` are clients like any other: one host connection each.
@@ -125,7 +125,11 @@ Output used to go to every client chunk by chunk, as fast as the agent wrote it.
 **Per client**, the pacer counts what it sent and what was acked (an ack never pays for more than was sent):
 
 - **The holder**: the client the registry picks (`pick`: the one used last, else the first attached, among those sent live output). It is the same rule as the answerer's. If it acks and the PTY can pause, the PTY is paused once its unacked count is above `HIGH_WATERMARK` (100 000) and read again once it is below `LOW_WATERMARK` (5 000). This is VS Code's flow control, for one client.
-- **Any other metered client** above `HIGH_WATERMARK`, and the holder once its pause passes `PAUSE_TIMEOUT_MS` (500 ms), is **behind**. It is sent no live output. Once its acks bring it under `LOW_WATERMARK`, at most every `CATCH_UP_MIN_MS` (500 ms, since each snapshot runs on the host's loop), it is sent the screen as it stands then (`resync`: a settled snapshot, output held meanwhile, as at attach) and goes live again. A holder that timed out doesn't pause the PTY again until it is used (types or resizes).
+- **Any other metered client** above `HIGH_WATERMARK`, and the holder once its pause passes `PAUSE_TIMEOUT_MS` (500 ms), is **behind**. It is sent no live output. Once its acks bring it under `LOW_WATERMARK`, at most every `CATCH_UP_MIN_MS` (500 ms, since each snapshot runs on the host's loop), it is **caught up** (`resync`) and goes live again:
+  - **From the tail** when it may be: what it missed since the offset it was sent output up to, as a `replay` with `resumed: true` (see "Catching up from the tail" below). No reset: the tab keeps its own scrollback.
+  - **Else a screen**, as it stands then (a settled snapshot, output held meanwhile, as at attach).
+
+  A holder that timed out doesn't pause the PTY again until it is used (types or resizes).
 - **A client that doesn't ack** (an older one, or no `?flow=1`) is sent everything, as before, and never pauses anything.
 
 § An agent never waits for a view that isn't the holder, nor for the holder longer than `PAUSE_TIMEOUT_MS` at a time. 500 ms was measured, not guessed. A background tab parses in timer slices that run once a second, so it released each pause at its next tick and never reached a 2 s limit. The stress run below took 159 s for 20 MB that way; with 500 ms it took 2 s, with one pause and two catch-up screens.
@@ -144,14 +148,46 @@ Output used to go to every client chunk by chunk, as fast as the agent wrote it.
 
 **Windows.** The PTY is never paused there (`canPauseOutput`). node-pty reads ConPTY's output through a worker thread so that `ClosePseudoConsole`, which before Windows 11 24H2 waits for that output to be drained, can't block the host. If reading were paused, nothing would drain it, and killing the agent could hang the whole host. There a holder too far behind falls behind like any other client, so the agent is never paused for it. Pausing on Windows waits on a check on 24H2 and with the bundled ConPTY.
 
-**A replay mid-session** (a client caught up) must redraw and nothing else:
+**Catching up from the tail.** The pacer knows the offset up to which it sent a client output (`at`: its attach's, each frame's end, a catch-up's). That output is in order on its socket and will be drawn, so the client's screen will stand there. When it catches up, the registry (`resync(from)`) sends it what came since from the output tail (`continueFrom`, `core/pty/output-tail.ts`, see "Reattach where you left off"), when that is provably all it needs. The checks are a resume's, less the stream and the grid (it draws the output where it would have drawn it live):
+
+- **`busy`**: the agent exited, is restarting or halted, or a redraw is changing the grid.
+- **`resized`**: the PTY's grid changed after that offset (the mirror reflowed and the agent repainted meanwhile).
+- **`too-old`**: what it missed is no longer all in the tail. **`split`**: the offset is inside a surrogate pair.
+- **A frame open**: the catch-up already waits for its end (`whenNoFrame`), so what it missed never ends inside one.
+
+Any doubt is a screen, as before. So is every catch-up of `work attach` (`catchup=screen`: it draws each over a cleared screen), and of a client whose output is still held for a screen being taken.
+
+§ What it missed is not counted against its flow, as a screen isn't: it doesn't go through the pacer, and the tab doesn't ack it (`drawMissed`, as a resume). The client's position moves to the replay's offset (`StreamPosition.replay`), and live output and acks go on from there. Its queries were answered when they came: a client that is behind is never picked to answer (`pick` skips it), and the tab drops what it answers while it draws missed output (`quiet`).
+
+§ No loop, bounded memory. Uncounted output could otherwise keep a slow client behind forever, sent everything at its own slow pace:
+
+- **At most a tail's worth** (`RESUME_TAIL_CHARS`, 256 Ki characters) per catch-up, and **one per `CATCH_UP_MIN_MS`** per client.
+- **Only to a client that has just drawn what it was sent** (its acks brought it under `LOW_WATERMARK`), so nothing of the previous catch-up is still queued in it.
+- **Behind again before it drew past it**: a client caught up from the tail that falls behind again before it acked anything sent after (`continuedAt`, `screenNext`) is slower than the output. Its next catch-up is a screen, which skips to where the output stands.
+
+So a client's queue holds at most the tail plus `HIGH_WATERMARK` plus one frame. That is about what a catch-up screen of `REPLAY_SCROLLBACK` already put there (~410 KiB at 200 columns). The host holds no more for it than the tail it keeps anyway and the one string sent; no snapshot is taken. A tail catch-up that falls behind again alternates with screens at worst.
+
+§ Why: with two tabs on one session, the tab that fell behind during a burst used to be sent a screen. The reset (RIS) before it threw away the tab's own scrollback (`VIEW_SCROLLBACK`, 5 000 lines) for the mirror's 2 000. Benchmark (`burst-second-tab-history`: two headless tabs, the agent prints 3 000 coloured lines, 218 000 characters, at once; 5 runs):
+
+| | Base (`e2b36c31`, no pacer) | Screen catch-up | Tail catch-up |
+|---|---|---|---|
+| History lines the second tab keeps | 3 000 | 2 019 | 3 000 |
+| Its buffer equals the first tab's | 5/5 | 0/5 | 5/5 |
+
+**A screen mid-session** (a client caught up with one) must redraw and nothing else:
 
 - **The browser** (`PtyView`) resizes to the snapshot's grid. It writes `ESC c` (RIS: in order with what was queued before it; it clears the scrollback too) followed by the screen, and stays at that grid, the PTY's (see "Resizing and attaching at a size"). It takes no focus, sends no size (that would take the PTY's size from the terminal in use), holds no input and leaves the phase alone.
 - **`work attach`** (`commands/shared/attach-output.ts`) asks for screen-only catch-ups (`withFlow(…, { screenOnly: true })`, `?catchup=screen`). Its mid-session screen is the visible screen without the scrollback (`snapshot({ scrollback: false })`), so a catch-up adds nothing to your terminal's history. The saved cursor and the scroll region are positions on the screen (the saved cursor's buffer line less `baseY`), so they come out the same without the scrollback (round-trip tests, over a fresh terminal and over one with history in it). Every screen is drawn over a cleared screen (`CLEAR_SCREEN`), never `CSI 3 J`, so your shell's history from before the attach is kept. The first screen still carries the session's scrollback.
 
+**A screen that can't be taken.** `ScreenMirror.snapshot()` gives `null` (logged, `logSwallowed`), never `''`: an empty screen would be drawn by a client over the one it has, blank. What the registry does (`pty-registry.ts`):
+
+- **A first attach** attaches all the same, on an empty screen the agent's next repaint fills, and reports it (`report('warn', …)`). A terminal that got no first frame would take no input.
+- **A catch-up** (a client that fell behind, caught up) sends a frame that changes nothing, `data: ''`, `stream: ''`, `resumed: true`, and reports it. The tab keeps its screen, draws nothing and no longer knows where it stands (no stream), so it never resumes from there. It missed output meanwhile.
+- **`work attach`** (`screenOnlyCatchUp`) is sent nothing: it draws every screen over a cleared one and never resumes.
+
 The browser also bounds each `term.write` at `WRITE_PIECE` (64 KiB). xterm.js parses one write whole before it looks at the clock, so a big frame or screen written at once is one long freeze. The keystroke-latency meter still marks the echo as the frame arrives.
 
-**Offsets.** Each frame ends at an offset: the characters of output since the entry was spawned (restarts keep counting), `pacer.offset`. `attach` returns the offset its snapshot stands at. Nothing uses them on the wire yet: they are for a reconnecting client to ask for only what it missed.
+**Offsets.** Each frame ends at an offset: the characters of output since the entry was spawned (restarts keep counting), `pacer.offset`. A frame cut at `MAX_FRAME_CHARS` ends where the chunk that didn't fit starts, though the tail already has that chunk (tested): a catch-up from the tail continues from a frame's end. `attach` returns the offset its snapshot stands at. Every `replay` frame carries it (`offset`, with the stream's id), and a reconnecting tab asks for what it missed from its own: see "Reattach where you left off".
 
 **Negotiation and compatibility.** There is no protocol version bump and no `HOST_FEATURES` entry, because no client needs to know whether the host paces. An older host ignores the parameter and the `ack` frames (unknown types are dropped), so a new client behaves as before. An older client sends neither, so the host sends it everything, unpaced. The relay (`terminal-ws.ts`) passes `?flow=1` on to the host and the acks through as they are. A mid-session replay only ever goes to a client that asked for flow. `work attach` also sends `catchup=screen` (`CATCH_UP_PARAM`), which an older host ignores like `flow=1`. Its catch-up then carries the scrollback, drawn into your history again: a duplicate, nothing lost, nothing erased.
 
@@ -246,7 +282,7 @@ Untested on a real Windows machine:
 
 Left open:
 
-- **Older resize frames.** A `resize` frame from an older client is bounded only by the registry's `validGrid`.
+- **Resize frames.** The host runs `validGrid` on a `resize` frame before the connection's size is taken or it becomes the one used last (`pty-host.ts`): an invalid grid is dropped whole, and it can no more lead than resize. The registry checks it again.
 - **Clients that don't lead aren't told.** They are not told that the PTY's grid changed. They find out from the next catch-up screen.
 - **The bundled ConPTY on a real Windows machine.** That it reflows as 21376 is from its version and Tabby's choice, not seen here.
 
@@ -260,7 +296,7 @@ An agent wraps each repaint in `CSI ? 2026 h` … `CSI ? 2026 l` (BSU … ESU) s
 **Measured** in Chromium (Playwright's Chrome for Testing, Metal GPU, M3 Pro), with xterm.js 6.0.0 and addon-webgl 0.19.0 set up as `PtyView` sets them up. A page counts `onRender` rows: a paint is whole when every row shows the same frame, torn otherwise. Frames were 200×50 and about 30 KiB. The scripts are not in the repo (a manual check, not a CI test).
 
 - **The real stream.** A fake agent wrote one frame per `write` at 60 and 30 fps through a real PTY (node-pty, macOS). The PTY delivers it in 1 KiB reads. A 30 KiB frame arrives whole within 0.4 ms (median) to 5 ms (max). 400 KiB takes 6 to 8 ms, 1.5 MiB 21 to 26 ms.
-- **The old pacer split every frame.** That stream was replayed through the old and the new pacer in virtual time, and what each sent was replayed into the page at the same times, in `WRITE_PIECE` writes. The old pacer sends the first read of a quiet moment at once. So every frame went out as two messages, 1 KiB and then the rest: 361 messages for 180 frames, 181 of them ending mid-frame.
+- **The old pacer split every frame.** The "old pacer" is this branch's earlier one (see "What before means here", below the table). That stream was replayed through the old and the new pacer in virtual time, and what each sent was replayed into the page at the same times, in `WRITE_PIECE` writes. The old pacer sends the first read of a quiet moment at once. So every frame went out as two messages, 1 KiB and then the rest: 361 messages for 180 frames, 181 of them ending mid-frame.
 
 | What the tab got (60 fps agent) | DOM renderer | WebGL renderer |
 |---|---|---|
@@ -271,6 +307,8 @@ An agent wraps each repaint in `CSI ? 2026 h` … `CSI ? 2026 l` (BSU … ESU) s
 
 At 30 fps all of them drew 30 whole frames/s, except stripped markers on the old pacer: about 90 torn paints in 3 s.
 
+§ **What "before" means here.** The "old pacer" is this branch's own earlier pacer (the coalescing one, which sent a frame's first read alone and so split every frame across writes), not the base. 3.7 whole frames/s is that pacer's figure, and the gain over it is a fix of this branch's own regression. Against the base commit (`e2b36c31`: no pacer, each read sent as it came) a fast machine already drew about 60 whole frames/s: benchmark, base → this branch, 59 → 60 whole frames/s, longest gap 34 → 20 ms. The gain over the base is the gap, not the rate.
+
 Synthetic streams (frames sent from the page itself):
 
 - **Each frame in 3 writes 2 ms apart**, markers kept: 7 to 21 whole frames/s at 30 fps, and 1.5 to 1.8/s at 60 fps, with 1 to 1.5 s gaps. 0 torn.
@@ -278,17 +316,26 @@ Synthetic streams (frames sent from the page itself):
 - **One write per frame**, markers or not: 23 to 38 whole frames/s on DOM, 0 torn. So did 100 KiB and 300 KiB frames on WebGL. Without markers they were also 0 torn, because xterm.js parses a write whole and draws after it.
 - **Without markers, each frame in pieces**: 100 to 230 torn paints in 4 s.
 
+**Frames bigger than `WRITE_PIECE`, in the real app** (work web, the PTY host, a stand-in agent writing one synchronized frame per write at 60 fps, every cell in true colour, Chrome for Testing headless with Metal, M3 Pro; 159 × 49; a scratch check, not in the repo). The tab writes such a frame in 64 KiB pieces, all in the same task, so xterm.js parses them in one go and the frame is whole before the next animation frame:
+
+| Frame | Writes per frame | WebGL | Same, written unsplit | DOM |
+|---|---|---|---|---|
+| 136 KB | 3 | 56 whole frames/s, 0 torn, longest gap 33 ms | 55.8/s, 0 torn, 35 ms | 20/s, 0 torn, 99 ms |
+| 486 KB | 8 | 56/s, 0 torn, 40 ms | 55.8/s, 0 torn, 38 ms | — |
+
+At 30 fps every WebGL run drew 29 to 29.1/s. 12 screenshots taken during each run, with alternate frames on red and blue backgrounds, showed no half-drawn frame. So splitting a write at `WRITE_PIECE` doesn't cost WebGL frames: what did was a frame split across messages (the old pacer, above).
+
 **Parse rate**: 18 to 34 ms per MiB once warm, so a 64 KiB piece takes 1.2 to 2 ms. The first 16 KiB after the page loaded took 46 to 161 ms (JIT warm-up). xterm.js checks its 12 ms slice only between writes. So a frame with no markers is drawn whole up to about 350 to 650 KiB in the pieces of one message, and less when the page is cold. Past that only the markers keep it whole.
 
 **What was seen before.** Each of these follows from the code and the replay above.
 
-- **A frame split by the coalescing.** Every frame was split. A WebGL tab drew about 4 frames a second, with half-second stalls, while the agent animated at 60.
+- **A frame split by the coalescing** (this branch's earlier pacer, not the base). Every frame was split. A WebGL tab drew about 4 frames a second, with half-second stalls, while the agent animated at 60. The base, which had no coalescing, drew about 60 (above).
 - **A pause, or a client falling behind, mid-frame.** The half sent was held by the tab until the rest came, for up to `PAUSE_TIMEOUT_MS`.
 - **A catch-up or an attach mid-frame.** The screen was taken from the mirror as it stood: the top of the new frame over the bottom of the old one. A snapshot carries no 2026, and a catch-up starts with RIS, which ends the tab's frame. So the rest of the frame was drawn as it came, torn.
 
 **What the host does.**
 
-- **`core/pty/sync-output.ts`** follows only the set and the reset of 2026, as the output arrives. It also sees them among other modes (`CSI ? 2026 ; 25 h`) and when a read cuts one. A second set inside a frame changes nothing, a reset with no frame open is nothing, and RIS ends a frame, as each does in xterm.js. It doesn't use the mirror's parser, which is asynchronous.
+- **`core/pty/sync-output.ts`** (`SYNC_MODE` = 2026 is exported from it, and `state/repaint-scroll.ts` imports it) follows only the set and the reset of 2026, as the output arrives. It also sees them among other modes (`CSI ? 2026 ; 25 h`) and when a read cuts one. A second set inside a frame changes nothing, a reset with no frame open is nothing, and RIS ends a frame, as each does in xterm.js. It doesn't use the mirror's parser, which is asynchronous.
 - **`PtySession`** cuts its output just past each frame end (`cutAtFrameEnds`). For each piece, it writes the mirror at once and then hands the piece on. The answerer of a query is still designated as the output arrives (see "Who answers a query").
 - **The pacer** holds a frame from its BSU to its ESU, with whatever was pending before it, and sends it as one message. It is not split by `COALESCE_MS` or `MAX_FRAME_CHARS`. Pausing and falling behind are decided only between frames: `deliver` runs once per whole frame, and `evaluate` never pauses while a frame is held.
 - **`FRAME_HOLD_MS` = 200** is the time cap. That is 8 times the slowest arrival measured (1.5 MiB in 26 ms), well under xterm.js's own 1 s, and alacritty and zellij use 150 ms. A frame that doesn't end in time is let go, and the rest of it flows as ordinary output. The tab still holds it by its markers.
@@ -298,18 +345,20 @@ Synthetic streams (frames sent from the page itself):
 
 **Scroll after a repaint.** Claude Code reprints its whole transcript after a resize or a toggle: `CSI 2 J`, `CSI 3 J`, then every line, inside one frame. In xterm.js 6 (measured in the same Chromium, with or without 2026, and split into 4 writes), a view at the bottom stays at the bottom and follows. A view scrolled up 50 lines lands at line 0 of the new scrollback and stops following. Before, the top of the view showed "line 221"; after, "line 0".
 
-`state/repaint-scroll.ts` fixes it with xterm's public parser hooks. Its handlers run before xterm's and fall through (`return false`), so the view is noted before anything is cleared. It is put right at the frame's ESU, or, with no frame, once the write the clear came in is parsed:
+`state/repaint-scroll.ts` fixes it with xterm's public parser hooks. Its handlers run before xterm's and fall through (`return false`), so the view is noted before anything is cleared. It is put right at the frame's ESU. With no frame it is placed after each write as far as the reprint has come, and put right for good once no write has come for `REPAINT_QUIET_MS` (50), or `REPAINT_SETTLE_MS` (500) after the clear, whichever is first (output that goes on after a repaint doesn't hold the view longer than that):
 
 - **at the bottom**: kept at the bottom (`scrollToBottom`, as Wave Terminal does);
 - **scrolled up**: the same text stays at the top of the view. The view's top 3 lines are looked for in the reprint, starting from the same distance from the bottom and going out from there. If they are not found, that distance alone is used. It stays scrolled up and doesn't follow.
 
 Measured with the fix, "line 221" stayed at the top in every case, including a reprint 20 lines shorter. A cleared screen alone (`2 J`), the alternate screen and a reset move nothing.
 
+A repaint with no 2026 is not one write in the real app: the PTY is read 1 KiB at a time and the first read of a quiet moment is sent alone, so the clear and the first lines come in a write of their own. Putting the view right at the end of that write (as at first) found only the first lines of the reprint: a view scrolled up 120 lines in a 552-line scrollback went from "line 432" to "line 0", for a 5.9 KB reprint as for a 68 KB one (the Terminal tab against a real PTY host, Chrome for Testing 159). With 2026 it stayed on "line 432". `tests/web/repaint-scroll.test.ts` writes such a repaint in three writes into a headless xterm.
+
 Left open:
 
 - **8-bit CSI** (`0x9b`) is not recognised by the scanner. Agents write the 7-bit form.
 - **A frame let go by a cap** reaches the tab split, as every frame did before, and so draws at the rate measured above. Upstream #6071 is still open.
-- **A repaint with no 2026** that spans several writes is put right at the end of its first write. A scrolled-up view can then land on the distance from the bottom instead of the text.
+- **A repaint with no 2026 and a pause in it** longer than `REPAINT_QUIET_MS` is put right where the reprint had come to then; the view stays there, scrolled up, while the rest arrives.
 - **Not seen on Windows**: ConPTY's read sizes, and so the arrival spans there.
 
 ## Fonts and the renderer
@@ -462,6 +511,101 @@ Left open:
 - **Done, unseen** (Codex's and opencode's `done`) shows as idle, seen: a stream status has no row for "Mark seen" to clear. Keeping "seen" for it in work web would let it reach the Inbox's Done section.
 - **The percent** reaches `SessionAttention.progress` and the summary; nothing draws it yet.
 - **`title`**, and `msg` other than a blocked one's (used as the summary), are validated but not shown.
+
+## Reattach where you left off
+
+A Terminal tab whose connection dropped (Wi-Fi, sleep, work web or the host restarted) wrote "[connection closed — press Enter to reconnect]", and Enter started over: a new terminal and the whole screen sent again (up to 129 KB with a full scrollback, measured below). The tab's own scrollback past `REPLAY_SCROLLBACK` (2 000 of its 5 000 lines), its scroll position and its selection were gone. Now it reconnects in place and is sent only what it missed, when the host can prove that is all it needs. Otherwise it gets a screen, as before.
+
+**Where a client stands.** Every `replay` frame says which output stream it belongs to and the offset it leaves the client at (`stream`, `offset`; `core/pty/resume.ts`).
+
+- **`stream`** is 16 hex characters from `randomBytes(8)`, one per registry entry. A new spawn under the same id after the entry ended, or a host started again, is another stream. A restart or halt in place keeps the entry, so it keeps the stream and the count: the new agent's output continues it, as an attached tab sees it, with no screen between, and a client resuming across it is sent the same characters from its offset. A resume that arrives during the restart is refused as `busy` (below) and gets a screen.
+- **`offset`** is the pacer's (see "Flow control and coalescing", Offsets).
+- **Live frames carry no stamp.** They are contiguous slices of the output, one host frame per WebSocket message, which the relay passes on as they are. So a client knows its offset: the last replay's, plus `utf16Length` of each binary frame (`StreamPosition`). Acks already rely on that count. A stamp per frame (Paradev's seq, sshx's chunk numbers) would add a header to every frame for something the client counts itself. A catch-up screen mid-session sets the position as the first screen does.
+
+**Asking.** Reconnecting, the tab states `?resume=<stream>-<offset>-<cols>x<rows>` on its attach address: straight to the host with a ticket, or through the relay, which passes it on as it does `flow` and the grid. A malformed one is ignored (a screen). A reconnect only attaches: it never starts an agent and is never told "elsewhere". The ticket request says `attachOnly: true` (`ensurePty(…, { attachOnly })`, which throws `NOT_RUNNING` when the terminal isn't running), and the relay takes the parameter itself for the same.
+
+**The tail.** The pacer keeps the last `RESUME_TAIL_CHARS` (256 Ki) characters of output as they arrived (`OutputTail`, `core/pty/output-tail.ts`). It is fed one piece at a time as the pacer takes each in (`piece()`: a chunk is cut where a synchronized frame opens or ends), and `pacer.offset` is the tail's end, so there is one count. Pushed whole at the top of `output()`, the tail would run ahead of a client that joins at a frame's end between two pieces of one chunk, and it would be sent from the tail what it is then sent live. Why that size:
+
+- **A burst a tab would keep.** A client falls behind only past `HIGH_WATERMARK` (100 000) outstanding, so it misses a burst less that. 256 Ki covers a burst of ~360 000 characters: about the 5 000 lines a tab keeps (`VIEW_SCROLLBACK`) of ~72-character coloured lines. A 3 000-line burst of them is 218 000 characters (230 KB). Past that the tab would push most of it out of its own scrollback anyway. 64 Ki covered a burst of ~165 000.
+- **Not counted, but bounded.** What a resume or a catch-up sends from it is never counted against a client's flow, as a screen isn't. It is at most this, about a screen of `REPLAY_SCROLLBACK`, and the catch-up rules above keep it from looping. It used to be under `HIGH_WATERMARK` so that a resume sent no more than a client might have outstanding anyway. A screen never kept to that either.
+- **Memory.** At most 512 KiB per PTY (two bytes a character when the output has any non-Latin-1 character, as an agent's does), against the mirror's ~6 to 11.5 MiB: 10 MiB for 20 PTYs. It fills only after 256 Ki characters, about four minutes of a working Claude (~1 KB/s, pty-host.md). Host RSS with 5 sessions after 3 000 lines each (b9, 5 runs): 109.7 MB idle median, against 109.1 MB with 64 Ki. After the busy phase both sides range 79 to 114 MB with GC.
+- Others keep 64 KiB (coder) to 2 MiB (Paradev, sshx, opencode).
+
+A longer drop gets a screen, which is what a long absence wants anyway.
+
+**Resume or screen.** `resumeFrom` (pure; its checks after the stream and the grid are `continueFrom`, which a catch-up uses too) decides as the client joins (`whenNoFrame`, right after `pacer.add`, where a screen is taken). What it missed is `tail.since(offset)`. It goes out as a `replay` with `resumed: true`, `data` = the missed output, `offset` = where its live output starts. Any doubt is a screen, sent as on any attach (`onResumeRefused` says why):
+
+- **`stream`**: another stream.
+- **`busy`**: the agent exited, is restarting or halted, or a redraw is changing the grid.
+- **`grid`**: the tab's grid isn't the PTY's. It is checked against the grid now, the grid before this attach's own resize (a tab states its grid as it attaches, and that resize would hide a mismatch), and the stated grid.
+- **`ahead`**: the offset is past the end.
+- **`resized`**: the PTY's grid changed after the offset (`gridAt`, set at every real resize, the redraw's two included). The mirror reflowed and the agent repainted for another grid meanwhile. A change at or before its offset the tab already saw: Paradev wants the offset strictly after the change, but equal is the same as an uninterrupted client (it drew everything before the change and is sent everything after).
+- **`too-old`**: what it missed is no longer all in the tail.
+- **`split`**: the offset falls between the halves of a surrogate pair, where no frame ends.
+
+§ Nothing twice, nothing lost. The missed output ends where the joined client's live output starts: the tail up to `pacer.offset` at the join, then the pacer's frames from there, held until `start()` as for a screen.
+
+- **An open synchronized frame**: a resume during one waits for its end (`whenNoFrame`), so the frame arrives whole inside the missed output.
+- **The tail's own cut** (mid-escape, mid-pair, mid-frame) is never sent: a resume starts at the tab's own offset, where its parser stands.
+- **Drawing**: missed output is written in `WRITE_PIECE`s like a screen, and never acked.
+
+§ Acks start again from the resumed offset. The missed output doesn't go through the pacer, so it isn't counted. The tab acks with a new counter per connection, so nothing owed on the old one is paid on the new.
+
+§ One answerer. Queries in the missed output were answered when they came: by the client chosen then, or by the host's screen copy when nobody was attached. While xterm parses the missed output, the tab drops what it answers (`quiet`: empty writes mark the start and end, as ScreenMirror marks a chunk; `replyParts`). Typing and reports still go through, and queries in later live output are answered as before.
+
+**The tab** (`PtyView`). When the connection closes unexpectedly after the first screen, and the host sent a `stream`:
+
+- It keeps its Terminal, writes nothing in it, and queues input.
+- It reconnects after `RECONNECT_DELAYS_MS` (0, 1, 2, 4 s), each try from where it stands then. It states its grid when shown, none when hidden.
+- "Connecting…" covers the pane only after `RECONNECT_COVER_MS` (500 ms).
+- **Resumed**: the missed output is drawn on the screen as it is, and the scrollback, scroll position and selection stay. Then its size and queued input are sent, as after any first screen. A `resumed: true` frame is always drawn this way, whatever state the tab thinks it is in, never over a reset terminal (a catch-up from the tail is one, see "Catching up from the tail", and so is a catch-up the host couldn't take a screen for, see "A screen that can't be taken").
+- **Refused**: the screen is drawn over a reset terminal at its grid, as a catch-up is.
+- **After the last try**: the old message, with the host's reason when the last try was given one and "; what you typed meanwhile was not sent" when input was queued (`connection closed: <reason>; what you typed meanwhile was not sent — press Enter to reconnect`), and Enter starts over. The queued input is dropped, never sent to a new terminal.
+- **A frame is drawn after its connection closed.** xterm draws a write a while after the frame came, and the connection can close meanwhile. Each replay's completion is tied to the socket it came on (`live`, `finishReplay(sock)`): once that socket closed it makes nothing ready. Otherwise the next try's first frame would be taken for a catch-up (drawn over a reset terminal), and what was typed would go to a closed connection. What was given to xterm is still drawn, in order, so the position counts what was written.
+- **A host from before** (no `stream`): the old message at once.
+
+**Compatibility.** Additive: no `PROTOCOL_VERSION` bump, no `HOST_FEATURES` entry.
+
+- **An older host** sends no `stream`, so the tab never asks.
+- **A host started again** has another stream, so the tab gets a screen.
+- **An older client** never states `resume` and ignores the new fields.
+
+**`work attach`** stays on screens. It doesn't reconnect (its socket closing ends it), so it has nowhere to resume from. Reconnecting it is a change of its own.
+
+**Measured**: a real PTY through the host, 133 586 characters in about a second, with colours, wide and astral characters and synchronized frames. The numbers are from three scratch runs on macOS, with timings added, of an earlier, timed version of `tests/functional/pty-resume-real.test.ts`: a 30 ms drop, and a frame the stand-in agent held for a fixed time. The test itself now waits only on what was seen: the frame is held until the test says, and each cut waits on the clients' output and the host's screen. Each time includes opening the WebSocket.
+
+| What was sent | Size | Time to arrive |
+|---|---|---|
+| Resume after a 30 ms drop | 7.9–8.4 Ki characters (10.9–11.5 KB) | 7.5–15 ms |
+| Resume inside a held synchronized frame | 76 characters (238 B) | 40–66 ms (the wait for the frame's end) |
+| Screen at about the same moment | 43.6 Ki characters (56 KB) | 122–132 ms in four runs of five, 7 ms in one |
+| Screen at the end, full `REPLAY_SCROLLBACK` | 101 Ki characters (129 KB) | 17–31 ms |
+
+What the runs show:
+
+- **Equal**: the resumed client's serialized buffer (screen and 10 000-line scrollback) equaled the uninterrupted client's in every run.
+- **The check catches errors**: a client resuming 3 characters off, or dropping what it missed, came out different.
+- **A screen is not equal**: a client sent a screen instead (too old) differs by its scrollback, because a screen carries 2 000 lines.
+
+**Compared with others.**
+
+- **Paradev** (`packages/host-service/src/terminal/terminal.ts`; the renderer's `terminal-seq-anchor.ts`), the closest:
+  - `?seq=<epoch>:<n>`, the `epoch` from `randomBytes(8)` per session (our `stream`). It keeps a 2 MiB catch-up ring and sends a `synced {epoch, seq, head, mode}` message first.
+  - It resumes `exact` when the ring still holds `seq`, `seq` is past the last resize and not past the head. Otherwise it `reanchor`s: it keeps the client's screen and nudges a SIGWINCH instead of sending a screen. We send a screen.
+  - It keeps the anchor in localStorage. Ours dies with the page, whose terminal is new anyway.
+  - It notes that replayed bytes must not be answered, as we do.
+- **sshx** (`crates/sshx-server/src/session.rs`): it keeps 2 MiB per shell (`SHELL_STORED_BYTES`) and resumes by chunk number (`subscribe_chunks`). A request older than that is clamped silently (`saturating_sub`), with no screen and no stream id.
+- **opencode** (`packages/core/src/pty.ts`, `pty/protocol.ts`): a 2 Mi-character buffer, `?cursor=` and a meta frame with the cursor. A cursor that is too old silently replays the whole buffer; it has no incarnation id.
+- **coder** (`agent/reconnectingpty/buffered.go`): a 64 KiB ring (`circbuf.NewBuffer(64 << 10)`) replayed whole on every reconnect, with no offset.
+- **VS Code** (`platform/terminal/node/ptyService.ts`, `XtermSerializer`): always a serialized screen (`persistentSessionScrollback` 100 lines), no offset.
+- **zmx** (`serializeTerminalState`): always a ghostty-vt screen, no offset.
+- **tmux**: redraws from its grid and never sends raw output.
+
+Left open:
+
+- **Not seen in a real browser.** The tab is tested in jsdom with a fake xterm, and end to end with @xterm/headless clients over real sockets.
+- **The cover's 500 ms and the four tries** are judgement, not measured on a real outage. A drop that lasts longer than about 7 s gets the old message.
+- **`work attach`** doesn't reconnect.
 
 ## The libghostty engine
 
