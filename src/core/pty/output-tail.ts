@@ -2,15 +2,19 @@ import type { Grid } from './terminal-size.js';
 import type { ResumePoint } from './resume.js';
 
 /**
- * The last of a PTY's raw output, kept so a client that reconnects is sent only what it missed (terminal-rendering.md,
- * "Reattach where you left off"). Pure.
+ * The last of a PTY's raw output, kept so a client that reconnects, or that fell behind and caught up, is sent only what
+ * it missed (terminal-rendering.md, "Reattach where you left off" and "Flow control and coalescing"). Pure.
  *
- * 64 Ki characters: under HIGH_WATERMARK (100 000, flow-control.ts), so what a resume sends is never more than a client
- * may have outstanding; about a minute of a working Claude (~1 KB/s measured, pty-host.md), many minutes of one at its
- * prompt; at most 128 KiB per PTY (two bytes a character in the worst case), against the mirror's ~11.5 MiB. A drop
- * longer than that, or past a flood, gets a screen, which is what a long absence wants anyway.
+ * 256 Ki characters. A client falls behind only once it has more than HIGH_WATERMARK (100 000) outstanding, so what it
+ * misses of a burst is the burst less that: 256 Ki covers a burst of ~360 000 characters, about the 5 000 lines a tab
+ * keeps (VIEW_SCROLLBACK) of ~72-character coloured lines (a 3 000-line burst of them is 218 000 characters, 230 KB) —
+ * past that, the tab would push most of it out of its own scrollback anyway. What a resume or a catch-up sends from here is never
+ * counted against a client's flow (as a screen isn't): it is at most this, about a catch-up screen of REPLAY_SCROLLBACK
+ * (~410 KiB at 200 columns), and costs the host no copy it doesn't already hold but the one string sent. At most
+ * 512 KiB per PTY (two bytes a character in the worst case), against the mirror's ~6–11.5 MiB: 10 MiB for 20 PTYs.
+ * Longer than that, a client gets a screen.
  */
-export const RESUME_TAIL_CHARS = 64 * 1024;
+export const RESUME_TAIL_CHARS = 256 * 1024;
 
 /**
  * The last `max` characters of a stream, and where they stand in it. The cut at its start may fall anywhere (inside an
@@ -125,9 +129,25 @@ export function resumeFrom(
   if (target.busy) return { refused: 'busy' };
   const same = (g: Grid) => g.cols === at.cols && g.rows === at.rows;
   if (!same(target.grid) || !same(target.gridBefore) || (stated && !same(stated))) return { refused: 'grid' };
-  if (at.offset > tail.end) return { refused: 'ahead' };
-  if (target.gridAt > at.offset) return { refused: 'resized' };
-  const missed = tail.since(at.offset);
+  return continueFrom(at.offset, target, tail);
+}
+
+/**
+ * What a client that has drawn this stream up to `offset` is sent to go on from there: the output since, when it is all
+ * held and nothing since makes it unsafe (an agent busy, a resize after it, an offset inside a surrogate pair), else why
+ * not. A reconnecting client after its stream and grid are checked (`resumeFrom`); a client that fell behind as it
+ * catches up, at the offset it was sent output up to (pty-registry.ts `resync`): that output is in order on its socket,
+ * so its screen will stand there, drawn at the grid it draws live output at.
+ */
+export function continueFrom(
+  offset: number,
+  target: Pick<ResumeTarget, 'gridAt' | 'busy'>,
+  tail: OutputTail,
+): { missed: string } | { refused: ResumeRefusal } {
+  if (target.busy) return { refused: 'busy' };
+  if (offset > tail.end) return { refused: 'ahead' };
+  if (target.gridAt > offset) return { refused: 'resized' };
+  const missed = tail.since(offset);
   if (missed === null) return { refused: 'too-old' };
   const first = missed.charCodeAt(0);
   if (first >= 0xdc00 && first <= 0xdfff) return { refused: 'split' };

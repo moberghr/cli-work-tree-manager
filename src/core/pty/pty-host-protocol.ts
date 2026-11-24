@@ -174,11 +174,12 @@ export type HostControlFrame =
       stream?: string;
       offset?: number;
       /**
-       * Sent only to a client that asked to resume (`?resume=…`): `data` is the output it missed, from where it said it
-       * stood up to `offset`, to draw on its screen as it is — no reset, no resize. Its queries were answered when they
-       * came: the client doesn't answer them again. Also, mid-session, to a paced client other than `work attach` whose
-       * catch-up screen couldn't be taken: `data` '' and `stream` '' — it keeps its screen, and no longer knows where it
-       * stands (it never resumes from there).
+       * `data` is the output the client missed, to draw on its screen as it is — no reset, no resize — up to `offset`.
+       * Its queries were answered when they came: the client doesn't answer them again. Sent to a client that asked to
+       * resume (`?resume=…`), from where it said it stood; and mid-session to a paced client other than `work attach`
+       * (`?flow=1`, no `catchup=screen`) that fell behind and caught up, from where its live output stopped. Also, mid-
+       * session, to such a client whose catch-up screen couldn't be taken: `data` '' and `stream` '' — it keeps its
+       * screen, and no longer knows where it stands (it never resumes from there).
        */
       resumed?: true;
     }

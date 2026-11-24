@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { OutputTail, RESUME_TAIL_CHARS, resumeFrom, type ResumeTarget } from '../../../src/core/pty/output-tail.js';
+import { OutputTail, RESUME_TAIL_CHARS, continueFrom, resumeFrom, type ResumeTarget } from '../../../src/core/pty/output-tail.js';
 import { HIGH_WATERMARK } from '../../../src/core/pty/flow-control.js';
 import type { ResumePoint } from '../../../src/core/pty/resume.js';
+import { VIEW_SCROLLBACK } from '../../../src/core/pty/scrollback.js';
 
 const tailOf = (max: number, ...chunks: string[]) => {
   const t = new OutputTail(max);
@@ -68,8 +69,10 @@ describe('OutputTail', () => {
     expect(t.since(3)).toBe('de');
   });
 
-  it('is sized under what a client may have outstanding (HIGH_WATERMARK)', () => {
-    expect(RESUME_TAIL_CHARS).toBeLessThan(HIGH_WATERMARK);
+  it('holds what a client misses of a burst its tab would keep (VIEW_SCROLLBACK lines of ~72 characters), in 512 KiB a PTY', () => {
+    // A client falls behind only past HIGH_WATERMARK outstanding: it misses the burst less that.
+    expect(RESUME_TAIL_CHARS + HIGH_WATERMARK).toBeGreaterThanOrEqual(VIEW_SCROLLBACK * 72);
+    expect(RESUME_TAIL_CHARS * 2).toBeLessThanOrEqual(512 * 1024); // two bytes a character at worst
   });
 });
 
@@ -130,5 +133,24 @@ describe('resumeFrom (any doubt is a screen)', () => {
     expect(resumeFrom(at(2), target(), t)).toEqual({ refused: 'split' });
     expect(resumeFrom(at(1), target(), t)).toEqual({ missed: '😀b' });
     expect(resumeFrom(at(3), target(), t)).toEqual({ missed: 'b' });
+  });
+});
+
+describe('continueFrom (a client that fell behind, caught up: any doubt is a screen)', () => {
+  const tail = tailOf(10, 'hello ', 'world!'); // 0..12, holds 2..12
+  const target = (over: { gridAt?: number; busy?: boolean } = {}) => ({ gridAt: 0, busy: false, ...over });
+
+  it('sends what came since the offset it was sent output up to; it checks no grid (it draws it where it draws live output)', () => {
+    expect(continueFrom(6, target(), tail)).toEqual({ missed: 'world!' });
+    expect(continueFrom(12, target(), tail)).toEqual({ missed: '' });
+  });
+
+  it('refuses as a resume does: busy, resized after the offset, too old, ahead, inside a surrogate pair', () => {
+    expect(continueFrom(6, target({ busy: true }), tail)).toEqual({ refused: 'busy' });
+    expect(continueFrom(6, target({ gridAt: 7 }), tail)).toEqual({ refused: 'resized' });
+    expect(continueFrom(6, target({ gridAt: 6 }), tail)).toEqual({ missed: 'world!' }); // it was sent all before the change
+    expect(continueFrom(1, target(), tail)).toEqual({ refused: 'too-old' });
+    expect(continueFrom(13, target(), tail)).toEqual({ refused: 'ahead' });
+    expect(continueFrom(2, target(), tailOf(100, 'a😀b'))).toEqual({ refused: 'split' });
   });
 });

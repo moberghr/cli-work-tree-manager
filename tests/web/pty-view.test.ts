@@ -1403,6 +1403,31 @@ describe('PtyView: reconnecting where it left off (terminal-rendering.md, "Reatt
     expect(overlay()).toBeNull();
   });
 
+  it('what it missed, sent mid-session (it fell behind and was caught up from the host’s tail), is drawn on the screen it has: scrollback, scroll position and selection kept', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '<screen>', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1000 }));
+    act(() => ws.binary('seen'));
+    term.selection = 'picked';
+    term.buffer.active.viewportY = 3;
+    const resizes = term.resizes.length;
+    const written = term.writes.length;
+    const sent = [...ws.sent];
+    act(() => ws.control({ type: 'replay', data: 'missed', cols: h.FIT.cols, rows: h.FIT.rows, stream: S, offset: 1010, resumed: true }));
+    act(() => void vi.advanceTimersByTime(1000));
+    const drawn = term.writes.slice(written).join('');
+    expect(drawn).toBe('missed'); // no reset (RIS would clear the scrollback)
+    expect(term.resizes.length).toBe(resizes);
+    expect(term.selection).toBe('picked');
+    expect(term.buffer.active.viewportY).toBe(3);
+    expect(ws.sent).toEqual(sent); // no size, no ack for it
+    // It stands at that replay's offset now, moved on by what follows.
+    act(() => ws.binary('ab'));
+    act(() => ws.serverClose());
+    act(() => void vi.advanceTimersByTime(0));
+    expect(h.socketOpts.at(-1)?.resume).toMatchObject({ stream: S, offset: 1012 });
+  });
+
   it('a screen instead (the host could not tell that would be enough): drawn over a reset terminal, at its grid', () => {
     const { term, written } = connectedThenDropped(['abc']);
     act(() => void vi.advanceTimersByTime(0));

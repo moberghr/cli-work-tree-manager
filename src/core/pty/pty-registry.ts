@@ -18,7 +18,7 @@ import { OutputPacer, realTimers, type PacerTimers, type PtyFlow } from './outpu
 import type { SnapshotOptions } from './screen-mirror.js';
 import type { StreamSignal } from './stream-status.js';
 import { MIN_ROWS, validGrid, type Grid, type WindowsPty } from './terminal-size.js';
-import { resumeFrom, type ResumeRefusal } from './output-tail.js';
+import { continueFrom, resumeFrom, type ResumeRefusal } from './output-tail.js';
 import type { ResumePoint } from './resume.js';
 
 const REPLAY_MAX = 256 * 1024;
@@ -85,7 +85,10 @@ export interface PtyLike {
 export interface AttachOptions {
   /** It acks what it draws (`?flow=1`, flow-control.ts): it is paced. Else it is sent everything, as before. */
   metered?: boolean;
-  /** It fell behind and caught up: the screen as it stands now, before live output again (the host's `replay` frame). */
+  /**
+   * It fell behind and caught up: what it missed (`resumed`), or the screen as it stands now, before live output again
+   * (the host's `replay` frame).
+   */
   onReplay?: (replay: ReplaySnapshot) => void;
   /**
    * Its catch-up screens are the screen only, without the scrollback (`?catchup=screen`: `work attach`, whose native
@@ -118,9 +121,9 @@ export interface ReplaySnapshot {
   stream: string;
   offset: number;
   /**
-   * `data` is not a screen but the output the client missed, from where it said it stood up to `offset`: drawn on its
-   * screen as it is. Also a catch-up whose screen couldn't be taken: `data` '' and `stream` '' (where it stands is
-   * unknown now: it never resumes from here), its screen kept.
+   * `data` is not a screen but the output the client missed, from where it said it stood (a reconnect) or was sent output
+   * up to (a catch-up) up to `offset`: drawn on its screen as it is. Also a catch-up whose screen couldn't be taken:
+   * `data` '' and `stream` '' (where it stands is unknown now: it never resumes from here), its screen kept.
    */
   resumed?: true;
   /** The PTY is ConPTY's (a host on Windows): the client's xterm.js sets this, so it doesn't reflow lines ConPTY reflows. */
@@ -537,9 +540,9 @@ export class PtyRegistry {
    * always, its answers only if it answers the queries in the output that arrived last (`designate`).
    *
    * Output reaches it in frames (output-pacer.ts). `opts.metered`: it acks what it draws (`ack(chars)`); if it falls
-   * behind, it is sent nothing until it catches up, then the screen as it stands then (`opts.onReplay`, taken and held
-   * as the attach's is: nothing lost, nothing twice) and live output again. `offset`: the output offset its snapshot
-   * stands at (where its first frame starts).
+   * behind, it is sent nothing until it catches up, then what it missed from the tail when that is provably enough, else
+   * the screen as it stands then (`opts.onReplay`; a screen taken and held as the attach's is: nothing lost, nothing
+   * twice), and live output again. `offset`: the output offset its snapshot stands at (where its first frame starts).
    */
   attach(
     id: string,
@@ -600,10 +603,24 @@ export class PtyRegistry {
       report('warn', `${id}: a terminal's catch-up screen couldn't be taken; it keeps the screen it has`);
       if (!opts.screenOnlyCatchUp) opts.onReplay?.({ ...snapshot('', at), stream: '', resumed: true });
     };
-    // It fell behind and caught up (output-pacer.ts): the screen as it stands now, the output from now on held until it is sent.
-    const resync = () => {
+    // Whether the agent is between processes or its grid is moving: nothing is sent from the tail then.
+    const busy = () => e.pty.exited || !!e.restarting || !!e.halted || e.redrawing !== undefined;
+    // It fell behind and caught up (output-pacer.ts). Sent output up to `from`, in order on its socket, so its screen will
+    // stand there: what it missed since, from the tail, when that is provably all it needs (`continueFrom`, the checks a
+    // reconnect's resume makes but the grid: it draws it where it would have drawn it live) — a `replay` marked resumed,
+    // drawn on the screen it has (its scrollback kept), not counted or acked, as a screen isn't. Else (`from` null: the
+    // pacer wants a screen; `work attach`, which draws every screen over a cleared one; output held for it) the screen as
+    // it stands now, the output from now on held until it is sent.
+    const resync = (from: number | null): boolean => {
       // Before its first screen nothing could have been acked; after it left, nobody to send it to.
-      if (gone || !started) return;
+      if (gone || !started) return false;
+      if (from !== null && !opts.screenOnlyCatchUp && held === null) {
+        const r = continueFrom(from, { gridAt: e.gridAt, busy: busy() }, e.pacer.tail);
+        if ('missed' in r) {
+          opts.onReplay?.({ ...snapshot(r.missed), resumed: true });
+          return true;
+        }
+      }
       const shot: SnapshotOptions | undefined = opts.screenOnlyCatchUp ? { scrollback: false } : undefined;
       // Mid-restart the old process's screen is gone with it: an empty screen, the new one draws from scratch.
       const between = !!e.restarting || !!e.halted;
@@ -613,7 +630,7 @@ export class PtyRegistry {
       if (!settle) {
         const data = between ? '' : e.pty.serialize?.(shot);
         sendCatchUp(data === null ? null : data || e.replay, at);
-        return;
+        return false;
       }
       const mine: Array<[string, number | undefined]> = [];
       held = mine;
@@ -632,6 +649,7 @@ export class PtyRegistry {
           for (const [d, end] of mine) onData(d, end);
           if (endedWith !== null) onExit(endedWith);
         });
+      return false;
     };
     // Its first screen: taken where it joins the output (`join`), as a promise of it.
     let resolveReady: (r: ReplaySnapshot) => void = () => {};
@@ -660,7 +678,7 @@ export class PtyRegistry {
             grid: { cols: e.cols, rows: e.rows },
             gridBefore,
             gridAt: e.gridAt,
-            busy: e.pty.exited || !!e.restarting || !!e.halted || e.redrawing !== undefined,
+            busy: busy(),
           },
           e.pacer.tail,
           opts.grid,

@@ -8,6 +8,7 @@ import {
   PtyRegistry,
   type AttachOptions,
   REDRAW_JIGGLE_MS,
+  type ReplaySnapshot,
   type PtyLike,
   type PtySpawner,
 } from '../../../src/core/pty/pty-registry.js';
@@ -1681,6 +1682,116 @@ describe('reattaching where it left off (terminal-rendering.md, "Reattach where 
     )!;
     expect((await fresh.ready).data).toBe('new agent draws');
   });
+
+  describe('a client that fell behind is caught up from the tail when it may be ("Flow control and coalescing")', () => {
+    /** A paced client (the only one: a FakePty can't pause, so it falls behind) behind after the 110 000 it was sent. */
+    async function fallenBehind(extra: Partial<AttachOptions> = {}) {
+      vi.useFakeTimers();
+      const { pty, reg, stream } = setup();
+      const got: string[] = [];
+      const replays: ReplaySnapshot[] = [];
+      const att = reg.attach(
+        'a',
+        (d) => got.push(d),
+        () => {},
+        { metered: true, onReplay: (r) => replays.push(r), ...extra },
+      )!;
+      await att.ready;
+      att.start();
+      pty.emit('a'.repeat(60_000));
+      vi.advanceTimersByTime(COALESCE_MS);
+      pty.emit('b'.repeat(50_000)); // now behind: nothing more is sent to it
+      vi.advanceTimersByTime(COALESCE_MS);
+      const sent = got.join('');
+      expect(sent).toHaveLength(110_000);
+      /** It drew all it was sent: caught up once CATCH_UP_MIN_MS has passed since its screen. */
+      const catchUp = async () => {
+        att.ack(got.join('').length);
+        vi.advanceTimersByTime(CATCH_UP_MIN_MS);
+        await vi.waitFor(() => expect(replays.length).toBeGreaterThan(0));
+      };
+      return { pty, reg, stream, att, got, replays, sent, catchUp };
+    }
+
+    it('is sent exactly what it missed, marked resumed, at the offset its live output goes on from: no screen, no reset', async () => {
+      const f = await fallenBehind();
+      f.pty.emit('missed 1, ');
+      vi.advanceTimersByTime(COALESCE_MS);
+      f.pty.emit('missed 2'); // pending in a window when it catches up
+      await f.catchUp();
+      expect(f.replays).toEqual([
+        expect.objectContaining({ data: 'missed 1, missed 2', resumed: true, stream: f.stream, offset: f.pty.screen.length }),
+      ]);
+      f.pty.emit(' live');
+      vi.advanceTimersByTime(COALESCE_MS);
+      // Its output, what it missed and live output again: the stream, nothing twice, nothing lost.
+      expect(f.sent + f.replays[0].data + f.got.join('').slice(f.sent.length)).toBe(f.pty.screen);
+    });
+
+    it('what it missed no longer all in the tail: a screen', async () => {
+      const f = await fallenBehind();
+      f.pty.emit('m'.repeat(RESUME_TAIL_CHARS + 10));
+      await f.catchUp();
+      expect(f.replays[0].resumed).toBeUndefined();
+      expect(f.replays[0].data).toBe(f.pty.screen);
+    });
+
+    it('the PTY resized after its output stopped: a screen', async () => {
+      const f = await fallenBehind();
+      f.pty.emit('missed, drawn for 80 columns');
+      f.reg.resize('a', 100, 30);
+      f.pty.emit('drawn for 100 columns');
+      await f.catchUp();
+      expect(f.replays[0]).toMatchObject({ cols: 100, rows: 30, data: f.pty.screen });
+      expect(f.replays[0].resumed).toBeUndefined();
+    });
+
+    it('caught up inside a synchronized frame: waits for its end, and the frame is in what it missed, whole', async () => {
+      const f = await fallenBehind();
+      vi.advanceTimersByTime(CATCH_UP_MIN_MS - FRAME_HOLD_MS / 2); // its catch-up falls due inside the frame, before its cap
+      f.pty.emit(`${BSU}half`);
+      f.att.ack(f.got.join('').length);
+      vi.advanceTimersByTime(FRAME_HOLD_MS / 2);
+      expect(f.replays).toEqual([]);
+      f.pty.emit(`rest${ESU}`);
+      expect(f.replays).toEqual([expect.objectContaining({ data: `${BSU}halfrest${ESU}`, resumed: true })]);
+    });
+
+    it('behind again before it drew past what it missed: the next catch-up is a screen', async () => {
+      const f = await fallenBehind();
+      f.pty.emit('missed');
+      await f.catchUp();
+      expect(f.replays[0]).toMatchObject({ resumed: true, data: 'missed' });
+      f.pty.emit('c'.repeat(60_000));
+      vi.advanceTimersByTime(COALESCE_MS);
+      f.pty.emit('d'.repeat(50_000)); // behind again, nothing sent since acked
+      vi.advanceTimersByTime(COALESCE_MS);
+      f.pty.emit('missed again');
+      f.att.ack(110_000);
+      vi.advanceTimersByTime(CATCH_UP_MIN_MS);
+      await vi.waitFor(() => expect(f.replays).toHaveLength(2));
+      expect(f.replays[1].resumed).toBeUndefined();
+      expect(f.replays[1].data).toBe(f.pty.screen);
+    });
+
+    it('`work attach` (screen-only catch-ups) is sent a screen', async () => {
+      const f = await fallenBehind({ screenOnlyCatchUp: true });
+      f.pty.emit('missed');
+      await f.catchUp();
+      expect(f.replays[0].resumed).toBeUndefined();
+      expect(f.replays[0].data).toBe(f.pty.screen);
+    });
+
+    it('while its agent is being redrawn: a screen', async () => {
+      const f = await fallenBehind();
+      f.pty.emit('missed');
+      f.att.ack(110_000);
+      vi.advanceTimersByTime(CATCH_UP_MIN_MS - REDRAW_JIGGLE_MS / 2);
+      expect(f.reg.redraw('a')).toBe(true);
+      await f.catchUp();
+      expect(f.replays[0].resumed).toBeUndefined();
+    });
+  });
 });
 
 describe('a screen that cannot be taken (the screen copy failed: null, logged)', () => {
@@ -1729,6 +1840,7 @@ describe('a screen that cannot be taken (the screen copy failed: null, logged)',
     pty.emit('b'.repeat(50_000)); // now behind: nothing more is sent to it
     vi.advanceTimersByTime(COALESCE_MS);
     pty.emit('missed');
+    pty.emit('m'.repeat(RESUME_TAIL_CHARS)); // more than the tail holds: a screen, not what it missed
     vi.advanceTimersByTime(COALESCE_MS);
     pty.broken = true;
     att.ack(110_000);

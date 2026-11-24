@@ -42,7 +42,10 @@ const timers: PacerTimers = {
 };
 
 const FLOOD_AI = path.resolve(__dirname, 'fixtures/flood-ai.cjs');
-const tool = { cmd: 'node', baseArgs: [FLOOD_AI], resumeFlag: '--continue', promptFileFlag: '', promptFlag: '' } as unknown as AiToolSpec;
+const BURST_AI = path.resolve(__dirname, 'fixtures/burst-ai.cjs');
+const agent = (script: string) =>
+  ({ cmd: 'node', baseArgs: [script], resumeFlag: '--continue', promptFileFlag: '', promptFlag: '' }) as unknown as AiToolSpec;
+const tool = agent(FLOOD_AI);
 const BSU = '\x1b[?2026h';
 /** The step whose synchronized frame the agent holds open until told (flood-ai.cjs), its two halves, and their marks. */
 const HOLD_STEP = 150;
@@ -110,10 +113,21 @@ function viewer(cols: number, rows: number) {
     start: 0,
     replays: [] as Replay[],
     ws: null as WebSocket | null,
+    /** While true it draws but acks nothing, as a tab that stopped drawing looks to the host; `release` pays what it owes. */
+    stalled: false,
+    owed: 0,
+    release() {
+      v.stalled = false;
+      if (v.owed && v.ws?.readyState === WebSocket.OPEN) v.ws.send(ackFrame(v.owed));
+      v.owed = 0;
+    },
     connect(id: string, at: ResumePoint | null) {
       const ws = new WebSocket(withResume(withFlow(client.attachUrl(id)), at));
       v.ws = ws;
-      const acks = new AckCounter((chars) => ws.readyState === WebSocket.OPEN && ws.send(ackFrame(chars)));
+      const acks = new AckCounter((chars) => {
+        if (v.stalled) v.owed += chars;
+        else if (ws.readyState === WebSocket.OPEN) ws.send(ackFrame(chars));
+      });
       ws.on('message', (d, binary) => {
         if (v.ws !== ws) return;
         if (binary) {
@@ -147,6 +161,8 @@ function viewer(cols: number, rows: number) {
       v.ws = null;
     },
     point: () => position.point(cols, rows)!,
+    /** The normal buffer's lines, scrollback and screen. */
+    lines: () => Array.from({ length: term.buffer.normal.length }, (_, y) => term.buffer.normal.getLine(y)?.translateToString(true) ?? ''),
     serialized: () => new Promise<string>((r) => term.write('', () => r(serializer.serialize()))),
   };
   return v;
@@ -203,5 +219,35 @@ describe('reattaching where it left off, on a real PTY through the host', () => 
     const [screenA, screenB] = await Promise.all([a.serialized(), b.serialized()]);
     expect(screenB).toBe(screenA);
     expect(screenA).toContain('FLOOD-DONE');
+  });
+});
+
+describe('a client that falls behind during a burst, on a real PTY through the host', () => {
+  it('is caught up with what it missed, not a screen: it keeps every history line, as the client that kept up does', async () => {
+    await client.spawn('b', { cwd: worktree, tool: agent(BURST_AI), cols: 80, rows: 24 });
+    for (const p of host.registry.list()) pids.add(p.pid);
+    const a = viewer(80, 24);
+    const b = viewer(80, 24);
+    await a.connect('b', null);
+    await b.connect('b', null);
+    await waitFor(() => a.text.includes('burst ready') && b.text.includes('burst ready'), 15_000, 'the agent');
+    // b stops acking (a background tab, a busy page): past HIGH_WATERMARK it is sent nothing more. a, which types, keeps up.
+    b.stalled = true;
+    a.ws!.send(JSON.stringify({ type: 'input', data: 'go\r' }));
+    await waitFor(() => a.text.includes('BURST-DONE'), 20_000, 'the burst');
+    expect(b.text).not.toContain('BURST-DONE');
+    expect(b.replays).toHaveLength(1);
+    // It drew all it was sent; its acks come: caught up.
+    await b.serialized();
+    b.release();
+    await waitFor(() => b.text.includes('BURST-DONE'), 20_000, 'the catch-up');
+    expect(b.replays).toHaveLength(2);
+    expect(b.replays[1]).toMatchObject({ resumed: true });
+    // The same stream, the same buffer: all 3 000 history lines in both.
+    expect(b.live).toBe(a.live.slice(b.start - a.start));
+    const [screenA, screenB] = await Promise.all([a.serialized(), b.serialized()]);
+    expect(screenB).toBe(screenA);
+    const history = (v: ReturnType<typeof viewer>) => v.lines().filter((l) => /^history \d{6}/.test(l)).length;
+    expect([history(a), history(b)]).toEqual([3000, 3000]);
   });
 });

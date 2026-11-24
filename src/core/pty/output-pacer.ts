@@ -13,8 +13,9 @@ import { OutputTail } from './output-tail.js';
  *   holds the PTY (the registry's `holder`: the one that answers the agent) pauses it above HIGH_WATERMARK and resumes
  *   it below LOW_WATERMARK, as VS Code does with its one client, but for `PAUSE_TIMEOUT_MS` at most. Any other above
  *   HIGH_WATERMARK (and the holder past its time) is **behind**: it is sent no output, and once its acks bring it under
- *   LOW_WATERMARK it is sent the screen as it stands (`resync`) and goes live again. An agent never waits long for a
- *   view nobody may be looking at (a background tab draws once a second).
+ *   LOW_WATERMARK it is caught up (`resync`) and goes live again: sent what it missed from the tail when it may be (its
+ *   screen will stand where its output stopped), else the screen as it stands. An agent never waits long for a view
+ *   nobody may be looking at (a background tab draws once a second).
  *
  * The set of clients a frame goes to is fixed when it goes: a client that joins, falls behind or catches up has
  * what was pending sent first, so a frame is never sent twice, nor to a client whose snapshot already has it. A
@@ -28,8 +29,8 @@ import { OutputTail } from './output-tail.js';
  *   (`whenNoFrame`) wait for its end, so no client is ever sent half a frame, or a screen of one.
  *
  * Every frame ends at an offset: the characters of output since the PTY's entry was spawned (a restart keeps
- * counting). The last RESUME_TAIL_CHARS of it are kept (`tail`, output-tail.ts), so a client that reconnects can be sent
- * only what it missed from where it stands (pty-registry.ts `attach`, resume.ts).
+ * counting). The last RESUME_TAIL_CHARS of it are kept (`tail`, output-tail.ts), so a client that reconnects, or that
+ * fell behind and caught up, can be sent only what it missed from where it stands (pty-registry.ts `attach`, resume.ts).
  */
 
 /** After the first output of a quiet moment, what arrives within this many ms goes out as one frame (VS Code's `throttleBy`). */
@@ -45,8 +46,9 @@ export const MAX_FRAME_CHARS = 64 * 1024;
  */
 export const PAUSE_TIMEOUT_MS = 500;
 /**
- * A client that fell behind is sent a fresh screen at most this often: each snapshot runs on the host's event loop
- * (~17 ms at the mirror's full 2000 lines), and a client slower than a flood would otherwise ask for one every few ms.
+ * A client that fell behind is caught up at most this often: each snapshot runs on the host's event loop (~17 ms at the
+ * mirror's full 2000 lines), and a client slower than a flood would otherwise ask for one every few ms. What it missed,
+ * sent from the tail instead, is not counted against its flow (as a screen isn't): this bounds that too.
  */
 export const CATCH_UP_MIN_MS = 500;
 /**
@@ -79,8 +81,12 @@ export interface PtyFlow {
 export interface PacedClient {
   /** A frame of live output, and the offset it ends at. */
   send(frame: string, end: number): void;
-  /** It was behind and has caught up: send it the screen as it stands now, then live output again. */
-  resync(): void;
+  /**
+   * It was behind and has caught up: `from` is the offset it was sent output up to (where its screen will stand once it
+   * has drawn it), or null when it must be sent a screen. Send it what it missed since `from` when that may be (true),
+   * else the screen as it stands now (false); then live output again.
+   */
+  resync(from: number | null): boolean;
   /** It acks what it draws. One that doesn't is sent everything, as before, and never pauses the PTY. */
   metered: boolean;
 }
@@ -90,11 +96,17 @@ interface ClientState {
   /** Characters sent to it, and acked by it. */
   sent: number;
   acked: number;
+  /** The offset it was sent output up to (its attach's, a catch-up's, each frame's end). */
+  at: number;
+  /** Its `sent` when it was last caught up from the tail (what it missed is drawn before anything sent after); else null. */
+  continuedAt: number | null;
+  /** It fell behind again before it drew past what it missed: its next catch-up is a screen. */
+  screenNext: boolean;
   /** Sent no live output until it catches up. */
   behind: boolean;
   /** It may pause the PTY: false once it timed out holding it, until it is used (typed in, resized) again. */
   mayPause: boolean;
-  /** When it was last sent a screen (its attach, a catch-up). */
+  /** When it was last sent a screen or what it missed (its attach, a catch-up). */
   snapshotAt: number;
   catchUp: unknown;
   /** Its catch-up waits for the frame being held to end. */
@@ -196,6 +208,9 @@ export class OutputPacer<K> {
       client,
       sent: 0,
       acked: 0,
+      at: this.offset,
+      continuedAt: null,
+      screenNext: false,
       behind: false,
       mayPause: true,
       snapshotAt: this.timers.now(),
@@ -301,7 +316,8 @@ export class OutputPacer<K> {
       return;
     }
     if (!open) this.letGo = false;
-    if (this.pendingLength && this.pendingLength + text.length > MAX_FRAME_CHARS) this.flushPending();
+    // What was pending ends where this piece starts: the tail has this piece already, the frame doesn't.
+    if (this.pendingLength && this.pendingLength + text.length > MAX_FRAME_CHARS) this.flushPending(this.offset - text.length);
     if (this.window === null) {
       this.window = this.timers.set(() => this.windowEnd(), COALESCE_MS);
       this.deliver(text);
@@ -350,19 +366,20 @@ export class OutputPacer<K> {
     this.flushPending();
   }
 
-  private flushPending(): void {
+  /** What is pending goes out as one frame, ending at `end` (the tail's end unless a piece it doesn't hold was pushed since). */
+  private flushPending(end = this.offset): void {
     if (!this.pendingLength) return;
     const frame = this.pending.length === 1 ? this.pending[0] : this.pending.join('');
     this.pending = [];
     this.pendingLength = 0;
-    this.deliver(frame);
+    this.deliver(frame, end);
   }
 
-  private deliver(frame: string): void {
-    const end = this.offset;
+  private deliver(frame: string, end = this.offset): void {
     for (const c of this.clients.values()) {
       if (c.behind) continue;
       c.sent += frame.length;
+      c.at = end;
       try {
         c.client.send(frame, end);
       } catch {
@@ -375,9 +392,19 @@ export class OutputPacer<K> {
     for (const [key, c] of this.clients) {
       if (c.behind || !c.client.metered || c.sent - c.acked <= HIGH_WATERMARK) continue;
       if (key === holder && this.flow && c.mayPause) continue;
-      c.behind = true;
+      this.fallBehind(c);
     }
     this.evaluate();
+  }
+
+  /**
+   * It is sent no more live output until it catches up. Caught up from the tail last time, and fallen behind again before
+   * it acked anything sent after (so before it drew past what it missed): it is slower than the output, and sending it all
+   * again would only keep it behind — its next catch-up is a screen, which skips to where the output stands.
+   */
+  private fallBehind(c: ClientState): void {
+    c.behind = true;
+    c.screenNext = c.continuedAt !== null && c.acked <= c.continuedAt;
   }
 
   /**
@@ -421,7 +448,7 @@ export class OutputPacer<K> {
     // A frame begun in output read just before the pause goes to it too: it may hold a query it was chosen to answer.
     this.letFrameGo(this.sync.open);
     this.flushPending();
-    h.behind = true;
+    this.fallBehind(h);
     h.mayPause = false;
     this.release();
     this.evaluate();
@@ -441,8 +468,9 @@ export class OutputPacer<K> {
   }
 
   /**
-   * It caught up: what arrived meanwhile goes to the others (its snapshot has it), then it is sent the screen and live
-   * output — between frames: its screen is never one drawn halfway.
+   * It caught up: what arrived meanwhile goes to the others (what it is sent now has it), then it is sent what it missed
+   * from the tail, or a screen, and live output — between frames: its screen is never one drawn halfway, and what it
+   * missed never ends inside one.
    */
   private catchUp(c: ClientState): void {
     if (!c.behind || ![...this.clients.values()].includes(c)) return;
@@ -457,13 +485,18 @@ export class OutputPacer<K> {
       return;
     }
     this.flushPending();
+    const from = c.screenNext ? null : c.at;
     c.behind = false;
+    c.screenNext = false;
     c.snapshotAt = this.timers.now();
+    c.at = this.offset;
+    let continued = false;
     try {
-      c.client.resync();
+      continued = c.client.resync(from) === true;
     } catch {
       /* that client is gone */
     }
+    c.continuedAt = continued ? c.sent : null;
     this.evaluate();
   }
 }
