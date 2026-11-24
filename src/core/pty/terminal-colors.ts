@@ -42,6 +42,21 @@ function hexRgb(hex: string): [number, number, number] {
   return [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)) as [number, number, number];
 }
 
+/** The theme and the 256-colour palette as `[r, g, b]`: the Terminal tab's ghostty engine draws with xterm.js's colours. */
+export function themeRgb(): {
+  foreground: [number, number, number];
+  background: [number, number, number];
+  cursor: [number, number, number];
+  palette: [number, number, number][];
+} {
+  return {
+    foreground: hexRgb(TERMINAL_THEME.foreground),
+    background: hexRgb(TERMINAL_THEME.background),
+    cursor: hexRgb(TERMINAL_THEME.cursor),
+    palette: Array.from({ length: 256 }, (_, i) => paletteRgb(i)),
+  };
+}
+
 /** As xterm.js says a colour in a reply (`toRgbString`): 16 bits a channel, `rgb:1e1e/1e1e/1e1e`. */
 function rgbSpec([r, g, b]: [number, number, number]): string {
   const two = (n: number) => n.toString(16).padStart(2, '0').repeat(2);

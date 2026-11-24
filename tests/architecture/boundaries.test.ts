@@ -81,6 +81,15 @@ const SPA_SHARED = new Set([
   'src/core/pty/terminal-colors.js', // pure, import-free: the Terminal tab's colours, which the PTY host answers colour queries with
   'src/core/pty/flow-control.js', // pure, import-free: flow control's numbers and acks (the Terminal tab acks what it draws)
   'src/core/pty/terminal-size.js', // pure, import-free: a stated grid's rules and address parameters, ConPTY's windowsPty
+  // The libghostty-vt binding the Terminal tab's ghostty engine shares with the PTY host's mirror: pure (no node:), the
+  // module's bytes handed in — wasm.ts reads them from disk for Node, the engine fetches them (ghostty-engine.ts).
+  'src/core/pty/ghostty/wasm-core.js', // pure: compile/instantiate given bytes, the manifest, the callback trampoline
+  'src/core/pty/ghostty/vt-terminal.js', // pure: the terminal over an instance (write, resize, modes, viewport)
+  'src/core/pty/ghostty/render-state.js', // pure: the render state's rows, cells, styles, cursor and colours
+  'src/core/pty/ghostty/key-encoder.js', // pure: keys, focus and pastes as the terminal's modes want them
+  'src/core/pty/ghostty/mouse-encoder.js', // pure: mouse reports as the terminal's modes want them
+  'src/core/pty/ghostty/pointer.js', // pure: selection gestures, the selection and its text, OSC 8 links
+  'src/core/pty/ghostty/replies.js', // pure, import-free: libghostty's replies as xterm.js gives them
   'src/core/pty/resume.js', // pure: where a client stands in a PTY's output, the resume parameter (a dropped tab reconnects in place)
   'src/core/pty/terminal-replies.js', // pure, import-free: what a terminal sends on its own (a resumed tab answers no query in what it missed)
   'src/core/pty/sync-output.js', // pure, import-free: synchronized output's mode (the Terminal tab keeps the view through a repaint in one)
@@ -152,6 +161,15 @@ describe('architecture boundaries', () => {
 
   it('§2.4 node-pty is imported only by src/core/pty/pty-session.ts', () => {
     expect(violations((f, s) => s === 'node-pty' && f.rel !== 'src/core/pty/pty-session.ts')).toEqual([]);
+  });
+
+  it('only src/core/pty/ghostty/ (the libghostty-vt binding) touches WebAssembly', () => {
+    // One folder owns the module's memory, pointers and callbacks; the mirror, the Terminal tab's engine and
+    // everything else go through its typed wrappers (VtTerminal, RenderState, KeyEncoder). Loading lives in
+    // wasm-core.ts, shared with the browser (which hands it fetched bytes); wasm.ts only reads the file for Node.
+    const offenders = files.filter((f) => !f.rel.startsWith('src/core/pty/ghostty/') && /\bWebAssembly\b/.test(f.text)).map((f) => f.rel);
+    expect(offenders).toEqual([]);
+    expect(files.some((f) => f.rel === 'src/core/pty/ghostty/wasm-core.ts' && /\bWebAssembly\b/.test(f.text))).toBe(true);
   });
 
   it('the SQLite engine is loaded only by src/core/platform/db.ts (db-import.ts borrows its types)', () => {

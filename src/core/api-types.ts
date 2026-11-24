@@ -471,7 +471,8 @@ export interface CleanupApplyRequest {
 export interface TerminalPerfWire {
   sessionId: string;
   route: 'direct' | 'relay' | null;
-  renderer: 'webgl' | 'retrying' | 'dom';
+  /** xterm.js's renderers, or 'ghostty': libghostty-vt's canvas (the Terminal tab's other engine). */
+  renderer: 'webgl' | 'retrying' | 'dom' | 'ghostty';
   /** Each keystroke: ms to its echo, and to the first frame drawn after it (null: none before the next key). */
   keys: { arrived: number; shown: number | null }[];
   /** Each time the window froze: when (epoch ms), how long, the part that blocked input, what ran. */

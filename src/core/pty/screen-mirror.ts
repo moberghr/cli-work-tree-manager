@@ -2,10 +2,12 @@ import xtermHeadless from '@xterm/headless';
 import xtermSerialize from '@xterm/addon-serialize';
 import xtermUnicode11 from '@xterm/addon-unicode11';
 import { REPLAY_SCROLLBACK } from './scrollback.js';
-import type { TerminalColors } from './terminal-colors.js';
 import type { WindowsPty } from './terminal-size.js';
+import type { MirrorAnswers, SnapshotOptions, TerminalMirror } from './mirror.js';
 import { StreamStatus, type StreamSignal } from './stream-status.js';
 import { logSwallowed } from '../platform/best-effort.js';
+
+export type { MirrorAnswers, SnapshotOptions };
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
@@ -38,15 +40,6 @@ const CHARSET_FINALS = '0AB4C5RQKYE6ZH7=';
 const KEYBOARD_STACK_MAX = 8;
 /** C0, DEL and C1: never let a remembered title end or start a sequence when it is written back. */
 const CONTROL = /[\x00-\x1f\x7f-\x9f]/g;
-
-/** Which snapshot: with the scrollback (the default), or the screen only (`scrollback: false`). */
-export interface SnapshotOptions {
-  /**
-   * False: the screen only, no lines above it — a catch-up screen for a native terminal (`work attach`), whose own
-   * scrollback holds your shell's history and, already, the agent's. The state after it is the same either way.
-   */
-  scrollback?: boolean;
-}
 
 /** What the mirror keeps per screen: xterm.js keeps these per buffer, kitty keeps its key flags per screen. */
 export interface ScreenState {
@@ -105,16 +98,6 @@ const cup = (row: number, col: number): string => `${CSI}${row + 1};${col + 1}H`
 /** The OSC colour queries xterm.js leaves to its renderer (CoreBrowserTerminal), which a headless one never answers. */
 const SPECIAL_COLORS = ['10', '11', '12'] as const;
 
-/** How the mirror answers the agent's queries in the output it is written while no client is attached (`answerQueries`). */
-export interface MirrorAnswers {
-  /** Whether the mirror answers the queries in output written now: decided as it arrives, not when it is parsed. */
-  now(): boolean;
-  /** Where the answers go: the PTY. */
-  send(reply: string): void;
-  /** The colours colour queries are answered with. */
-  colors: Pick<TerminalColors, 'reply'>;
-}
-
 /**
  * The PTY host's copy of a terminal's screen: an @xterm/headless terminal fed everything the PTY prints, and the
  * snapshot a newly attached client is sent first (`replay`). The serialize addon draws the screen and scrollback
@@ -127,7 +110,7 @@ export interface MirrorAnswers {
  * It also keeps what the agent says about itself in-band — OSC 9;4 progress, OSC 7501 program status (`streamSignal`,
  * stream-status.ts) — for a status where no hook reports one.
  */
-export class ScreenMirror {
+export class ScreenMirror implements TerminalMirror {
   readonly terminal: HeadlessTerminal;
   private readonly serializer = new SerializeAddon();
   private st: MirrorState = freshState();

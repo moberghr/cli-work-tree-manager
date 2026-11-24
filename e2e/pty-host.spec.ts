@@ -3,16 +3,16 @@ import path from 'node:path';
 import { test, expect, type WorkEnv } from './fixtures.js';
 import type { Page } from '@playwright/test';
 
-/** Open a session's Terminal tab and type a line into the browser xterm. */
+/** Open a session's Terminal tab and type a line into the browser terminal. */
 async function openTerminal(page: Page, work: WorkEnv, branch: string): Promise<string> {
   const id = work.sessionId('app', branch);
   await page.goto(`${work.url}#/s/${id}/term`);
-  await expect(page.locator('.wd-pty-host .xterm')).toBeVisible();
+  await expect(page.locator('.wd-pty-host .wd-terminal')).toBeVisible();
   return id;
 }
 
 async function typeLine(page: Page, text: string): Promise<void> {
-  await page.locator('.wd-pty-host .xterm').click();
+  await page.locator('.wd-pty-host .wd-terminal').click();
   await page.keyboard.type(text);
   await page.keyboard.press('Enter');
 }
@@ -30,7 +30,7 @@ test('dashboard lists the session and the browser terminal drives the PTY', asyn
     .or(page.locator('button', { hasText: /^Terminal$/ }))
     .first()
     .click();
-  await expect(page.locator('.wd-pty-host .xterm')).toBeVisible();
+  await expect(page.locator('.wd-pty-host .wd-terminal')).toBeVisible();
 
   const id = work.sessionId('app', 'feat/a');
   await work.waitForPty(id);
@@ -97,7 +97,7 @@ test('a bare dashboard URL returns to the last session and tab', async ({ page, 
 
   await page.goto(work.url);
   await expect(page).toHaveURL(new RegExp(`#/s/${id}/term$`));
-  await expect(page.locator('.wd-pty-host .xterm')).toBeVisible();
+  await expect(page.locator('.wd-pty-host .wd-terminal')).toBeVisible();
 });
 
 test('switching sessions marks the previous diff stale until the new one loads', async ({ page, work }) => {

@@ -11,6 +11,8 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.map': 'application/json; charset=utf-8',
+  // The Terminal tab's libghostty-vt module: compiled as it streams only when served as what it is.
+  '.wasm': 'application/wasm',
 };
 
 function readFile(root: string, relPath: string): { body: Buffer; ext: string } | null {

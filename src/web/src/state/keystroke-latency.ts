@@ -100,18 +100,26 @@ function stat(list: number[]): LatencyStat {
 /** The terminal's corner: how long a keystroke takes, and whether it draws without the GPU. Null: nothing to say. */
 export function cornerBadge(
   latency: LatencyReading | null,
-  renderer: 'webgl' | 'retrying' | 'dom',
+  renderer: 'webgl' | 'retrying' | 'dom' | 'ghostty',
   route: 'direct' | 'relay' | null = null,
+  /** Why the libghostty-vt engine, picked, couldn't be loaded (xterm.js draws instead). */
+  engineFailure: string | null = null,
 ): { text: string; title: string; slow: boolean } | null {
-  const dom = renderer !== 'webgl';
-  if (latency === null && !dom) return null;
+  const dom = renderer === 'retrying' || renderer === 'dom';
+  if (latency === null && !dom && !engineFailure) return null;
   const ms = (n: number) => `${Math.round(n)} ms`;
   // What you see: the echo on screen when known, else its arrival.
   const seen = latency?.shown ?? latency?.arrived ?? null;
-  const text = [seen && `⌁ ${ms(seen.median)}${seen.worst > seen.median * 1.5 ? ` (${ms(seen.worst)})` : ''}`, dom && 'DOM']
+  const text = [
+    seen && `⌁ ${ms(seen.median)}${seen.worst > seen.median * 1.5 ? ` (${ms(seen.worst)})` : ''}`,
+    dom && 'DOM',
+    engineFailure && 'xterm.js',
+  ]
     .filter(Boolean)
     .join(' · ');
   const title = [
+    engineFailure && `libghostty-vt could not be loaded (${engineFailure}): xterm.js draws this terminal instead.`,
+    renderer === 'ghostty' && 'Drawn by libghostty-vt (the terminalEngine setting, or ?terminalEngine=ghostty).',
     latency &&
       `A keystroke, over the last 20 (median, and in brackets the slowest of most of them): its echo arrived in ${ms(latency.arrived.median)} (${ms(latency.arrived.worst)}) — browser → PTY host → ConPTY → Claude and back` +
         (latency.shown
@@ -126,5 +134,5 @@ export function cornerBadge(
   ]
     .filter(Boolean)
     .join(' ');
-  return { text, title, slow: dom || (seen?.median ?? 0) > 100 };
+  return { text, title, slow: dom || !!engineFailure || (seen?.median ?? 0) > 100 };
 }

@@ -1,3 +1,4 @@
+import { copyFileSync, mkdirSync } from 'node:fs';
 import { defineConfig } from 'tsup';
 // The release tag is the version (scripts/version.mjs): WORK_VERSION in a release, else git describe.
 import { workVersion } from './scripts/version.mjs';
@@ -38,5 +39,12 @@ export default defineConfig({
   ],
   banner: {
     js: '#!/usr/bin/env node',
+  },
+  // libghostty-vt's wasm build (vendor/libghostty-vt/README.md), the PTY host's optional screen engine: read at run
+  // time from next to the chunk that loads it (src/core/pty/ghostty/wasm.ts), and only when that engine is picked.
+  onSuccess: async () => {
+    mkdirSync('dist', { recursive: true });
+    copyFileSync('vendor/libghostty-vt/ghostty-vt-1.0.1.wasm', 'dist/ghostty-vt-1.0.1.wasm');
+    copyFileSync('vendor/libghostty-vt/LICENSE', 'dist/ghostty-vt-1.0.1.LICENSE');
   },
 });

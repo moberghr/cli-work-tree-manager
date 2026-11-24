@@ -606,3 +606,99 @@ Left open:
 - **Not seen in a real browser.** The tab is tested in jsdom with a fake xterm, and end to end with @xterm/headless clients over real sockets.
 - **The cover's 500 ms and the four tries** are judgement, not measured on a real outage. A drop that lasts longer than about 7 s gets the old message.
 - **`work attach`** doesn't reconnect.
+
+## The libghostty engine
+
+Everything above was written for the xterm screen copy, `ScreenMirror` (@xterm/headless), which stays as the
+fallback. The default is `GhosttyMirror` (`core/pty/ghostty-mirror.ts`, on libghostty-vt's wasm build:
+`vendor/libghostty-vt/README.md`); config `terminalEngine` / `WORK_TERMINAL_ENGINE` picks per terminal (`create-mirror.ts`,
+falling back to xterm with one warning if the module can't load). Pacing, the output tail and reattaching where you
+left off work on the output stream, not on the screen copy: they are the same on either. Both implement `TerminalMirror` (`mirror.ts`); the
+snapshot is the same layout (`START`, screen, state, never 2026, no palette), whichever engine the browser draws with
+(next section).
+
+- **Read, not followed:** modes, title, kitty flags (current), cursor and pending wrap from libghostty's API; pen,
+  hyperlink, modifyOtherKeys, charsets and DECSCA from its formatter (`tail`); cursor shape, scroll region and saved
+  cursor by asking a copy of the terminal (binary snapshot, decoded; ESC 8, and 1049l for the normal screen under
+  the alternate one). The copy cost 12 ms under 2000 lines of scrollback, so the usual case does without it: on the
+  normal screen, between sequences (`ground()`), with no cursor ever saved, the two DECRQSS questions change nothing
+  and the terminal itself is asked (0.1 ms). "A cursor may have been saved" is the one thing noted from the stream
+  (`SAVES_CURSOR`, carried over a chunk's end, forgotten on a reset); it only picks the way of reading, never the
+  answer. Nothing else is tracked by hand; the only tables are the reply translation (DA1/DA2 as xterm.js's,
+  colour replies from `TerminalColors`) and the replies dropped (XTVERSION, DA3, XTGETTCAP, `CSI ? u`, kitty
+  graphics, the OSC 7501 probe). OSC 9;4 / 7501 come from libghostty's own parser (`programReport`).
+- **Writes are parsed in the call**, so there is no write queue: a resize applies at once and `snapshotSettled` takes
+  the snapshot now. A snapshot taken mid-sequence ends with the sequence so far (`continuation`), so the output after
+  it completes it; ScreenMirror has no such tail (an attach between pieces cut mid-sequence draws the rest as text).
+- **Known differences** (each an `it.fails` in `tests/core/pty/ghostty-mirror.test.ts`): one flag per mouse encoding
+  and protocol, replayed lowest first (the order set is unknowable); one scroll region for both screens; blink kept in
+  the cursor shape (`?12h` is never replayed); RIS clears the title and shows the cursor; the mirror clusters graphemes
+  (mode 2027 on, as the tab on libghostty; said at the start of a snapshot), so a ZWJ emoji is 2 columns where
+  xterm.js's Unicode 11 counts 6 — only a libghostty host with an xterm.js client (the URL override) disagrees; a
+  zero-width character at a row's start is dropped; OSC 4 stops at an index out of range; kitty's
+  flag stack is not readable (only the current flags are replayed); 1007 and 2031 are replayed only when they differ
+  from libghostty's default, DECSCUSR 2 never; no resize without reflow (ConPTY's `windowsPty` only stops scrollback
+  being pulled back); libghostty drops whole scrollback pages, so it is given twice `REPLAY_SCROLLBACK`.
+
+## The Terminal tab's engines
+
+PtyView (`web/.../Terminal/PtyView.tsx`) keeps the socket, frames and acks, the replay gate, reconnects, latency, the
+perf log and when to fit; what parses, draws, measures and turns keys into bytes is an engine (`engine/terminal-engine.ts`,
+`TerminalEngine`). The wire is the same for both: frames, the VT-bytes snapshot, acks.
+
+- **Which:** `?terminalEngine=ghostty|xterm` on the page's address (kept in this browser's localStorage; `?terminalEngine=`
+  forgets it), else the `terminalEngine` setting (the same key as the mirror's; read once per page in the background and
+  remembered for the next load, so the first terminal never waits for it), else libghostty-vt (`engineChoice`). If its module can't be loaded the tab
+  draws with xterm.js and its corner says why.
+- **xterm.js** (`engine/xterm-engine.ts`, the fallback, and what `terminalEngine: xterm` picks): unchanged — WebGL with its retry, fonts, copy, links, Unicode 11.
+- **libghostty-vt** (`engine/ghostty-engine.ts`, its own chunk, loaded with `import()` only when picked): the module is
+  a served asset (`new URL(... .wasm, import.meta.url)`; `spa-handler.ts` serves it as `application/wasm`), compiled
+  once per page, a fresh instance per terminal. The binding is the mirror's: `wasm-core.ts`, `vt-terminal.ts`,
+  `render-state.ts`, `key-encoder.ts`, `mouse-encoder.ts`, `pointer.ts` and `replies.ts` are pure (in `SPA_SHARED`); only `wasm.ts` (Node: reads the
+  file) and `terminal.ts` stay Node-side. If it can't load, xterm.js draws and the corner says why (`cornerBadge`).
+- **Drawing:** one canvas, device pixels; a cell is `floor(advance × dpr)` wide like xterm.js's WebGL renderer, so both
+  fit the same grid (FitAddon's measure, with its 14 px scrollbar gutter, which draws the thumb). Each animation frame
+  takes the render state's dirty rows (`render-state.ts`, cells read in bulk) and repaints only those: backgrounds,
+  box/block characters as shapes (`ghostty-draw.ts`, `boxShape`), then text by style with `letterSpacing` making the
+  font's advance the cell's (a glyph wider than its cells is narrowed), then underlines (single, double, curly, dotted,
+  dashed, in their colour), strike, overline, the cursor (block/bar/underline, blinking, hollow when unfocused). Nothing
+  is drawn while a program holds the screen (2026, libghostty's render-hold callback), for at most 1 s. The frame loop
+  allocates little per frame (one repaint set, colour strings cached, the textarea moved only when the cursor moves);
+  the blink timer runs only while the terminal is focused and shown.
+- **Graphemes:** the tab's terminal is made with grapheme clustering (2027) on as the mode's reset default
+  (`graphemeClusters`, `OPT.MODE_DEFAULT`), so it survives the RIS a catch-up draw starts with: 👍🏽 and a ZWJ family are
+  one character of 2 columns, as xterm.js's Unicode 11 widths have them, drawn as one glyph in their cells (narrowed if
+  the emoji font draws them wider). A program may still turn it off.
+- **Input:** a hidden textarea; keys through libghostty's key encoder (kitty flags, DECCKM, modifyOtherKeys as the
+  program set them; `keyInput` maps a browser event), pastes through its paste encoder (2004), focus reports (1004).
+  Shift+Enter is ESC CR unless the program asked for kitty keys. Replies (`WRITE_PTY`) go out once, after the write,
+  translated as the mirror's (`translateReplies`, colour replies passed through: this terminal has the real colours).
+- **Scrollback:** libghostty's viewport (wheel, Shift+PageUp/PageDown); new output never moves a view scrolled up;
+  typing returns it to the bottom. On the alternate screen, when no program has the mouse, the wheel is arrow keys
+  while alternate scroll (1007, on by default) is.
+- **Selection** (`core/pty/ghostty/pointer.ts`): libghostty's selection gestures — a drag selects by cell (a cell counts
+  once the pointer passes its middle), a double click a word, a triple click the whole line (wrapped rows with it),
+  Shift+click moves the nearer end; a drag past the top or bottom edge scrolls the view a row every 50 ms
+  (`AUTOSCROLL_TICK`, our timer). The selection is the terminal's own, so it stays on its text as output scrolls and
+  works in the scrollback. Each row's selected columns come from the render state and are painted as xterm.js paints
+  its default selection: white at 30% over the backgrounds, under the text. Typing (or a paste) clears it, as xterm.js's
+  `onUserInput` does. While a program has the mouse, selecting needs Shift held.
+- **Copy:** Ctrl+C with a selection copies (and clears it), without one it is ^C; the browser's own copy (⌘C, menus) is
+  handled on the box's `copy` event — both as xterm-engine's. The text is libghostty's formatter over the selection
+  (soft-wrapped rows joined, trailing blanks trimmed), and its VT form gives the bold and italic marks (`markedVt`,
+  checked against the text with `markedOr`); then `terminalCopy` and `writeRich` as xterm's path.
+- **Mouse reporting** (`core/pty/ghostty/mouse-encoder.ts`): presses, releases, motion and the wheel (one report per wheel
+  event, as xterm.js) through libghostty's mouse encoder, in the mode and format the program set (9/1000/1002/1003;
+  X10, 1005, SGR 1006, 1015, SGR pixels 1016 in device pixels with the real cell size). The encoder is set from the
+  terminal only when those modes change, so its last-cell dedupe holds (a 1002 drag sends one report per cell).
+- **Links:** an OSC 8 link (the cell's hyperlink bit, its address from `ghostty_grid_ref_hyperlink_uri`) or a web
+  address found by xterm.js's WebLinksAddon rule (its regex and URL check, over the line with its wrapped rows;
+  `ghostty-pointer.ts`, `urlAt`) is underlined with a pointer cursor while hovered (an OSC 8 link's address in the
+  tooltip, as xterm's `linkHandler.hover`); a click without a drag opens it with `openLink` (http/https only), which
+  both engines share from `terminal-engine.ts`. Not while a program has the mouse.
+- **Testing:** the box has `wdScreenText()` (the rows as last drawn) for `e2e/ghostty-terminal.spec.ts`.
+- **Not yet:** search, an accessibility tree, ligatures and font fallback tuning.
+- **Known differences from xterm.js:** shades (░▒▓) are drawn as translucent fills, not dither patterns;
+  `setWindowsPty` is a no-op (libghostty always reflows); the corner never says DOM/WebGL (`ghostty`); a drag's end
+  cell follows libghostty's half-cell rule (xterm.js takes the cell under the pointer); Shift+click extends from the
+  selection's nearer end, not from the original press; middle-click and right-click do nothing without mouse reporting.

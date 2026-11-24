@@ -210,7 +210,11 @@ export class StreamStatus {
   /** The data of an OSC 7501 sequence. */
   osc7501(data: string): void {
     const report = parseProgramStatus(data);
-    if (!report) return;
+    if (report) this.program(report);
+  }
+
+  /** An OSC 7501 report already parsed (by `parseProgramStatus`, or by a terminal engine that parses it itself). */
+  program(report: ProgramRecord | { state: 'clear'; id: string }): void {
     this.programSeen = true;
     this.bar = null;
     if (report.state === 'clear') {
