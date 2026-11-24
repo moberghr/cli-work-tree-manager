@@ -68,10 +68,11 @@ header{display:flex;flex-direction:column;gap:1rem}
 .tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 table{border-collapse:collapse;width:100%;font-size:.85rem;font-variant-numeric:tabular-nums}
 th,td{padding:.5rem .8rem;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+.sec>.grp td,.sec>.grp th[scope=row]{white-space:normal}
 thead th{font-family:var(--mono);font-size:.72rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);background:var(--bg)}
 tbody th{font-weight:500;white-space:normal;min-width:12rem}
 tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
-td.ok{color:var(--good)}td.no{color:var(--bad);font-weight:600}
+ul.plain{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:.5rem;color:var(--ink2);font-size:.9rem;max-width:46rem}td.ok{color:var(--good)}td.no{color:var(--bad);font-weight:600}
 .glyph{font-size:1.1rem}.cp{font-family:var(--mono);font-size:.7rem;color:var(--ink3)}
 details{border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 summary{cursor:pointer;padding:.8rem 1rem;font-weight:600;font-size:.95rem}
@@ -90,7 +91,7 @@ footer{font-size:.8rem;color:var(--ink3);border-top:1px solid var(--line);paddin
 <header>
   <div class="eyebrow">work · terminal rendering rework · before and after</div>
   <h1>A terminal that survives slow tabs, reconnects and a second window</h1>
-  <p class="verdict">Same machine, same inputs, the commit before the rework against the commit after it. A reattached terminal now comes back as the agent left it, a flooded tab stays responsive, and a dropped connection resumes in 209 bytes. It costs some host memory and CPU, listed below with the same weight as the gains.</p>
+  <p class="verdict">Same machine, same inputs, the commit before the rework against the commit after it. A reattached terminal now comes back as the agent left it, a flooded tab stays responsive, and a dropped connection resumes in 209 bytes. It costs some host memory and CPU, listed below with the same weight as the gains. Those figures come from scripted agents; the first section below is the check against real Claude Code sessions, where two of the gains show up and the speed gains do not.</p>
   <div class="prompt"><span class="dim">$</span> git diff --shortstat <span class="hi">e2b36c31</span>..<span class="hi">be12f588</span>
 <span class="dim">70 files changed, 9587 insertions(+), 283 deletions(-)   8 commits, 38 measurements, 5 runs a side</span></div>
   <div class="meta"><span>Apple M3 Pro (11 cores), 18 GB</span><span>macOS 27.3</span><span>Node v26.13.1</span><span>Chrome for Testing 159.0.8154.6, real GPU</span><span>measured 2026-11-23</span></div>
@@ -103,6 +104,42 @@ footer{font-size:.8rem;color:var(--ink3);border-top:1px solid var(--line);paddin
   <div class="head"><span class="k">Host memory during that flood</span><span class="n"><span class="from">543</span> → 111 <small>MB</small></span><span class="d">the tab dropped 81,399 writes before, 0 after</span></div>
 </div>
 
+<section class="sec">
+  <div><div class="eyebrow">Real sessions</div><h2>Checked with real Claude Code in the real app</h2></div>
+  <p>The scripted figures below invite doubt, so both builds were also run with real Claude Code sessions (Claude Code 2.1.331, the cheapest model) in the app's own session page, driven by Chrome: 5 sessions per side, alternating, plus 3 per side with the tab's CPU throttled 6x. Before has 3 to 4 usable sessions per row because two of its runs lost steps to the measuring script. Values are the median with the range of runs.</p>
+  <section class="grp"><h3>Where the rework shows in a real session</h3><p class="lead"></p>
+  <div class="tw"><table><thead><tr><th>Measured</th><th>Before</th><th>After</th></tr></thead><tbody>
+  <tr><th scope="row">Dropped connection: recovers by itself</th><td>no, 3 of 3 (asks you to press Enter)</td><td class="ok">yes, 5 of 5, in 108 ms (104–108)</td></tr>
+  <tr><th scope="row">Dropped connection: bytes to recover</th><td>9.7 KB after pressing Enter (9.4–9.9)</td><td class="ok">1.4 KB (1.3–1.5)</td></tr>
+  <tr><th scope="row">Terminal modes lost by a reload mid-turn</th><td>1, in 3 of 3 (mouse encoding)</td><td class="ok">0, in 5 of 5</td></tr>
+  <tr><th scope="row">Terminal modes lost by an idle reload</th><td>1 (0–1)</td><td class="ok">0</td></tr>
+  </tbody></table></div></section>
+  <section class="grp"><h3>Where it makes no difference</h3><p class="lead">With real Claude Code on this machine the tab is never short of time, so the pacing work has nothing to do.</p>
+  <div class="tw"><table><thead><tr><th>Measured</th><th>Before</th><th>After</th></tr></thead><tbody>
+  <tr><th scope="row">Key echo drawn while Claude streams text, median</th><td>25.1 ms (23.8–26.6)</td><td>26.6 ms (23.3–29.3)</td></tr>
+  <tr><th scope="row">Same, 90th percentile</th><td>32.7 ms (31.8–33.3)</td><td>32.4 ms (31.4–33.0)</td></tr>
+  <tr><th scope="row">Key echo drawn while a tool runs, median</th><td>24.4 ms (22.4–24.7)</td><td>23.3 ms (21.6–26.0)</td></tr>
+  <tr><th scope="row">Key echo, tab throttled 6x, 90th percentile</th><td>34.7 ms (34.3–37.3)</td><td>35.2 ms (32.0–35.2)</td></tr>
+  <tr><th scope="row">Screen rows differing after a reload or a drop</th><td>0</td><td>0</td></tr>
+  <tr><th scope="row">First content after a reload mid-turn</th><td>862 ms (180–862)</td><td>311 ms (188–1000)</td></tr>
+  <tr><th scope="row">Resize drag: resize requests the page sent</th><td>40</td><td>40</td></tr>
+  <tr><th scope="row">Host peak memory</th><td>80.1 MB (79.5–83.8)</td><td>79.9 MB (77.3–80.5)</td></tr>
+  <tr><th scope="row">Host CPU while Claude streams text</th><td>1.04%</td><td>1.05%</td></tr>
+  </tbody></table></div></section>
+  <section class="grp"><h3>Where the rework is worse</h3><p class="lead"></p>
+  <div class="tw"><table><thead><tr><th>Measured</th><th>Before</th><th>After</th></tr></thead><tbody>
+  <tr><th scope="row">Tab JavaScript heap, peak</th><td>40 MB (21–47)</td><td class="no">52 MB (48–57)</td></tr>
+  <tr><th scope="row">Esc to "Interrupted" on screen</th><td>126 ms (114–131)</td><td class="no">152 ms (119–227)</td></tr>
+  <tr><th scope="row">Long tasks in the tab, throttled 6x</th><td>3 (3–4), 286 ms in total</td><td class="no">5 (4–9), 394 ms in total</td></tr>
+  <tr><th scope="row">Host CPU while a tool runs</th><td>0.69% (0.38–1.01)</td><td class="no">1.04% (0.97–1.29)</td></tr>
+  </tbody></table></div></section>
+  <ul class="plain">
+    <li><b>The flood gains could not be tested with a real agent.</b> Claude Code does not print a tool's output to the terminal: while a script printed 120,000 lines the page received one progress line twice a second. The scripted flood figures therefore describe a program that prints without limit (a build log, <code>cat</code> of a large file, a runaway loop), not a normal Claude Code turn.</li>
+    <li>The Esc difference overlaps between runs and is mostly Claude's own reaction time (about 100 ms); it is listed as worse because the median is.</li>
+    <li>The resize row counts what the page sends, which is the same on both. The scripted figure (120 to 41) counts signals reaching the agent's process, which this run did not count.</li>
+    <li>22 sessions in all, 4 of them trial runs. macOS on Apple silicon; the machine was not otherwise idle.</li>
+  </ul>
+</section>
 <section class="sec">
   <div><div class="eyebrow">Gains</div><h2>What got better</h2></div>
   <p class="hint">Each pair of bars shares one scale. Hover or focus a row for the spread across runs and the method note.</p>
@@ -404,7 +441,7 @@ footer{font-size:.8rem;color:var(--ink3);border-top:1px solid var(--line);paddin
   <div><div class="eyebrow">Method</div><h2>How it was measured, and what was not</h2></div>
   <ul>
     <li>Both commits were checked out and built the same way, each run against its own PTY host with a temporary home directory. Every figure is the median of 5 runs unless the row says otherwise; rows show the spread.</li>
-    <li>Agents are small scripts that reproduce the terminal traffic in question. <b>Real Claude Code was not run</b>: it needs an account and gives different output each time.</li>
+    <li>Agents are small scripts that reproduce the terminal traffic in question. Real Claude Code was not run for these rows; the real-session section at the top is the separate check.</li>
     <li>Browser figures come from a harness page with the app's own xterm.js options and, after, the app's own renderer module. <b>The whole app was not driven end to end</b> in the benchmarks.</li>
     <li>The window drag is emulated with the app's real scheduling code; no real window was dragged.</li>
     <li><b>macOS on Apple silicon only.</b> Windows and Linux read from PTYs differently, which affects the flood and pacing figures most.</li>
