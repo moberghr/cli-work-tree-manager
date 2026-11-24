@@ -33,8 +33,40 @@ describe('the terminal ticket route', () => {
     const res = await ask();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=abc' });
-    expect(opts.ensure).toHaveBeenCalledWith('s1');
+    expect(opts.ensure).toHaveBeenCalledWith('s1', undefined);
     expect(opts.ticket).toHaveBeenCalledWith('s1', page);
+  });
+
+  it('a tab stating its grid has the agent started at it; a grid that is not one is not passed on', async () => {
+    const { opts, ask } = setup();
+    await ask({ cols: 133, rows: 41 });
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', { cols: 133, rows: 41 });
+    await ask({ cols: 1, rows: 41 });
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', undefined);
+    await ask({ cols: '133', rows: '41' });
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', undefined);
+  });
+
+  it('a tab reconnecting with its screen kept (attachOnly): only attached to what runs, no "elsewhere" asked', async () => {
+    const { opts, ask } = setup({ elsewhere: vi.fn(async () => elsewhere) });
+    const res = await ask({ cols: 80, rows: 24, attachOnly: true });
+    expect(await res.json()).toEqual({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=abc' });
+    expect(opts.elsewhere).not.toHaveBeenCalled();
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', { cols: 80, rows: 24 }, true);
+    // Its terminal no longer runs: said, as a refused start is.
+    const gone = setup({ ensure: vi.fn(async () => Promise.reject(new Error('its terminal is not running'))) });
+    expect(await (await gone.ask({ attachOnly: true })).json()).toEqual({ error: 'its terminal is not running' });
+    // Anything but true is a normal request.
+    await ask({ attachOnly: 'yes' });
+    expect(opts.elsewhere).toHaveBeenCalled();
+  });
+
+  it('forced and attachOnly together: still only attached (a reconnect never starts one), no "elsewhere" asked', async () => {
+    const { opts, ask } = setup({ elsewhere: vi.fn(async () => elsewhere) });
+    expect(await (await ask({ force: true, attachOnly: true, cols: 80, rows: 24 })).json()).toMatchObject({ url: expect.any(String) });
+    expect(opts.elsewhere).not.toHaveBeenCalled();
+    expect(opts.ensure).toHaveBeenCalledTimes(1);
+    expect(opts.ensure).toHaveBeenLastCalledWith('s1', { cols: 80, rows: 24 }, true);
   });
 
   it('a Claude in another terminal: said, nothing started — unless forced', async () => {

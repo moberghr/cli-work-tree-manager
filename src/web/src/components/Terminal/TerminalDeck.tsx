@@ -3,7 +3,7 @@ import { PtyView } from './LazyPtyView.js';
 import type { SessionSummary } from '../../api/client.js';
 
 /** How many terminals stay connected in the background. Each holds a
- *  WebGL context (browsers allow ~16) and a socket. */
+ *  socket; its WebGL context goes after a while hidden (webgl-renderer.ts). */
 export const DECK_SIZE = 5;
 
 interface Props {

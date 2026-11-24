@@ -548,6 +548,21 @@ describe('demo server', () => {
     ws.close();
   });
 
+  it('its terminal takes the address the tab states its flow, grid and resume point on', async () => {
+    // The tab connects as `/terminal?flow=1&cols=…&rows=…` (terminal-socket.ts): refused, it showed "Couldn't start Claude".
+    const inv = await byBranch('feat/invoice-export');
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${server.port}/ws/sessions/${inv.id}/terminal?flow=1&cols=100&rows=30&resume=0123456789abcdef-5-100x30`,
+    );
+    const first = await new Promise<string>((resolve, reject) => {
+      ws.on('message', (d) => resolve(d.toString()));
+      ws.on('error', reject);
+      ws.on('close', () => reject(new Error('closed before its first frame')));
+    });
+    expect(JSON.parse(first)).toMatchObject({ type: 'replay' });
+    ws.close();
+  });
+
   it('ships a group in parts: PRs, checks go green, merge one, then the other archives it', async () => {
     const shop = await byBranch('feat/checkout-v2');
     const pre0 = await get<ShipPreflight>(`/api/sessions/${shop.id}/ship`);

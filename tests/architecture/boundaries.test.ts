@@ -77,6 +77,13 @@ const SPA_SHARED = new Set([
   'src/core/conversations/timeline.js',
   'src/core/pty/host-health.js',
   'src/core/pty/restart-view.js', // pure: how a restart of agents is said
+  'src/core/pty/scrollback.js', // pure, import-free: how much history the Terminal tab and the PTY host's mirror keep
+  'src/core/pty/terminal-colors.js', // pure, import-free: the Terminal tab's colours, which the PTY host answers colour queries with
+  'src/core/pty/flow-control.js', // pure, import-free: flow control's numbers and acks (the Terminal tab acks what it draws)
+  'src/core/pty/terminal-size.js', // pure, import-free: a stated grid's rules and address parameters, ConPTY's windowsPty
+  'src/core/pty/resume.js', // pure: where a client stands in a PTY's output, the resume parameter (a dropped tab reconnects in place)
+  'src/core/pty/terminal-replies.js', // pure, import-free: what a terminal sends on its own (a resumed tab answers no query in what it missed)
+  'src/core/pty/sync-output.js', // pure, import-free: synchronized output's mode (the Terminal tab keeps the view through a repaint in one)
   'src/core/worktree/repo-rules.js',
   'src/core/pr/pr-stage.js',
   'src/core/pr/branch-work.js',

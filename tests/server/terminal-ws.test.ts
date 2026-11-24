@@ -11,8 +11,11 @@ import { WebSocket, WebSocketServer } from 'ws';
 let hostUrl = '';
 let ensureDelay = 0;
 let spawns = 0;
+/** What each ensurePty was asked with (the grid a start takes). */
+const ensured: unknown[][] = [];
 vi.mock('../../src/core/pty/pty-pool.js', () => ({
-  ensurePty: async () => {
+  ensurePty: async (...args: unknown[]) => {
+    ensured.push(args);
     spawns++;
     await new Promise((r) => setTimeout(r, ensureDelay));
     return hostUrl;
@@ -29,6 +32,7 @@ import {
   lastStop,
 } from '../../src/server/terminal-ws.js';
 import type { TerminalElsewhere } from '../../src/core/api-types.js';
+import { ackFrame } from '../../src/core/pty/flow-control.js';
 let elsewhere: TerminalElsewhere | null = null;
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -41,14 +45,21 @@ async function fakeHost() {
   const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await new Promise<void>((r) => wss.on('listening', () => r()));
   const conns: WebSocket[] = [];
-  wss.on('connection', (ws) => {
+  /** The address each connection asked for, and the frames it sent. */
+  const urls: string[] = [];
+  const received: string[] = [];
+  wss.on('connection', (ws, req) => {
     conns.push(ws);
+    urls.push(req.url ?? '');
     ws.send(JSON.stringify({ type: 'replay', data: '', cols: 80, rows: 24 }));
-    ws.on('message', (m) => ws.send(Buffer.from('echo:' + m.toString()), { binary: true }));
+    ws.on('message', (m) => {
+      received.push(m.toString());
+      ws.send(Buffer.from('echo:' + m.toString()), { binary: true });
+    });
   });
   cleanups.push(() => new Promise<void>((r) => wss.close(() => r())));
   hostUrl = `ws://127.0.0.1:${(wss.address() as { port: number }).port}/ptys/s/attach`;
-  return { conns, open: () => conns.filter((c) => c.readyState === WebSocket.OPEN).length };
+  return { conns, urls, received, open: () => conns.filter((c) => c.readyState === WebSocket.OPEN).length };
 }
 
 async function relay() {
@@ -260,6 +271,91 @@ describe('terminal relay', () => {
     browser.close();
     await sleep(150);
     expect(host.open()).toBe(0);
+  });
+
+  it('a browser that acks (?flow=1): the host is told it does, and its acks pass through as they are', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    const browser = new WebSocket((await relay()) + '?flow=1');
+    const frames: unknown[] = [];
+    browser.on('message', (d, bin) => !bin && frames.push(JSON.parse(d.toString())));
+    await new Promise((r) => browser.on('open', r));
+    await vi.waitFor(() => expect(frames).toHaveLength(1)); // the host's replay: the relay is connected through
+    browser.send(ackFrame(5000));
+    await vi.waitFor(() => expect(host.received).toEqual([ackFrame(5000)]));
+    expect(new URL(host.urls[0], 'ws://h').searchParams.get('flow')).toBe('1');
+    browser.close();
+  });
+
+  it('a browser that does not ack: the host is not told it does', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    const browser = new WebSocket(await relay());
+    await new Promise((r) => browser.on('open', r));
+    await vi.waitFor(() => expect(host.urls).toEqual(['/ptys/s/attach']));
+    browser.close();
+  });
+
+  it('a browser stating its grid (?cols&rows): the host is told it, and an agent it starts starts at it', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    const browser = new WebSocket((await relay()) + '?flow=1&cols=133&rows=41');
+    await new Promise((r) => browser.on('open', r));
+    await vi.waitFor(() => expect(host.urls).toHaveLength(1));
+    const params = new URL(host.urls[0], 'ws://h').searchParams;
+    expect([params.get('flow'), params.get('cols'), params.get('rows')]).toEqual(['1', '133', '41']);
+    expect(ensured.at(-1)).toEqual(['s', { grid: { cols: 133, rows: 41 } }]);
+    browser.close();
+  });
+
+  it('a grid that is not one is not passed on: the host attaches and starts as before', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    const browser = new WebSocket((await relay()) + '?cols=1&rows=99999');
+    await new Promise((r) => browser.on('open', r));
+    await vi.waitFor(() => expect(host.urls).toEqual(['/ptys/s/attach']));
+    expect(ensured.at(-1)).toEqual(['s', {}]);
+    browser.close();
+  });
+
+  it('a browser reconnecting with its screen kept (?resume=): the host is told it as it is, nothing is started, no "elsewhere"', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    elsewhere = { type: 'elsewhere', lastActivity: Date.now() - 10_000, state: 'working' };
+    try {
+      const browser = new WebSocket((await relay()) + '?flow=1&cols=80&rows=24&resume=abcdef0123456789-1234-80x24');
+      const frames: unknown[] = [];
+      browser.on('message', (d, bin) => !bin && frames.push(JSON.parse(d.toString())));
+      await new Promise((r) => browser.on('open', r));
+      await vi.waitFor(() => expect(frames).toHaveLength(1)); // the host's replay
+      const params = new URL(host.urls[0], 'ws://h').searchParams;
+      expect([params.get('flow'), params.get('cols'), params.get('rows'), params.get('resume')]).toEqual([
+        '1',
+        '80',
+        '24',
+        'abcdef0123456789-1234-80x24',
+      ]);
+      expect(ensured.at(-1)).toEqual(['s', { grid: { cols: 80, rows: 24 }, attachOnly: true }]);
+      // The host's frames, not an "elsewhere" one.
+      expect(frames).toEqual([{ type: 'replay', data: '', cols: 80, rows: 24 }]);
+      browser.close();
+    } finally {
+      elsewhere = null;
+    }
+  });
+
+  it('a position that is not one is not passed on: the browser attaches as before', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    ensured.length = 0;
+    const browser = new WebSocket((await relay()) + '?resume=nonsense');
+    await new Promise((r) => browser.on('open', r));
+    await vi.waitFor(() => expect(host.urls).toEqual(['/ptys/s/attach']));
+    expect(ensured.at(-1)).toEqual(['s', {}]);
+    browser.close();
   });
 
   it('a browser that leaves while the host is still starting never gets an upstream', async () => {

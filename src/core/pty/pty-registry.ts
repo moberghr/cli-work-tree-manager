@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { agentById, sessionToolFor } from '../agents/index.js';
 import type { AiToolSpec } from '../platform/ai-launcher.js';
 import { ASSISTANT_ID } from '../agents/assistant.js';
@@ -11,6 +12,14 @@ import { applyEnvDelta, hasEnvDelta, type EnvDelta } from '../platform/env-delta
 import { isPersistedPty, keepEnv, type PersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { logSwallowed, swallow } from '../platform/best-effort.js';
 import { report } from '../platform/report.js';
+import { TerminalColors } from './terminal-colors.js';
+import type { ReplyPart } from './terminal-replies.js';
+import { OutputPacer, realTimers, type PacerTimers, type PtyFlow } from './output-pacer.js';
+import type { SnapshotOptions } from './screen-mirror.js';
+import type { StreamSignal } from './stream-status.js';
+import { MIN_ROWS, validGrid, type Grid, type WindowsPty } from './terminal-size.js';
+import { continueFrom, resumeFrom, type ResumeRefusal } from './output-tail.js';
+import type { ResumePoint } from './resume.js';
 
 const REPLAY_MAX = 256 * 1024;
 
@@ -28,6 +37,20 @@ export const HALT_RESUME_MS = 5 * 60_000;
  *  to die never reaches the timer. */
 const FORGET_EXITED_MS = 5_000;
 
+/** The grid a PTY starts at when nothing says another: no client stated one, and none has set one since the host started. */
+export const DEFAULT_GRID: Grid = { cols: 120, rows: 32 };
+
+/**
+ * How long `redraw` holds the PTY one row smaller before it puts it back. A same-size SIGWINCH repaints nothing in a
+ * Node or Bun agent (Claude Code is a Bun binary): their `'resize'` event fires only when the size they read changed,
+ * and they read it when they get to the signal. Measured (node-pty 1.1, Node 24 and Bun 1.3): the two resizes back to
+ * back gave two SIGWINCHes and no `'resize'`; 30 ms apart gave both. 100 ms leaves a busy agent's event loop time.
+ */
+export const REDRAW_JIGGLE_MS = 100;
+
+/** A grid a client set is written to the restore list this long after the last change (a drag resizes many times). */
+const GRID_PERSIST_MS = 1000;
+
 /** Minimal PTY surface the registry needs — `PtySession` in production, a
  *  fake in tests. */
 export interface PtyLike {
@@ -38,14 +61,54 @@ export interface PtyLike {
   write(data: string): void;
   resize(cols: number, rows: number): void;
   dispose(): void;
-  /** Serialized screen state (see PtySession.serialize). Optional so test
+  /** Serialized screen state (see PtySession.serialize); null when it couldn't be taken. Optional so test
    *  fakes can fall back to the raw replay buffer. */
-  serialize?(): string;
+  serialize?(opts?: SnapshotOptions): string | null;
   /** The serialized screen once everything written so far is parsed (see
-   *  PtySession.serializeSettled). Optional: a fake's screen is its raw buffer. */
-  serializeSettled?(): Promise<string>;
+   *  PtySession.serializeSettled); null when it couldn't be taken. Optional: a fake's screen is its raw buffer. */
+  serializeSettled?(opts?: SnapshotOptions): Promise<string | null>;
   /** Visible screen as plain text (PtySession.screenText). */
   screenText?(): string;
+  /** What its agent says about itself in its output (PtySession.streamSignal). Optional: a fake says nothing. */
+  streamSignal?(): StreamSignal | null;
+  /** Its screen's copy answers the agent's queries in output arriving while `now()` says so (PtySession.answerQueries).
+   *  Optional: a fake has no screen to answer from. */
+  answerQueries?(now: () => boolean, colors: Pick<TerminalColors, 'reply'>): void;
+  /** Stop and start reading its output, for a client to catch up (PtySession.pause). Optional: where it can't, nothing waits. */
+  pause?(): void;
+  resume?(): void;
+  /** The ConPTY it runs on (PtySession.windowsPty: the bundled one reflows as a newer Windows). Optional: the host's is said. */
+  readonly windowsPty?: WindowsPty;
+}
+
+/** How a client attaches (`attach`). */
+export interface AttachOptions {
+  /** It acks what it draws (`?flow=1`, flow-control.ts): it is paced. Else it is sent everything, as before. */
+  metered?: boolean;
+  /**
+   * It fell behind and caught up: what it missed (`resumed`), or the screen as it stands now, before live output again
+   * (the host's `replay` frame).
+   */
+  onReplay?: (replay: ReplaySnapshot) => void;
+  /**
+   * Its catch-up screens are the screen only, without the scrollback (`?catchup=screen`: `work attach`, whose native
+   * terminal keeps its own history). Its first screen still has the scrollback.
+   */
+  screenOnlyCatchUp?: boolean;
+  /**
+   * Its grid, stated as it attaches (`?cols=…&rows=…`, terminal-size.ts): it takes the PTY's size, as its first resize
+   * would have — the terminal shown or `work attach`, never a hidden one. The PTY and its screen are resized to it
+   * BEFORE the snapshot is taken, so the snapshot is drawn for its grid and it needs no second reflow; the agent's
+   * repaint for it follows as live output.
+   */
+  grid?: Grid;
+  /**
+   * It reconnects with its screen kept, and has drawn this PTY's output up to here (`?resume=…`, resume.ts): it is sent
+   * what it missed instead of a screen when that is provably all it needs (`resumeFrom`, output-tail.ts), else a screen.
+   */
+  resume?: ResumePoint;
+  /** Why it was sent a screen though it asked to resume (tests, the debug log). */
+  onResumeRefused?: (why: ResumeRefusal) => void;
 }
 
 /** What a newly attached client is sent first: the screen as it stands,
@@ -54,6 +117,17 @@ export interface ReplaySnapshot {
   data: string;
   cols: number;
   rows: number;
+  /** The PTY's output stream (one per entry: resume.ts) and the offset this screen stands at — where its live output starts. */
+  stream: string;
+  offset: number;
+  /**
+   * `data` is not a screen but the output the client missed, from where it said it stood (a reconnect) or was sent output
+   * up to (a catch-up) up to `offset`: drawn on its screen as it is. Also a catch-up whose screen couldn't be taken:
+   * `data` '' and `stream` '' (where it stands is unknown now: it never resumes from here), its screen kept.
+   */
+  resumed?: true;
+  /** The PTY is ConPTY's (a host on Windows): the client's xterm.js sets this, so it doesn't reflow lines ConPTY reflows. */
+  windowsPty?: WindowsPty;
 }
 
 /** An environment without its unset names, typed as the spawn takes it. */
@@ -63,13 +137,35 @@ const definedEnv = (env: Record<string, string | undefined>): Record<string, str
 export type PtySpawner = (spec: SpawnSpec & { resume: boolean }) => PtyLike;
 
 export const defaultSpawner: PtySpawner = (spec) =>
-  new PtySession(spec.cwd, spec.cols ?? 120, spec.rows ?? 32, undefined, {
+  new PtySession(spec.cwd, spec.cols ?? DEFAULT_GRID.cols, spec.rows ?? DEFAULT_GRID.rows, undefined, {
     tool: spec.tool,
     resume: spec.resume,
     port: spec.port,
     initialPrompt: spec.initialPrompt,
     env: spec.env,
   });
+
+/** The grid most of `grids` are (the first of those tied), or null when none is a grid. */
+function mostCommonGrid(grids: Array<Grid | null>): Grid | null {
+  const counts = new Map<string, { grid: Grid; n: number }>();
+  for (const g of grids) {
+    if (!g) continue;
+    const key = `${g.cols}x${g.rows}`;
+    const c = counts.get(key) ?? { grid: g, n: 0 };
+    c.n++;
+    counts.set(key, c);
+  }
+  let best: { grid: Grid; n: number } | null = null;
+  for (const c of counts.values()) if (!best || c.n > best.n) best = c;
+  return best?.grid ?? null;
+}
+
+/** An attached client, as its subscription to the output. */
+type Client = (data: string) => void;
+
+/** What pauses the PTY's output, if it can be paused. */
+const flowOf = (pty: PtyLike): PtyFlow | null =>
+  pty.pause && pty.resume ? { pause: () => pty.pause?.(), resume: () => pty.resume?.() } : null;
 
 interface Entry {
   id: string;
@@ -80,8 +176,15 @@ interface Entry {
   startedAt: string;
   restored: boolean;
   replay: string;
-  subscribers: Set<(data: string) => void>;
+  /** The attached clients, the first attached first. */
+  subscribers: Set<Client>;
   exitSubscribers: Set<(code: number) => void>;
+  /** The client used last — typed in or resized (`lead`); the PTY has its size. Null: none since, or it left. */
+  leader: Client | null;
+  /** Who answers the queries in the output that arrived last (`designate`): its answers go through, the others' don't. */
+  answerer: Client | null;
+  /** Its output on its way to the clients: coalesced into frames, paced by their acks (output-pacer.ts). */
+  pacer: OutputPacer<Client>;
   /** Set once the process exited (the entry lingers FORGET_EXITED_MS). */
   exitCode: number | null;
   /** When it last printed anything (ms): an idle Claude at its prompt prints nothing. */
@@ -95,6 +198,12 @@ interface Entry {
   /** The environment it was started with, in memory only (never in the restore list: it can hold secrets), so a
    *  restart runs as the session did; a restore after the host restarts has only what `hostEnv` kept. */
   env?: Record<string, string>;
+  /** A `redraw` under way: the timer that puts the grid back. */
+  redrawing?: unknown;
+  /** Its output stream's id (resume.ts): a new one for every entry, so an offset of another process or host is never taken for one of this. */
+  stream: string;
+  /** The output offset its PTY's grid last changed at: output after it may be drawn for another grid than output before. */
+  gridAt: number;
 }
 
 export interface RegistryDeps {
@@ -111,6 +220,11 @@ export interface RegistryDeps {
   cwdExists?: (cwd: string) => boolean;
   /** The tool as it is started (default: its agent's `sessionTool`, which gives a Claude work's hooks). */
   sessionTool?: (tool: AiToolSpec) => AiToolSpec;
+  /** The output pacer's clock (tests). */
+  timers?: PacerTimers;
+  /** The `windowsPty` its clients are told with each screen (terminal-size.ts). None by default: the PTY host sets it
+   *  from its platform and Windows build (pty-host.ts), so a registry in a test says the same on every platform. */
+  windowsPty?: WindowsPty | null;
 }
 
 /** A restore list in a plain JSON file, written under the file lock. */
@@ -150,8 +264,20 @@ export class PtyRegistry {
   private readonly cwdExists: (cwd: string) => boolean;
   private readonly keepEnvNames: () => string[];
   private readonly sessionTool: (tool: AiToolSpec) => AiToolSpec;
+  private readonly timers?: PacerTimers;
+  private readonly windowsPty?: WindowsPty;
+  /**
+   * The last grid a client set (a resize, an attach or a start that stated one): what a PTY started with no grid of its
+   * own (a background start, a session's Start) starts at. After a host restart, before any client: the restored
+   * sessions' most common grid. In memory; each session's own grid is in the restore list.
+   */
+  private lastGrid: Grid | null = null;
+  /** The restore-list write a grid change is waiting for (GRID_PERSIST_MS). */
+  private gridPersist: unknown = null;
   /** Serializes persistence writes inside this process. */
   private writeChain: Promise<void> = Promise.resolve();
+  /** The colours the host answers a colour query with itself: the last a terminal attached to any PTY answered with. */
+  readonly colors = new TerminalColors();
 
   constructor(deps: RegistryDeps = {}) {
     this.spawner = deps.spawner ?? defaultSpawner;
@@ -160,6 +286,8 @@ export class PtyRegistry {
     this.cwdExists = deps.cwdExists ?? ((p) => fs.existsSync(p));
     this.keepEnvNames = deps.keepEnvNames ?? (() => loadConfig()?.hostEnv ?? []);
     this.sessionTool = deps.sessionTool ?? sessionToolFor;
+    this.timers = deps.timers;
+    if (deps.windowsPty) this.windowsPty = deps.windowsPty;
   }
 
   list(): PtyInfo[] {
@@ -195,8 +323,11 @@ export class PtyRegistry {
     const env = this.launchEnv({ env: spec.env, keptEnv: kept, agentEnv });
     if (env) spec = { ...spec, env };
 
-    const cols = spec.cols ?? 120;
-    const rows = spec.rows ?? 32;
+    // The grid it starts at: the one stated (a tab's, `work attach`'s terminal's, a restore's own), else the last one a
+    // client set, else the default. Started at one and resized a moment later, an agent paints twice.
+    const stated = validGrid(spec.cols, spec.rows);
+    const { cols, rows } = stated ?? this.lastGrid ?? DEFAULT_GRID;
+    if (stated && !restored) this.lastGrid = stated;
     const pty = this.spawner({
       ...spec,
       cols,
@@ -205,6 +336,8 @@ export class PtyRegistry {
       // `--fresh` opts out even when one exists.
       resume: !spec.fresh && this.hasConversation(spec.cwd, spec.tool.cmd, spec.env ?? process.env),
     });
+    // The one that holds the PTY (may pause it) is the one that answers the agent: the client used last, else the first attached.
+    const pacer = new OutputPacer<Client>({ flow: null, holder: () => this.pick(entry), timers: this.timers });
     const entry: Entry = {
       id,
       // Only what a restore may reuse: env/prompt/fresh are one-shot (and
@@ -227,8 +360,13 @@ export class PtyRegistry {
       replay: '',
       subscribers: new Set(),
       exitSubscribers: new Set(),
+      leader: null,
+      answerer: null,
+      pacer,
       exitCode: null,
       lastOutputAt: Date.now(),
+      stream: randomBytes(8).toString('hex'),
+      gridAt: 0,
     };
     this.wire(entry, pty);
     this.entries.set(id, entry);
@@ -257,7 +395,11 @@ export class PtyRegistry {
     // Raw history is only a fallback for PTYs that can't serialize their
     // screen (test fakes) — real sessions replay PtySession.serialize().
     const keepRaw = !pty.serialize;
+    entry.pacer.setFlow(flowOf(pty));
+    // Asked as the output arrives (before its screen parses it): with no client attached, the screen's copy answers.
+    pty.answerQueries?.(() => this.designate(entry) === null, this.colors);
     pty.setOutputHandler((data) => {
+      this.designate(entry);
       entry.lastOutputAt = Date.now();
       if (keepRaw) {
         entry.replay += data;
@@ -265,15 +407,12 @@ export class PtyRegistry {
           entry.replay = entry.replay.slice(entry.replay.length - REPLAY_MAX);
         }
       }
-      for (const cb of entry.subscribers) {
-        try {
-          cb(data);
-        } catch {
-          /* subscriber gone */
-        }
-      }
+      // To the clients now, or with what follows within a few ms (output-pacer.ts): who answers it is decided above, as it arrives.
+      entry.pacer.output(data);
     });
     pty.onExit = (code) => {
+      // Its last output before its end, and the final screen to a client that is behind (each told it ended after it).
+      entry.pacer.end();
       entry.exitCode = code;
       for (const cb of entry.exitSubscribers) {
         try {
@@ -290,6 +429,29 @@ export class PtyRegistry {
         }
       }, FORGET_EXITED_MS).unref?.();
     };
+  }
+
+  /**
+   * Who answers the agent's queries in the output arriving now: exactly one, decided as it arrives (terminal-rendering.md,
+   * "Who answers a query"). The client used last (it typed or resized: it has the PTY's size), else the first attached;
+   * null when none is attached — then the PTY's screen copy answers. Kept until the next output, so the answers to it
+   * that come back from that client go through.
+   */
+  private designate(e: Entry): Client | null {
+    const who = this.pick(e);
+    e.answerer = who;
+    return who;
+  }
+
+  /**
+   * `designate`'s choice, without making it: among the clients sent live output (one behind is sent none, so it would
+   * never see the query: output-pacer.ts), the one used last, else the first attached. Also the one that holds the
+   * PTY (may pause it until it has drawn what it was sent).
+   */
+  private pick(e: Entry): Client | null {
+    if (e.leader && e.subscribers.has(e.leader) && e.pacer.live(e.leader)) return e.leader;
+    for (const c of e.subscribers) if (e.pacer.live(c)) return c;
+    return null;
   }
 
   /** The live PTY's visible screen as text; null when there is none (or
@@ -314,10 +476,50 @@ export class PtyRegistry {
   resize(id: string, cols: number, rows: number): void {
     const e = this.entries.get(id);
     if (!e || e.pty.exited) return;
-    if (cols < 2 || rows < 2 || (cols === e.cols && rows === e.rows)) return;
+    const grid = validGrid(cols, rows);
+    if (!grid || (cols === e.cols && rows === e.rows)) return;
     e.cols = cols;
     e.rows = rows;
     e.pty.resize(cols, rows);
+    e.gridAt = e.pacer.offset;
+    this.remember(grid);
+  }
+
+  /** `grid` is the last a client set: what a start with none takes, and — soon — the session's grid in the restore list. */
+  private remember(grid: Grid): void {
+    this.lastGrid = grid;
+    if (this.gridPersist !== null) return;
+    const timers = this.timers ?? realTimers;
+    const handle = timers.set(() => {
+      this.gridPersist = null;
+      void this.persist();
+    }, GRID_PERSIST_MS);
+    (handle as { unref?: () => void } | null)?.unref?.();
+    this.gridPersist = handle;
+  }
+
+  /**
+   * Ask its agent to draw its screen again (⋯ → Reconnect terminal: the screen looks wrong). The PTY is made one row
+   * smaller and, REDRAW_JIGGLE_MS later, put back to the grid it has then: two real size changes, so the agent sees one
+   * whatever it runs on. A same-size SIGWINCH (zmx's way) repaints nothing in a Node or Bun agent (REDRAW_JIGGLE_MS); on
+   * Windows ConPTY sends no resize for an unchanged size at all. The clients aren't resized: the agent's repaint at the
+   * smaller grid is drawn over by the one at theirs. False when nothing runs.
+   */
+  redraw(id: string): boolean {
+    const e = this.entries.get(id);
+    if (!e || e.pty.exited || e.restarting || e.halted) return false;
+    if (e.redrawing !== undefined) return true;
+    e.pty.resize(e.cols, e.rows > MIN_ROWS ? e.rows - 1 : e.rows + 1);
+    e.gridAt = e.pacer.offset;
+    e.redrawing = (this.timers ?? realTimers).set(() => {
+      e.redrawing = undefined;
+      // Back to the grid it has now (a client may have set another meanwhile), unless it was killed or restarted.
+      if (this.entries.get(id) === e && !e.pty.exited && !e.restarting && !e.halted) {
+        e.pty.resize(e.cols, e.rows);
+        e.gridAt = e.pacer.offset;
+      }
+    }, REDRAW_JIGGLE_MS);
+    return true;
   }
 
   /**
@@ -332,16 +534,30 @@ export class PtyRegistry {
    * arriving from the attach on is held for this client until `start()`, and
    * `ready` is the screen exactly as of the attach — nothing lost, nothing
    * twice. `replay` (taken at once) is for screens with no parsing step.
+   *
+   * `lead()`: this client was used (typed in, resized), so it answers the agent's queries from the next output on.
+   * `replies(parts)`: what of what this client sent on its own goes to the agent — its focus and mouse-motion reports
+   * always, its answers only if it answers the queries in the output that arrived last (`designate`).
+   *
+   * Output reaches it in frames (output-pacer.ts). `opts.metered`: it acks what it draws (`ack(chars)`); if it falls
+   * behind, it is sent nothing until it catches up, then what it missed from the tail when that is provably enough, else
+   * the screen as it stands then (`opts.onReplay`; a screen taken and held as the attach's is: nothing lost, nothing
+   * twice), and live output again. `offset`: the output offset its snapshot stands at (where its first frame starts).
    */
   attach(
     id: string,
-    onData: (data: string) => void,
+    onData: (data: string, end?: number) => void,
     onExit: (code: number) => void,
+    opts: AttachOptions = {},
   ): {
     replay: ReplaySnapshot;
     ready: Promise<ReplaySnapshot>;
     start: () => void;
     detach: () => void;
+    lead: () => void;
+    replies: (parts: ReplyPart[]) => string;
+    ack: (chars: number) => void;
+    offset: number;
     exitedWith: number | null;
   } | null {
     const e = this.entries.get(id);
@@ -355,26 +571,211 @@ export class PtyRegistry {
     const restarting = !!e.restarting || !!e.halted;
     const settled = restarting ? undefined : e.pty.serializeSettled;
     // Held output while the settled snapshot is taken; null = passed straight on.
-    let held: string[] | null = settled ? [] : null;
-    const sub = (d: string) => (held ? held.push(d) : onData(d));
+    let held: Array<[string, number | undefined]> | null = settled ? [] : null;
+    let started = !settled;
+    let gone = false;
+    const sub = (d: string, end?: number) => (held ? held.push([d, end]) : onData(d, end));
+    // On Windows (the host says so), the ConPTY this PTY runs on: the bundled one reflows as a newer build than the OS's.
+    const windowsPty = this.windowsPty ? (e.pty.windowsPty ?? this.windowsPty) : undefined;
+    // A screen (or, resumed, what was missed) and where it stands in the output: where its live output starts.
+    const snapshot = (data: string, offset = e.pacer.offset): ReplaySnapshot => ({
+      data,
+      cols: e.cols,
+      rows: e.rows,
+      stream: e.stream,
+      offset,
+      ...(windowsPty ? { windowsPty } : {}),
+    });
+    // A screen being taken (its first, a catch-up): output held meanwhile, and the PTY's end, told after the screen.
+    let catchingUp = false;
+    let endedWith: number | null = null;
+    const exitSub = (code: number) => {
+      if (catchingUp || !started) endedWith = code;
+      else onExit(code);
+    };
+    // A catch-up's screen, sent. One that couldn't be taken (null) is not sent as an empty screen, which the client would
+    // draw over the one it has, blank: it keeps its screen, said in the debug log. It missed what came meanwhile, so a
+    // client that resumes (a tab) is told it no longer knows where it stands — no stream (it never resumes from here),
+    // nothing to draw, drawn as missed output is (`resumed`: never over a reset terminal); `work attach`, which draws
+    // every screen over a cleared one and never resumes, is sent nothing.
+    const sendCatchUp = (data: string | null, at: number) => {
+      if (data !== null) return opts.onReplay?.(snapshot(data, at));
+      report('warn', `${id}: a terminal's catch-up screen couldn't be taken; it keeps the screen it has`);
+      if (!opts.screenOnlyCatchUp) opts.onReplay?.({ ...snapshot('', at), stream: '', resumed: true });
+    };
+    // Whether the agent is between processes or its grid is moving: nothing is sent from the tail then.
+    const busy = () => e.pty.exited || !!e.restarting || !!e.halted || e.redrawing !== undefined;
+    // It fell behind and caught up (output-pacer.ts). Sent output up to `from`, in order on its socket, so its screen will
+    // stand there: what it missed since, from the tail, when that is provably all it needs (`continueFrom`, the checks a
+    // reconnect's resume makes but the grid: it draws it where it would have drawn it live) — a `replay` marked resumed,
+    // drawn on the screen it has (its scrollback kept), not counted or acked, as a screen isn't. Else (`from` null: the
+    // pacer wants a screen; `work attach`, which draws every screen over a cleared one; output held for it) the screen as
+    // it stands now, the output from now on held until it is sent.
+    const resync = (from: number | null): boolean => {
+      // Before its first screen nothing could have been acked; after it left, nobody to send it to.
+      if (gone || !started) return false;
+      if (from !== null && !opts.screenOnlyCatchUp && held === null) {
+        const r = continueFrom(from, { gridAt: e.gridAt, busy: busy() }, e.pacer.tail);
+        if ('missed' in r) {
+          opts.onReplay?.({ ...snapshot(r.missed), resumed: true });
+          return true;
+        }
+      }
+      const shot: SnapshotOptions | undefined = opts.screenOnlyCatchUp ? { scrollback: false } : undefined;
+      // Mid-restart the old process's screen is gone with it: an empty screen, the new one draws from scratch.
+      const between = !!e.restarting || !!e.halted;
+      const settle = between ? undefined : e.pty.serializeSettled;
+      // The pacer sent what was pending to the others first: the screen is everything up to here, the output held from here.
+      const at = e.pacer.offset;
+      if (!settle) {
+        const data = between ? '' : e.pty.serialize?.(shot);
+        sendCatchUp(data === null ? null : data || e.replay, at);
+        return false;
+      }
+      const mine: Array<[string, number | undefined]> = [];
+      held = mine;
+      catchingUp = true;
+      void settle
+        .call(e.pty, shot)
+        .catch((err: unknown) => {
+          logSwallowed(`${id}: take a catch-up screen`, err);
+          return null;
+        })
+        .then((data) => {
+          if (gone || held !== mine) return;
+          sendCatchUp(data === null ? null : data || e.replay, at);
+          held = null;
+          catchingUp = false;
+          for (const [d, end] of mine) onData(d, end);
+          if (endedWith !== null) onExit(endedWith);
+        });
+      return false;
+    };
+    // Its first screen: taken where it joins the output (`join`), as a promise of it.
+    let resolveReady: (r: ReplaySnapshot) => void = () => {};
+    const ready = new Promise<ReplaySnapshot>((resolve) => (resolveReady = resolve));
+    let offset = e.pacer.offset;
+    /**
+     * It joins the output here, and its first screen is taken here: what came before is on that screen, what comes after
+     * is sent to it (the pacer sends what was pending to the others first). Between synchronized frames (whenNoFrame):
+     * mid-frame, at the frame's end (or its cap) — the PTY's output is cut there (PtySession), so the screen is exactly
+     * what came before, never one drawn halfway (a screen has no 2026 in it to hold the client's drawing).
+     */
+    const join = (entryGone: boolean) => {
+      if (gone || entryGone || this.entries.get(id) !== e) {
+        resolveReady(snapshot(''));
+        return;
+      }
+      e.pacer.add(sub, { metered: !!opts.metered, send: sub, resync });
+      offset = e.pacer.offset;
+      // Reconnecting with its screen kept: what it missed, from exactly where it stands, when that is provably enough
+      // (output-tail.ts); not a screen, not counted or acked (as a screen isn't), and the output from here held as for a screen.
+      if (opts.resume) {
+        const r = resumeFrom(
+          opts.resume,
+          {
+            stream: e.stream,
+            grid: { cols: e.cols, rows: e.rows },
+            gridBefore,
+            gridAt: e.gridAt,
+            busy: busy(),
+          },
+          e.pacer.tail,
+          opts.grid,
+        );
+        if ('missed' in r) {
+          resolveReady({ ...snapshot(r.missed, offset), resumed: true });
+          return;
+        }
+        opts.onResumeRefused?.(r.refused);
+      }
+      if (settled)
+        void settled
+          .call(e.pty)
+          .catch((err: unknown) => {
+            logSwallowed(`${id}: take a screen for an attach`, err);
+            return null;
+          })
+          .then((d) => resolveReady(snapshot(firstScreen(d), offset)));
+      else resolveReady(snapshot(restarting ? '' : firstScreen(e.pty.serialize?.()), offset));
+    };
+    // Its first screen; one that couldn't be taken (null): it attaches all the same, on an empty screen the agent's next
+    // repaint fills, and that is said. Never left waiting: a terminal that gets no first frame takes no input.
+    const firstScreen = (d: string | null | undefined): string => {
+      if (d === null) report('warn', `${id}: a terminal's screen couldn't be taken; it attached with an empty one`);
+      return d || e.replay;
+    };
+    // The PTY's grid before this attach resizes it to the one it states: a resume needs its own grid to have been the PTY's.
+    const gridBefore: Grid = { cols: e.cols, rows: e.rows };
     if (exitedWith === null) {
       e.subscribers.add(sub);
-      e.exitSubscribers.add(onExit);
+      e.exitSubscribers.add(exitSub);
+      // It stated its grid: it takes the size now, as its first resize would have (it is the one used last), and the
+      // snapshot below is taken at that grid: the screen copy reflowed now, the agent's repaint for it (SIGWINCH)
+      // following as live output, held for it like any other until `start()`.
+      const grid = opts.grid ? validGrid(opts.grid.cols, opts.grid.rows) : null;
+      if (grid) {
+        e.leader = sub;
+        e.pacer.used(sub);
+        if (!restarting) this.resize(id, grid.cols, grid.rows);
+        else {
+          // Nothing runs to resize: the agent being started again starts at it (resumeEntry).
+          e.cols = grid.cols;
+          e.rows = grid.rows;
+          this.remember(grid);
+        }
+      }
     }
-    const snapshot = (data: string): ReplaySnapshot => ({ data, cols: e.cols, rows: e.rows });
     const replay = snapshot(restarting ? '' : e.pty.serialize?.() || e.replay);
+    if (exitedWith !== null) resolveReady(replay);
+    // After the resize: the screen copy applies it in order with the output before it (ScreenMirror.resize), and the
+    // screen is taken behind both.
+    else e.pacer.whenNoFrame(join);
     return {
       exitedWith,
       replay,
-      ready: settled ? settled.call(e.pty).then((d) => snapshot(d || e.replay)) : Promise.resolve(replay),
+      get offset() {
+        return offset;
+      },
+      ready,
       start: () => {
         const q = held;
         held = null;
-        for (const d of q ?? []) onData(d);
+        started = true;
+        for (const [d, end] of q ?? []) onData(d, end);
+        // It ended while its first screen was being taken: told after that screen and the output before its end.
+        if (endedWith !== null && !catchingUp) {
+          const code = endedWith;
+          endedWith = null;
+          onExit(code);
+        }
       },
       detach: () => {
+        gone = true;
         e.subscribers.delete(sub);
-        e.exitSubscribers.delete(onExit);
+        e.exitSubscribers.delete(exitSub);
+        if (e.leader === sub) e.leader = null;
+        // It left before answering, maybe: the next in line answers what it was sent (it was sent the same).
+        if (e.answerer === sub) this.designate(e);
+        // Holding the PTY paused, maybe: the next in line holds it, or nobody does and it reads on.
+        e.pacer.remove(sub);
+      },
+      lead: () => {
+        e.leader = sub;
+        e.pacer.used(sub);
+      },
+      ack: (chars) => e.pacer.ack(sub, chars),
+      replies: (parts) => {
+        const answers = e.answerer === sub;
+        let out = '';
+        for (const part of parts) {
+          if (!part.answer) out += part.text;
+          else if (answers) {
+            out += part.text;
+            this.colors.remember(part.text);
+          }
+        }
+        return out;
       },
     };
   }
@@ -397,6 +798,7 @@ export class PtyRegistry {
     const attached = [...e.exitSubscribers];
     e.subscribers.clear();
     e.exitSubscribers.clear();
+    e.pacer.dispose();
     const exited = e.pty.exited
       ? Promise.resolve(e.exitCode ?? 0)
       : new Promise<number>((resolve) => {
@@ -499,6 +901,9 @@ export class PtyRegistry {
   private async haltEntry(e: Entry, timeoutMs: number): Promise<boolean> {
     const id = e.id;
     const old = e.pty;
+    // Its last output to the clients, and no pause left on a process that is going.
+    e.pacer.flush();
+    e.pacer.setFlow(null);
     const stopped = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), timeoutMs);
       old.onExit = () => {
@@ -569,6 +974,7 @@ export class PtyRegistry {
     const attached = [...e.exitSubscribers];
     e.subscribers.clear();
     e.exitSubscribers.clear();
+    e.pacer.dispose();
     await this.persist();
     for (const cb of attached) {
       try {
@@ -600,6 +1006,8 @@ export class PtyRegistry {
         logSwallowed(`restore session ${id} in ${entry.cwd}`, err);
       }
     }
+    // No client has set a grid yet: a start with none takes the one most of the restored sessions had.
+    this.lastGrid ??= mostCommonGrid(restored.map((id) => validGrid(saved[id].cols, saved[id].rows)));
     await this.persist();
     return restored;
   }
@@ -607,10 +1015,14 @@ export class PtyRegistry {
   /** Host shutdown: kill every PTY but KEEP the persisted list, so the next
    *  host start restores them. */
   disposeAllKeepingState(): void {
+    // A grid write still to come would write the list with nothing in it.
+    if (this.gridPersist !== null) (this.timers ?? realTimers).clear(this.gridPersist);
+    this.gridPersist = null;
     for (const e of this.entries.values()) {
       e.pty.onExit = undefined;
       e.subscribers.clear();
       e.exitSubscribers.clear();
+      e.pacer.dispose();
       e.pty.dispose();
     }
     this.entries.clear();
@@ -622,6 +1034,7 @@ export class PtyRegistry {
   }
 
   private info(e: Entry): PtyInfo {
+    const signal = e.pty.exited ? null : (e.pty.streamSignal?.() ?? null);
     return {
       id: e.id,
       cwd: e.spec.cwd,
@@ -634,6 +1047,7 @@ export class PtyRegistry {
       clients: e.subscribers.size,
       lastOutputAt: new Date(e.lastOutputAt).toISOString(),
       tool: e.spec.tool.cmd,
+      ...(signal ? { signal } : {}),
     };
   }
 
@@ -651,7 +1065,8 @@ export class PtyRegistry {
     // Exited entries still lingering (see FORGET_EXITED_MS) are kept on
     // purpose — dropping them on an unrelated write would defeat the delay.
     for (const e of this.entries.values()) {
-      snapshot[e.id] = { ...e.spec, startedAt: e.startedAt };
+      // Its grid too: a restore after a reboot starts it at the size it was used at last.
+      snapshot[e.id] = { ...e.spec, cols: e.cols, rows: e.rows, startedAt: e.startedAt };
     }
     this.writeChain = this.writeChain
       .then(() => this.store.write(snapshot))

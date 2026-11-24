@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { cornerBadge, LatencyMeter, type LatencyReading } from '../../state/keystroke-latency.js';
 import { observeLongFrames, TerminalPerfLog } from '../../state/terminal-perf.js';
-import { openTerminalSocket } from '../../api/terminal-socket.js';
+import { openTerminalSocket, type TerminalSocket } from '../../api/terminal-socket.js';
 import { sendTerminalPerf } from '../../api/client.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { startFailure, startRetryDelay } from '../../state/terminal-start.js';
 import { ask } from '../../state/ask.js';
-import { WebglRecovery } from '../../state/webgl-recovery.js';
+import { WebglRenderer } from '../../state/webgl-renderer.js';
+import { pageWebglRefusal } from '../../state/webgl-gate.js';
+import { onFontsSettled } from '../../state/font-settle.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
 import { writeRich } from '../../state/rich-copy.js';
 import { Terminal } from '@xterm/xterm';
@@ -14,6 +16,14 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { VIEW_SCROLLBACK } from '../../../../core/pty/scrollback.js';
+import { TERMINAL_THEME } from '../../../../core/pty/terminal-colors.js';
+import { AckCounter, ackFrame, utf16Length } from '../../../../core/pty/flow-control.js';
+import { isWindowsPty, validGrid, type Grid } from '../../../../core/pty/terminal-size.js';
+import { StreamPosition, type ResumePoint } from '../../../../core/pty/resume.js';
+import { replyParts } from '../../../../core/pty/terminal-replies.js';
+import { FitScheduler } from '../../state/fit-scheduler.js';
+import { RepaintScroll } from '../../state/repaint-scroll.js';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -49,6 +59,26 @@ export const ELSEWHERE_RECHECK_MS = 6000;
 /** How often the Terminal tab sends what it measured to the debug log (and once more when it closes). */
 const PERF_SEND_MS = 10_000;
 
+/**
+ * The most one `term.write` is given: xterm parses a write whole before it looks at the clock (its 12 ms slices are
+ * between writes), so a big frame or screen in one piece is one long freeze. 64 KiB parses in a few ms.
+ */
+export const WRITE_PIECE = 64 * 1024;
+
+/**
+ * A connection that dropped is reconnected in place this long after the drop, then after each try that fails (a
+ * Wi-Fi blip or a laptop waking is back at once or within seconds; work web restarting takes a few). After the last,
+ * the connection's end is said, and Enter starts over with a new terminal.
+ */
+export const RECONNECT_DELAYS_MS = [0, 1000, 2000, 4000];
+/** A reconnect in place shows "Connecting…" only once it has taken this long: a quick one shows nothing. */
+export const RECONNECT_COVER_MS = 500;
+
+/** `write` called on `data` in pieces of at most WRITE_PIECE, `last` true for the final one; never called for empty `data`. */
+function inPieces<T extends string | Uint8Array>(data: T, write: (piece: T, last: boolean) => void): void {
+  for (let at = 0; at < data.length; at += WRITE_PIECE) write(data.slice(at, at + WRITE_PIECE) as T, at + WRITE_PIECE >= data.length);
+}
+
 const ago = (ms: number | null) => {
   if (ms === null) return null;
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -66,10 +96,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
-  // Set by the connect effect: refit + resize-if-changed, and focus.
+  // Set by the connect effect: refit + resize-if-changed, and focus; hidden, its WebGL context goes after a while.
   const shown = useRef<(() => void) | null>(null);
+  const hidden = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (active) shown.current?.();
+    else hidden.current?.();
   }, [active]);
   // Until the first screen arrives: "Connecting…", then — when it takes a
   // while, i.e. Claude is being started — say so instead of a blank pane.
@@ -104,8 +136,18 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     force.current = false;
   }, [sessionId]);
   // ⋯ → Reconnect terminal (⇧R): a new connection, whatever state this one is in — one gone
-  // stale without saying so shows a screen that takes no input.
-  useEffect(() => onTerminalReconnect(sessionId, () => setGeneration((g) => g + 1)), [sessionId]);
+  // stale without saying so shows a screen that takes no input. It also asks the agent to draw its screen again once
+  // the new connection's screen is drawn (`redraw`): it is what you reach for when the screen looks wrong. Only then —
+  // a repaint flashes, and an agent drawing inline can repeat its transcript in the scrollback.
+  const redrawNext = useRef(false);
+  useEffect(
+    () =>
+      onTerminalReconnect(sessionId, () => {
+        redrawNext.current = true;
+        setGeneration((g) => g + 1);
+      }),
+    [sessionId],
+  );
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -114,11 +156,19 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       fontSize: 13,
       // Cascadia is Windows Terminal's default — same glyphs, same widths.
       fontFamily: '"Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, "Liberation Mono", monospace',
-      theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
+      // The PTY host answers an agent's colour query with these when no tab is open to (core/pty/terminal-colors.ts).
+      theme: TERMINAL_THEME,
       convertEol: false,
-      scrollback: 5000,
+      // Kept while connected; a reattach brings back the PTY host's REPLAY_SCROLLBACK (core/pty/scrollback.ts).
+      scrollback: VIEW_SCROLLBACK,
       // Required by the unicode11 addon (proposed API in xterm 6).
       allowProposedApi: true,
+      // Block and box glyphs drawn to the cell by xterm, not taken from the font: Claude Code's logo and its boxes stay
+      // whole (with the font's glyphs they show gaps between cells). A glyph wider than its one cell (Ⅻ) is narrowed
+      // to it rather than drawn over the next. minimumContrastRatio stays 1: the agent's colours as it sent them.
+      // Measured: terminal-rendering.md, "Fonts and the renderer".
+      customGlyphs: true,
+      rescaleOverlappingGlyphs: true,
       // Links Claude prints as terminal hyperlinks (OSC 8). xterm's default
       // asks "could be dangerous?" and then opens a BLANK window it navigates
       // afterwards — the desktop app only sees about:blank and opens nothing.
@@ -144,51 +194,55 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     term.unicode.activeVersion = '11';
     term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
     term.open(hostRef.current);
-    // GPU renderer: the DOM renderer is what makes a busy Claude feel
-    // sluggish (every spinner frame re-lays out spans). Must load after
-    // open(). Falls back to DOM if WebGL is unavailable; a lost context (GPU
-    // reset, too many contexts) is tried again after a pause (webgl-recovery.ts).
-    const recovery = new WebglRecovery();
-    let webglRetry: ReturnType<typeof setTimeout> | undefined;
+    // A view scrolled up stays on what you were reading when the agent reprints its transcript (repaint-scroll.ts).
+    const repaint = new RepaintScroll(term);
     let disposed = false;
-    // A lost context, or a try again that failed (the GPU still resetting):
-    // wait and try again, or stay on the DOM renderer.
-    const lostWebgl = () => {
-      const wait = recovery.lost(Date.now());
-      setRenderer(wait === null ? 'dom' : 'retrying');
-      if (wait !== null) webglRetry = setTimeout(() => loadWebgl(true), wait);
+    // A drag fires the pane's observer every frame: fitted at most every FIT_MIN_MS, the last size always, each in a
+    // task of its own (fit-scheduler.ts). The fit is applyGrid, below.
+    const fits = new FitScheduler(() => applyGrid());
+    // GPU renderer: the DOM renderer is what makes a busy Claude feel sluggish (every spinner frame re-lays out spans).
+    // Loaded after open(), unless this is a software rasterizer (webgl-gate.ts). A lost context is tried again after a
+    // pause; hidden in the deck the terminal lets its context go and gets a new one when shown (webgl-renderer.ts).
+    const webgl = new WebglRenderer<WebglAddon>(
+      {
+        create: () => new WebglAddon(),
+        load: (addon) => term.loadAddon(addon),
+        canvases: () => term.element?.querySelectorAll('canvas') ?? [],
+        label: setRenderer,
+        // The two renderers measure a cell differently: refit after a swap, or the grid is a column off until the next resize.
+        refit: () => fits.request(),
+      },
+      activeRef.current,
+      pageWebglRefusal(),
+    );
+    // A web font of the stack that arrives after open(): the cell measured again (xterm does only when the option
+    // changes, so through a generic family and back), the atlas redrawn, the grid fitted — shown only (font-settle.ts).
+    const stopFonts = onFontsSettled(
+      document.fonts,
+      () => term.options.fontFamily ?? '',
+      () => {
+        const family = term.options.fontFamily;
+        term.options.fontFamily = 'monospace';
+        term.options.fontFamily = family;
+        term.clearTextureAtlas();
+        fits.request();
+      },
+    );
+    // The grid this pane holds, or null when it can't be told: no size (not laid out, 0 × 0), or one the PTY host
+    // wouldn't take (terminal-size.ts; FitAddon proposes 2 × 1 for an empty pane). Measured here; applied by applyGrid.
+    const measure = (): Grid | null => {
+      const el = hostRef.current;
+      if (!el || el.clientWidth <= 0 || el.clientHeight <= 0) return null;
+      const dims = fit.proposeDimensions();
+      return dims ? validGrid(dims.cols, dims.rows) : null;
     };
-    // The two renderers measure a cell differently: refit after a swap, or
-    // the grid is a column off until the next resize.
-    const rendererChanged = () => onResize();
-    const loadWebgl = (retry: boolean) => {
-      if (disposed) return;
-      let webgl: WebglAddon | null = null;
-      try {
-        webgl = new WebglAddon();
-        const addon = webgl;
-        addon.onContextLoss(() => {
-          addon.dispose();
-          lostWebgl();
-          rendererChanged();
-        });
-        term.loadAddon(addon);
-        setRenderer('webgl');
-        if (retry) rendererChanged();
-      } catch {
-        // xterm registers an addon before activating it: one whose
-        // activate threw stays attached unless disposed.
-        try {
-          webgl?.dispose();
-        } catch {
-          /* half-built */
-        }
-        if (retry) lostWebgl();
-        else setRenderer('dom'); // no WebGL here at all: nothing to wait for
-      }
-    };
-    loadWebgl(false);
-    fit.fit();
+    // The grid it attaches at: stated on its address when it takes the PTY's size (shown), so the host sends its first
+    // screen at this grid, and starts an agent at it (terminal-size.ts). Hidden in the deck it states none.
+    const attachGrid = activeRef.current ? measure() : null;
+    if (attachGrid) term.resize(attachGrid.cols, attachGrid.rows);
+    // This connection is a ⋯ → Reconnect terminal's: the agent is asked to repaint once its screen is drawn.
+    let askRedraw = redrawNext.current;
+    redrawNext.current = false;
     // Take the keyboard: you land here to answer Claude (Inbox "needs your
     // input", `n`, a notification click). Without focus your answer went to
     // the dashboard, whose j/k/n navigated away. Typing before the replay
@@ -246,38 +300,56 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       return `${proto}//${window.location.host}/ws/sessions/${encodeURIComponent(sessionId)}/terminal${force.current ? '?force=1' : ''}`;
     })();
-    // Straight to the PTY host with a ticket when it can, else the relay at wsUrl (terminal-socket.ts).
-    const ws = openTerminalSocket(sessionId, { force: force.current, relayUrl: wsUrl });
-    ws.binaryType = 'arraybuffer';
-    setPhase('connecting');
-    setFailed(null);
-    const slowStart = setTimeout(() => setPhase((p) => (p === 'connecting' ? 'starting' : p)), 700);
+    // Where this terminal stands in the PTY's output (core/pty/resume.ts): a connection that drops is reconnected in
+    // place from there, its screen kept, and sent only what it missed when the host can tell that is all it needs.
+    const position = new StreamPosition();
+    let ws!: TerminalSocket;
+    // `ws` until it closes, then null: a frame drawn after its connection closed makes nothing ready.
+    let live: TerminalSocket | null = null;
     // The server's reason when a start fails (said before it closes), and the timer of the try again.
     let failReason: string | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // A reconnect in place under way (the point it asked from), how many tries so far, the next try's timer, and the
+    // "Connecting…" cover's — shown only if it takes a while.
+    let resuming: ResumePoint | null = null;
+    let reconnects = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let coverTimer: ReturnType<typeof setTimeout> | undefined;
 
     let ready = false;
     const pendingInput: string[] = [];
 
     // Nothing is sent until the host's replay frame (always first) has been
     // drawn: input typed meanwhile is queued, and our size is sent only
-    // after the snapshot is on screen, so Claude redraws for our grid.
-    const finishReplay = () => {
+    // after the snapshot is on screen. A current host sent it at the grid stated on the attach address already, so
+    // this resize changes nothing; an older one ignored that, and this is what gives Claude our grid, as before.
+    // `sock`: the connection whose first frame was drawn. It runs from xterm's write callback, a while after the frame
+    // came: if that connection closed meanwhile (another try waits or is on its way), nothing is made ready — the next
+    // connection's first frame is still to come, and would otherwise be taken for a catch-up (a reset terminal), and
+    // what was typed would go to a closed connection.
+    const finishReplay = (sock: TerminalSocket) => {
+      if (disposed || live !== sock) return;
       clearTimeout(slowStart);
+      clearTimeout(coverTimer);
+      resuming = null;
+      reconnects = 0;
       setPhase('ready');
       setRoute(ws.route);
       setFailed(null);
       retries.current = 0;
       setElsewhere(null);
       setChecking(false);
-      fit.fit();
       // After a reconnect the terminal is rebuilt: take focus back unless
       // the user has put it somewhere else meanwhile.
       if (activeRef.current && (!document.activeElement || document.activeElement === document.body)) term.focus();
       ready = true;
+      // The PTY's grid: the screen's. Shown, the pane's grid is taken with it now, and sent even when the same. Hidden in
+      // the deck (a try again while hidden), nothing: it keeps the screen's grid until it is shown.
       sentCols = term.cols;
       sentRows = term.rows;
-      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      applyGrid(true);
+      if (askRedraw && activeRef.current) ws.send(JSON.stringify({ type: 'redraw' }));
+      askRedraw = false;
       for (const data of pendingInput) {
         ws.send(JSON.stringify({ type: 'input', data }));
       }
@@ -286,6 +358,47 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
 
     // Binary frames = PTY output; text frames = control JSON.
     let exited = false;
+    // Each piece of output acked once xterm has parsed it, every few thousand characters (an older host ignores them),
+    // on the connection it came on (`acks`: a counter per connection).
+    const writeOutput = (bytes: Uint8Array, acks: AckCounter) =>
+      inPieces(bytes, (piece) => {
+        const chars = utf16Length(piece);
+        term.write(piece, () => {
+          acks.drawn(chars);
+          repaint.written();
+        });
+      });
+    // A screen: in pieces, `done` once the last is drawn. Never acked (the host doesn't count it).
+    const writeScreen = (text: string, done: () => void) => inPieces(text, (piece, last) => term.write(piece, last ? done : undefined));
+    // While above 0, what xterm answers is dropped (`onData`, below): it is parsing output it missed while disconnected.
+    let quiet = 0;
+    // The output it missed while its connection was down, drawn on the screen it kept, as live output is, but answering
+    // nothing: each query in it was answered when it came (by another client, or the host's screen copy), and an answer
+    // now would reach the agent late, as typing. Marked by empty writes, as the host's screen copy marks a chunk
+    // (screen-mirror.ts): a write's callback runs once it is parsed and before the next write is. Never acked, as a
+    // screen isn't (the host doesn't count it).
+    const drawMissed = (text: string, done: () => void) => {
+      if (!text) return done();
+      term.write('', () => quiet++);
+      inPieces(text, (piece, last) =>
+        term.write(piece, () => {
+          repaint.written();
+          if (!last) return;
+          quiet--;
+          done();
+        }),
+      );
+    };
+    // A screen sent mid-session (this tab fell behind and caught up: the host's output-pacer.ts) is only drawn: over
+    // a reset terminal (RIS, in order with what was written before it; it clears the scrollback too), at its grid — the
+    // PTY's — and left there: fitted here alone, the agent's frame, drawn for another client's grid, would be reflowed
+    // into garbage. Only if this pane's own grid changed since it last told the PTY are both changed (applyGrid). None
+    // of the first screen's work: no focus taken, no size sent (it would take the PTY's size from the terminal in use),
+    // nothing held to send.
+    const drawCatchUp = (msg: { data?: string; cols?: number; rows?: number }) => {
+      if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
+      writeScreen('\x1bc' + (msg.data ?? ''), () => fits.request());
+    };
     const meter = new LatencyMeter();
     let shownAt = 0;
     // What the corner shows: at most every half second, whatever moved it.
@@ -323,10 +436,13 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       if (report) sendTerminalPerf(report);
     };
     const perfTimer = setInterval(sendPerf, PERF_SEND_MS);
-    ws.addEventListener('message', (e) => {
+    const onMessage = (e: MessageEvent, acks: AckCounter, sock: TerminalSocket) => {
       if (e.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(e.data));
-        // The echo of a key sent (keystroke-latency.ts); shown at most every half second.
+        const bytes = new Uint8Array(e.data);
+        // Frames are contiguous slices of the PTY's output: where it stands moves on by each, counted as the host counts.
+        position.output(utf16Length(bytes));
+        writeOutput(bytes, acks);
+        // The echo of a key sent (keystroke-latency.ts): as it arrives; shown at most every half second.
         if (meter.output(performance.now()) !== null) showLatency();
         return;
       }
@@ -338,6 +454,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         data?: string;
         cols?: number;
         rows?: number;
+        windowsPty?: unknown;
+        stream?: unknown;
+        offset?: unknown;
+        resumed?: unknown;
         lastActivity?: number | null;
         state?: string | null;
       };
@@ -347,16 +467,36 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         return;
       }
       if (msg.type === 'replay') {
+        // The host's PTYs are ConPTY's, which reflows lines itself on a resize: xterm.js must not reflow them again
+        // (VS Code sets the same; terminal-size.ts). Said by a host on Windows only.
+        if (isWindowsPty(msg.windowsPty)) term.options.windowsPty = msg.windowsPty;
+        // Where this frame leaves it in the output (a host from before says nothing: then it never resumes). Set as the
+        // frame comes, though xterm draws it later: what is given to xterm is drawn, in order, even if this connection
+        // drops first — so the next connection's frames land after it, and the position counts what was written.
+        position.replay(msg);
+        const done = () => finishReplay(sock);
+        // What it missed, drawn on the screen it kept — the scrollback, the scroll position and the selection stay:
+        // reconnected in place, or a catch-up the host couldn't take a screen for (it says where this stands is
+        // unknown now: then no stream). Never over a reset terminal, whatever state the tab thinks it is in.
+        if (msg.resumed === true) return drawMissed(msg.data ?? '', ready ? () => {} : done);
+        if (ready) return drawCatchUp(msg);
+        if (resuming) {
+          // Reconnected in place, but the host couldn't tell what it missed would be enough (resume.ts): a screen,
+          // drawn as a catch-up's is: over a reset terminal, at its grid.
+          if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
+          return writeScreen('\x1bc' + (msg.data ?? ''), done);
+        }
         // Draw at the grid the snapshot was serialized for, then fit.
         if (msg.cols && msg.rows) term.resize(msg.cols, msg.rows);
-        if (msg.data) term.write(msg.data, finishReplay);
-        else finishReplay();
+        if (msg.data) writeScreen(msg.data, done);
+        else done();
       } else if (msg.type === 'exit') {
         exited = true;
         term.write(`\r\n\x1b[33m[session exited${msg.code ? ` with code ${msg.code}` : ''} — press Enter to start it again]\x1b[0m\r\n`);
       } else if (msg.type === 'error') {
         failReason = msg.message ?? null;
-        term.write(`\r\n\x1b[31m[${msg.message ?? 'error'}]\x1b[0m\r\n`);
+        // A reconnect in place writes nothing on the screen it kept: if it doesn't get through, that is said once.
+        if (!resuming) term.write(`\r\n\x1b[31m[${msg.message ?? 'error'}]\x1b[0m\r\n`);
       } else if (msg.type === 'elsewhere') {
         exited = true; // the server closes; no reconnect prompt
         setChecking(false);
@@ -366,10 +506,34 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
           confirmed: (msg as { confirmed?: unknown }).confirmed === true,
         });
       }
-    });
+    };
 
-    ws.addEventListener('close', () => {
-      if (!ready && !exited && !disposed) {
+    const connectionClosed = (detail = '') => term.write(`\r\n\x1b[33m[connection closed${detail} — press Enter to reconnect]\x1b[0m\r\n`);
+    // The next try of a reconnect in place, from where the terminal stands now (a try that got its frame and then
+    // dropped has moved it); none left, or nowhere to resume from: the connection's end is said — with the host's reason
+    // when the last try was given one, and that what was typed meanwhile was not sent — and Enter starts over.
+    const reconnectLater = () => {
+      const at = position.point(term.cols, term.rows);
+      if (!at || reconnects >= RECONNECT_DELAYS_MS.length) {
+        clearTimeout(coverTimer);
+        setPhase('ready');
+        resuming = null;
+        const unsent = pendingInput.length > 0;
+        pendingInput.length = 0;
+        connectionClosed((failReason ? `: ${failReason}` : '') + (unsent ? '; what you typed meanwhile was not sent' : ''));
+        exited = true;
+        return;
+      }
+      resuming = at;
+      reconnectTimer = setTimeout(() => connect(at), RECONNECT_DELAYS_MS[reconnects++]);
+    };
+    const onClose = () => {
+      if (disposed || exited) {
+        exited = true;
+        return;
+      }
+      if (resuming) return reconnectLater();
+      if (!ready) {
         // It never started: say why over the pane (the "Starting…" cover would hide it for good) and try again
         // by itself — a PTY host that was busy or replaced is usually back within seconds.
         clearTimeout(slowStart);
@@ -380,11 +544,46 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
             retries.current += 1;
             setGeneration((g) => g + 1);
           }, delay);
-      } else if (!exited) {
-        term.write('\r\n\x1b[33m[connection closed — press Enter to reconnect]\x1b[0m\r\n');
+        exited = true;
+        return;
       }
-      exited = true;
-    });
+      // It dropped (Wi-Fi, sleep, work web or its relay restarted, the host restarted): reconnected in place, its screen
+      // kept. Nothing is written on it meanwhile — the missed output continues exactly where it stopped — and input waits.
+      ready = false;
+      if (!position.point(term.cols, term.rows)) {
+        connectionClosed();
+        exited = true;
+        return;
+      }
+      coverTimer = setTimeout(() => setPhase('connecting'), RECONNECT_COVER_MS);
+      reconnectLater();
+    };
+
+    // Straight to the PTY host with a ticket when it can, else the relay at wsUrl (terminal-socket.ts). It acks what
+    // it draws (flow: the host paces it, core/pty/flow-control.ts). `at`: a reconnect in place, from where it stands —
+    // it attaches only (nothing is started for it), at the grid its screen is drawn at when shown.
+    const connect = (at: ResumePoint | null) => {
+      const grid = at ? (activeRef.current ? { cols: at.cols, rows: at.rows } : null) : attachGrid;
+      const sock = openTerminalSocket(sessionId, { force: at ? false : force.current, relayUrl: wsUrl, flow: true, grid, resume: at });
+      sock.binaryType = 'arraybuffer';
+      ws = sock;
+      live = sock;
+      failReason = null;
+      const acks = new AckCounter((chars) => {
+        if (!exited && ws === sock) sock.send(ackFrame(chars));
+      });
+      sock.addEventListener('message', (e) => {
+        if (ws === sock) onMessage(e, acks, sock);
+      });
+      sock.addEventListener('close', () => {
+        if (live === sock) live = null;
+        if (ws === sock) onClose();
+      });
+    };
+    connect(null);
+    setPhase('connecting');
+    setFailed(null);
+    const slowStart = setTimeout(() => setPhase((p) => (p === 'connecting' ? 'starting' : p)), 700);
 
     const inputSub = term.onData((data) => {
       if (exited) {
@@ -393,6 +592,16 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         // respawns Claude.
         if (data === '\r') setGeneration((g) => g + 1);
         return;
+      }
+      // Drawing output it missed: the answers xterm gives to queries in it are not sent (they were answered); the rest is.
+      if (quiet > 0) {
+        const parts = replyParts(data);
+        if (parts)
+          data = parts
+            .filter((p) => !p.answer)
+            .map((p) => p.text)
+            .join('');
+        if (!data) return;
       }
       sendInput(data);
     });
@@ -406,54 +615,67 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       } else pendingInput.push(data);
     }
 
-    // A drag fires the observer every frame; only tell the server when the
-    // grid actually changes.
+    // The grid the PTY was last told (by this tab): only a change from it is sent.
     let sentCols = term.cols;
     let sentRows = term.rows;
-    // `force`: send even if OUR size didn't change — another window on this
-    // session (your terminal tab, attached by `work tree`) may have resized
-    // the PTY since, and the last resize wins: Claude then wrapped its input
-    // at that window's width and text ran off the edge here.
-    const onResize = (force = false) => {
-      // Hidden in the deck: keep the grid as it was, send nothing.
-      if (!activeRef.current) return;
-      fit.fit();
-      if (!force && term.cols === sentCols && term.rows === sentRows) return;
-      sentCols = term.cols;
-      sentRows = term.rows;
-      if (ready) {
-        ws.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: term.cols,
-            rows: term.rows,
-          }),
-        );
-      }
+    // The local grid changed: the line at the top of the view stays there when you had scrolled up (a marker follows
+    // it through the reflow), and the view stays at the bottom when it was there.
+    const resizeKeepingView = (grid: Grid) => {
+      const buf = term.buffer.active;
+      const atBottom = buf.viewportY >= buf.baseY;
+      const marker = atBottom ? undefined : term.registerMarker(buf.viewportY - (buf.baseY + buf.cursorY));
+      term.resize(grid.cols, grid.rows);
+      if (atBottom) term.scrollToBottom();
+      else if (marker && !marker.isDisposed && marker.line >= 0) term.scrollToLine(marker.line);
+      marker?.dispose();
     };
-    const onWindowResize = () => onResize();
+    // This tab's grid and the PTY's change TOGETHER: the pane measured, the terminal resized and the PTY told in one go.
+    // Never the local grid alone, or the agent's last frame, drawn for the PTY's grid, is reflowed here into garbage.
+    // Only while shown (hidden in the deck it keeps its grid and sends nothing: the PTY's size is the terminal in use's)
+    // and once the first screen is drawn (until then the grid is stated on the attach address). A pane with no size
+    // changes nothing. `force`: send even if OUR size didn't change — another window on this session (your terminal
+    // tab, attached by `work tree`) may have resized the PTY since, and the last resize wins: Claude then wrapped its
+    // input at that window's width and text ran off the edge here.
+    const applyGrid = (force = false) => {
+      if (!activeRef.current || !ready) return;
+      const grid = measure();
+      if (!grid) return;
+      if (!force && grid.cols === sentCols && grid.rows === sentRows) return;
+      if (grid.cols !== term.cols || grid.rows !== term.rows) resizeKeepingView(grid);
+      sentCols = grid.cols;
+      sentRows = grid.rows;
+      ws.send(JSON.stringify({ type: 'resize', cols: grid.cols, rows: grid.rows }));
+    };
+    const onWindowResize = () => fits.request();
     // Observe the host, not just the window: dragging the dashboard's rail
     // divider resizes the pane without any window resize event.
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => onResize()) : null;
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => fits.request()) : null;
     if (observer) observer.observe(hostRef.current);
     else window.addEventListener('resize', onWindowResize);
     shown.current = () => {
-      onResize(true);
+      // WebGL back before the fit, so the grid is measured with the renderer that draws it.
+      webgl.shown();
+      applyGrid(true);
       term.focus();
     };
+    hidden.current = () => webgl.hidden();
     // The terminal you type in sets the size.
-    const onFocus = () => onResize(true);
+    const onFocus = () => applyGrid(true);
     term.textarea?.addEventListener('focus', onFocus);
 
     return () => {
       disposed = true;
       clearTimeout(slowStart);
       clearTimeout(retryTimer);
-      clearTimeout(webglRetry);
+      clearTimeout(reconnectTimer);
+      clearTimeout(coverTimer);
       term.textarea?.removeEventListener('paste', onPaste, true);
       term.element?.removeEventListener('copy', onCopy, true);
       term.textarea?.removeEventListener('focus', onFocus);
       shown.current = null;
+      hidden.current = null;
+      stopFonts();
+      fits.dispose();
       observer?.disconnect();
       window.removeEventListener('resize', onWindowResize);
       inputSub.dispose();
@@ -467,6 +689,9 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       } catch {
         /* */
       }
+      repaint.dispose();
+      // Before the terminal goes: its context lost, not left to the garbage collector (webgl-renderer.ts).
+      webgl.dispose();
       term.dispose();
     };
   }, [sessionId, generation]);

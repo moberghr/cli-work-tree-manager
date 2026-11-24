@@ -35,6 +35,13 @@ const host = {
   workVersion: '2.8.0' as string | null,
   /** The list request fails (the host went away mid-way). */
   listFails: false,
+  /** Ids whose PTY exited (still listed by the host, in its linger window). */
+  exited: new Set<string>(),
+  /** What the host says each PTY's stream says (`PtyInfo.signal`): any shape, as off the wire. */
+  signals: new Map<string, unknown>(),
+  /** How many times a PTY was looked up (`get`), and how many lookups in a row answer nothing (a stale client). */
+  gets: 0,
+  getsMissing: 0,
 };
 let hostRunning = false;
 const ensureHost = vi.fn(async () => {
@@ -82,9 +89,23 @@ vi.mock('../../../src/core/pty/pty-host-client.js', () => ({
       host.live.add(id);
       return {};
     }
+    async get(id: string) {
+      host.gets++;
+      if (host.getsMissing > 0) {
+        host.getsMissing--;
+        return null;
+      }
+      return host.live.has(id) ? { id, exited: host.exited.has(id) } : null;
+    }
     async list() {
       if (host.listFails) throw new Error('fetch failed');
-      return [...host.live].map((id) => ({ id, exited: false }));
+      return [...host.live].map((id) => ({
+        id,
+        exited: false,
+        tool: 'codex',
+        startedAt: '2026-11-23T11:00:00.000Z',
+        ...(host.signals.has(id) ? { signal: host.signals.get(id) } : {}),
+      }));
     }
     async write(id: string, data: string) {
       host.written.push([id, data]);
@@ -158,6 +179,10 @@ beforeEach(() => {
   host.features = ['agentEnv', 'halt'];
   host.workVersion = '2.8.0';
   host.listFails = false;
+  host.exited = new Set();
+  host.signals = new Map();
+  host.gets = 0;
+  host.getsMissing = 0;
   hostRunning = false;
   ensureHost.mockClear();
   findHost.mockClear();
@@ -314,6 +339,15 @@ describe('ensurePty', () => {
     expect(host.spawned[0].spec).toMatchObject({ cwd: sessions.single.paths[0], initialPrompt: 'Work on ABC-1' });
   });
 
+  it('starts the agent at the grid of the tab it is started for; with none, the host picks (its last grid)', async () => {
+    const pool = await freshPool();
+    await pool.ensurePty('single', { grid: { cols: 133, rows: 41 } });
+    expect(host.spawned[0].spec).toMatchObject({ cols: 133, rows: 41 });
+    await pool.ensurePty('group');
+    expect(host.spawned[1].spec).not.toHaveProperty('cols');
+    expect(host.spawned[1].spec).not.toHaveProperty('rows');
+  });
+
   it("never starts an archived session's Claude, or one being archived (a Terminal tab still open on it reconnects)", async () => {
     const pool = await freshPool();
     await expect(pool.ensurePty('archived')).rejects.toThrow(/archived\. Restore it/);
@@ -333,6 +367,49 @@ describe('ensurePty', () => {
     host.failNextSpawn = true;
     expect(await pool.ensurePty('group')).toBe('ws://host/group');
     expect(ensureHost).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('ensurePty for a terminal reconnecting with its screen kept (attachOnly)', () => {
+  it('attaches to what runs, and never starts a host or an agent', async () => {
+    hostRunning = true;
+    host.live.add('single');
+    const pool = await freshPool();
+    expect(await pool.ensurePty('single', { attachOnly: true, grid: { cols: 80, rows: 24 } })).toBe('ws://host/single');
+    expect(ensureHost).not.toHaveBeenCalled();
+    expect(host.spawned).toEqual([]);
+  });
+
+  it('no host running: NOT_RUNNING, and none is started', async () => {
+    const pool = await freshPool();
+    await expect(pool.ensurePty('single', { attachOnly: true })).rejects.toThrow(pool.NOT_RUNNING);
+    expect(ensureHost).not.toHaveBeenCalled();
+    expect(host.spawned).toEqual([]);
+  });
+
+  it('its PTY absent or exited: NOT_RUNNING, nothing started', async () => {
+    hostRunning = true;
+    const pool = await freshPool();
+    await expect(pool.ensurePty('single', { attachOnly: true })).rejects.toThrow(pool.NOT_RUNNING);
+    host.live.add('single');
+    host.exited.add('single');
+    await expect(pool.ensurePty('single', { attachOnly: true })).rejects.toThrow(pool.NOT_RUNNING);
+    expect(ensureHost).not.toHaveBeenCalled();
+    expect(host.spawned).toEqual([]);
+  });
+
+  it('a client that finds nothing (stale: the host moved) is asked once more, fresh — and only once', async () => {
+    hostRunning = true;
+    host.live.add('single');
+    const pool = await freshPool();
+    host.getsMissing = 1;
+    expect(await pool.ensurePty('single', { attachOnly: true })).toBe('ws://host/single');
+    expect(host.gets).toBe(2);
+    host.gets = 0;
+    host.getsMissing = 5;
+    await expect(pool.ensurePty('single', { attachOnly: true })).rejects.toThrow(pool.NOT_RUNNING);
+    expect(host.gets).toBe(2);
+    expect(host.spawned).toEqual([]);
   });
 });
 
@@ -554,6 +631,21 @@ describe('the heartbeat knows the host\'s release (the banner\'s "older than thi
     await pool.syncPtyPool();
     await pool.syncPtyPool();
     expect(pool.hostBeat()).toMatchObject({ known: false, hostVersion: null });
+  });
+});
+
+describe("an agent's stream signal from the host (PtyInfo.signal)", () => {
+  it('is shape-checked as it is copied: a malformed one is dropped, a good one read', async () => {
+    const pool = await freshPool();
+    hostRunning = true;
+    host.live.add('single');
+    host.signals.set('single', { program: { id: '', state: 'blocked', kind: 'nonsense', since: 'x' }, progress: 'up' });
+    await pool.syncPtyPool();
+    const kept = pool.outputStatus('single');
+    expect(kept?.summary).toBe('Waiting for you — codex says so in its terminal');
+    host.signals.set('single', { program: 'blocked' });
+    await pool.syncPtyPool();
+    expect(pool.outputStatus('single')?.state).not.toBe('needs_input'); // nothing it says decides: the output guess does
   });
 });
 

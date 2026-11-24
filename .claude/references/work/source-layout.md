@@ -38,7 +38,7 @@ src/
     review/                 PR reviews prepared in the background: kinds of change, tests, stories, the queue
     jira/                   acli issues, the Jira watch, worklogs, the board
     pty/                    the PTY host (server, registry, client, protocol), the pool, idle sleep;
-                            pty-session.ts: PtySession (node-pty + @xterm/headless), the PTY host's only
+                            pty-session.ts: PtySession (node-pty + its screen-mirror.ts), the PTY host's only
     git/                    git wrapper, HEAD reading, base specs
     platform/               infrastructure: db (state.db), config, fs-safe, fs-watcher, settings
                             editor, hook installer, logger, report, process, web discovery,

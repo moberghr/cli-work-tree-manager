@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { openTerminalSocket } from '../../src/web/src/api/terminal-socket.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { askTerminalTicket, openTerminalSocket } from '../../src/web/src/api/terminal-socket.js';
 import type { TerminalTicketWire } from '../../src/core/api-types.js';
 
 /** The Terminal tab's connection: straight to the PTY host with a ticket, else work web's relay. */
@@ -37,11 +37,12 @@ class FakeWs extends EventTarget {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const relay = 'ws://127.0.0.1:54989/ws/sessions/s1/terminal';
-function open(answer: TerminalTicketWire | null, force = false) {
+function open(answer: TerminalTicketWire | null, force = false, flow = false) {
   FakeWs.made = [];
   const asked: boolean[] = [];
   const socket = openTerminalSocket('s1', {
     force,
+    flow,
     relayUrl: relay,
     askTicket: async (_id, f) => (asked.push(f), answer),
     WebSocketImpl: FakeWs as unknown as typeof WebSocket,
@@ -55,6 +56,76 @@ function open(answer: TerminalTicketWire | null, force = false) {
 }
 
 describe('openTerminalSocket', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('a tab that states its grid says it on whichever address it connects to, and in its ticket request', async () => {
+    FakeWs.made = [];
+    const grids: unknown[] = [];
+    openTerminalSocket('s1', {
+      force: false,
+      flow: true,
+      grid: { cols: 133, rows: 41 },
+      relayUrl: relay,
+      askTicket: async (_id, _f, grid) => (grids.push(grid), { url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=old' }),
+      WebSocketImpl: FakeWs as unknown as typeof WebSocket,
+    });
+    await flush();
+    FakeWs.made[0].refused();
+    expect(grids).toEqual([{ cols: 133, rows: 41 }]);
+    expect(FakeWs.made.map((w) => w.url)).toEqual([
+      'ws://127.0.0.1:1/ptys/s1/attach?ticket=old&flow=1&cols=133&rows=41',
+      relay + '?flow=1&cols=133&rows=41',
+    ]);
+  });
+
+  it('a tab with no grid (hidden in the deck) states none', async () => {
+    open({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=t' }, false, true);
+    await flush();
+    expect(FakeWs.made[0].url).toBe('ws://127.0.0.1:1/ptys/s1/attach?ticket=t&flow=1');
+  });
+
+  it('the ticket request carries the grid (so an agent started for the tab starts at it), and none without one', async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        bodies.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ fallback: true }), { headers: { 'content-type': 'application/json' } });
+      }),
+    );
+    await askTerminalTicket('s1', false, { cols: 100, rows: 30 });
+    await askTerminalTicket('s1', true, null);
+    await askTerminalTicket('s1', false, { cols: 80, rows: 24 }, true);
+    expect(bodies).toEqual([
+      { force: false, cols: 100, rows: 30 },
+      { force: true },
+      { force: false, cols: 80, rows: 24, attachOnly: true },
+    ]);
+  });
+
+  it('a tab reconnecting with its screen kept states where it stands on either address, and asks only to attach', async () => {
+    FakeWs.made = [];
+    const asked: unknown[] = [];
+    openTerminalSocket('s1', {
+      force: false,
+      flow: true,
+      grid: { cols: 80, rows: 24 },
+      resume: { stream: 'abcdef0123456789', offset: 42, cols: 80, rows: 24 },
+      relayUrl: relay,
+      askTicket: async (_id, _f, _grid, attachOnly) => (asked.push(attachOnly), { url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=old' }),
+      WebSocketImpl: FakeWs as unknown as typeof WebSocket,
+    });
+    await flush();
+    FakeWs.made[0].refused();
+    expect(asked).toEqual([true]);
+    expect(FakeWs.made.map((w) => w.url)).toEqual([
+      'ws://127.0.0.1:1/ptys/s1/attach?ticket=old&flow=1&cols=80&rows=24&resume=abcdef0123456789-42-80x24',
+      relay + '?flow=1&cols=80&rows=24&resume=abcdef0123456789-42-80x24',
+    ]);
+  });
+
   it('goes straight to the PTY host with the ticket; what is sent before it opens goes once it does', async () => {
     const t = open({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=abc' }, true);
     expect(t.socket.route).toBeNull();
@@ -106,6 +177,13 @@ describe('openTerminalSocket', () => {
     await flush();
     expect(r.messages.map((m) => JSON.parse(m as string))).toEqual([{ type: 'error', message: 'archived' }]);
     expect(r.closes()).toBe(1);
+  });
+
+  it('a tab that acks says so on whichever address it connects to: the host’s, and the relay it falls back to', async () => {
+    open({ url: 'ws://127.0.0.1:1/ptys/s1/attach?ticket=old' }, false, true);
+    await flush();
+    FakeWs.made[0].refused();
+    expect(FakeWs.made.map((w) => w.url)).toEqual(['ws://127.0.0.1:1/ptys/s1/attach?ticket=old&flow=1', relay + '?flow=1']);
   });
 
   it('closed before the answer came: connects nothing', async () => {

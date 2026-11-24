@@ -3,6 +3,8 @@ import path from 'node:path';
 import { getConfigDir } from '../platform/config.js';
 import type { AiToolSpec } from '../platform/ai-launcher.js';
 import { isEnvDelta, type EnvDelta } from '../platform/env-delta.js';
+import type { WindowsPty } from './terminal-size.js';
+import type { StreamSignal } from './stream-status.js';
 
 /**
  * Wire contract between the PTY host (`work pty-host`, the long-lived
@@ -41,6 +43,11 @@ export interface SpawnSpec {
   cwd: string;
   tool: AiToolSpec;
   port?: number;
+  /**
+   * The grid to start at: the terminal it is started for (a Terminal tab's, `work attach`'s), or the one it was used at
+   * last (a restore). None: the last grid a client set in this host, else 120 × 32 (pty-registry.ts). Persisted with
+   * each restore-list entry (additive: a host from before writes none and starts a restore at 120 × 32).
+   */
   cols?: number;
   rows?: number;
   // No `unsafe` any more: every agent starts in its own permission mode. An older client may still send
@@ -129,17 +136,55 @@ export interface PtyInfo {
   lastOutputAt?: string;
   /** The tool's binary (`claude`, `opencode`…). Additive, like clients. */
   tool?: string;
+  /** What its agent says about itself in its output: OSC 7501 program status, else OSC 9;4 progress (stream-status.ts).
+   *  Absent when it says nothing, and from a host from before. Additive, like clients. */
+  signal?: StreamSignal;
 }
 
 /** Client → host frames on the attach WebSocket (text, JSON). Host →
- *  client PTY output is sent as binary frames; control frames as text. */
-export type ClientFrame = { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number };
+ *  client PTY output is sent as binary frames; control frames as text.
+ *  `ack`: from a client that attached with `?flow=1` (flow-control.ts), the characters of output it finished drawing
+ *  since its last ack. Additive, no PROTOCOL_VERSION bump: an older host ignores the parameter and the frame. */
+export type ClientFrame =
+  | { type: 'input'; data: string }
+  | { type: 'resize'; cols: number; rows: number }
+  | { type: 'ack'; chars: number }
+  /** ⋯ → Reconnect terminal, after its replay: ask the agent to draw its screen again (registry.redraw). Additive: an older host drops it. */
+  | { type: 'redraw' };
 
 export type HostControlFrame =
-  /** Sent once, first, on attach: the serialized screen and the grid it was
+  /** Sent first on attach: the serialized screen and the grid it was
    *  drawn for. Clients draw it at exactly cols×rows, then resize to their
-   *  own size (which makes Claude redraw), and only then send input. */
-  { type: 'replay'; data: string; cols: number; rows: number } | { type: 'exit'; code: number } | { type: 'error'; message: string };
+   *  own size (which makes Claude redraw), and only then send input. A client
+   *  that stated its grid as it attached (terminal-size.ts) is sent it at that
+   *  grid already: its resize after it changes nothing.
+   *  A client that acks is sent one again mid-session when it fell behind and caught up (output-pacer.ts): it resets
+   *  its screen (scrollback too) and draws it, and nothing else — no resize, no focus, no input held for it. */
+  | {
+      type: 'replay';
+      data: string;
+      cols: number;
+      rows: number;
+      /** The host runs on Windows: its PTYs are ConPTY's, which reflows lines itself (terminal-size.ts). Additive. */
+      windowsPty?: WindowsPty;
+      /**
+       * The PTY's output stream and the offset this frame leaves the client at: the start of the live output that
+       * follows (resume.ts). Additive: a host from before sends neither, and its clients never ask to resume.
+       */
+      stream?: string;
+      offset?: number;
+      /**
+       * `data` is the output the client missed, to draw on its screen as it is — no reset, no resize — up to `offset`.
+       * Its queries were answered when they came: the client doesn't answer them again. Sent to a client that asked to
+       * resume (`?resume=…`), from where it said it stood; and mid-session to a paced client other than `work attach`
+       * (`?flow=1`, no `catchup=screen`) that fell behind and caught up, from where its live output stopped. Also, mid-
+       * session, to such a client whose catch-up screen couldn't be taken: `data` '' and `stream` '' — it keeps its
+       * screen, and no longer knows where it stands (it never resumes from there).
+       */
+      resumed?: true;
+    }
+  | { type: 'exit'; code: number }
+  | { type: 'error'; message: string };
 
 export function hostInfoPath(): string {
   return path.join(getConfigDir(), 'pty-host.json');

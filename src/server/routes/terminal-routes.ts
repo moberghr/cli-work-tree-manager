@@ -1,19 +1,26 @@
 import type { Hono } from 'hono';
 import type { TerminalElsewhere, TerminalTicketWire } from '../../core/api-types.js';
 import { cleanPerfReport, perfLine } from '../../core/pty/terminal-perf.js';
+import { validGrid, type Grid } from '../../core/pty/terminal-size.js';
 
 /**
- * `POST /api/terminals/:id/ticket {force?}`: the Terminal tab asks where to connect. work web does what its relay did
+ * `POST /api/terminals/:id/ticket {force?, cols?, rows?}`: the Terminal tab asks where to connect. work web does what its relay did
  * before connecting — refuses a Claude running in another terminal (unless `force`), starts the agent in the PTY host
  * — and then hands the page the host's address with a one-time ticket for the page's origin, so keystrokes and echoes
  * go straight between the page and the host, never through work web's event loop (reported: typing lagged in the app
- * while `work attach` on the same host was smooth). A host from before tickets, or a request with no page origin:
- * `fallback`, and the tab goes through the relay as before. A POST: it may start an agent (§1.5).
+ * while `work attach` on the same host was smooth). `cols`/`rows`: the tab's grid, which an agent it starts is started
+ * at (terminal-size.ts); a hidden tab states none. `attachOnly`: a tab reconnecting with its screen kept (resume.ts) —
+ * nothing is started for it and no "elsewhere" is asked (nothing would start): it attaches to what runs, or is told
+ * it doesn't. A host from before tickets, or a request with no page origin: `fallback`, and the tab goes through the
+ * relay as before. A POST: it may start an agent (§1.5).
  */
 export interface TerminalRoutesOptions {
   elsewhere: (id: string) => TerminalElsewhere | null | Promise<TerminalElsewhere | null>;
-  /** Start (or find) the terminal in the PTY host; null for an unknown one. Throws why it can't. */
-  ensure: (id: string) => Promise<string | null>;
+  /**
+   * Start (or find) the terminal in the PTY host — started at `grid` when given; null for an unknown one. Throws why it
+   * can't. `attachOnly`: only find it running; throws when it doesn't run.
+   */
+  ensure: (id: string, grid?: Grid, attachOnly?: boolean) => Promise<string | null>;
   /** The host's address for this terminal with a ticket for this origin; null when it can't give one. */
   ticket: (id: string, origin: string) => Promise<string | null>;
   /** Where `POST /api/terminal-perf` writes its line (work web: the debug log). */
@@ -28,17 +35,19 @@ export function mountTerminalRoutes(app: Hono, opts: TerminalRoutesOptions): voi
 
   app.post('/api/terminals/:id/ticket', async (c) => {
     const id = c.req.param('id');
-    const body = (await c.req.json().catch(() => ({}))) as { force?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { force?: unknown; cols?: unknown; rows?: unknown; attachOnly?: unknown };
+    const attachOnly = body.attachOnly === true;
     const origin = c.req.header('origin');
     // Not a page (a script, a test): nothing to tie a ticket to.
     if (!origin) return c.json({ fallback: true } satisfies TerminalTicketWire);
-    if (body.force !== true) {
+    if (body.force !== true && !attachOnly) {
       const elsewhere = await opts.elsewhere(id);
       if (elsewhere) return c.json({ elsewhere } satisfies TerminalTicketWire);
     }
     let running: string | null;
     try {
-      running = await opts.ensure(id);
+      const grid = validGrid(body.cols, body.rows) ?? undefined;
+      running = await (attachOnly ? opts.ensure(id, grid, true) : opts.ensure(id, grid));
     } catch (err) {
       return c.json({ error: (err as Error).message } satisfies TerminalTicketWire, 409);
     }

@@ -1,8 +1,6 @@
 import pty, { type IPty } from 'node-pty';
 import { agentById } from '../agents/index.js';
 import crossSpawn from 'cross-spawn';
-import xtermHeadless from '@xterm/headless';
-import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../platform/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../platform/ai-launcher.js';
 import { batchArgProblem, programFor } from '../platform/batch-launch.js';
@@ -14,6 +12,11 @@ import path from 'node:path';
 import { makeSpawnHelperExecutable } from './spawn-helper.js';
 import { report } from '../platform/report.js';
 import { loadConfig } from '../platform/config.js';
+import { ScreenMirror, type HeadlessTerminal, type SnapshotOptions } from './screen-mirror.js';
+import type { StreamSignal } from './stream-status.js';
+import { windowsPtyFor, type WindowsPty } from './terminal-size.js';
+import { SyncScanner, cutAtFrameEnds } from './sync-output.js';
+import type { TerminalColors } from './terminal-colors.js';
 
 type Fork = typeof childProcess.fork;
 const HIDDEN = Symbol.for('work.forkHidesConsole');
@@ -63,9 +66,6 @@ function ensureSpawnHelper(): void {
     debug('spawn-helper check failed', (err as Error).message);
   }
 }
-
-const { Terminal } = xtermHeadless;
-const { SerializeAddon } = xtermSerialize;
 
 export interface PtyAiOptions {
   /** Resolved AI tool spec (from `getAiTool(config)`). */
@@ -133,6 +133,16 @@ export function resolvePtyCommand(
   return { file: parsed.file ?? parsed.command, args: parsed.args, env };
 }
 
+/**
+ * The environment as the terminal the agent draws into says it: xterm.js (the Terminal tab, and the PTY host's own copy
+ * of the screen) shows 24-bit colour, so `COLORTERM=truecolor` unless the environment says something itself. Without
+ * it Claude Code, under `TERM=xterm-256color`, draws its truecolor theme in 256 colours (and suggests setting it).
+ * The launching terminal's identity (TERM_PROGRAM, WT_SESSION …) is kept: terminal-rendering.md, "Terminal identity".
+ */
+export function terminalEnv(env: Record<string, string>): Record<string, string> {
+  return env.COLORTERM ? env : { ...env, COLORTERM: 'truecolor' };
+}
+
 /** How long a terminal must have been quiet after its first output before a prompt is typed into it. */
 export const PROMPT_SETTLE_MS = 800;
 /** The longest a prompt waits for that quiet before it is typed anyway. */
@@ -194,6 +204,20 @@ export function conptyOptions(platform: NodeJS.Platform, useBundled: boolean): {
   return platform === 'win32' && useBundled ? { useConptyDll: true } : {};
 }
 
+/**
+ * The ConPTY a PTY starts on (`options`, node-pty's) and the `windowsPty` its screens say (terminal-size.ts), decided
+ * together so they can't disagree: the bundled one behaves as a newer Windows than `release` says. Pure.
+ */
+export function conptyFor(
+  platform: NodeJS.Platform,
+  release: string,
+  useBundled: boolean,
+): { options: { useConptyDll?: boolean }; windowsPty?: WindowsPty } {
+  const options = conptyOptions(platform, useBundled);
+  const windowsPty = windowsPtyFor(platform, release, options.useConptyDll === true);
+  return windowsPty ? { options, windowsPty } : { options };
+}
+
 /** Config `agentsLowPriority`, read at each start (off when config can't be read). */
 function readAgentsLowPriority(): boolean {
   try {
@@ -229,10 +253,50 @@ export function slowStart(ms: number): { note: string; warn: string | null } {
   };
 }
 
+/**
+ * Whether a PTY's output may be paused for a client to catch up (output-pacer.ts). Not on Windows: node-pty reads
+ * ConPTY's output through a worker thread so that ClosePseudoConsole, which before Windows 11 24H2 waits for that
+ * output to be drained, can't block the host; paused, nothing drains it, and killing the agent could hang the whole
+ * host. There a client too far behind is sent a fresh screen instead (as any other is). Pure.
+ */
+export function canPauseOutput(platform: NodeJS.Platform): boolean {
+  return platform !== 'win32';
+}
+
+/**
+ * Calls `exiting` the moment node-pty learns its child exited, before it waits for its socket to close. node-pty 1.1.0
+ * (lib/unixTerminal.js, `onexit`) arms `setTimeout(() => socket.destroy(), DESTROY_SOCKET_TIMEOUT_MS = 200)` and then
+ * registers `this.once('close', …)`. What was not read from the PTY by the time that timer fires is lost: a paused PTY
+ * (flow control) must read again before then. That `once('close')` is the only one it makes on itself (its other
+ * waits are on its socket), so it marks the exit. A test pins that against node-pty's source, so an upgrade that
+ * changes it fails there. False when there is nothing to hook (no `once`).
+ */
+export function onChildExit(pty: object, exiting: () => void): boolean {
+  const target = pty as { once?: (event: string, listener: (...args: unknown[]) => void) => unknown };
+  const once = target.once;
+  if (typeof once !== 'function') return false;
+  target.once = function (this: unknown, event, listener) {
+    if (event === 'close') exiting();
+    return once.call(this, event, listener);
+  };
+  return true;
+}
+
 export class PtySession {
   readonly pty: IPty;
-  readonly terminal: InstanceType<typeof Terminal>;
-  private readonly serializer = new SerializeAddon();
+  /**
+   * Stop reading the agent's output, and start again (flow control, output-pacer.ts): paused, its writes block once
+   * the PTY's buffer is full. Undefined where that isn't safe (`canPauseOutput`).
+   */
+  readonly pause?: () => void;
+  readonly resume?: () => void;
+  private paused = false;
+  /** The PTY host's copy of the screen (screen-mirror.ts): what a client attaching is sent first. */
+  private readonly mirror: ScreenMirror;
+  /** The ConPTY it runs on, as xterm.js's `windowsPty` (its screens say it, pty-registry.ts); undefined off Windows. */
+  readonly windowsPty?: WindowsPty;
+  /** Where its output is in synchronized frames (sync-output.ts): it is cut at each frame's end. */
+  private readonly frames = new SyncScanner();
   readonly cwd: string;
   private outputHandler?: (data: string) => void;
   private _exited = false;
@@ -242,13 +306,11 @@ export class PtySession {
 
   constructor(cwd: string, cols: number, rows: number, command?: { cmd: string; args: string[] }, aiOptions?: PtyAiOptions) {
     this.cwd = cwd;
-    this.terminal = new Terminal({
-      cols,
-      rows,
-      scrollback: 200,
-      allowProposedApi: true,
-    });
-    this.terminal.loadAddon(this.serializer);
+    // Which ConPTY, read once: node-pty starts on it, and the screens say how it reflows (config useBundledConpty).
+    const conpty = conptyFor(process.platform, os.release(), readUseBundledConpty());
+    if (conpty.windowsPty) this.windowsPty = conpty.windowsPty;
+    // ConPTY reflows lines itself on a resize: the copy is told so, as the Terminal tab is (the replay frame).
+    this.mirror = new ScreenMirror(cols, rows, undefined, { windowsPty: conpty.windowsPty });
 
     let rawCmd: string;
     let rawArgs: string[];
@@ -277,9 +339,11 @@ export class PtySession {
     }
 
     // A session of its own: never another agent's child (its adapter knows what a parent sets).
-    const env: Record<string, string> = Object.fromEntries(
-      Object.entries(agentById(aiOptions?.tool.cmd ?? 'claude').launch.cleanEnv(aiOptions?.env ?? process.env)).filter(
-        (e): e is [string, string] => e[1] != null,
+    const env: Record<string, string> = terminalEnv(
+      Object.fromEntries(
+        Object.entries(agentById(aiOptions?.tool.cmd ?? 'claude').launch.cleanEnv(aiOptions?.env ?? process.env)).filter(
+          (e): e is [string, string] => e[1] != null,
+        ),
       ),
     );
     if (aiOptions?.port !== undefined) {
@@ -296,7 +360,7 @@ export class PtySession {
       cols,
       rows,
       env: (batchEnv as Record<string, string> | undefined) ?? env,
-      ...conptyOptions(process.platform, readUseBundledConpty()),
+      ...conpty.options,
     });
     // node-pty's start is synchronous (Windows: creating the pseudo-console): a slow one holds up the whole host.
     const slow = slowStart(Date.now() - started);
@@ -308,9 +372,41 @@ export class PtySession {
       debug(why ? `PtySession: couldn't lower the agent's priority (${why})` : 'PtySession: agent started below normal priority');
     }
 
+    if (canPauseOutput(process.platform)) {
+      // Its child exited: what it wrote last is read now (node-pty drops it 200 ms later), and nothing pauses it again.
+      // On Linux the child exits with its output unread; on macOS its exit waits for that output to be read.
+      let ending = false;
+      onChildExit(this.pty, () => {
+        ending = true;
+        this.resume?.();
+      });
+      this.pause = () => {
+        if (this._exited || ending || this.paused) return;
+        this.paused = true;
+        try {
+          this.pty.pause();
+        } catch {
+          /* PTY already exited */
+        }
+      };
+      this.resume = () => {
+        if (!this.paused) return;
+        this.paused = false;
+        try {
+          this.pty.resume();
+        } catch {
+          /* PTY already exited */
+        }
+      };
+    }
+
     this.pty.onData((data) => {
-      this.terminal.write(data);
-      this.outputHandler?.(data);
+      // Cut at each synchronized frame's end, the screen copy written and the output passed on piece by piece: a client
+      // joining (or caught up) at a frame's end is sent a screen of exactly what came before it (pty-registry.ts).
+      for (const piece of cutAtFrameEnds(this.frames, data)) {
+        this.mirror.write(piece);
+        this.outputHandler?.(piece);
+      }
       // Log first 500 chars of PTY output for debugging early exits
       if (!this._loggedOutput) {
         this._outputBuffer = (this._outputBuffer || '') + data;
@@ -366,22 +462,31 @@ export class PtySession {
       } catch {
         // PTY already exited natively before our flag was set — ignore
       }
-      this.terminal.resize(cols, rows);
+      this.mirror.resize(cols, rows);
     }
   }
 
   /**
+   * The agent's queries in output that arrives while `now()` says so (no client attached: pty-registry.ts) are answered
+   * by the screen's copy, colour queries from `colors` (ScreenMirror.answerQueries).
+   */
+  answerQueries(now: () => boolean, colors: Pick<TerminalColors, 'reply'>): void {
+    this.mirror.answerQueries({ now, colors, send: (reply) => this.write(reply) });
+  }
+
+  /** The headless terminal the screen is kept in. */
+  get terminal(): HeadlessTerminal {
+    return this.mirror.terminal;
+  }
+
+  /**
    * The current screen + scrollback as escape sequences that redraw it
-   * exactly (colors, cursor, modes, alt screen). What a late attacher is
+   * exactly (colors, cursor, modes, alt screen — ScreenMirror.snapshot). What a late attacher is
    * sent instead of raw output history — raw bytes can start mid-sequence
    * and were drawn for another client's grid (VS Code does the same).
    */
-  serialize(): string {
-    try {
-      return this.serializer.serialize();
-    } catch {
-      return '';
-    }
+  serialize(opts?: SnapshotOptions): string | null {
+    return this.mirror.snapshot(opts);
   }
 
   /**
@@ -389,29 +494,19 @@ export class PtySession {
    * xterm queues writes, and a write's callback runs right after that write
    * is parsed — before any written later. What a new client is sent first.
    */
-  serializeSettled(): Promise<string> {
-    return new Promise((resolve) => {
-      try {
-        this.terminal.write('', () => resolve(this.serialize()));
-      } catch {
-        resolve(this.serialize());
-      }
-    });
+  serializeSettled(opts?: SnapshotOptions): Promise<string | null> {
+    return this.mirror.snapshotSettled(opts);
   }
 
   /** The visible screen as plain text, one line per row (no colors).
    *  What the dashboard checks before answering a prompt by keystroke. */
   screenText(): string {
-    try {
-      const buf = this.terminal.buffer.active;
-      const lines: string[] = [];
-      for (let y = buf.viewportY; y < buf.viewportY + this.terminal.rows; y++) {
-        lines.push(buf.getLine(y)?.translateToString(true) ?? '');
-      }
-      return lines.join('\n');
-    } catch {
-      return '';
-    }
+    return this.mirror.screenText();
+  }
+
+  /** What the agent last said about itself in its output: OSC 7501 program status, else OSC 9;4 progress (stream-status.ts). */
+  streamSignal(): StreamSignal | null {
+    return this.mirror.streamSignal();
   }
 
   setOutputHandler(handler?: (data: string) => void) {
@@ -420,6 +515,8 @@ export class PtySession {
 
   dispose() {
     this.setOutputHandler(undefined);
+    // Reading again first: a paused PTY's end waits for its output to be read (node-pty emits exit once it is).
+    this.resume?.();
     if (!this._exited) {
       try {
         this.pty.kill();
@@ -427,6 +524,6 @@ export class PtySession {
         /* PTY already exited */
       }
     }
-    this.terminal.dispose();
+    this.mirror.dispose();
   }
 }

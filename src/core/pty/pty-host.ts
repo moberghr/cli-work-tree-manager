@@ -1,6 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import { WebSocketServer } from 'ws';
 import { atomicWriteFile } from '../platform/fs-safe.js';
 import { PtyRegistry } from './pty-registry.js';
@@ -11,24 +12,14 @@ import { HOST_FEATURES, PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type H
 import { report } from '../platform/report.js';
 import { isEnvDelta } from '../platform/env-delta.js';
 import { createTicketBook } from './terminal-tickets.js';
+import { replyParts } from './terminal-replies.js';
+import { CATCH_UP_PARAM, FLOW_PARAM } from './flow-control.js';
+import { gridFromParams, validGrid, windowsPtyFor } from './terminal-size.js';
+import { resumeFromParams } from './resume.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
 const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart|\/halt|\/resume)?$/;
 const MAX_BODY = 1024 * 1024;
-
-/**
- * Input a terminal sends on its own, with nobody typing: focus in/out, answers to the agent's queries (device
- * attributes, cursor position, status, mode and keyboard-flag reports, window size), OSC / DCS / APC replies — and
- * the mouse moving with no button down (SGR motion reports, codes 35 + modifiers), which hovering over a terminal
- * sends. Every attached client answers a query, and a hidden one still reports focus, so these must not count as
- * using a client — only typing (keys, a paste, a click, a drag) does. A cursor-position report at row 1 and columns
- * 2–8 looks just like Shift/Alt/Ctrl+F3 (`ESC[1;2R` …), so it is taken for the key. Pure.
- */
-const REPLY =
-  /^(?:\x1b\[[IO]|\x1b\[[?>=][\d;]*c|\x1b\[(?!1;[2-8]R)\d+;\d+R|\x1b\[\??\d*n|\x1b\[\?\d*u|\x1b\[\??[\d;]*\$y|\x1b\[\d+(?:;\d+)*t|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][\s\S]*?\x1b\\|\x1b\[<(?:35|39|43|47|51|55|59|63);\d+;\d+M)+$/;
-export function isTerminalReply(data: string): boolean {
-  return REPLY.test(data);
-}
 
 export interface PtyHostHandle {
   info: HostInfo;
@@ -85,7 +76,8 @@ function isSpawnSpec(v: unknown): v is SpawnSpec {
  * against DNS rebinding, same as the other local servers (§1.3).
  */
 export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boolean; writeInfo?: boolean } = {}): Promise<PtyHostHandle> {
-  const registry = opts.registry ?? new PtyRegistry();
+  // On Windows its PTYs are ConPTY's: every screen it sends says so (windowsPty, terminal-size.ts).
+  const registry = opts.registry ?? new PtyRegistry({ windowsPty: windowsPtyFor(process.platform, os.release()) });
   const token = crypto.randomBytes(24).toString('hex');
   let allowedHosts = new Set<string>();
   // A dashboard page's Terminal tab connects here directly with one of these (terminal-tickets.ts), never the token.
@@ -186,6 +178,15 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
       socket.destroy();
       return;
     }
+    // A client that acks what it draws (flow-control.ts) is paced: one too far behind is sent the screen once it caught up.
+    const metered = url.searchParams.get(FLOW_PARAM) === '1';
+    // `work attach`: that screen without the scrollback (its native terminal keeps your history).
+    const screenOnlyCatchUp = url.searchParams.get(CATCH_UP_PARAM) === 'screen';
+    // Its grid, when it takes the size as it attaches (`?cols=…&rows=…`, terminal-size.ts): the PTY is resized to it
+    // before the snapshot. A hidden terminal states none, and changes nothing.
+    const grid = gridFromParams(url.searchParams) ?? undefined;
+    // A client reconnecting with its screen kept (`?resume=…`, resume.ts): sent only what it missed when that is enough.
+    const resume = resumeFromParams(url.searchParams) ?? undefined;
     wss.handleUpgrade(req, socket, head, (ws) => {
       const attached = registry.attach(
         id,
@@ -203,6 +204,19 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           } catch {
             /* */
           }
+        },
+        {
+          metered,
+          screenOnlyCatchUp,
+          grid,
+          resume,
+          onReplay: (replay) => {
+            try {
+              ws.send(JSON.stringify({ type: 'replay', ...replay }));
+            } catch {
+              /* the socket closed meanwhile: its close detaches it */
+            }
+          },
         },
       );
       if (!attached) {
@@ -238,7 +252,7 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
       // This client's own grid. The PTY has one size for all its clients: the one used last sets it — resized OR typed
       // in (tmux's `window-size latest` counts both). With "last resize" alone, opening the session in the app shrank
       // the PTY to the app's grid, and a terminal attached to it stayed drawn for that size while you typed in it.
-      let size: { cols: number; rows: number } | null = null;
+      let size: { cols: number; rows: number } | null = grid ?? null;
       ws.on('message', (raw, isBinary) => {
         if (isBinary) return;
         let msg: ClientFrame;
@@ -248,12 +262,31 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           return;
         }
         if (msg.type === 'input' && typeof msg.data === 'string') {
-          // Back to this client's grid first (a no-op when it is) — when someone typed in it, not for its own replies.
-          if (size && !isTerminalReply(msg.data)) registry.resize(id, size.cols, size.rows);
+          const parts = replyParts(msg.data);
+          if (parts) {
+            // What it sent on its own (terminal-replies.ts): not someone using it, and only one client answers the
+            // agent's queries (terminal-rendering.md, "Who answers a query").
+            const out = attached.replies(parts);
+            if (out) registry.write(id, out);
+            return;
+          }
+          // Someone typed in it (a frame with typing in it goes through whole, any replies in it too): back to this
+          // client's grid first (a no-op when it is), and it answers the agent from now on.
+          attached.lead();
+          if (size) registry.resize(id, size.cols, size.rows);
           registry.write(id, msg.data);
-        } else if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
-          size = { cols: msg.cols, rows: msg.rows };
-          registry.resize(id, msg.cols, msg.rows);
+        } else if (msg.type === 'resize') {
+          // Only a grid the PTY would take is this client's size, and makes it the one used last.
+          const asked = validGrid(msg.cols, msg.rows);
+          if (!asked) return;
+          size = asked;
+          attached.lead();
+          registry.resize(id, asked.cols, asked.rows);
+        } else if (msg.type === 'ack' && Number.isSafeInteger(msg.chars) && msg.chars > 0) {
+          attached.ack(msg.chars);
+        } else if (msg.type === 'redraw') {
+          // ⋯ → Reconnect terminal: the agent draws its screen again (registry.redraw). Not someone using it: no size taken.
+          registry.redraw(id);
         }
       });
       ws.on('close', () => attached.detach());

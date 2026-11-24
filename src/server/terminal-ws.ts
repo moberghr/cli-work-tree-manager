@@ -13,6 +13,9 @@ import { readSessionActivity } from '../core/sessions/session-activity.js';
 import { readStatus } from '../core/status/session-status.js';
 import type { TerminalElsewhere } from '../core/api-types.js';
 import { readArchive } from '../core/archive/session-archive.js';
+import { FLOW_PARAM, withFlow } from '../core/pty/flow-control.js';
+import { gridFromParams, withGrid, type Grid } from '../core/pty/terminal-size.js';
+import { resumeFromParams, withResume, type ResumePoint } from '../core/pty/resume.js';
 
 const TERMINAL_PATH = /^\/ws\/sessions\/([^/]+)\/terminal(?:\?(.*))?$/;
 
@@ -138,6 +141,11 @@ export interface TerminalWsOptions {
  * { type: 'elsewhere', … } — the session's Claude runs in another terminal,
  * nothing was spawned; `?force=1` spawns anyway).
  *
+ * `?flow=1`: the browser acks what it draws (flow-control.ts); the host is told the same, and the acks pass through
+ * as any frame does. `?cols=…&rows=…`: the tab's grid (terminal-size.ts): its agent is started at it, and the host is
+ * told it (the PTY takes it before the snapshot). `?resume=…`: a tab reconnecting with its screen kept (resume.ts) —
+ * the host is told it the same, and nothing is started for it (no "elsewhere" either: nothing would start).
+ *
  * `port` is the listening port — used for the same Host + Origin guard the
  * Hono routes get in `diff-server.launch` (core/local-origin.ts). The WS
  * upgrade bypasses Hono entirely so it needs its own check.
@@ -173,9 +181,13 @@ export function attachTerminalWs(httpServer: UpgradableServer, port: number, opt
       return;
     }
     const sessionId = decodeURIComponent(match[1]);
-    const force = new URLSearchParams(match[2] ?? '').get('force') === '1';
+    const params = new URLSearchParams(match[2] ?? '');
+    const force = params.get('force') === '1';
+    const flow = params.get(FLOW_PARAM) === '1';
+    const grid = gridFromParams(params);
+    const resume = resumeFromParams(params);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void bridgeToHost(ws, sessionId, force ? null : elsewhere(sessionId));
+      void bridgeToHost(ws, sessionId, force || resume ? null : elsewhere(sessionId), flow, grid, resume);
     });
   });
 
@@ -190,12 +202,17 @@ export function attachTerminalWs(httpServer: UpgradableServer, port: number, opt
  * browser tab (or restarting `work web`) only drops the relay.
  *
  * Browser frames are already the host's ClientFrame JSON, so they pass
- * through verbatim.
+ * through verbatim — acks too. `flow`: the browser acks, so the host is told it does. `grid`: the browser's grid,
+ * which a start takes and the host is told as it attaches. `resume`: where the browser stands, told to the host as it
+ * attaches; such a reconnect only attaches to what runs.
  */
 async function bridgeToHost(
   ws: WebSocket,
   sessionId: string,
   pending: TerminalElsewhere | null | Promise<TerminalElsewhere | null>,
+  flow = false,
+  grid: Grid | null = null,
+  resume: ResumePoint | null = null,
 ): Promise<void> {
   const elsewhere = await pending;
   // The browser may have left while that was being worked out.
@@ -229,7 +246,7 @@ async function bridgeToHost(
 
   let hostUrl: string | null;
   try {
-    hostUrl = await ensurePty(sessionId);
+    hostUrl = await ensurePty(sessionId, { ...(grid ? { grid } : {}), ...(resume ? { attachOnly: true } : {}) });
   } catch (err) {
     // Said once, with the reason (an archived session, a host that won't start).
     try {
@@ -251,7 +268,7 @@ async function bridgeToHost(
   }
 
   if (browserGone) return;
-  upstream = new WebSocket(hostUrl);
+  upstream = new WebSocket(withResume(withGrid(flow ? withFlow(hostUrl) : hostUrl, grid), resume));
   const up = upstream;
   const queued: string[] = [];
   up.on('open', () => {
