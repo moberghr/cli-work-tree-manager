@@ -475,7 +475,11 @@ snapshot is the same layout (`START`, screen, state, never 2026, no palette), wh
 - **Read, not followed:** modes, title, kitty flags (current), cursor and pending wrap from libghostty's API; pen,
   hyperlink, modifyOtherKeys, charsets and DECSCA from its formatter (`tail`); cursor shape, scroll region and saved
   cursor by asking a copy of the terminal (binary snapshot, decoded; ESC 8, and 1049l for the normal screen under
-  the alternate one). Nothing is tracked by hand; the only tables are the reply translation (DA1/DA2 as xterm.js's,
+  the alternate one). The copy cost 12 ms under 2000 lines of scrollback, so the usual case does without it: on the
+  normal screen, between sequences (`ground()`), with no cursor ever saved, the two DECRQSS questions change nothing
+  and the terminal itself is asked (0.1 ms). "A cursor may have been saved" is the one thing noted from the stream
+  (`SAVES_CURSOR`, carried over a chunk's end, forgotten on a reset); it only picks the way of reading, never the
+  answer. Nothing else is tracked by hand; the only tables are the reply translation (DA1/DA2 as xterm.js's,
   colour replies from `TerminalColors`) and the replies dropped (XTVERSION, DA3, XTGETTCAP, `CSI ? u`, kitty
   graphics, the OSC 7501 probe). OSC 9;4 / 7501 come from libghostty's own parser (`programReport`).
 - **Writes are parsed in the call**, so there is no write queue: a resize applies at once and `snapshotSettled` takes
@@ -483,8 +487,10 @@ snapshot is the same layout (`START`, screen, state, never 2026, no palette), wh
   it completes it; ScreenMirror has no such tail (an attach between pieces cut mid-sequence draws the rest as text).
 - **Known differences** (each an `it.fails` in `tests/core/pty/ghostty-mirror.test.ts`): one flag per mouse encoding
   and protocol, replayed lowest first (the order set is unknowable); one scroll region for both screens; blink kept in
-  the cursor shape (`?12h` is never replayed); RIS clears the title and shows the cursor; a flag emoji is 4 columns
-  (xterm.js: 2); a zero-width character at a row's start is dropped; OSC 4 stops at an index out of range; kitty's
+  the cursor shape (`?12h` is never replayed); RIS clears the title and shows the cursor; the mirror clusters graphemes
+  (mode 2027 on, as the tab on libghostty; said at the start of a snapshot), so a ZWJ emoji is 2 columns where
+  xterm.js's Unicode 11 counts 6 — only a libghostty host with an xterm.js client (the URL override) disagrees; a
+  zero-width character at a row's start is dropped; OSC 4 stops at an index out of range; kitty's
   flag stack is not readable (only the current flags are replayed); 1007 and 2031 are replayed only when they differ
   from libghostty's default, DECSCUSR 2 never; no resize without reflow (ConPTY's `windowsPty` only stops scrollback
   being pulled back); libghostty drops whole scrollback pages, so it is given twice `REPLAY_SCROLLBACK`.
