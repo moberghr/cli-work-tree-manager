@@ -1799,6 +1799,8 @@ describe('a screen that cannot be taken (the screen copy failed: null, logged)',
   class FailingScreenPty extends FakePty {
     screen = '';
     broken = false;
+    /** The screen copy rejects (once `broken` is set) instead of answering null. */
+    rejects = false;
     override emit(d: string) {
       this.screen += d;
       super.emit(d);
@@ -1807,6 +1809,7 @@ describe('a screen that cannot be taken (the screen copy failed: null, logged)',
       return this.broken ? null : this.screen;
     }
     serializeSettled() {
+      if (this.broken && this.rejects) return Promise.reject(new Error('gone'));
       return Promise.resolve(this.broken ? null : this.screen);
     }
   }
@@ -1822,7 +1825,7 @@ describe('a screen that cannot be taken (the screen copy failed: null, logged)',
     return withReporter((level, text) => reports.push(`${level}: ${text}`), fn);
   };
   /** A paced client, fallen behind and caught up while its screen copy fails: what it was sent. */
-  async function caughtUpWithNoScreen(extra: Partial<AttachOptions> = {}) {
+  async function caughtUpWithNoScreen(extra: Partial<AttachOptions> = {}, rejects = false) {
     vi.useFakeTimers();
     const { pty, reg } = setup();
     const got: string[] = [];
@@ -1843,6 +1846,7 @@ describe('a screen that cannot be taken (the screen copy failed: null, logged)',
     pty.emit('m'.repeat(RESUME_TAIL_CHARS)); // more than the tail holds: a screen, not what it missed
     vi.advanceTimersByTime(COALESCE_MS);
     pty.broken = true;
+    pty.rejects = rejects;
     att.ack(110_000);
     vi.advanceTimersByTime(CATCH_UP_MIN_MS);
     pty.emit('live');
@@ -1885,15 +1889,27 @@ describe('a screen that cannot be taken (the screen copy failed: null, logged)',
   });
 
   it('a screen copy that throws instead: the same, logged', async () => {
-    const { pty, reg } = setup();
-    pty.serializeSettled = () => Promise.reject(new Error('gone'));
-    const att = reg.attach(
-      'a',
-      () => {},
-      () => {},
-    )!;
-    await new Promise((r) => setTimeout(r, 0)); // its promise chain settles
-    // Never left waiting: a terminal with no first frame takes no input.
-    expect(await Promise.race([att.ready, Promise.resolve('stuck' as const)])).toMatchObject({ data: '' });
+    await reporting(async () => {
+      const { pty, reg } = setup();
+      pty.serializeSettled = () => Promise.reject(new Error('gone'));
+      const att = reg.attach(
+        'a',
+        () => {},
+        () => {},
+      )!;
+      await new Promise((r) => setTimeout(r, 0)); // its promise chain settles
+      // Never left waiting: a terminal with no first frame takes no input.
+      expect(await Promise.race([att.ready, Promise.resolve('stuck' as const)])).toMatchObject({ data: '' });
+      expect(reports).toEqual([expect.stringMatching(/^warn: a: a terminal's screen couldn't be taken; it attached with an empty one/)]);
+    });
+  });
+
+  it('a catch-up whose screen copy rejects: the same as one that is null (no screen, no stream, resumed), then live output', async () => {
+    await reporting(async () => {
+      const { got, replays } = await caughtUpWithNoScreen({}, true);
+      expect(replays).toEqual([expect.objectContaining({ data: '', stream: '', resumed: true })]);
+      expect(got.join('')).not.toContain('missed');
+      expect(got.join('')).toContain('live');
+    });
   });
 });

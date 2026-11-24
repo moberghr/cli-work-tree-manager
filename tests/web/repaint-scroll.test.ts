@@ -17,6 +17,10 @@ class Clock implements RepaintTimers {
   clear(id: unknown): void {
     this.due.delete(id as number);
   }
+  /** Timers set and not yet fired or cleared. */
+  pending(): number {
+    return this.due.size;
+  }
   advance(ms: number): void {
     this.t += ms;
     for (const [id, d] of [...this.due])
@@ -98,5 +102,61 @@ describe('RepaintScroll', () => {
     await write(lines(20, 200));
     await write('\x1b[?2026l');
     expect(top()).toBe('line 100');
+  });
+
+  describe('the quiet timer', () => {
+    it('is released once the writes stop: a view the user moves afterwards is not pulled back', async () => {
+      const { term, clock, write, top } = setup();
+      await write(lines(0, 200));
+      term.scrollToLine(100);
+      await write(REPRINT + lines(0, 20));
+      clock.advance(5);
+      await write(lines(20, 200));
+      clock.advance(REPAINT_QUIET_MS);
+      expect(top()).toBe('line 100');
+      term.scrollToLine(50);
+      await write(lines(200, 205));
+      expect(top()).toBe('line 50');
+    });
+
+    it('is restarted by a write inside the window: the repaint is not over until the writes stop for REPAINT_QUIET_MS', async () => {
+      const { term, clock, write, top } = setup();
+      await write(lines(0, 200));
+      term.scrollToLine(100);
+      await write(REPRINT + lines(0, 20));
+      clock.advance(REPAINT_QUIET_MS - 10);
+      await write(lines(20, 120)); // restarts it: the first timer would have fired 10 ms from now
+      clock.advance(20);
+      // Still within the repaint: the view is placed again by the next write, so moving it is undone.
+      term.scrollToLine(50);
+      await write(lines(120, 200));
+      expect(top()).toBe('line 100');
+      clock.advance(REPAINT_QUIET_MS);
+      term.scrollToLine(50);
+      await write(lines(200, 205));
+      expect(top()).toBe('line 50');
+    });
+
+    it('is cleared by a reset (RIS): it does not settle a repaint that is gone', async () => {
+      const { term, clock, write, top } = setup();
+      await write(lines(0, 200));
+      term.scrollToLine(100);
+      await write(REPRINT + lines(0, 20));
+      expect(clock.pending()).toBe(1);
+      await write('\x1bc');
+      expect(clock.pending()).toBe(0);
+      clock.advance(REPAINT_QUIET_MS);
+      expect(top()).not.toBeUndefined();
+    });
+
+    it('is cleared when the tracker is disposed', async () => {
+      const { term, clock, repaint, write } = setup();
+      await write(lines(0, 200));
+      term.scrollToLine(100);
+      await write(REPRINT + lines(0, 20));
+      expect(clock.pending()).toBe(1);
+      repaint.dispose();
+      expect(clock.pending()).toBe(0);
+    });
   });
 });
