@@ -179,7 +179,7 @@ export async function createGhosttyEngine({ host, label, refit }: EngineOptions)
 
   // ---- the DOM: a box filling the pane, the canvas in it, a hidden textarea for the keyboard and input methods.
   const box = document.createElement('div');
-  box.className = 'wd-ghostty';
+  box.className = 'wd-ghostty wd-terminal';
   box.style.cssText = 'position:relative;width:100%;height:100%;overflow:hidden;cursor:text;';
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:absolute;left:0;top:0;';

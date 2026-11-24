@@ -394,7 +394,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         }
       };
 
-      const connectionClosed = (detail = '') => term.write(`\r\n\x1b[33m[connection closed${detail} — press Enter to reconnect]\x1b[0m\r\n`);
+      const connectionClosed = (detail = '') =>
+        term.write(`\r\n\x1b[33m[connection closed${detail} — press Enter to reconnect]\x1b[0m\r\n`);
       // The next try of a reconnect in place, from where the terminal stands now (a try that got its frame and then
       // dropped has moved it); none left, or nowhere to resume from: the connection's end is said — with the host's reason
       // when the last try was given one, and that what was typed meanwhile was not sent — and Enter starts over.

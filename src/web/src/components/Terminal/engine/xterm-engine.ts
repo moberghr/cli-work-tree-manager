@@ -66,6 +66,8 @@ export function createXtermEngine({ host, active, label, refit }: EngineOptions)
   term.unicode.activeVersion = '11';
   term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
   term.open(host);
+  // The class both engines' elements carry (ghostty-engine.ts): what the page and the e2e specs find a terminal by.
+  term.element?.classList.add('wd-terminal');
   // A view scrolled up stays on what you were reading when the agent reprints its transcript (repaint-scroll.ts).
   const repaint = new RepaintScroll(term);
   // GPU renderer: the DOM renderer is what makes a busy Claude feel sluggish (every spinner frame re-lays out spans).

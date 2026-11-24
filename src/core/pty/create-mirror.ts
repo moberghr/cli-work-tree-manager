@@ -18,12 +18,12 @@ function configuredEngine(): unknown {
   }
 }
 
-/** `WORK_TERMINAL_ENGINE` (xterm | ghostty) wins, else config `terminalEngine`, else xterm. */
+/** `WORK_TERMINAL_ENGINE` (xterm | ghostty) wins, else config `terminalEngine`, else libghostty-vt. */
 export function terminalEngine(env: NodeJS.ProcessEnv = process.env, configured: () => unknown = configuredEngine): TerminalEngine {
   const fromEnv = env.WORK_TERMINAL_ENGINE;
   if (isEngine(fromEnv)) return fromEnv;
   const fromConfig = configured();
-  return isEngine(fromConfig) ? fromConfig : 'xterm';
+  return isEngine(fromConfig) ? fromConfig : 'ghostty';
 }
 
 let warned = false;

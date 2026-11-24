@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import xtermHeadless from '@xterm/headless';
 import xtermUnicode11 from '@xterm/addon-unicode11';
 import { GhosttyMirror, programReport, translateReply } from '../../../src/core/pty/ghostty-mirror.js';
@@ -720,5 +720,18 @@ describe('GhosttyMirror in-band status (libghostty parses OSC 9;4 and OSC 7501 i
     expect(programReport({ ...base, state: 5, id: 'a' })).toEqual({ state: 'clear', id: 'a' });
     expect(programReport({ ...base, state: 9 })).toBeUndefined();
     expect(programReport({ ...base, state: 0, kind: 2, progress: 50 })).toEqual({ id: '', state: 'idle' });
+  });
+});
+
+describe('a GhosttyMirror snapshot that cannot be taken', () => {
+  it('is null, never an empty screen (a client would draw that over the screen it has)', async () => {
+    const m = new GhosttyMirror(40, 5);
+    m.write('on screen');
+    vi.spyOn(m as unknown as { body: () => string }, 'body').mockImplementation(() => {
+      throw new Error('formatter broke');
+    });
+    expect(m.snapshot()).toBeNull();
+    expect(await m.snapshotSettled()).toBeNull();
+    m.dispose();
   });
 });

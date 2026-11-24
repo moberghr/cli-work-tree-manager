@@ -103,11 +103,11 @@ export function readEngineSetting(load: () => Promise<{ values: Record<string, u
   settingRead ??= load().then(
     (s) => {
       const v = s.values.terminalEngine;
-      setting = isKind(v) ? v : 'xterm';
+      setting = isKind(v) ? v : 'ghostty';
       store(SETTING_KEY, setting);
     },
     () => {
-      /* no setting to be had (an older server, offline): the last known one, else xterm */
+      /* no setting to be had (an older server, offline): the last known one, else libghostty-vt */
     },
   );
   return settingRead;
@@ -115,7 +115,7 @@ export function readEngineSetting(load: () => Promise<{ values: Record<string, u
 
 /**
  * The engine a terminal made now uses: `?terminalEngine=ghostty|xterm` on the page's address (remembered in this
- * browser; `?terminalEngine=` alone forgets it), else the one remembered, else the setting, else xterm.js.
+ * browser; `?terminalEngine=` alone forgets it), else the one remembered, else the setting, else libghostty-vt.
  */
 export function engineChoice(search = typeof location === 'undefined' ? '' : location.search): EngineKind {
   const params = new URLSearchParams(search);
@@ -123,7 +123,7 @@ export function engineChoice(search = typeof location === 'undefined' ? '' : loc
     const asked = params.get('terminalEngine');
     store(OVERRIDE_KEY, isKind(asked) ? asked : null);
   }
-  return stored(OVERRIDE_KEY) ?? setting ?? stored(SETTING_KEY) ?? 'xterm';
+  return stored(OVERRIDE_KEY) ?? setting ?? stored(SETTING_KEY) ?? 'ghostty';
 }
 
 /** For tests: forget the setting read. */

@@ -57,7 +57,7 @@ test('the real dashboard runs on simulated data, and nothing real is touched', a
   // Answer the blocked agent in its (simulated) terminal.
   await page.locator('.wd-inbox-rank-0 .wd-inbox-row', { hasText: 'feat/invoice-export' }).click();
   await expect(page).toHaveURL(/\/term$/);
-  await page.locator('.wd-pty-host .xterm').click();
+  await page.locator('.wd-pty-host .wd-terminal').click();
   await page.keyboard.type('1');
   await page.keyboard.press('Enter');
   await expect(page.locator('.wd-session-status, .wd-session-detail')).toContainText(/Working/);
@@ -152,7 +152,7 @@ test('a finished session notifies only when you are not looking, and the click j
 
   // Answer the blocked agent, then look elsewhere while it works.
   await page.locator('.wd-inbox-rank-0 .wd-inbox-row', { hasText: 'feat/invoice-export' }).click();
-  await page.locator('.wd-pty-host .xterm').click();
+  await page.locator('.wd-pty-host .wd-terminal').click();
   await page.keyboard.type('1');
   await page.keyboard.press('Enter');
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
@@ -545,7 +545,7 @@ test('Ctrl+K opens the assistant, which knows the tab you are on', async ({ page
   });
   await told;
   await expect(panel.locator('.wd-assistant-seeing')).toHaveText('sees: the Inbox tab');
-  await panel.locator('.xterm').click();
+  await panel.locator('.wd-terminal').click();
   // Ctrl+K again closes it — even with focus inside its terminal.
   await page.keyboard.press('Control+k');
   await expect(panel).toBeHidden();
@@ -558,7 +558,7 @@ test('a session opens on its terminal, and going back to one is instant (same co
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
   await expect(page).toHaveURL(/\/term$/);
   await expect(page.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.wd-term-deck .xterm').first()).toBeVisible();
+  await expect(page.locator('.wd-term-deck .wd-terminal').first()).toBeVisible();
 
   await page.locator('.wd-dash-rail-item', { hasText: 'feat/invoice-export' }).click();
   await expect(page.locator('.wd-session-detail-branch')).toHaveText('feat/invoice-export');
@@ -573,14 +573,14 @@ test('the terminal follows the window both ways: it grows, and shrinks back', as
   await page.setViewportSize({ width: 1280, height: 700 });
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
-  // What xterm drew against the box it sits in. `.xterm-screen` is sized to the grid by either renderer: the WebGL
-  // canvas is inside it, and a software rasterizer (Playwright's headless shell, CI) gets the DOM renderer and no canvas.
-  const term = page.locator('.wd-term-deck .wd-term-deck-item[aria-hidden="false"] .xterm');
+  // What the terminal drew against the box it sits in: libghostty's canvas, or xterm's `.xterm-screen` (sized to the
+  // grid by either of its renderers: the WebGL canvas is inside it, and a software rasterizer gets the DOM renderer).
+  const term = page.locator('.wd-term-deck .wd-term-deck-item[aria-hidden="false"] .wd-terminal');
   await expect(term).toBeVisible();
   const widths = async () =>
     term.evaluate((el) => {
       const host = el.closest('.wd-pty-host') as HTMLElement;
-      const drawn = (el.querySelector('.xterm-screen') as HTMLElement | null)?.getBoundingClientRect().width ?? 0;
+      const drawn = (el.querySelector('.xterm-screen, canvas') as HTMLElement | null)?.getBoundingClientRect().width ?? 0;
       return { screen: drawn, host: host.getBoundingClientRect().width };
     });
   const small = await widths();

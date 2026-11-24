@@ -76,8 +76,8 @@ function parseRegion(reply: string, rows: number): Region | null {
 const regionText = (r: Region): string => `${CSI}${r.top + 1};${r.bottom + 1}r`;
 
 /**
- * The PTY host's copy of a terminal's screen on libghostty-vt (its wasm build, bound in core/pty/ghostty/), the engine
- * ScreenMirror can be swapped for (mirror.ts) to compare them. The browser stays xterm.js; the snapshot is the same
+ * The PTY host's copy of a terminal's screen on libghostty-vt (its wasm build, bound in core/pty/ghostty/), the default
+ * engine (ScreenMirror, on xterm, is the fallback: mirror.ts). The snapshot is the same
  * kind of plain VT bytes, laid out as ScreenMirror's: START, the screen (and scrollback), then the state.
  *
  * The state is read from libghostty, not followed by hand: modes, title, kitty flags, the cursor, the pen and

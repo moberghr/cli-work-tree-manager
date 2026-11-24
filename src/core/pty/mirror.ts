@@ -23,7 +23,7 @@ export interface MirrorAnswers {
 /**
  * The PTY host's copy of a terminal's screen, whatever keeps it: what PtySession feeds the PTY's output to, and what a
  * client attaching is sent first (`snapshot`: plain VT bytes, which xterm.js and a native terminal both restore).
- * Two engines: ScreenMirror (@xterm/headless, the default) and GhosttyMirror (libghostty-vt), picked by `terminalEngine` (create-mirror.ts).
+ * Two engines: GhosttyMirror (libghostty-vt, the default) and ScreenMirror (@xterm/headless, the fallback), picked by `terminalEngine` (create-mirror.ts).
  */
 export interface TerminalMirror {
   /** Output from the PTY; `done` runs once it is parsed, in the order written. */

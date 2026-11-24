@@ -14,24 +14,24 @@ afterEach(() => {
 const settings = (terminalEngine: unknown) => () => Promise.resolve({ values: { terminalEngine } });
 
 describe('which engine a terminal uses', () => {
-  it('xterm.js when nothing says otherwise', () => {
-    expect(engineChoice('')).toBe('xterm');
+  it('libghostty-vt when nothing says otherwise', () => {
+    expect(engineChoice('')).toBe('ghostty');
   });
 
   it('the terminalEngine setting once read, and remembered for the next page load', async () => {
-    await readEngineSetting(settings('ghostty'));
-    expect(engineChoice('')).toBe('ghostty');
+    await readEngineSetting(settings('xterm'));
+    expect(engineChoice('')).toBe('xterm');
     resetEngineSetting();
-    expect(engineChoice('')).toBe('ghostty');
+    expect(engineChoice('')).toBe('xterm');
   });
 
-  it('a setting that is not an engine is xterm.js; a failed read keeps the one last known', async () => {
+  it('a setting that is not an engine is libghostty-vt; a failed read keeps the one last known', async () => {
     await readEngineSetting(settings('nonsense'));
-    expect(engineChoice('')).toBe('xterm');
-    localStorage.setItem('work.terminalEngine.setting', 'ghostty');
+    expect(engineChoice('')).toBe('ghostty');
+    localStorage.setItem('work.terminalEngine.setting', 'xterm');
     resetEngineSetting();
     await readEngineSetting(() => Promise.reject(new Error('offline')));
-    expect(engineChoice('')).toBe('ghostty');
+    expect(engineChoice('')).toBe('xterm');
   });
 
   it('?terminalEngine= wins over the setting and is kept in this browser; empty forgets it', async () => {

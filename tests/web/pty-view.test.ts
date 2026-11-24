@@ -347,6 +347,9 @@ beforeEach(() => {
   h.gate.refusal = null;
   FakeWebSocket.instances = [];
   (globalThis as { WebSocket: unknown }).WebSocket = FakeWebSocket;
+  // These tests drive the view through the xterm.js engine (faked above): picked for this browser, as
+  // ?terminalEngine=xterm does. The default, libghostty-vt, draws on a canvas jsdom doesn't have (e2e covers it).
+  localStorage.setItem('work.terminalEngine', 'xterm');
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -355,6 +358,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  localStorage.removeItem('work.terminalEngine');
   (globalThis as { WebSocket: unknown }).WebSocket = realWebSocket;
   delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
   delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
@@ -1347,14 +1351,14 @@ describe('PtyView: the terminal engine switch', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('xterm.js by default, at once (no wait for the setting)', () => {
+  it('xterm.js when picked, at once (nothing to load)', () => {
     const { term } = mount();
     expect(term).toBeDefined();
     expect(h.terms).toHaveLength(1);
   });
 
-  it('?terminalEngine=ghostty that cannot be loaded falls back to xterm.js, and the corner says so', async () => {
-    window.history.replaceState(null, '', '/?terminalEngine=ghostty');
+  it('libghostty-vt by default; when it cannot be loaded it falls back to xterm.js, and the corner says so', async () => {
+    localStorage.removeItem('work.terminalEngine');
     act(() => {
       root.render(createElement(PtyView, { sessionId: 's1' }));
     });

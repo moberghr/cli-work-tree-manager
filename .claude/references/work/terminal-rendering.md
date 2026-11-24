@@ -609,10 +609,11 @@ Left open:
 
 ## The libghostty engine
 
-Everything above describes the default screen copy, `ScreenMirror` (@xterm/headless). A second one,
-`GhosttyMirror` (`core/pty/ghostty-mirror.ts`, on libghostty-vt's wasm build: `vendor/libghostty-vt/README.md`), is
-there to compare the two; config `terminalEngine` / `WORK_TERMINAL_ENGINE` picks it per terminal (`create-mirror.ts`,
-falling back to xterm with one warning if the module can't load). Both implement `TerminalMirror` (`mirror.ts`); the
+Everything above was written for the xterm screen copy, `ScreenMirror` (@xterm/headless), which stays as the
+fallback. The default is `GhosttyMirror` (`core/pty/ghostty-mirror.ts`, on libghostty-vt's wasm build:
+`vendor/libghostty-vt/README.md`); config `terminalEngine` / `WORK_TERMINAL_ENGINE` picks per terminal (`create-mirror.ts`,
+falling back to xterm with one warning if the module can't load). Pacing, the output tail and reattaching where you
+left off work on the output stream, not on the screen copy: they are the same on either. Both implement `TerminalMirror` (`mirror.ts`); the
 snapshot is the same layout (`START`, screen, state, never 2026, no palette), whichever engine the browser draws with
 (next section).
 
@@ -647,8 +648,9 @@ perf log and when to fit; what parses, draws, measures and turns keys into bytes
 
 - **Which:** `?terminalEngine=ghostty|xterm` on the page's address (kept in this browser's localStorage; `?terminalEngine=`
   forgets it), else the `terminalEngine` setting (the same key as the mirror's; read once per page in the background and
-  remembered for the next load, so the first terminal never waits for it), else xterm.js (`engineChoice`).
-- **xterm.js** (`engine/xterm-engine.ts`, the default): unchanged — WebGL with its retry, fonts, copy, links, Unicode 11.
+  remembered for the next load, so the first terminal never waits for it), else libghostty-vt (`engineChoice`). If its module can't be loaded the tab
+  draws with xterm.js and its corner says why.
+- **xterm.js** (`engine/xterm-engine.ts`, the fallback, and what `terminalEngine: xterm` picks): unchanged — WebGL with its retry, fonts, copy, links, Unicode 11.
 - **libghostty-vt** (`engine/ghostty-engine.ts`, its own chunk, loaded with `import()` only when picked): the module is
   a served asset (`new URL(... .wasm, import.meta.url)`; `spa-handler.ts` serves it as `application/wasm`), compiled
   once per page, a fresh instance per terminal. The binding is the mirror's: `wasm-core.ts`, `vt-terminal.ts`,
