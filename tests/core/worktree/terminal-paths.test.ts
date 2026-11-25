@@ -297,7 +297,9 @@ describe('resolveTerminalPath: refused paths are never looked at', () => {
   });
 
   it('file://localhost is this machine: the file resolves and opens with the app', async () => {
-    const r = await resolveTerminalPath(single(), `file://localhost${path.join(api, 'mock.html')}`, io);
+    // As a file address is written: forward slashes, and a slash before a Windows drive (`file://localhost/C:/x`).
+    const file = path.join(api, 'mock.html').replace(/\\/g, '/');
+    const r = await resolveTerminalPath(single(), `file://localhost${file.startsWith('/') ? '' : '/'}${file}`, io);
     expect(r).toMatchObject({ path: real(api, 'mock.html'), kind: 'file', opens: 'app' });
   });
 });
