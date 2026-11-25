@@ -5,6 +5,8 @@ import type { RailLayout } from '../../src/core/rail/rail-layout.js';
 import { OLDER_GROUP, railGroups } from '../../src/web/src/state/session-display.js';
 import {
   groupsForView,
+  projectGroups,
+  projectOfGroup,
   RAIL_VIEWS,
   readRailView,
   stateGroupOf,
@@ -154,6 +156,62 @@ describe('stateGroups', () => {
   });
 });
 
+describe('projectGroups', () => {
+  const SESSIONS = [
+    session('w1', { target: 'web' }),
+    session('a1'),
+    session('s1', { target: 'Shop' }),
+    session('g1', { target: 'checkout', isGroup: true }),
+    session('a2', { attention: attention('working') }),
+    session('old1', { lastAccessedAt: OLD }),
+    session('oldweb', { target: 'web', lastAccessedAt: OLD }),
+  ];
+
+  it('one heading per project in alphabetical order whatever the case, a group under its own name, then Older; each session once', () => {
+    const { groups } = projectGroups(SESSIONS, { now: NOW });
+    expect(groups.map((g) => g.title)).toEqual(['api', 'checkout', 'Shop', 'web', 'Older']);
+    expect(keys(groups)).toEqual([
+      'project:api: a1 a2',
+      'project:checkout: g1',
+      'project:Shop: s1',
+      'project:web: w1',
+      `${OLDER_GROUP}: old1 oldweb`,
+    ]);
+    const ids = groups.flatMap((g) => g.sessions.map((s) => s.id));
+    expect(ids.sort()).toEqual(SESSIONS.map((s) => s.id).sort());
+  });
+
+  it('inside a project the order is Mine’s', () => {
+    const { groups } = projectGroups(SESSIONS, { now: NOW, order: ['a2', 'a1'] });
+    expect(keys(groups)[0]).toBe('project:api: a2 a1');
+  });
+
+  it('the selected older session and one that needs you stay under their project', () => {
+    const sessions = [...SESSIONS, session('oldowed', { target: 'docs', lastAccessedAt: OLD, replyDrafts: 1 })];
+    const { groups } = projectGroups(sessions, { now: NOW, activeId: 'oldweb' });
+    expect(keys(groups)).toContain('project:web: w1 oldweb');
+    expect(keys(groups)).toContain('project:docs: oldowed');
+    expect(keys(groups).at(-1)).toBe(`${OLDER_GROUP}: old1`);
+  });
+
+  it('a project with only old sessions has no heading', () => {
+    const { groups } = projectGroups([session('a1'), session('o', { target: 'gone', lastAccessedAt: OLD })], { now: NOW });
+    expect(groups.map((g) => g.title)).toEqual(['api', 'Older']);
+  });
+
+  it('projectOfGroup: the project of a Project heading, null for any other', () => {
+    expect(projectOfGroup('project:api')).toBe('api');
+    expect(projectOfGroup('project:a:b')).toBe('a:b');
+    expect(projectOfGroup(OLDER_GROUP)).toBeNull();
+    expect(projectOfGroup('state:needs')).toBeNull();
+  });
+
+  it('groupsForView: Project is projectGroups', () => {
+    const opts = { now: NOW, layout: { sections: [], places: {} } };
+    expect(keys(groupsForView('project', SESSIONS, opts).groups)).toEqual(keys(projectGroups(SESSIONS, opts).groups));
+  });
+});
+
 describe('the stored view', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => {
@@ -161,8 +219,13 @@ describe('the stored view', () => {
     localStorage.clear();
   });
 
-  it('the switch has Mine then State', () => {
-    expect(RAIL_VIEWS.map((v) => v.label)).toEqual(['Mine', 'State']);
+  it('the switch has Mine, State, then Project', () => {
+    expect(RAIL_VIEWS.map((v) => v.label)).toEqual(['Mine', 'State', 'Project']);
+  });
+
+  it('Project is remembered too', () => {
+    writeRailView('project');
+    expect(readRailView()).toBe('project');
   });
 
   it('Mine at first; what you chose after', () => {
@@ -175,7 +238,7 @@ describe('the stored view', () => {
   });
 
   it('a stored value it does not know is Mine', () => {
-    localStorage.setItem('work-web:rail-view', 'project');
+    localStorage.setItem('work-web:rail-view', 'kanban');
     expect(readRailView()).toBe('mine');
     localStorage.setItem('work-web:rail-view', '"state"');
     expect(readRailView()).toBe('mine');

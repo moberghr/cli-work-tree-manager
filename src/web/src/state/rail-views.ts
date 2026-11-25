@@ -4,14 +4,16 @@ import { displayStatus, OLDER_GROUP, owedBadge, railGroups, railSessions, type D
 
 /**
  * How the rail groups its rows: `mine` is yours (pins, sections, your drag order); `state` is by what each session
- * needs now (Needs you, Working, Idle, Snoozed, then Older). The rows themselves are the same in both. Pure.
+ * needs now (Needs you, Working, Idle, Snoozed, then Older); `project` is by project, one heading each, then Older.
+ * Mine and State draw the same two-line rows; Project's are one line, since the heading says the project. Pure.
  */
-export type RailView = 'mine' | 'state';
+export type RailView = 'mine' | 'state' | 'project';
 
 /** The rail header's switch, in its order. */
 export const RAIL_VIEWS: ReadonlyArray<{ value: RailView; label: string; title: string }> = [
   { value: 'mine', label: 'Mine', title: 'Your order: pins, sections, where you dragged them' },
   { value: 'state', label: 'State', title: 'By what each needs now: Needs you, Working, Idle, Snoozed' },
+  { value: 'project', label: 'Project', title: 'By project: one heading each, with a + to start another worktree there' },
 ];
 
 const VIEW_KEY = 'work-web:rail-view';
@@ -81,11 +83,40 @@ export function stateGroups(
   return { groups };
 }
 
+const PROJECT_PREFIX = 'project:';
+
+/** The project a Project heading stands for (what its `+` starts a worktree in); null for any other heading. */
+export function projectOfGroup(key: string): string | null {
+  return key.startsWith(PROJECT_PREFIX) ? key.slice(PROJECT_PREFIX.length) : null;
+}
+
+/**
+ * The Project view's groups: one per project (a session's `target`: its repo, or its group's name), keys
+ * `project:<name>`, in alphabetical order whatever the case, each in the rail's order (`railSessions`); then Older as
+ * in State: the selected older session and one that needs you stay under their project.
+ */
+export function projectGroups(
+  sessions: SessionSummary[],
+  opts: { now?: number; order?: readonly string[]; activeId?: string | null },
+): { groups: RailGroup<SessionSummary>[] } {
+  const now = opts.now ?? Date.now();
+  const { current, older } = railSessions(sessions, now, opts.order ?? []);
+  const shown = (s: SessionSummary) => s.id === opts.activeId || stateGroupOf(s, displayStatus(s, now)) === 'needs';
+  const by = new Map<string, SessionSummary[]>();
+  for (const s of [...current, ...older.filter(shown)]) by.set(s.target, [...(by.get(s.target) ?? []), s]);
+  const groups: RailGroup<SessionSummary>[] = [...by.keys()]
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()) || a.localeCompare(b))
+    .map((name) => ({ key: PROJECT_PREFIX + name, title: name, sessions: by.get(name)! }));
+  const rest = older.filter((s) => !shown(s));
+  if (rest.length > 0) groups.push({ key: OLDER_GROUP, title: 'Older', sessions: rest });
+  return { groups };
+}
+
 /** The rail's groups in a view: what the rail draws and what j/k walk before the rail has said what it shows. */
 export function groupsForView(
   view: RailView,
   sessions: SessionSummary[],
   opts: { now?: number; order?: readonly string[]; layout: RailLayout; activeId?: string | null },
 ): { groups: RailGroup<SessionSummary>[] } {
-  return view === 'state' ? stateGroups(sessions, opts) : railGroups(sessions, opts);
+  return view === 'state' ? stateGroups(sessions, opts) : view === 'project' ? projectGroups(sessions, opts) : railGroups(sessions, opts);
 }

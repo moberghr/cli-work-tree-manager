@@ -1,7 +1,7 @@
 import type { SessionSummary } from '../api/client.js';
 import type { PrInfo } from '../api/panes.js';
 import { relativeTime } from '../utils/time.js';
-import { lastActiveAt, owedBadge, waitingOnOthers, type DisplayKind, type OwedBadge } from './session-display.js';
+import { DISPLAY_LABEL, lastActiveAt, owedBadge, waitingOnOthers, type DisplayKind, type OwedBadge } from './session-display.js';
 import { prsBeyondStage, stagePhrase, stageTone } from '../../../core/pr/pr-stage.js';
 import { snoozeLabel } from '../../../core/rail/snooze.js';
 
@@ -69,7 +69,16 @@ export interface RailPrMark {
   key: string;
   url: string;
   tone: ReturnType<typeof stageTone>;
+  /** `api #12` */
+  ref: string;
+  /** `draft`, `waiting for review`… */
+  stage: string;
+  /** `api #12 · draft`: the two together, for a hover. */
   label: string;
+}
+
+function mark(key: string, url: string, tone: RailPrMark['tone'], ref: string, stage: string): RailPrMark {
+  return { key, url, tone, ref, stage, label: `${ref} · ${stage}` };
 }
 
 /** How many PR dots a row shows before `+N`. */
@@ -86,18 +95,12 @@ export function railPrMarks(
   cap = RAIL_PR_MARKS,
 ): { shown: RailPrMark[]; more: RailPrMark[] } {
   const all: RailPrMark[] = [
-    ...(s.prStage?.prs ?? []).map((p) => ({
-      key: `${p.repo}#${p.number}`,
-      url: p.url,
-      tone: stageTone(p.kind),
-      label: `${p.repo} #${p.number} · ${stagePhrase(p.kind)}`,
-    })),
-    ...prsBeyondStage(s.prStage, [...prs]).map((p) => ({
-      key: `${p.repoAlias}#${p.number}`,
-      url: p.url,
-      tone: p.isDraft ? ('draft' as const) : ('plain' as const),
-      label: `${p.repoAlias} #${p.number} · ${p.isDraft ? 'draft' : 'open'}`,
-    })),
+    ...(s.prStage?.prs ?? []).map((p) =>
+      mark(`${p.repo}#${p.number}`, p.url, stageTone(p.kind), `${p.repo} #${p.number}`, stagePhrase(p.kind)),
+    ),
+    ...prsBeyondStage(s.prStage, [...prs]).map((p) =>
+      mark(`${p.repoAlias}#${p.number}`, p.url, p.isDraft ? 'draft' : 'plain', `${p.repoAlias} #${p.number}`, p.isDraft ? 'draft' : 'open'),
+    ),
   ];
   return { shown: all.slice(0, cap), more: all.slice(cap) };
 }
@@ -107,4 +110,40 @@ export function railPrsText(marks: { shown: RailPrMark[]; more: RailPrMark[] }):
   const all = [...marks.shown, ...marks.more];
   if (all.length === 0) return '';
   return `${all.length === 1 ? 'PR' : 'PRs'} ${all.map((m) => m.label).join(', ')}`;
+}
+
+/** One PR on the card: `api #12`, its title when the dashboard's PR list has it, and where it stands. */
+export interface RailCardPr {
+  key: string;
+  tone: RailPrMark['tone'];
+  label: string;
+  title: string | null;
+  stage: string;
+}
+
+/** What a Project row's card says (the row is one line, so the card carries what the other views' second line and tooltip do). */
+export interface RailCard {
+  name: string;
+  /** `api · feat/x`: the project and branch, whole. */
+  where: string;
+  /** `Working — running the tests`: its status, with its agent's last line. */
+  state: string;
+  prs: RailCardPr[];
+}
+
+/**
+ * The card of a row: its name, where it is, its state, and every PR (the watch's with its stage, then the dashboard's
+ * others: `railPrMarks`' list, uncapped) with its title, which only the dashboard's list (`prs`) has.
+ */
+export function railCard(s: SessionSummary, kind: DisplayKind, prs: readonly PrInfo[]): RailCard {
+  const name = railName(s);
+  const marks = railPrMarks(s, prs, Infinity).shown;
+  const titles = new Map(prs.map((p) => [`${p.repoAlias}#${p.number}`, p.title]));
+  const summary = s.attention?.summary;
+  return {
+    name: name.prefix + name.rest,
+    where: s.branch ? `${s.target} · ${s.branch}` : s.target,
+    state: DISPLAY_LABEL[kind] + (summary ? ` — ${summary}` : ''),
+    prs: marks.map((m) => ({ key: m.key, tone: m.tone, label: m.ref, title: titles.get(m.key) || null, stage: m.stage })),
+  };
 }

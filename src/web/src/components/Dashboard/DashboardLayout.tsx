@@ -18,7 +18,8 @@ interface Props {
   onSelectTab: (tab: DashboardRoute['tab']) => void;
   onSelectSession: (id: string) => void;
   onHome: () => void;
-  onNewWorktree: () => void;
+  /** Open New worktree; with a project when the rail's Project heading asked. */
+  onNewWorktree: (project?: string) => void;
   /** Badge on the Inbox tab. */
   inboxCount?: number;
   reviewsCount?: number;
@@ -138,9 +139,9 @@ export function DashboardLayout({
             setRailOpen(false);
             onSelectSession(id);
           }}
-          onNewWorktree={() => {
+          onNewWorktree={(project) => {
             setRailOpen(false);
-            onNewWorktree();
+            onNewWorktree(project);
           }}
           prsFor={prsFor}
           onRename={renameSession}

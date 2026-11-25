@@ -87,7 +87,7 @@ export function PrStageChip({ session, prs = [] }: { session: SessionSummary; pr
  * `+N`. A click on a dot opens its PR without selecting the row (the row
  * itself is a button, so not a link); hovering says `repo #number · stage`.
  */
-export function RailPrMarks({ marks }: { marks: { shown: RailPrMark[]; more: RailPrMark[] } }) {
+export function RailPrMarks({ marks, plain }: { marks: { shown: RailPrMark[]; more: RailPrMark[] }; plain?: boolean }) {
   if (marks.shown.length === 0) return null;
   return (
     <span className="wd-rail-pr-marks">
@@ -98,7 +98,7 @@ export function RailPrMarks({ marks }: { marks: { shown: RailPrMark[]; more: Rai
           role="link"
           tabIndex={-1}
           aria-label={m.label}
-          title={`${m.label}\nClick to open it`}
+          title={plain ? undefined : `${m.label}\nClick to open it`}
           onClick={(e) => {
             e.stopPropagation();
             window.open(m.url, '_blank', 'noopener');
@@ -108,7 +108,7 @@ export function RailPrMarks({ marks }: { marks: { shown: RailPrMark[]; more: Rai
       {marks.more.length > 0 && (
         <span
           className="wd-rail-pr-more"
-          title={marks.more.map((m) => m.label).join('\n')}
+          title={plain ? undefined : marks.more.map((m) => m.label).join('\n')}
           aria-label={`${marks.more.length} more: ${marks.more.map((m) => m.label).join(', ')}`}
         >
           +{marks.more.length}

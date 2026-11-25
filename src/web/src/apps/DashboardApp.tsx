@@ -1050,7 +1050,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         onRailSections={changeSections}
         onRailShownChange={onRailShownChange}
         onHome={goHome}
-        onNewWorktree={() => openNew(null)}
+        onNewWorktree={(project) => openNew(project ? { target: project } : null)}
         inboxCount={inboxCount}
         reviewsCount={reviewsCount}
         prsFor={prsFor}
