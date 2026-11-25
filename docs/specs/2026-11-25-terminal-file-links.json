@@ -1,0 +1,309 @@
+{
+  "slug": "terminal-file-links",
+  "date": "2026-11-25",
+  "scope": "new-feature",
+  "security_impact": "requires-audit-trail",
+  "change_manifest": [
+    {
+      "path": "src/core/worktree/terminal-path-refs.ts",
+      "action": "create",
+      "purpose": "Pure: find path candidates in a row of text, split :line, join wrapped rows"
+    },
+    {
+      "path": "src/core/worktree/terminal-paths.ts",
+      "action": "create",
+      "purpose": "Resolve a candidate against a session's folders and files; decide how it opens; open it"
+    },
+    {
+      "path": "src/core/platform/launch.ts",
+      "action": "modify",
+      "purpose": "startEditor, openWithDefaultApp, revealInFileManager"
+    },
+    {
+      "path": "src/core/api-types.ts",
+      "action": "modify",
+      "purpose": "TerminalPathsWire"
+    },
+    {
+      "path": "src/server/routes/terminal-path-routes.ts",
+      "action": "create",
+      "purpose": "resolve and open routes"
+    },
+    {
+      "path": "src/server/routes/worktree-routes.ts",
+      "action": "modify",
+      "purpose": "open-editor uses startEditor"
+    },
+    {
+      "path": "src/server/web-server.ts",
+      "action": "modify",
+      "purpose": "Mount the routes"
+    },
+    {
+      "path": "src/server/demo/demo-server.ts",
+      "action": "modify",
+      "purpose": "Demo answers"
+    },
+    {
+      "path": "src/web/src/api/panes.ts",
+      "action": "modify",
+      "purpose": "resolveTerminalPaths, openTerminalPath"
+    },
+    {
+      "path": "src/web/src/state/terminal-links.ts",
+      "action": "create",
+      "purpose": "Pure: candidates per buffer row, cache, menu items"
+    },
+    {
+      "path": "src/web/src/components/Terminal/PtyView.tsx",
+      "action": "modify",
+      "purpose": "Link provider, click, right-click menu, file:// hyperlinks, toast"
+    },
+    {
+      "path": "src/web/src/components/Dashboard/SessionDetail.tsx",
+      "action": "modify",
+      "purpose": "Open the code search with a query from the terminal"
+    },
+    {
+      "path": "src/web/src/components/Code/CodeSearch.tsx",
+      "action": "modify",
+      "purpose": "Initial query"
+    },
+    {
+      "path": ".claude/references/work/pty-host.md",
+      "action": "modify",
+      "purpose": "Document the feature and its rule"
+    },
+    {
+      "path": ".claude/rules/security.md",
+      "action": "modify",
+      "purpose": "§1.5b: a path from the terminal"
+    },
+    {
+      "path": "tests/core/worktree/terminal-path-refs.test.ts",
+      "action": "create",
+      "purpose": "Detection tests"
+    },
+    {
+      "path": "tests/core/worktree/terminal-paths.test.ts",
+      "action": "create",
+      "purpose": "Resolve and open tests"
+    },
+    {
+      "path": "tests/core/platform/launch.test.ts",
+      "action": "modify",
+      "purpose": "Default-app and reveal arguments"
+    },
+    {
+      "path": "tests/server/routes/terminal-path-routes.test.ts",
+      "action": "create",
+      "purpose": "Route tests"
+    },
+    {
+      "path": "tests/web/terminal-links.test.ts",
+      "action": "create",
+      "purpose": "Browser-side pure tests"
+    },
+    {
+      "path": "tests/architecture/windows-hide.test.ts",
+      "action": "modify",
+      "purpose": "The list of known spawn importers: the editor spawn moved from worktree-routes.ts to launch.ts"
+    },
+    {
+      "path": "tests/web/pty-view.test.ts",
+      "action": "modify",
+      "purpose": "The xterm fake gains registerLinkProvider; link tests"
+    },
+    {
+      "path": "tests/web/code-search.test.ts",
+      "action": "modify",
+      "purpose": "initialQuery test"
+    },
+    {
+      "path": "tests/architecture/boundaries.test.ts",
+      "action": "modify",
+      "purpose": "terminal-path-refs.js added to the SPA's allowed core imports"
+    }
+  ],
+  "public_contracts": [
+    {
+      "kind": "endpoint",
+      "signature": "POST /api/sessions/:id/terminal-paths/resolve",
+      "change": "new",
+      "surface": "internal-tooling"
+    },
+    {
+      "kind": "endpoint",
+      "signature": "POST /api/sessions/:id/terminal-paths/open",
+      "change": "new",
+      "surface": "internal-tooling"
+    }
+  ],
+  "success_criteria": [
+    {
+      "id": "SC1",
+      "description": "Every path form is found with its line; prose is not",
+      "verification": "npx vitest run tests/core/worktree/terminal-path-refs.test.ts",
+      "evidence_channel": "test-run"
+    },
+    {
+      "id": "SC2",
+      "description": "A path wrapped over rows resolves as one",
+      "verification": "npx vitest run tests/core/worktree/terminal-path-refs.test.ts tests/web/terminal-links.test.ts",
+      "evidence_channel": "test-run"
+    },
+    {
+      "id": "SC3",
+      "description": "A missing path is never a link",
+      "verification": "npx vitest run tests/web/terminal-links.test.ts tests/core/worktree/terminal-paths.test.ts",
+      "evidence_channel": "test-run"
+    },
+    {
+      "id": "SC4",
+      "description": "A runnable file or .app folder is never started by the default app",
+      "verification": "npx vitest run tests/core/worktree/terminal-paths.test.ts tests/server/routes/terminal-path-routes.test.ts",
+      "evidence_channel": "test-run"
+    },
+    {
+      "id": "SC5",
+      "description": "Click opens an html file and an editor at a line in the running app",
+      "verification": "manual in npm run dev",
+      "evidence_channel": "browser"
+    },
+    {
+      "id": "SC6",
+      "description": "typecheck, lint, tests, build pass",
+      "verification": "npm run typecheck && npm run lint && npm test && npm run build",
+      "evidence_channel": "build-output"
+    }
+  ],
+  "test_manifest": [
+    {
+      "path": "tests/core/worktree/terminal-path-refs.test.ts",
+      "covers": [
+        "SC1",
+        "SC2"
+      ]
+    },
+    {
+      "path": "tests/core/worktree/terminal-paths.test.ts",
+      "covers": [
+        "SC3",
+        "SC4"
+      ]
+    },
+    {
+      "path": "tests/core/platform/launch.test.ts",
+      "covers": [
+        "SC4"
+      ]
+    },
+    {
+      "path": "tests/server/routes/terminal-path-routes.test.ts",
+      "covers": [
+        "SC4"
+      ]
+    },
+    {
+      "path": "tests/web/terminal-links.test.ts",
+      "covers": [
+        "SC2",
+        "SC3"
+      ]
+    }
+  ],
+  "out_of_scope": [
+    "Paths in the Diff, Code or Review tabs and in work attach",
+    "Opening a file in work's own Code tab from the terminal",
+    "A setting for the modifier key or the viewer types"
+  ],
+  "assumptions": [
+    "[ASSUMED] Claude Code's own line breaks leave a path's first row filled to the last column",
+    "xterm 6 registerLinkProvider calls back asynchronously per row"
+  ],
+  "risks": [
+    "A wrong join links text that is not a path: a join is kept only when the result exists",
+    "The open-editor route's spawn moves to core: its tests must pass unchanged"
+  ],
+  "plan": {
+    "batches": [
+      {
+        "id": "B1",
+        "files": [
+          "src/core/worktree/terminal-path-refs.ts",
+          "tests/core/worktree/terminal-path-refs.test.ts"
+        ],
+        "acceptance": "findPathRefs, splitLine and joinRows cover every form in the spec's Behaviour 1-2; no node imports",
+        "verification": "npx vitest run tests/core/worktree/terminal-path-refs.test.ts && npm run typecheck",
+        "depends": [],
+        "wave": 1
+      },
+      {
+        "id": "B2",
+        "files": [
+          "src/core/worktree/terminal-paths.ts",
+          "src/core/platform/launch.ts",
+          "src/core/api-types.ts",
+          "src/server/routes/terminal-path-routes.ts",
+          "src/server/routes/worktree-routes.ts",
+          "src/server/web-server.ts",
+          "src/server/demo/demo-server.ts",
+          "tests/core/worktree/terminal-paths.test.ts",
+          "tests/core/platform/launch.test.ts",
+          "tests/server/routes/terminal-path-routes.test.ts"
+        ],
+        "acceptance": "Both routes work as the spec's contracts and Security section say; open-editor behaves as before",
+        "verification": "npx vitest run tests/core/worktree tests/core/platform/launch.test.ts tests/server/routes tests/architecture && npm run typecheck && npm run lint",
+        "depends": [
+          "B1"
+        ],
+        "depends_rationale": "terminal-paths.ts uses splitLine from B1",
+        "wave": 2
+      },
+      {
+        "id": "B3",
+        "files": [
+          "src/web/src/api/panes.ts",
+          "src/web/src/state/terminal-links.ts",
+          "src/web/src/components/Terminal/PtyView.tsx",
+          "tests/web/terminal-links.test.ts"
+        ],
+        "acceptance": "Existing paths underline on hover, plain click opens, right-click shows the menu, file:// hyperlinks open, failures toast",
+        "verification": "npx vitest run tests/web/terminal-links.test.ts && npm run typecheck && npm run lint",
+        "depends": [
+          "B1",
+          "B2"
+        ],
+        "depends_rationale": "Calls B2's routes with B1's candidates",
+        "wave": 3
+      },
+      {
+        "id": "B4",
+        "files": [
+          "src/web/src/components/Dashboard/SessionDetail.tsx",
+          "src/web/src/components/Code/CodeSearch.tsx",
+          "src/web/src/components/Terminal/PtyView.tsx",
+          ".claude/references/work/pty-host.md",
+          ".claude/rules/security.md"
+        ],
+        "acceptance": "An ambiguous bare name opens the code search with it typed in; docs say what the feature does and its rule",
+        "verification": "npm run typecheck && npm run lint && npm test && npm run build",
+        "depends": [
+          "B3"
+        ],
+        "depends_rationale": "Extends B3's click handling",
+        "wave": 4
+      }
+    ]
+  },
+  "baseline": {
+    "commit": "5047c9a3",
+    "typecheck": "pass",
+    "tests": "4788 passed, 18 failed in 11 files",
+    "known_failures": [
+      "tests/functional/*-real (web server start)",
+      "tests/packaging/git-isolation.test.ts",
+      "tests/commands/account.test.ts"
+    ]
+  }
+}

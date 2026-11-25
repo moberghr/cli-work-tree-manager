@@ -1,5 +1,7 @@
+import path from 'node:path';
 import spawn from './spawn.js';
 import { detachHere } from './process.js';
+import { loadConfig } from './config.js';
 import { applyEnvDelta, hasEnvDelta, type EnvDelta } from './env-delta.js';
 import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-launcher.js';
 import { launchFor } from './batch-launch.js';
@@ -45,6 +47,111 @@ export function editorArgs(editor: string, folder: string, file?: { path: string
   if (JETBRAINS.test(name)) return line ? [folder, '--line', String(line), file.path] : [folder, file.path];
   if (SUBLIME.test(name)) return [folder, line ? `${file.path}:${line}` : file.path];
   return [file.path];
+}
+
+/**
+ * Open `folder` in the configured editor (config `editor`, `code` by default), or a file in it at a line
+ * (`editorArgs`). Detached + ignored stdio so the spawn returns at once and the parent doesn't hold on to a zombie.
+ * Resolves with why it could not start (`could not start <editor>: <reason>`), or null once it runs.
+ */
+export function startEditor(folder: string, file?: { path: string; line?: number }): Promise<string | null> {
+  // cross-spawn, not node's spawn: the editor is usually a `.cmd` shim on
+  // Windows (code.cmd), which node refuses to run without a shell since
+  // the BatBadBut fix (EINVAL) — and a shell would interpret `&` etc. in
+  // the path. cross-spawn escapes the argument for cmd.exe instead.
+  const editor = loadConfig()?.editor?.trim() || 'code';
+  return new Promise<string | null>((resolve) => {
+    try {
+      // Not detached on Windows: cmd.exe running code.cmd would then flash a console window (process.ts).
+      // keepCwdLookup: the editor is no tool run — its own terminals and tasks would inherit shellEnv's switch (spawn.ts).
+      const child = spawn(editor, editorArgs(editor, folder, file), {
+        detached: detachHere(),
+        stdio: 'ignore',
+        windowsHide: true,
+        keepCwdLookup: true,
+      });
+      // A missing editor surfaces as 'error' — on Windows only when the
+      // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
+      // so wait for an error, an exit, or a moment of it running.
+      const settle = setTimeout(() => resolve(null), 1500);
+      child.once('error', (err) => {
+        clearTimeout(settle);
+        resolve(err.message);
+      });
+      child.once('exit', () => {
+        clearTimeout(settle);
+        resolve(null); // `code` hands off to the running editor and exits
+      });
+      child.unref();
+    } catch (err) {
+      resolve((err as Error).message);
+    }
+  }).then((failed) => (failed ? `could not start ${editor}: ${failed}` : null));
+}
+
+/** A program to start with its arguments (argv, never a shell line). */
+export interface LaunchCommand {
+  cmd: string;
+  args: string[];
+}
+
+/** What opens `target` with the system's default app for its type. */
+export function defaultAppCommand(target: string, platform: NodeJS.Platform = process.platform): LaunchCommand {
+  if (platform === 'darwin') return { cmd: 'open', args: [target] };
+  if (platform === 'win32') return { cmd: 'explorer.exe', args: [target] };
+  return { cmd: 'xdg-open', args: [target] };
+}
+
+/**
+ * What shows `target` in the file manager. Finder and Explorer select it in its folder (`/select,<path>` is one argument
+ * to Explorer); on Linux there is no common way to select, so its folder is opened.
+ */
+export function revealCommand(target: string, platform: NodeJS.Platform = process.platform): LaunchCommand {
+  if (platform === 'darwin') return { cmd: 'open', args: ['-R', target] };
+  if (platform === 'win32') return { cmd: 'explorer.exe', args: [`/select,${target}`] };
+  return { cmd: 'xdg-open', args: [path.dirname(target)] };
+}
+
+/** How long a just-started opener may take to say it failed. */
+const OPENER_SETTLE_MS = 500;
+
+/**
+ * Start an opener (open / explorer.exe / xdg-open) and leave it running. Resolves with what went wrong, or null.
+ * `open` and `xdg-open` say a failure (no such file, no app for it) with a non-zero exit, usually at once: that is
+ * waited for, for the settle time at most. explorer.exe exits non-zero even when it opened the file, so only its
+ * failure to start counts.
+ */
+function startOpener({ cmd, args }: LaunchCommand): Promise<string | null> {
+  const exitTells = cmd !== 'explorer.exe';
+  return new Promise<string | null>((resolve) => {
+    try {
+      // Hidden and detached as openUrl's; keepCwdLookup: what it opens is something you work in (spawn.ts).
+      const child = spawn(cmd, args, { stdio: 'ignore', detached: detachHere(), windowsHide: true, keepCwdLookup: true });
+      const settle = setTimeout(() => resolve(null), OPENER_SETTLE_MS);
+      const done = (failed: string | null) => {
+        clearTimeout(settle);
+        resolve(failed);
+      };
+      child.once('spawn', () => {
+        if (!exitTells) done(null);
+      });
+      child.once('exit', (code) => done(exitTells && code ? `${cmd} failed (exit code ${code})` : null));
+      child.once('error', (err) => done(`could not start ${cmd}: ${err.message}`));
+      child.unref();
+    } catch (err) {
+      resolve(`could not start ${cmd}: ${(err as Error).message}`);
+    }
+  });
+}
+
+/** Open `target` with the system's default app. Only for a file that is safe to hand to one (terminal-paths.ts decides). */
+export function openWithDefaultApp(target: string): Promise<string | null> {
+  return startOpener(defaultAppCommand(target));
+}
+
+/** Show `target` in Finder / Explorer / the file manager, without opening it. */
+export function revealInFileManager(target: string): Promise<string | null> {
+  return startOpener(revealCommand(target));
 }
 
 /** Open VS Code in the given directory. */

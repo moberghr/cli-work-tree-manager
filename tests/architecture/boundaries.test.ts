@@ -80,6 +80,7 @@ const SPA_SHARED = new Set([
   'src/core/pty/host-health.js',
   'src/core/pty/restart-view.js', // pure: how a restart of agents is said
   'src/core/worktree/repo-rules.js',
+  'src/core/worktree/terminal-path-refs.js', // pure, import-free: path-looking pieces of terminal text (the terminal's links)
   'src/core/pr/pr-stage.js',
   'src/core/pr/branch-work.js',
   'src/core/updates/updates.js',

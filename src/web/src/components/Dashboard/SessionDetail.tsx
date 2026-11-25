@@ -11,6 +11,7 @@ import { TimelineView } from './TimelineView.js';
 import { CodeView } from '../Code/CodeView.js';
 import { CodeSearch } from '../Code/CodeSearch.js';
 import { isSearchKey, type CodePlace } from '../../state/code-search-view.js';
+import { CODE_SEARCH_EVENT, type CodeSearchDetail } from '../../state/terminal-links.js';
 import { inDesktopApp } from '../../hooks/use-desktop.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { BlockedByChip } from './BlockedBy.js';
@@ -124,21 +125,32 @@ export function SessionDetail({
   useEffect(() => setDiffFull(false), [session.id, subTab]);
   // Ctrl+T, as Visual Studio's: search the session's code from any of its tabs (a terminal too: the capture
   // phase). A pick opens the Code tab at its line. Not over another dialog; not in a browser tab, which keeps
-  // Ctrl+T for itself (the Code tab's button opens it there).
-  const [searching, setSearching] = useState(false);
+  // Ctrl+T for itself (the Code tab's button opens it there). Open: the query it starts with ('' from Ctrl+T and the button).
+  const [searching, setSearching] = useState<string | null>(null);
   // Whose pick it is: another session's Code tab (j/k keep the tab) mounts before a reset here would run.
   const [goto, setGoto] = useState<(CodePlace & { seq: number; sessionId: string }) | null>(null);
   useEffect(() => setGoto(null), [session.id]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isSearchKey(e, { inApp: inDesktopApp(), archived: isArchived(session), modal: modalOpen(), searching })) return;
+      if (!isSearchKey(e, { inApp: inDesktopApp(), archived: isArchived(session), modal: modalOpen(), searching: searching !== null }))
+        return;
       e.preventDefault();
       e.stopPropagation();
-      setSearching((o) => !o);
+      setSearching((o) => (o === null ? '' : null));
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [session, searching]);
+  // A bare file name several of its files have, clicked in its terminal (PtyView): the search, with the name typed in.
+  useEffect(() => {
+    const onSearch = (e: Event) => {
+      const d = (e as CustomEvent<CodeSearchDetail>).detail;
+      // An archived session has no code to search (Ctrl+T does nothing there either).
+      if (d?.sessionId === session.id && !isArchived(session)) setSearching(d.query);
+    };
+    window.addEventListener(CODE_SEARCH_EVENT, onSearch);
+    return () => window.removeEventListener(CODE_SEARCH_EVENT, onSearch);
+  }, [session]);
   // A file it shows beside its terminal (`work show`), followed while this session is on screen.
   const shownFile = useShownFile(session.id);
   const openPlace = (p: CodePlace) => {
@@ -253,7 +265,7 @@ export function SessionDetail({
             session={session}
             onShowDiff={() => onSelectSubTab('diff')}
             goto={goto?.sessionId === session.id ? goto : null}
-            onSearch={isArchived(session) ? undefined : () => setSearching(true)}
+            onSearch={isArchived(session) ? undefined : () => setSearching('')}
             {...(isArchived(session)
               ? {}
               : {
@@ -266,7 +278,15 @@ export function SessionDetail({
         {subTab === 'branches' && (
           <BranchesTab key={session.id} session={session} onShowBranch={showBranch} onShowDiff={() => onSelectSubTab('diff')} />
         )}
-        {searching && <CodeSearch sessionId={session.id} onPick={openPlace} onClose={() => setSearching(false)} />}
+        {searching !== null && (
+          <CodeSearch
+            key={searching}
+            sessionId={session.id}
+            initialQuery={searching}
+            onPick={openPlace}
+            onClose={() => setSearching(null)}
+          />
+        )}
         {/* From the ⋯ menu (and old links): no tab of its own, so it says what it is. */}
         {subTab === 'timeline' && (
           <div className="wd-timeline-tab">

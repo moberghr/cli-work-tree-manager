@@ -42,6 +42,7 @@ import { leftoverSummary, sweepLeftovers } from '../core/sessions/leftover-sweep
 const LEFTOVERS_EVERY_MS = 60 * 60_000;
 import { killTreeAsync } from '../core/platform/process.js';
 import { mountCodeRoutes } from './routes/code-routes.js';
+import { mountTerminalPathRoutes } from './routes/terminal-path-routes.js';
 import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
 import { mountDiffPageRoutes } from './routes/diff-page-routes.js';
 import { mountSetupRoutes } from './routes/setup-routes.js';
@@ -1177,6 +1178,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   }).row;
   mountSessionProcessRoutes(app, { list: () => listProcessUsage(), agentPid: ptyPid, kill: killTreeAsync });
   mountCodeRoutes(app);
+  // Paths a session's terminal printed: which exist, and opening one (the editor, the file manager, a viewer).
+  mountTerminalPathRoutes(app);
   // How far you have looked at a session's diff (its Diff tab's "Since you looked").
   mountDiffSeenRoutes(app);
   // A session's diff on a page of its own (the one wd opens), for a browser window beside the app.

@@ -1,0 +1,154 @@
+// Finds path-looking pieces in a line of terminal text, and joins the terminal rows one long line was broken over.
+// Pure on purpose: no imports, so the browser SPA can use it as well as the server.
+
+/** A path-looking piece of `text`: [start, end) and the text itself, `:line` included. */
+export interface PathRef {
+  start: number;
+  end: number;
+  raw: string;
+}
+
+// Pieces are cut at whitespace and at characters that wrap a path in prose (commas, quotes, angle brackets).
+// A space only stays inside a path as `%20` in a `file://` address.
+const CHUNK = /[^\s,;"'`<>|]+/g;
+const LEADING_WRAPPERS = '([{';
+const TRAILING_PUNCTUATION = '.,;:)]}"\'`>';
+const LINE_SUFFIX = /(?::\d+){1,2}$/;
+// A segment of a path: no spaces, no characters a file name cannot hold on Windows, no prose punctuation.
+const SEGMENT_CHARS = /^[^\s:*?"<>|,;'`]+$/;
+// `e.g`, `i.e`, `U.S`, `U.S.A`: letters separated by dots, not a file name.
+const ABBREVIATION = /^(?:[A-Za-z]\.)+[A-Za-z]$/;
+const HAS_EXTENSION = /^.+\.[A-Za-z][A-Za-z0-9]{0,7}$/;
+const BARE_NAME = /^[A-Za-z0-9_][\w-]*(?:\.[\w-]+)*\.[A-Za-z][A-Za-z0-9]{0,7}$/;
+
+/**
+ * Whether `base` (a piece without its `:line` suffix) is a path. The rules:
+ * - `file://` addresses: always.
+ * - Anchored paths (`/abs`, `~/x`, `C:\x`, `C:/x`, `./x`, `../x`): `~/`, `./`, `../` and a drive need one more segment; an
+ *   absolute POSIX path needs two segments, or one with an extension (`/tmp` is prose, `/tmp/x` and `/a.txt` are paths).
+ * - Relative with a separator and no leading dot-segment: the last segment has an extension (`src/web/x.tsx`), or it has at
+ *   least three segments that each hold a letter (`src/web/components`). That keeps `and/or`, `input/output`, `w/o`,
+ *   dates (`2026/11/25`) and fractions (`1/2`) out.
+ * - No separator: a bare file name, `stem.ext` with a stem of 2+ characters and an extension of 1-8 letters/digits starting
+ *   with a letter. That keeps versions (`v2.0.1`), decimals and abbreviations (`e.g.`) out; `node.js` is let through.
+ */
+function isPathLike(base: string): boolean {
+  if (/^file:\/\//i.test(base)) return base.length > 'file://'.length;
+  if (base.includes('://')) return false;
+
+  let rest = base;
+  let kind: 'posix' | 'anchored' | 'relative' = 'relative';
+  if (/^[A-Za-z]:[\\/]/.test(base)) {
+    rest = base.slice(3);
+    kind = 'anchored';
+  } else if (base.startsWith('~/')) {
+    rest = base.slice(2);
+    kind = 'anchored';
+  } else if (/^\.{1,2}[\\/]/.test(base)) {
+    rest = base.slice(base.search(/[\\/]/) + 1);
+    kind = 'anchored';
+  } else if (base.startsWith('/')) {
+    rest = base.slice(1);
+    kind = 'posix';
+  }
+  if (rest === '' || !SEGMENT_CHARS.test(rest.replace(/[\\/]/g, ''))) return false;
+
+  const segs = rest.split(/[\\/]/).filter((s) => s !== '');
+  if (segs.length === 0) return false;
+  if (kind === 'anchored') return segs.some((s) => s !== '.' && s !== '..');
+  if (kind === 'posix') return segs.length >= 2 || HAS_EXTENSION.test(segs[0]);
+
+  if (/[\\/]/.test(base)) {
+    if (HAS_EXTENSION.test(segs[segs.length - 1]) && segs.length >= 2) return true;
+    return segs.length >= 3 && segs.every((s) => /[A-Za-z]/.test(s));
+  }
+  if (ABBREVIATION.test(base) || !BARE_NAME.test(base)) return false;
+  return base.slice(0, base.lastIndexOf('.')).length >= 2;
+}
+
+export function findPathRefs(text: string): PathRef[] {
+  const refs: PathRef[] = [];
+  CHUNK.lastIndex = 0;
+  for (let m = CHUNK.exec(text); m; m = CHUNK.exec(text)) {
+    let start = m.index;
+    let end = m.index + m[0].length;
+    while (start < end && LEADING_WRAPPERS.includes(text[start])) start++;
+    while (end > start && TRAILING_PUNCTUATION.includes(text[end - 1])) end--;
+    if (end <= start) continue;
+    const raw = text.slice(start, end);
+    // The line suffix is not part of what is checked: `SessionRail.tsx:202` is judged as `SessionRail.tsx`.
+    const base = raw.replace(LINE_SUFFIX, '');
+    if (isPathLike(base)) refs.push({ start, end, raw });
+  }
+  return refs;
+}
+
+/** `raw` without its `:line` / `:line:col`; a `file://` address decoded to a plain path. */
+export function splitLine(raw: string): { path: string; line?: number } {
+  let path = raw;
+  let line: number | undefined;
+  const m = /:(\d+)(?::\d+)?$/.exec(path);
+  if (m) {
+    path = path.slice(0, m.index);
+    const n = Number(m[1]);
+    if (n > 0) line = n;
+  }
+  const url = /^file:\/\/([^/]*)(\/.*)?$/i.exec(path);
+  if (url) {
+    path = url[2] ?? '/';
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // A malformed percent sequence: keep the text as it is rather than guess.
+    }
+    // `file:///C:/x` is the Windows path `C:/x`.
+    if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1);
+  }
+  return line === undefined ? { path } : { path, line };
+}
+
+/** A terminal row: its text (right-trimmed) and whether xterm says it continues the row above (soft wrap). */
+export interface TermRow {
+  text: string;
+  wrapped?: boolean;
+}
+
+/** rows[0] and the rows it continues onto, as one string, with where each character came from. */
+export interface JoinedRows {
+  text: string;
+  map: Array<{ row: number; col: number }>;
+  rows: number;
+}
+
+const MAX_JOINED_ROWS = 8;
+
+/**
+ * Joins rows[0] with the rows it continues onto. A row continues onto the next when the next is a soft wrap (`wrapped`), or
+ * when it is (nearly) full and the next has text: Claude Code breaks long lines itself and indents the continuation, so
+ * that indent is dropped. Stops at the first row that does not continue, and at 8 rows.
+ */
+export function joinRows(rows: TermRow[], cols: number): JoinedRows {
+  const joined: JoinedRows = { text: '', map: [], rows: 0 };
+  if (rows.length === 0) return joined;
+
+  const append = (row: number, from: number): void => {
+    const text = rows[row].text;
+    joined.text += text.slice(from);
+    for (let col = from; col < text.length; col++) joined.map.push({ row, col });
+    joined.rows = row + 1;
+  };
+
+  append(0, 0);
+  while (joined.rows < rows.length && joined.rows < MAX_JOINED_ROWS) {
+    const prev = rows[joined.rows - 1];
+    const next = rows[joined.rows];
+    if (next.wrapped) {
+      append(joined.rows, 0);
+    } else if (prev.text.length >= cols - 1 && /\S/.test(next.text)) {
+      append(joined.rows, next.text.length - next.text.trimStart().length);
+    } else {
+      break;
+    }
+  }
+  return joined;
+}

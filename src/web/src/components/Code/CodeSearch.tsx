@@ -14,10 +14,21 @@ const MIN_CHARS = 2;
  * Ctrl+T in a session, as Visual Studio's: one box for types and members by
  * name (`AccKeys` finds AccountingKeys), files by path, and lines with the
  * text in them, across every repo of the session. Enter opens the place in
- * the Code tab at its line. ↑/↓ move, Esc closes.
+ * the Code tab at its line. ↑/↓ move, Esc closes. `initialQuery`: the box starts with it (a bare name clicked in the
+ * terminal), searched for as if typed.
  */
-export function CodeSearch({ sessionId, onPick, onClose }: { sessionId: string; onPick: (p: CodePlace) => void; onClose: () => void }) {
-  const [query, setQuery] = useState('');
+export function CodeSearch({
+  sessionId,
+  initialQuery = '',
+  onPick,
+  onClose,
+}: {
+  sessionId: string;
+  initialQuery?: string;
+  onPick: (p: CodePlace) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState(initialQuery);
   const [wire, setWire] = useState<CodeSearchWire | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +38,11 @@ export function CodeSearch({ sessionId, onPick, onClose }: { sessionId: string; 
   const listRef = useRef<HTMLUListElement>(null);
   const listId = useId();
 
-  useEffect(() => inputRef.current?.focus(), []);
+  // A query it opened with is selected: typing replaces it.
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
   useEffect(() => {
     fetchCodeFiles(sessionId).then(setListing, () => {});
   }, [sessionId]);

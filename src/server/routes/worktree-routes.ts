@@ -3,7 +3,6 @@ import { forgetCatchUp } from '../../core/conversations/catch-up.js';
 import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import crossSpawn from '../../core/platform/spawn.js';
 import { programPath } from '../../core/platform/program-path.js';
 import { whenStarted } from '../../core/platform/started.js';
 import { Hono } from 'hono';
@@ -23,8 +22,7 @@ import { childBrief, childrenOf, coordinatorSince, newBranchCheck, setParent, sp
 import { resolvePrToStart, type PrStartResult } from '../../core/pr/pr-start.js';
 import type { PrStartWire } from '../../core/api-types.js';
 import { codeFilePath } from '../../core/worktree/code-browse.js';
-import { editorArgs } from '../../core/platform/launch.js';
-import { detachHere } from '../../core/platform/process.js';
+import { startEditor } from '../../core/platform/launch.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -331,39 +329,9 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
       file = { path: at.real, line: asked.data.line };
     }
     const target = file?.path ?? folder;
-    // cross-spawn, not node's spawn: the editor is usually a `.cmd` shim on
-    // Windows (code.cmd), which node refuses to run without a shell since
-    // the BatBadBut fix (EINVAL) — and a shell would interpret `&` etc. in
-    // the path. cross-spawn escapes the argument for cmd.exe instead.
-    const editor = loadConfig()?.editor?.trim() || 'code';
-    const failed = await new Promise<string | null>((resolve) => {
-      try {
-        // Not detached on Windows: cmd.exe running code.cmd would then flash a console window (process.ts).
-        // keepCwdLookup: the editor is no tool run — its own terminals and tasks would inherit shellEnv's switch (spawn.ts).
-        const child = crossSpawn(editor, editorArgs(editor, folder, file), {
-          detached: detachHere(),
-          stdio: 'ignore',
-          windowsHide: true,
-          keepCwdLookup: true,
-        });
-        // A missing editor surfaces as 'error' — on Windows only when the
-        // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
-        // so wait for an error, an exit, or a moment of it running.
-        const settle = setTimeout(() => resolve(null), 1500);
-        child.once('error', (err) => {
-          clearTimeout(settle);
-          resolve(err.message);
-        });
-        child.once('exit', () => {
-          clearTimeout(settle);
-          resolve(null); // `code` hands off to the running editor and exits
-        });
-        child.unref();
-      } catch (err) {
-        resolve((err as Error).message);
-      }
-    });
-    if (failed) return c.json({ error: `could not start ${editor}: ${failed}` }, 500);
+    // The configured editor, its spawn and its failure (launch.ts `startEditor`): `could not start <editor>: <why>`.
+    const failed = await startEditor(folder, file);
+    if (failed) return c.json({ error: failed }, 500);
     return c.json({ ok: true, opened: target });
   });
 

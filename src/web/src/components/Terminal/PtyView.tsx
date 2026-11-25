@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { cornerBadge, LatencyMeter, type LatencyReading } from '../../state/keystroke-latency.js';
 import { observeLongFrames, TerminalPerfLog } from '../../state/terminal-perf.js';
 import { openTerminalSocket } from '../../api/terminal-socket.js';
@@ -9,9 +10,28 @@ import { ask } from '../../state/ask.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
 import { writeRich } from '../../state/rich-copy.js';
+import { openTerminalPath, resolveTerminalPaths, type TerminalPathHow } from '../../api/panes.js';
+import {
+  bareName,
+  CODE_SEARCH_EVENT,
+  createPathCache,
+  openFailure,
+  pathMenuItems,
+  pickLinks,
+  platformOf,
+  readRow,
+  rowLinkCandidates,
+  toXtermRange,
+  type CodeSearchDetail,
+  type PathCache,
+  type PathMenuId,
+  type PickedLink,
+} from '../../state/terminal-links.js';
+import { Menu, type MenuItem } from '../../ui/index.js';
+import { Toast, useToast, type ToastMessage } from '../Dashboard/Toast.js';
 import { useTerminalStyle } from '../../state/appearance.js';
 import type { TerminalStyle } from '../../../../core/settings/terminal-style.js';
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type ILink, type ILinkProvider } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -35,6 +55,71 @@ interface Props {
 export function openLink(uri: string): void {
   if (!/^https?:\/\//i.test(uri)) return;
   window.open(uri, '_blank', 'noopener');
+}
+
+type Say = (t: ToastMessage) => void;
+
+/** Open a path the terminal shows (or a `file://` hyperlink's target); the server resolves it again. A failure: a toast. */
+function openPath(sessionId: string, raw: string, how: TerminalPathHow, say: Say): void {
+  openTerminalPath(sessionId, raw, how).catch((err: Error) => say({ kind: 'error', text: openFailure(raw, err.message) }));
+}
+
+/** A plain click on a path link ('click'), or a pick from its right-click menu. */
+function runPathAction(sessionId: string, id: PathMenuId | 'click', link: PickedLink, say: Say): void {
+  const { raw, result } = link;
+  if (id === 'search' || (id === 'click' && result.kind === 'ambiguous')) {
+    // A bare name several files have: SessionDetail opens the code search with it typed in.
+    window.dispatchEvent(new CustomEvent<CodeSearchDetail>(CODE_SEARCH_EVENT, { detail: { sessionId, query: bareName(raw) } }));
+  } else if (id === 'copy') {
+    const path = result.path ?? bareName(raw);
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(path))
+      .then(
+        () => say({ text: `Copied ${path}` }),
+        () => say({ kind: 'error', text: 'Couldn’t copy the path.' }),
+      );
+  } else {
+    openPath(sessionId, raw, id === 'editor' || id === 'reveal' ? id : 'default', say);
+  }
+}
+
+/** xterm's links for the paths on a row (terminal-links.ts): only those the server says exist. A plain left click opens. */
+function pathLinkProvider(
+  term: Terminal,
+  cache: PathCache,
+  on: { activate: (link: PickedLink) => void; hover: (link: PickedLink) => void; leave: () => void },
+): ILinkProvider {
+  const row = (y: number) => readRow(term.buffer.active.getLine(y));
+  return {
+    provideLinks(lineNumber, callback) {
+      // xterm waits for the callback before it asks about another row: every way out of here calls it.
+      try {
+        // xterm numbers buffer lines from 1, getLine from 0.
+        const candidates = rowLinkCandidates(row, lineNumber - 1, term.cols);
+        if (candidates.length === 0) {
+          callback(undefined);
+          return;
+        }
+        void cache.lookup(candidates.map((c) => c.raw)).then(
+          (results) => {
+            const links = pickLinks(candidates, results).map((link): ILink => ({
+              range: toXtermRange(link.range),
+              text: link.raw,
+              activate: (e) => {
+                if (e.button === 0) on.activate(link);
+              },
+              hover: () => on.hover(link),
+              leave: () => on.leave(),
+            }));
+            callback(links.length > 0 ? links : undefined);
+          },
+          () => callback(undefined),
+        );
+      } catch {
+        callback(undefined);
+      }
+    },
+  };
 }
 
 /** The server said the session's Claude runs in another terminal. */
@@ -108,6 +193,13 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const rendererRef = useRef(renderer);
   rendererRef.current = renderer;
   const [checking, setChecking] = useState(false);
+  // A path link (pathLinkProvider): the one under the pointer, for a right-click; the menu it opened.
+  const hoveredPath = useRef<PickedLink | null>(null);
+  const [pathMenu, setPathMenu] = useState<{ x: number; y: number; link: PickedLink } | null>(null);
+  // What a path did (a failed open, a copy): this view's own toast — the page's is out of its reach.
+  const { toast, show: showToast, hide: hideToast } = useToast();
+  const say = useRef(showToast);
+  say.current = showToast;
   useEffect(() => {
     setElsewhere(null);
     force.current = false;
@@ -136,8 +228,13 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       // afterwards — the desktop app only sees about:blank and opens nothing.
       // Open the real address instead, web links only; hovering shows where
       // it goes (the text of such a link can differ from its target).
+      // A `file://` target goes as a path printed in the terminal does (openPath), on a left click only: xterm
+      // activates a link on any button's release, a right-click's too.
       linkHandler: {
-        activate: (_e, uri) => openLink(uri),
+        activate: (e, uri) => {
+          if (!/^file:\/\//i.test(uri)) openLink(uri);
+          else if (e.button === 0) openPath(sessionId, uri, 'default', say.current);
+        },
         hover: (_e, uri) => {
           if (hostRef.current) hostRef.current.title = uri;
         },
@@ -156,6 +253,30 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     term.unicode.activeVersion = '11';
     term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
     term.open(hostRef.current);
+    // Paths it prints are links once the server says they exist (terminal-links.ts), asked once per row and remembered
+    // a few seconds by this connection. Right-click on one opens its menu; anywhere else, the browser's own.
+    const host = hostRef.current;
+    const pathCache = createPathCache((paths) => resolveTerminalPaths(sessionId, paths).then((w) => w.results));
+    const pathLinks = term.registerLinkProvider(
+      pathLinkProvider(term, pathCache, {
+        activate: (link) => runPathAction(sessionId, 'click', link, say.current),
+        hover: (link) => {
+          hoveredPath.current = link;
+          host.title = link.result.path ?? link.raw;
+        },
+        leave: () => {
+          hoveredPath.current = null;
+          host.title = '';
+        },
+      }),
+    );
+    const onContextMenu = (e: MouseEvent) => {
+      const link = hoveredPath.current;
+      if (!link) return;
+      e.preventDefault();
+      setPathMenu({ x: e.clientX, y: e.clientY, link });
+    };
+    host.addEventListener('contextmenu', onContextMenu);
     // GPU renderer: the DOM renderer is what makes a busy Claude feel
     // sluggish (every spinner frame re-lays out spans). Must load after
     // open(). Falls back to DOM if WebGL is unavailable; a lost context (GPU
@@ -476,6 +597,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       term.textarea?.removeEventListener('paste', onPaste, true);
       term.element?.removeEventListener('copy', onCopy, true);
       term.textarea?.removeEventListener('focus', onFocus);
+      host.removeEventListener('contextmenu', onContextMenu);
+      host.title = '';
+      pathLinks.dispose();
+      pathCache.clear();
+      hoveredPath.current = null;
+      setPathMenu(null);
       shown.current = null;
       restyle.current = null;
       observer?.disconnect();
@@ -584,6 +711,23 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
           </div>
         )}
       </div>
+      {/* On the page's body: the terminal deck is a fixed layer of its own, which would keep both under the page. */}
+      {pathMenu &&
+        createPortal(
+          <Menu
+            x={pathMenu.x}
+            y={pathMenu.y}
+            items={pathMenuItems(pathMenu.link.result, platformOf(navigator.userAgent)).map((it, i): MenuItem => ({
+              label: it.label,
+              separated: it.id === 'copy' && i > 0,
+              run: () => runPathAction(sessionId, it.id, pathMenu.link, showToast),
+            }))}
+            footer={pathMenu.link.result.path ?? undefined}
+            onClose={() => setPathMenu(null)}
+          />,
+          document.body,
+        )}
+      {toast && createPortal(<Toast toast={toast} onClose={hideToast} />, document.body)}
     </>
   );
 }
