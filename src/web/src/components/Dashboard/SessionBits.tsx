@@ -6,6 +6,7 @@ import { badgeClass, type BadgeTone } from '../../ui/index.js';
 import { relativeTime } from '../../utils/time.js';
 import { DEFAULT_ACCOUNT } from '../../state/accounts.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
+import type { RailPrMark } from '../../state/rail-row.js';
 import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../../../core/pr/pr-stage.js';
 
 /**
@@ -80,49 +81,39 @@ export function PrStageChip({ session, prs = [] }: { session: SessionSummary; pr
 }
 
 /**
- * The rail's PR pills: "#212" per PR, coloured by where it stands, and a
- * click opens it (the row itself is a button, so not a link). From the PR
- * watch when it has looked, and from the dashboard's PR list for the rest
- * (all of them before the watch has looked; after, a second PR from the same
- * branch, which the watch doesn't hold).
+ * The rail's PR marks (`railPrMarks`): a small dot per PR in its stage's
+ * colour (the tone its pill has elsewhere: green can merge, red can't,
+ * purple merged, grey otherwise, a ring for a draft), at most five, then
+ * `+N`. A click on a dot opens its PR without selecting the row (the row
+ * itself is a button, so not a link); hovering says `repo #number · stage`.
  */
-export function RailPrPills({ session, prs }: { session: SessionSummary; prs: PrInfo[] }) {
-  const pills = [
-    ...(session.prStage?.prs ?? []).map((p) => ({
-      key: `${p.repo}#${p.number}`,
-      url: p.url,
-      label: `#${p.number}`,
-      cls: toneClass(p.kind),
-      tone: prTone(p.kind),
-      title: `${p.repo} #${p.number} · ${stagePhrase(p.kind)}`,
-    })),
-    ...prsBeyondStage(session.prStage, prs).map((p) => ({
-      key: `${p.repoAlias}#${p.number}`,
-      url: p.url,
-      label: `#${p.number}`,
-      cls: p.isDraft ? ' wd-pr-chip-draft' : '',
-      tone: 'neutral' as BadgeTone,
-      title: `${p.repoAlias} #${p.number} · ${p.isDraft ? 'draft' : 'open'}`,
-    })),
-  ];
-  if (pills.length === 0) return null;
+export function RailPrMarks({ marks }: { marks: { shown: RailPrMark[]; more: RailPrMark[] } }) {
+  if (marks.shown.length === 0) return null;
   return (
-    <span className="wd-rail-prs">
-      {pills.map((p) => (
+    <span className="wd-rail-pr-marks">
+      {marks.shown.map((m) => (
         <span
-          key={p.key}
-          className={badgeClass('tag', p.tone, 'wd-pr-chip wd-pr-chip-open' + p.cls)}
+          key={m.key}
+          className={`wd-rail-pr-mark wd-rail-pr-mark-${m.tone}`}
           role="link"
           tabIndex={-1}
-          title={`${p.title}\nClick to open it`}
+          aria-label={m.label}
+          title={`${m.label}\nClick to open it`}
           onClick={(e) => {
             e.stopPropagation();
-            window.open(p.url, '_blank', 'noopener');
+            window.open(m.url, '_blank', 'noopener');
           }}
-        >
-          {p.label}
-        </span>
+        />
       ))}
+      {marks.more.length > 0 && (
+        <span
+          className="wd-rail-pr-more"
+          title={marks.more.map((m) => m.label).join('\n')}
+          aria-label={`${marks.more.length} more: ${marks.more.map((m) => m.label).join(', ')}`}
+        >
+          +{marks.more.length}
+        </span>
+      )}
     </span>
   );
 }

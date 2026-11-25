@@ -393,8 +393,11 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
   await expect(page.locator('.wd-inbox-rest')).toContainText('in review');
   await ready.getByRole('button', { name: 'Open' }).click();
   await expect(page.locator('.wd-session-strip .wd-pr-stage')).toHaveText('#209 · ready to merge');
-  // Its row on the left carries the PR as a pill.
-  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-pr-chip')).toHaveText('#209');
+  // Its row on the left carries the PR as a dot, which says which on hover.
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-rail-pr-mark')).toHaveAttribute(
+    'title',
+    /#209 · ready to merge/,
+  );
   await page.goto(`${url}#/inbox`);
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/order-history' })).toHaveCount(0);
   // Seen: out of the Inbox, but the rail still says it's yours to merge (the badge), and the waiting one says in review.

@@ -4,7 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 import type { PrInfo } from '../../src/web/src/api/panes.js';
-import { PrStageChip, RailPrPills } from '../../src/web/src/components/Dashboard/SessionBits.js';
+import { PrStageChip, RailPrMarks } from '../../src/web/src/components/Dashboard/SessionBits.js';
+import { railPrMarks } from '../../src/web/src/state/rail-row.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -44,12 +45,14 @@ const session = {
   },
 } as unknown as SessionSummary;
 const pills = () => [...container.querySelectorAll('.wd-pr-chip')].map((e) => e.textContent);
+/** The rail's dots, by what each says on hover. */
+const marks = () => [...container.querySelectorAll('.wd-rail-pr-mark')].map((e) => e.getAttribute('aria-label'));
 
 describe('PR pills with two PRs from one branch', () => {
   it("the rail shows both: the watch's with its stage, the other from the PR list", () => {
-    act(() => root.render(createElement(RailPrPills, { session, prs: [listed(3529, true), listed(3530)] })));
-    expect(pills()).toEqual(['#3530', '#3529']);
-    expect(container.querySelectorAll('.wd-pr-chip-draft')).toHaveLength(1);
+    act(() => root.render(createElement(RailPrMarks, { marks: railPrMarks(session, [listed(3529, true), listed(3530)]) })));
+    expect(marks()).toEqual(['acme-backend #3530 · waiting for review', 'acme-backend #3529 · draft']);
+    expect(container.querySelectorAll('.wd-rail-pr-mark-draft')).toHaveLength(1);
   });
 
   it('the session header shows both, each linked to its PR', () => {
@@ -59,8 +62,10 @@ describe('PR pills with two PRs from one branch', () => {
   });
 
   it('before the watch has looked, the rail shows the list', () => {
-    act(() => root.render(createElement(RailPrPills, { session: { id: 's1' } as SessionSummary, prs: [listed(3529), listed(3530)] })));
-    expect(pills()).toEqual(['#3529', '#3530']);
+    act(() =>
+      root.render(createElement(RailPrMarks, { marks: railPrMarks({ id: 's1' } as SessionSummary, [listed(3529), listed(3530)]) })),
+    );
+    expect(marks()).toEqual(['acme-backend #3529 · open', 'acme-backend #3530 · open']);
   });
 });
 
@@ -79,10 +84,10 @@ describe('a merged PR beside an open one (a group whose backend merged)', () => 
     },
   } as unknown as typeof session;
 
-  it('both pills show, the merged one in its own colour — in the rail and the header', () => {
-    act(() => root.render(createElement(RailPrPills, { session: group, prs: [] })));
-    expect(pills()).toEqual(['#1927', '#3509']);
-    expect(container.querySelectorAll('.wd-pr-stage-merged')).toHaveLength(1);
+  it('both show, the merged one in its own colour — a dot in the rail, a pill in the header', () => {
+    act(() => root.render(createElement(RailPrMarks, { marks: railPrMarks(group, []) })));
+    expect(marks()).toEqual(['frontend #1927 · waiting for review', 'backend #3509 · merged']);
+    expect(container.querySelectorAll('.wd-rail-pr-mark-merged')).toHaveLength(1);
     act(() => root.render(createElement(PrStageChip, { session: group, prs: [] })));
     expect(pills()).toEqual(['frontend #1927 · waiting for review', 'backend #3509 · merged']);
     expect(container.querySelector('.wd-pr-stage-merged')!.textContent).toBe('backend #3509 · merged');

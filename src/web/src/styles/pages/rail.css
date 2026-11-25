@@ -10,7 +10,7 @@
   flex-direction: column;
   overflow: hidden;
 }
-/* Search and + on one row (the top bar already says "Sessions"). */
+/* The legend's ? and + on one row, at the right (the top bar already says "Sessions"). */
 .wd-dash-rail-header {
   display: flex;
   align-items: center;
@@ -105,15 +105,25 @@
 .wd-dash-rail-item-unseen .wd-dash-rail-name {
   font-weight: 600;
 }
-/* The plain slot (a time, "in review"): small quiet text. What waits on you is a status Badge instead,
-   placed by .wd-dash-rail-slot-pill. */
+/* A branch's type prefix (feat/, fix/): quiet, so the eye starts at the slug. Never in a name you gave. */
+.wd-dash-rail-prefix {
+  color: var(--muted);
+}
+/* Line 1's slot, always a time (or archiving…): small quiet text. */
 .wd-dash-rail-slot {
   flex-shrink: 0;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
 }
-.wd-dash-rail-slot-pill {
+/* Line 2's one status at the right: "snoozed" / "in review" as small quiet text; what waits on you is a status Badge
+   instead, placed by .wd-dash-rail-status-pill. Never squeezed: the project gives way. */
+.wd-dash-rail-status {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.wd-dash-rail-status-pill {
   flex-shrink: 0;
 }
 .wd-rail-slot-needs {
@@ -132,7 +142,10 @@
 .wd-rail-slot-archiving {
   font-style: italic;
 }
+/* Line 2: the same height on every row, a badge on it or not; its status, keep and PR dots centred on it. */
 .wd-dash-rail-sub {
+  align-items: center;
+  min-height: var(--badge-h);
   font-size: 12px;
   font-weight: 400;
   color: var(--muted);
@@ -185,20 +198,60 @@
 .wd-dash-rail-item-active .wd-status-icon {
   --status-icon-cut: var(--current);
 }
-/* A rail row's PR pills: right-aligned on its second line; small, never squeezed. */
-.wd-rail-prs {
+/* A rail row's PRs (RailPrMarks): a dot each at the right of its second line, at most five then +N, never squeezed —
+   a fixed place, so a long project is cut rather than pushed out. The box is the click target, the dot inside it
+   its stage's colour (the tone its pill has elsewhere). */
+.wd-rail-pr-marks {
   display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
-  gap: 3px;
-  margin-left: auto;
+  gap: calc(var(--space-1) / 2);
 }
-/* "keep": it stays once its PR merges (a dashed tag Badge). Beside the PR pills. */
+.wd-rail-pr-mark {
+  --mark-c: var(--muted);
+  position: relative;
+  width: var(--space-2);
+  height: var(--space-2);
+  cursor: pointer;
+}
+.wd-rail-pr-mark::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  background: var(--mark-c);
+}
+/* Easier to hit than an 8 px dot: the click reaches 4 px above and below it, and to the middle of the gap beside it. */
+.wd-rail-pr-mark::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--space-1)) -1px;
+}
+.wd-rail-pr-mark:hover::before {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mark-c) 35%, transparent);
+}
+.wd-rail-pr-mark-good {
+  --mark-c: var(--add-fg);
+}
+.wd-rail-pr-mark-bad {
+  --mark-c: var(--del-fg);
+}
+.wd-rail-pr-mark-merged {
+  --mark-c: var(--tag-purple);
+}
+/* A draft: a ring, not the real thing yet (its pill is dashed). */
+.wd-rail-pr-mark-draft::before {
+  background: transparent;
+  border: 1px solid var(--mark-c);
+}
+.wd-rail-pr-more {
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+/* "keep": it stays once its PR merges (a dashed tag Badge). Beside the PR dots. */
 .wd-rail-keep {
   flex-shrink: 0;
-  margin-left: auto;
-}
-.wd-rail-keep + .wd-rail-prs {
-  margin-left: 3px;
 }
 .wd-dash-rail-pending {
   font-size: 10px;
@@ -214,23 +267,6 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0 5px;
-}
-.wd-dash-rail-overflow {
-  font-size: 11px;
-  color: var(--muted);
-  padding: 6px 12px;
-}
-.wd-dash-rail-older {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--accent, #0969da);
-  cursor: pointer;
-}
-.wd-dash-rail-older:hover {
-  text-decoration: underline;
 }
 /* The merge method: Select (ui/ui.css). */
 
@@ -280,12 +316,6 @@
 }
 .wd-dash-rail-drop-after {
   box-shadow: inset 0 -2px 0 var(--accent);
-}
-/* The rail's search (Input): where it sits. */
-.wd-dash-rail-search {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
 }
 /* Renaming a session in the rail (F2 / right-click → Rename). */
 .wd-dash-rail-item-renaming {

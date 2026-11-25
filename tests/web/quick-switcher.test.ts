@@ -190,3 +190,63 @@ describe('useQuickSwitcher (Ctrl+P)', () => {
     expect(container.textContent).toBe('closed');
   });
 });
+
+describe('useQuickSwitcher (/)', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  function Host() {
+    const api = useQuickSwitcher();
+    return createElement('span', null, api.open ? 'open' : 'closed');
+  }
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root.render(createElement(Host)));
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    document.querySelectorAll('.stray').forEach((n) => n.remove());
+  });
+  const slash = (target: EventTarget = window, extra: KeyboardEventInit = {}) => {
+    const ev = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true, ...extra });
+    act(() => void target.dispatchEvent(ev));
+    return ev;
+  };
+  const stray = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}) => {
+    const el = document.createElement(tag);
+    el.classList.add('stray');
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    return el;
+  };
+
+  it('opens it from the page, and the / is not typed anywhere', () => {
+    expect(slash().defaultPrevented).toBe(true);
+    expect(container.textContent).toBe('open');
+  });
+
+  it('not while typing in a field or a terminal (so / in Claude still reaches Claude), nor with Ctrl, Cmd or Alt', () => {
+    const field = stray('input');
+    field.focus();
+    expect(slash(field).defaultPrevented).toBe(false);
+    const term = stray('textarea', { class: 'stray xterm-helper-textarea' });
+    term.focus();
+    expect(slash(term).defaultPrevented).toBe(false);
+    term.blur();
+    slash(window, { ctrlKey: true });
+    slash(window, { metaKey: true });
+    slash(window, { altKey: true });
+    expect(container.textContent).toBe('closed');
+  });
+
+  it('not over a dialog or a menu', () => {
+    const dialog = stray('div', { role: 'dialog' });
+    expect(slash().defaultPrevented).toBe(false);
+    dialog.remove();
+    stray('div', { role: 'menu' });
+    expect(slash().defaultPrevented).toBe(false);
+    expect(container.textContent).toBe('closed');
+  });
+});

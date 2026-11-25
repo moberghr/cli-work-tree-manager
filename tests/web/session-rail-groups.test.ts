@@ -6,7 +6,7 @@ import type { SessionSummary } from '../../src/web/src/api/client.js';
 import type { RailLayout, SectionOp } from '../../src/core/rail/rail-layout.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
 import { colorSwatches, railMenuItems, sharedColor } from '../../src/web/src/state/rail-menu.js';
-import { railGroups } from '../../src/web/src/state/session-display.js';
+import { OLDER_GROUP, railGroups } from '../../src/web/src/state/session-display.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -103,9 +103,9 @@ describe('the rail in groups', () => {
     expect(container.querySelector('.wd-dash-rail-group-empty')?.textContent).toContain('Move to “Waiting”');
   });
 
-  it('nothing placed: no headings at all, as before', () => {
+  it('nothing placed: no headings but Older (the old one, unpinned now, under it), as before', () => {
     render({ layout: { sections: [], places: {} } });
-    expect(shown()).toEqual(['feat/a', 'feat/b', 'feat/c', 'feat/d']);
+    expect(shown()).toEqual(['feat/a', 'feat/b', 'feat/c', 'feat/d', '# Older']);
   });
 
   it('a heading folds its rows away (still showing the open one), remembered in this browser', () => {
@@ -264,17 +264,89 @@ describe('the rail in groups', () => {
 });
 
 describe('the rows as shown (j/k walk them)', () => {
-  it('reported on every change: older ones unfolded, a heading folded', () => {
+  it('reported on every change: Older unfolded, a heading folded', () => {
     const more = [...SESSIONS, session('old2', old)];
     const onShownChange = vi.fn();
     render({ sessions: more, onShownChange });
     expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'b', 'a', 'd']);
-    act(() =>
-      [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-older')].find((b) => b.textContent?.includes('older'))!.click(),
-    );
+    act(() => heading('Older').click());
     expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'b', 'a', 'd', 'old2']);
     act(() => heading('Client X').click());
     expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'a', 'd', 'old2']);
+  });
+});
+
+describe('older sessions: a heading at the bottom, folded at first', () => {
+  const more = [...SESSIONS, session('old2', old), session('old3', old)];
+
+  it('Older with its count, last and folded; it unfolds like any heading; no "+N older" or "Hide older"', () => {
+    render({ sessions: more });
+    expect(shown()).toEqual([
+      '# Pinned',
+      'feat/c',
+      'feat/old',
+      '# Client X',
+      'feat/b',
+      '# Waiting',
+      '# Other',
+      'feat/a',
+      'feat/d',
+      '# Older',
+    ]);
+    expect(heading('Older').getAttribute('aria-expanded')).toBe('false');
+    expect(heading('Older').querySelector('.wd-dash-rail-group-count')?.textContent).toBe('2');
+    act(() => heading('Older').click());
+    expect(shown().slice(-3)).toEqual(['# Older', 'feat/old2', 'feat/old3']);
+    expect(heading('Older').getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).not.toMatch(/\+\d+ older|Hide older/);
+  });
+
+  it('opened, it stays open in this browser; folded again, it stays folded', () => {
+    render({ sessions: more });
+    act(() => heading('Older').click());
+    act(() => root.unmount());
+    root = createRoot(container);
+    render({ sessions: more });
+    expect(shown().slice(-3)).toEqual(['# Older', 'feat/old2', 'feat/old3']);
+    act(() => heading('Older').click());
+    act(() => root.unmount());
+    root = createRoot(container);
+    render({ sessions: more });
+    expect(shown().at(-1)).toBe('# Older');
+  });
+
+  it('with nothing placed: the rows, then Older (the selected older one stays in the list, as before)', () => {
+    render({ sessions: more, layout: { sections: [], places: {} }, activeSessionId: 'old2' });
+    expect(shown()).toEqual(['feat/a', 'feat/b', 'feat/c', 'feat/d', 'feat/old2', '# Older']);
+    expect(heading('Older').querySelector('.wd-dash-rail-group-count')?.textContent).toBe('2'); // old, old3
+  });
+
+  it('not a section: a drag onto its heading or its rows, or from them to another group, places nothing', () => {
+    const p = render({ sessions: more });
+    act(() => heading('Older').click());
+    // Onto the Older heading: no drop there.
+    drag(row('feat/a').parentElement!, 'dragstart');
+    const h = heading('Older').parentElement!;
+    drag(h, 'dragover');
+    expect(h.className).not.toContain('wd-dash-rail-group-drop');
+    drag(h, 'drop');
+    // An older row onto a heading, or onto a row of another group.
+    drag(row('feat/old2').parentElement!, 'dragstart');
+    drag(heading('Client X').parentElement!, 'dragover');
+    drag(heading('Client X').parentElement!, 'drop');
+    const target = row('feat/b').parentElement!;
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ top: 0, height: 40 } as DOMRect);
+    for (const type of ['dragover', 'drop']) {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'dataTransfer', { value: { setData: () => {}, effectAllowed: '' } });
+      Object.defineProperty(e, 'clientY', { value: 5 });
+      act(() => {
+        target.dispatchEvent(e);
+      });
+    }
+    expect(target.className).not.toContain('wd-dash-rail-drop');
+    expect(p.onPlace).not.toHaveBeenCalled();
+    expect(p.onReorder).not.toHaveBeenCalled();
   });
 });
 
@@ -319,10 +391,28 @@ describe('the pure parts', () => {
     expect(sharedColor(['a', 'c'], { places })).toBeUndefined();
   });
 
-  it('railGroups (j/k walk this): pinned older ones and the open one are kept; the rest of the older ones are counted', () => {
+  it('railGroups (j/k walk this): pinned older ones and the open one stay in their groups; the rest are the Older group, last', () => {
     const more = [...SESSIONS, session('old2', old), session('old3', old)];
-    const { groups, hidden } = railGroups(more, { layout: LAYOUT, activeId: 'old2' });
-    expect(groups.flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['c', 'old', 'b', 'a', 'd', 'old2']);
-    expect(hidden).toBe(1);
+    const { groups } = railGroups(more, { layout: LAYOUT, activeId: 'old2' });
+    expect(groups.filter((g) => g.key !== OLDER_GROUP).flatMap((g) => g.sessions.map((s) => s.id))).toEqual([
+      'c',
+      'old',
+      'b',
+      'a',
+      'd',
+      'old2',
+    ]);
+    expect(groups.at(-1)).toMatchObject({ key: OLDER_GROUP, title: 'Older' });
+    expect(groups.at(-1)!.sessions.map((s) => s.id)).toEqual(['old3']);
+    // None older but the kept ones: no Older group at all.
+    expect(railGroups(SESSIONS, { layout: LAYOUT }).groups.map((g) => g.key)).not.toContain(OLDER_GROUP);
+  });
+
+  it('railGroups: only older sessions and nothing placed is Older alone, not under an empty Other', () => {
+    const none: RailLayout = { sections: [], places: {} };
+    expect(railGroups([session('old2', old), session('old3', old)], { layout: none }).groups.map((g) => g.key)).toEqual([OLDER_GROUP]);
+    // A section of yours stays, with its place to drag to.
+    const mine: RailLayout = { sections: [{ id: 's1', name: 'Mine' }], places: {} };
+    expect(railGroups([session('old2', old)], { layout: mine }).groups.map((g) => g.key)).toEqual(['section:s1', 'rest', OLDER_GROUP]);
   });
 });
