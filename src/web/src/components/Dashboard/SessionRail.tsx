@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { behindText } from './BehindChip.js';
 import {
   EMPTY_RAIL_LAYOUT,
@@ -17,8 +17,17 @@ import type { SessionSummary } from '../../api/client.js';
 import { otherBranchText, owedBadgeClass, RailPrMarks } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
 import { DISPLAY_LABEL, displayStatus, OLDER_GROUP, owedBadge, type PrLookup } from '../../state/session-display.js';
-import { railName, railPrMarks, railPrsText, railStatus, railTime, type RailPrMark } from '../../state/rail-row.js';
-import { groupsForView, RAIL_VIEWS, readRailView, writeRailView, type RailView } from '../../state/rail-views.js';
+import {
+  railCard,
+  railName,
+  railPrMarks,
+  railPrsText,
+  railStatus,
+  railTime,
+  type RailCard,
+  type RailPrMark,
+} from '../../state/rail-row.js';
+import { groupsForView, projectOfGroup, RAIL_VIEWS, readRailView, writeRailView, type RailView } from '../../state/rail-views.js';
 import { moveSession } from '../../../../core/rail/session-order.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { accountLabel } from '../../state/accounts.js';
@@ -31,7 +40,8 @@ interface Props {
    *  rail item. */
   activeSessionId: string | null;
   onSelect: (id: string) => void;
-  onNewWorktree: () => void;
+  /** Open New worktree; with a project when asked from its heading (the Project view's +). */
+  onNewWorktree: (project?: string) => void;
   /** Open PRs for a session (from the PRs pane data); optional — rows just
    *  skip the badge without it. */
   prsFor?: PrLookup;
@@ -68,15 +78,16 @@ export function backgroundLine(b: { what: string | null; command?: boolean }): s
  * the background while its prompt is free, until when it's snoozed, what it waits on, its PRs by number
  * with where each stands (the row shows them as dots: `prs`, else the PR watch's line), notes waiting for
  * Claude, your note, where its Claude runs.
- * Not its +/− lines: those are the Diff tab's. Pure (`now` for the snooze's wording).
+ * Not its +/− lines: those are the Diff tab's. Pure (`now` for the snooze's wording). `prs: null` leaves the PRs out
+ * (the Project view's card lists them itself).
  */
-export function railDetails(s: SessionSummary, now = new Date(), prs?: { shown: RailPrMark[]; more: RailPrMark[] }): string {
+export function railDetails(s: SessionSummary, now = new Date(), prs?: { shown: RailPrMark[]; more: RailPrMark[] } | null): string {
   const c = s.agents ?? s.claudes;
   const bits = [
     s.attention?.background ? backgroundLine(s.attention.background) : '',
     s.snoozed ? `snoozed ${snoozeLabel(s.snoozed, now)}` : '',
     s.blockedBy?.length ? `waits on ${s.blockedBy.map((b) => b.label).join(', ')}` : '',
-    (prs && railPrsText(prs)) || (s.prStage?.text ?? ''),
+    prs === null ? '' : (prs && railPrsText(prs)) || (s.prStage?.text ?? ''),
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
     s.hasNote ? 'has notes' : '',
     s.keepAfterMerge ? 'kept after its PR merges' : '',
@@ -108,7 +119,9 @@ export function railDetails(s: SessionSummary, now = new Date(), prs?: { shown: 
  *
  * That is the Mine view. The header's switch has State too (`state/rail-views.ts`): the same rows under Needs you,
  * Working, Idle, Snoozed and Older, in your order inside each; nothing is dragged or placed there (a row's menu
- * still pins and moves it in Mine). The view is remembered in this browser.
+ * still pins and moves it in Mine). And Project: a heading per project with a + that starts a worktree there, then
+ * Older; its rows are one line (the heading says the project), and hovering or focusing one shows a card beside the
+ * rail with what the line has no room for (`RailCardView`). The view is remembered in this browser.
  */
 export function SessionRail({
   sessions,
@@ -134,6 +147,47 @@ export function SessionRail({
   const [naming, setNaming] = useState<{ kind: 'new'; sessionId: string | null } | { kind: 'rename'; sectionId: string } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
   const [view, setView] = useState<RailView>(readRailView);
+  // The Project view's card: the row it is for and where that row is. Shown after a short wait on hover, at once on focus.
+  const [card, setCard] = useState<{ id: string; top: number; left: number } | null>(null);
+  const cardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideCard = () => {
+    if (cardTimer.current) clearTimeout(cardTimer.current);
+    cardTimer.current = null;
+    setCard(null);
+  };
+  const showCard = (id: string, row: HTMLElement, wait: number) => {
+    if (cardTimer.current) clearTimeout(cardTimer.current);
+    const show = () => {
+      // Gone meanwhile (being renamed, archived): no card for a row that isn't there.
+      if (!row.isConnected) return;
+      const r = row.getBoundingClientRect();
+      setCard({ id, top: r.top, left: r.right + CARD_GAP });
+    };
+    if (wait === 0) show();
+    else cardTimer.current = setTimeout(show, wait);
+  };
+  // The pointer left a row: its pending card, or its card. Another row's card (the focused one's) stays.
+  const leaveRow = (id: string) => {
+    if (cardTimer.current) clearTimeout(cardTimer.current);
+    cardTimer.current = null;
+    setCard((c) => (c?.id === id ? null : c));
+  };
+  useEffect(
+    () => () => {
+      if (cardTimer.current) clearTimeout(cardTimer.current);
+    },
+    [],
+  );
+  // Esc takes the card away, wherever the focus is (a hovered row need not have it).
+  const cardShown = card !== null;
+  useEffect(() => {
+    if (!cardShown) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') hideCard();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cardShown]);
   // Mine: every current session in its group (the selected one and the pinned ones too, however old), then the rest
   // of the older ones under Older. State: the same rows by what they need.
   const { groups } = useMemo(
@@ -149,13 +203,20 @@ export function SessionRail({
   // Older is not a section: a row is never placed into it or out of it, and moves only among its own kind.
   const inOlder = (id: string | null) => !!id && groupOf.get(id)?.key === OLDER_GROUP;
   // Placement is Mine's: in State nothing is dragged, moved with Alt+↑/↓ or dropped onto a heading.
+  // The card is placed where its row was when it showed: when the rows change under it (one moved, went, came), or
+  // one is being renamed, it goes rather than point at another row. A row that unmounts fires no leave or blur.
+  const cardRowsKey = visible.map((s) => s.id).join('\n');
+  useEffect(() => hideCard(), [cardRowsKey, renamingId]);
   const mine = view === 'mine';
+  // Project's rows are one line, with a card in place of the tooltip.
+  const compact = view === 'project';
   const canReorder = mine && !!onReorder;
   const canPlace = mine && !!onPlace;
   const changeView = (v: RailView) => {
     setView(v);
     writeRailView(v);
-    // Nothing half done in the view left behind: a drag, a section being named, its menu.
+    // Nothing half done in the view left behind: a drag, a section being named, its menu, a card.
+    hideCard();
     setDragId(null);
     setDrop(null);
     setNaming(null);
@@ -284,6 +345,30 @@ export function SessionRail({
       );
     }
     const over = drop && 'id' in drop && drop.id === s.id && dragId !== s.id ? drop : null;
+    // The one status: what waits on you is a status Badge, "snoozed" / "in review" small quiet text. Its own hover
+    // only where the row has a tooltip (Project's card says it).
+    const statusEl =
+      status?.kind === 'owed' ? (
+        <span className={owedBadgeClass(status.owed, ' wd-dash-rail-status-pill')} title={compact ? undefined : status.title}>
+          {status.text}
+        </span>
+      ) : (
+        status && (
+          <span
+            className={'wd-dash-rail-status ' + (status.kind === 'snoozed' ? 'wd-rail-slot-snoozed' : 'wd-rail-slot-waiting')}
+            title={compact ? undefined : status.title}
+          >
+            {status.text}
+          </span>
+        )
+      );
+    const nameEl = (
+      <span className={'wd-dash-rail-name' + (name.named ? '' : ' wd-mono')}>
+        {name.prefix && <span className="wd-dash-rail-prefix">{name.prefix}</span>}
+        {name.rest}
+      </span>
+    );
+    const colorEl = color && <span className="wd-visually-hidden">Color: {RAIL_COLOR_LABEL[color]}</span>;
     return (
       <li
         key={s.id}
@@ -317,15 +402,25 @@ export function SessionRail({
           type="button"
           className={
             'wd-dash-rail-item' +
+            (compact ? ' wd-dash-rail-item-compact' : '') +
             (isActive ? ' wd-dash-rail-item-active' : '') +
             ((kind === 'needs_input' || !!owedBadge(s)) && !s.snoozed ? ' wd-dash-rail-item-unseen' : '')
           }
-          onClick={() => onSelect(s.id)}
+          onClick={() => {
+            hideCard();
+            onSelect(s.id);
+          }}
           onContextMenu={(e) => {
+            hideCard();
             if (!onRename && !menuFor && !onPlace) return;
             e.preventDefault();
             setMenu({ id: s.id, x: e.clientX, y: e.clientY });
           }}
+          onMouseEnter={compact ? (e) => showCard(s.id, e.currentTarget, CARD_WAIT_MS) : undefined}
+          onMouseLeave={compact ? () => leaveRow(s.id) : undefined}
+          onFocus={compact ? (e) => focusVisible(e.currentTarget) && showCard(s.id, e.currentTarget, 0) : undefined}
+          onBlur={compact ? hideCard : undefined}
+          aria-describedby={compact && card?.id === s.id ? CARD_ID : undefined}
           onKeyDown={(e) => {
             if (onRename && e.key === 'F2') {
               e.preventDefault();
@@ -339,53 +434,53 @@ export function SessionRail({
             if (e.key === 'ArrowDown' && i < shownIds.length - 1) move(s.id, shownIds[i + 2] ?? null);
           }}
           title={
-            `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.stackedOn ? ` · stacked on ${s.stackedOn.branch}` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
-            (summary ? ` — ${summary}` : '') +
-            railDetails(s, new Date(), marks) +
-            (color ? `\nColor: ${RAIL_COLOR_LABEL[color]}` : '') +
-            (index < 9 ? `\nAlt+${index + 1}` : '')
+            // Project: the card says it (two hovers at once would cover each other).
+            compact
+              ? undefined
+              : `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.stackedOn ? ` · stacked on ${s.stackedOn.branch}` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
+                (summary ? ` — ${summary}` : '') +
+                railDetails(s, new Date(), marks) +
+                (color ? `\nColor: ${RAIL_COLOR_LABEL[color]}` : '') +
+                (index < 9 ? `\nAlt+${index + 1}` : '')
           }
         >
           <StatusIcon kind={kind} labelled muted={!!s.snoozed} />
           {/* Every row the same four places: its name and a time, then its project (and branch, when you named
               it) and one status, with `keep` and its PRs' dots at the right. The rest is in the tooltip. */}
-          <span className="wd-dash-rail-lines">
-            <span className="wd-dash-rail-line">
-              <span className={'wd-dash-rail-name' + (name.named ? '' : ' wd-mono')}>
-                {name.prefix && <span className="wd-dash-rail-prefix">{name.prefix}</span>}
-                {name.rest}
+          {compact ? (
+            // Project: one line. Its heading says the project; `keep`, the branch of one you named and the rest are in the card.
+            <span className="wd-dash-rail-lines">
+              <span className="wd-dash-rail-line">
+                {nameEl}
+                {colorEl}
+                {statusEl}
+                <RailPrMarks marks={marks} plain />
+                <span className={'wd-dash-rail-slot ' + time.cls}>{time.text}</span>
               </span>
-              {color && <span className="wd-visually-hidden">Color: {RAIL_COLOR_LABEL[color]}</span>}
-              <span className={'wd-dash-rail-slot ' + time.cls}>{time.text}</span>
             </span>
-            <span className="wd-dash-rail-line wd-dash-rail-sub">
-              <span className="wd-dash-rail-summary">
-                {s.target}
-                {name.named ? ` · ${s.branch}` : ''}
+          ) : (
+            <span className="wd-dash-rail-lines">
+              <span className="wd-dash-rail-line">
+                {nameEl}
+                {colorEl}
+                <span className={'wd-dash-rail-slot ' + time.cls}>{time.text}</span>
               </span>
-              {status?.kind === 'owed' ? (
-                <span className={owedBadgeClass(status.owed, ' wd-dash-rail-status-pill')} title={status.title}>
-                  {status.text}
+              <span className="wd-dash-rail-line wd-dash-rail-sub">
+                <span className="wd-dash-rail-summary">
+                  {s.target}
+                  {name.named ? ` · ${s.branch}` : ''}
                 </span>
-              ) : (
-                status && (
-                  <span
-                    className={'wd-dash-rail-status ' + (status.kind === 'snoozed' ? 'wd-rail-slot-snoozed' : 'wd-rail-slot-waiting')}
-                    title={status.title}
-                  >
-                    {status.text}
-                  </span>
-                )
-              )}
-              {/* Kept once its PR merges (its menu's Keep after its PR merges): said on the row, beside the PRs it is about. */}
-              {s.keepAfterMerge && (
-                <Badge dashed className="wd-rail-keep" title={KEEP_TITLE}>
-                  keep
-                </Badge>
-              )}
-              <RailPrMarks marks={marks} />
+                {statusEl}
+                {/* Kept once its PR merges (its menu's Keep after its PR merges): said on the row, beside the PRs it is about. */}
+                {s.keepAfterMerge && (
+                  <Badge dashed className="wd-rail-keep" title={KEEP_TITLE}>
+                    keep
+                  </Badge>
+                )}
+                <RailPrMarks marks={marks} />
+              </span>
             </span>
-          </span>
+          )}
         </button>
       </li>
     );
@@ -404,16 +499,20 @@ export function SessionRail({
           value={view}
           onChange={changeView}
         />
-        <StatusLegend />
-        <button type="button" className="wd-dash-rail-new" onClick={onNewWorktree} title="New worktree" aria-label="New worktree">
-          +
-        </button>
+        {/* One piece: in a rail too narrow for one row the two go to the next row together. */}
+        <span className="wd-dash-rail-actions">
+          <StatusLegend />
+          <button type="button" className="wd-dash-rail-new" onClick={() => onNewWorktree()} title="New worktree" aria-label="New worktree">
+            +
+          </button>
+        </span>
       </header>
       {!anySessions ? (
         <p className="wd-dash-rail-empty">No worktrees yet. Click + to create one.</p>
       ) : (
         <ul
           className="wd-dash-rail-list"
+          onScroll={compact ? hideCard : undefined}
           onDragOver={(e) => {
             // Anywhere in the list while a row is dragged (a row or a heading set where first): keep the drop allowed.
             if (dragId && drop) e.preventDefault();
@@ -439,6 +538,7 @@ export function SessionRail({
             const isFoldedNow = folded(g.key);
             const rows = rowsOf(g);
             const older = g.key === OLDER_GROUP;
+            const project = projectOfGroup(g.key);
             const dropHere = drop && 'group' in drop && drop.group === g.key;
             return [
               g.title !== null &&
@@ -454,7 +554,11 @@ export function SessionRail({
                 ) : (
                   <li
                     key={`h:${g.key}`}
-                    className={'wd-dash-rail-group' + (dropHere ? ' wd-dash-rail-group-drop' : '')}
+                    className={
+                      'wd-dash-rail-group' +
+                      (dropHere ? ' wd-dash-rail-group-drop' : '') +
+                      (project !== null ? ' wd-dash-rail-group-project' : '')
+                    }
                     onDragOver={(e) => {
                       if (!dragId || !canPlace) return;
                       if (older || inOlder(dragId)) {
@@ -490,6 +594,17 @@ export function SessionRail({
                       <span className="wd-dash-rail-group-name">{g.title}</span>
                       <span className="wd-dash-rail-group-count">{g.sessions.length}</span>
                     </button>
+                    {project !== null && (
+                      <button
+                        type="button"
+                        className="wd-dash-rail-group-add"
+                        onClick={() => onNewWorktree(project)}
+                        title={`New worktree in ${project}`}
+                        aria-label={`New worktree in ${project}`}
+                      >
+                        +
+                      </button>
+                    )}
                   </li>
                 )),
               ...rows.map((s) => renderRow(s, index++)),
@@ -504,6 +619,29 @@ export function SessionRail({
           })}
         </ul>
       )}
+      {compact &&
+        card &&
+        (() => {
+          const s = visible.find((x) => x.id === card.id);
+          if (!s) return null;
+          const kind = displayStatus(s);
+          const prs = prsFor?.(s) ?? [];
+          const color = sessionColor(layout, s);
+          const at = visible.indexOf(s);
+          const other = otherBranchText(s);
+          const behind = behindText(s);
+          // What the tooltip says in the other views, the PRs apart (the card lists them): where its checkout really
+          // is, what it is stacked on, how far behind, its automatic title, what you owe, then the details.
+          const notes = [
+            [other, s.stackedOn ? `stacked on ${s.stackedOn.branch}` : '', behind].filter(Boolean).join(' · '),
+            s.title && !s.titleIsYours ? s.title : '',
+            owedBadge(s)?.title ?? '',
+            railDetails(s, new Date(), null).trim(),
+            color ? `Color: ${RAIL_COLOR_LABEL[color]}` : '',
+            at >= 0 && at < 9 ? `Alt+${at + 1}` : '',
+          ].filter(Boolean);
+          return <RailCardView card={railCard(s, kind, prs)} notes={notes} top={card.top} left={card.left} />;
+        })()}
       {menu && (
         <Menu
           x={menu.x}
@@ -549,6 +687,70 @@ export function SessionRail({
         />
       )}
     </aside>
+  );
+}
+
+/** The focus came from the keyboard (a click's focus shows no card: the pointer's hover does). */
+function focusVisible(el: Element): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    // An engine without the selector: treat every focus as the keyboard's.
+    return true;
+  }
+}
+
+/** The card's element id: the row it is for points at it (`aria-describedby`). One card at a time. */
+const CARD_ID = 'wd-rail-card';
+/** How long the pointer rests on a row before its card shows: moving down the rail shows none. */
+const CARD_WAIT_MS = 350;
+/** Between the row's right edge and the card, and between the card and the window's edge. */
+const CARD_GAP = 8;
+
+/**
+ * A Project row's card, beside the rail: its name, project and branch, its state, each PR with its title and stage,
+ * then what a tooltip says in the other views. Read-only (`pointer-events: none`): a PR opens from its dot. Placed at
+ * its row's top, moved up when it would pass the window's bottom edge, and left when it would pass the right one (the
+ * narrow-screen drawer, where the rail is most of the window). Esc takes it away.
+ */
+function RailCardView({ card, notes, top, left }: { card: RailCard; notes: string[]; top: number; left: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState({ x: left, y: top });
+  // Measured again when what it says can change its size.
+  const size = `${card.prs.length}:${notes.join('|').length}:${card.state.length}`;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setAt({
+      x: Math.max(CARD_GAP, Math.min(left, window.innerWidth - el.offsetWidth - CARD_GAP)),
+      y: Math.max(CARD_GAP, Math.min(top, window.innerHeight - el.offsetHeight - CARD_GAP)),
+    });
+  }, [top, left, size]);
+  return (
+    <div ref={ref} id={CARD_ID} role="tooltip" className="wd-rail-card" style={{ top: at.y, left: at.x }}>
+      <div className="wd-rail-card-name">{card.name}</div>
+      <div className="wd-rail-card-where">{card.where}</div>
+      <div className="wd-rail-card-state">{card.state}</div>
+      {card.prs.length > 0 && (
+        <ul className="wd-rail-card-prs">
+          {card.prs.map((p) => (
+            <li key={p.key}>
+              <span className={`wd-rail-pr-mark wd-rail-pr-mark-${p.tone}`} aria-hidden="true" />
+              <span className="wd-rail-card-pr">
+                <span className="wd-rail-card-pr-ref">{p.label}</span>
+                {p.title && <span className="wd-rail-card-pr-title">{p.title}</span>}
+                <span className="wd-rail-card-pr-stage">{p.stage}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {notes.map((n) => (
+        <div key={n} className="wd-rail-card-note">
+          {n}
+        </div>
+      ))}
+    </div>
   );
 }
 

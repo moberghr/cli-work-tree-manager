@@ -120,12 +120,12 @@ function drag(el: Element, type: string) {
 }
 
 describe('the rail’s view switch', () => {
-  it('Mine · State in the header, before the legend and +, Mine on at first: the rail as it was', () => {
+  it('Mine · State · Project in the header, before the legend and +, Mine on at first: the rail as it was', () => {
     render();
     const header = container.querySelector('.wd-dash-rail-header')!;
     const list = header.querySelector('[role="tablist"]')!;
     expect(list.classList).toContain('wd-segmented');
-    expect([...list.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Mine', 'State']);
+    expect([...list.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Mine', 'State', 'Project']);
     expect(header.firstElementChild).toBe(list);
     expect(list.compareDocumentPosition(header.querySelector('.wd-legend')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(tab('Mine').getAttribute('aria-selected')).toBe('true');
@@ -248,5 +248,310 @@ describe('folding and the keyboard in State', () => {
     alt('Digit4');
     expect(p.onSelect).toHaveBeenLastCalledWith('a');
     expect(row('feat/b').title).toContain('Alt+3');
+  });
+});
+
+describe('the Project view', () => {
+  const PROJECTS = [
+    session('a'),
+    session('w', { target: 'web', replyDrafts: 1 }),
+    session('b', { attention: attention('working') }),
+    session('named', { target: 'web', title: 'Checkout rework', titleIsYours: true, keepAfterMerge: true }),
+    session('old', { lastAccessedAt: old }),
+  ];
+  const project = (over: Partial<Parameters<typeof SessionRail>[0]> = {}) => {
+    const props = render({ sessions: PROJECTS, ...over });
+    choose('Project');
+    return props;
+  };
+  const card = () => document.querySelector('.wd-rail-card');
+
+  it('a heading per project with its count, then Older; remembered', () => {
+    project();
+    expect(shown()).toEqual(['# api', 'feat/a', 'feat/b', '# web', 'feat/w', 'Checkout rework', '# Older']);
+    expect(counts()).toEqual(['api 2', 'web 2', 'Older 1']);
+    expect(localStorage.getItem('work-web:rail-view')).toBe('project');
+    remount({ sessions: PROJECTS });
+    expect(tab('Project').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('a heading’s + opens New worktree with its project; Older has none; the header’s + passes no project', () => {
+    const onNewWorktree = vi.fn();
+    project({ onNewWorktree });
+    const adds = [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-group-add')];
+    expect(adds.map((b) => b.getAttribute('aria-label'))).toEqual(['New worktree in api', 'New worktree in web']);
+    act(() => adds[1].click());
+    expect(onNewWorktree).toHaveBeenLastCalledWith('web');
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="New worktree"]')!.click());
+    expect(onNewWorktree).toHaveBeenLastCalledWith();
+  });
+
+  it('no + on a heading in Mine or State', () => {
+    render({ sessions: PROJECTS });
+    expect(container.querySelector('.wd-dash-rail-group-add')).toBeNull();
+    choose('State');
+    expect(container.querySelector('.wd-dash-rail-group-add')).toBeNull();
+  });
+
+  it('a row is one line: no project text, no keep, no tooltip; its status and time are still on it', () => {
+    project();
+    const r = row('feat/w');
+    expect(r.querySelectorAll('.wd-dash-rail-line')).toHaveLength(1);
+    expect(r.querySelector('.wd-dash-rail-summary')).toBeNull();
+    expect(r.getAttribute('title')).toBeNull();
+    expect(r.querySelector('.wd-dash-rail-status-pill')).not.toBeNull();
+    expect(r.querySelector('.wd-dash-rail-slot')).not.toBeNull();
+    expect(row('Checkout rework').querySelector('.wd-rail-keep')).toBeNull();
+    choose('Mine');
+    expect(row('feat/w').querySelectorAll('.wd-dash-rail-line')).toHaveLength(2);
+    expect(row('feat/w').getAttribute('title')).toContain('web · feat/w');
+  });
+
+  it('hovering a row shows its card after a wait; leaving takes it away', () => {
+    vi.useFakeTimers();
+    try {
+      project();
+      const r = row('Checkout rework');
+      act(() => {
+        r.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      });
+      expect(card()).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(card()!.getAttribute('role')).toBe('tooltip');
+      expect(card()!.querySelector('.wd-rail-card-name')!.textContent).toBe('Checkout rework');
+      expect(card()!.querySelector('.wd-rail-card-where')!.textContent).toBe('web · feat/named');
+      expect(card()!.textContent).toContain('kept after its PR merges');
+      expect(r.getAttribute('aria-describedby')).toBe(card()!.id);
+      act(() => {
+        r.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      });
+      expect(card()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a pointer that only passes over a row shows no card', () => {
+    vi.useFakeTimers();
+    try {
+      project();
+      const r = row('feat/a');
+      act(() => {
+        r.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        vi.advanceTimersByTime(100);
+        r.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        vi.advanceTimersByTime(1000);
+      });
+      expect(card()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the card goes on a click and when the view changes; Mine and State show none', () => {
+    vi.useFakeTimers();
+    try {
+      const props = project();
+      const hover = (branch: string) =>
+        act(() => {
+          row(branch).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+          vi.advanceTimersByTime(400);
+        });
+      hover('feat/a');
+      expect(card()).not.toBeNull();
+      act(() => row('feat/a').click());
+      expect(card()).toBeNull();
+      expect(props.onSelect).toHaveBeenCalledWith('a');
+      hover('feat/a');
+      expect(card()).not.toBeNull();
+      choose('State');
+      // Back in Project the card left behind must not come back by itself.
+      choose('Project');
+      expect(card()).toBeNull();
+      choose('State');
+      hover('feat/a');
+      expect(card()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the card lists a PR with its title and stage', () => {
+    vi.useFakeTimers();
+    try {
+      const prs = [{ number: 12, title: 'Retry webhooks', repoAlias: 'api', branch: 'feat/a', url: 'https://x/12', isDraft: true }];
+      project({ prsFor: ((s: SessionSummary) => (s.id === 'a' ? prs : [])) as never });
+      act(() => {
+        row('feat/a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        vi.advanceTimersByTime(400);
+      });
+      const pr = card()!.querySelector('.wd-rail-card-prs li')!;
+      expect(pr.querySelector('.wd-rail-card-pr-ref')!.textContent).toBe('api #12');
+      expect(pr.querySelector('.wd-rail-card-pr-title')!.textContent).toBe('Retry webhooks');
+      expect(pr.querySelector('.wd-rail-card-pr-stage')!.textContent).toBe('draft');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  const hoverNow = (branch: string) =>
+    act(() => {
+      row(branch).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      vi.advanceTimersByTime(400);
+    });
+
+  /** jsdom never says a focus came from the keyboard: say so for the rows, as a browser does after Tab. */
+  const keyboardFocus = (yes = true) => {
+    const matches = Element.prototype.matches;
+    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, sel: string) {
+      return sel === ':focus-visible' ? yes : matches.call(this, sel);
+    });
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a focus that is not the keyboard’s (a click’s) shows no card', () => {
+    keyboardFocus(false);
+    project();
+    act(() => row('feat/b').focus());
+    expect(card()).toBeNull();
+  });
+
+  it('keyboard focus shows the card at once; blur takes it away', () => {
+    keyboardFocus();
+    project();
+    act(() => row('feat/b').focus());
+    expect(card()!.querySelector('.wd-rail-card-name')!.textContent).toBe('feat/b');
+    act(() => row('feat/b').blur());
+    expect(card()).toBeNull();
+  });
+
+  it('Esc, a right-click, a scroll of the list and F2 each take the card away', () => {
+    vi.useFakeTimers();
+    try {
+      project({ onRename: vi.fn(async () => {}) });
+      hoverNow('feat/a');
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+      expect(card()).toBeNull();
+      hoverNow('feat/b');
+      rightClick(row('feat/b'));
+      expect(card()).toBeNull();
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+      hoverNow('feat/a');
+      act(() => {
+        container.querySelector('.wd-dash-rail-list')!.dispatchEvent(new Event('scroll'));
+      });
+      expect(card()).toBeNull();
+      hoverNow('feat/a');
+      expect(card()).not.toBeNull();
+      act(() => {
+        row('feat/a').dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+      });
+      expect(card()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a scroll before the wait is over: no card for the row that moved away', () => {
+    vi.useFakeTimers();
+    try {
+      project();
+      act(() => {
+        row('feat/a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        vi.advanceTimersByTime(100);
+        container.querySelector('.wd-dash-rail-list')!.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(1000);
+      });
+      expect(card()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the card goes when the rows change under it', () => {
+    vi.useFakeTimers();
+    try {
+      project();
+      hoverNow('feat/b');
+      expect(card()).not.toBeNull();
+      render({ sessions: PROJECTS.filter((s) => s.id !== 'a') });
+      expect(card()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaving a hovered row keeps the focused row’s card', () => {
+    vi.useFakeTimers();
+    try {
+      keyboardFocus();
+      project();
+      act(() => row('feat/b').focus());
+      act(() => {
+        row('feat/a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        vi.advanceTimersByTime(100);
+        row('feat/a').dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      });
+      expect(card()!.querySelector('.wd-rail-card-name')!.textContent).toBe('feat/b');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the card says what the tooltip does: behind, stacked on, the automatic title, what you owe; snoozed once', () => {
+    vi.useFakeTimers();
+    try {
+      const sessions = [
+        session('x', {
+          title: 'Add retries to webhooks',
+          stackedOn: { id: 'a', branch: 'feat/a' },
+          replyDrafts: 1,
+          snoozed: { until: null },
+        }),
+        session('a'),
+      ];
+      render({ sessions });
+      choose('Project');
+      hoverNow('feat/x');
+      const text = card()!.textContent!;
+      expect(text).toContain('stacked on feat/a');
+      expect(text).toContain('Add retries to webhooks');
+      expect(text).toContain('reply');
+      expect(text.match(/snoozed/gi)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a project heading folds by itself, remembered', () => {
+    project();
+    act(() => heading('api').click());
+    expect(shown()).toEqual(['# api', '# web', 'feat/w', 'Checkout rework', '# Older']);
+    remount({ sessions: PROJECTS });
+    expect(shown()).toEqual(['# api', '# web', 'feat/w', 'Checkout rework', '# Older']);
+  });
+
+  it('nothing is dragged or placed in Project', () => {
+    const props = project();
+    expect(row('feat/a').closest('li')!.draggable).toBe(false);
+    drag(row('feat/a').closest('li')!, 'dragstart');
+    drag(heading('web').closest('li')!, 'dragover');
+    drag(container.querySelector('.wd-dash-rail-list')!, 'drop');
+    expect(props.onPlace).not.toHaveBeenCalled();
+    expect(props.onReorder).not.toHaveBeenCalled();
+  });
+
+  it('Alt+1…9 follows Project’s rows', () => {
+    const props = project();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', altKey: true, bubbles: true }));
+    });
+    expect(props.onSelect).toHaveBeenCalledWith('w');
   });
 });

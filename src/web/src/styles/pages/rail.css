@@ -20,9 +20,16 @@
   padding: 12px 10px 8px;
 }
 /* The switch (Segmented, ui.css) sits at the left, the buttons at the right. In a rail too narrow for one row (under
-   about 200 px) the buttons go to a second row, so the switch's labels stay whole. Placement only. */
+   about 260 px with its three labels) the two buttons go to a second row together, so the switch's labels stay
+   whole. Placement only. */
 .wd-dash-rail-views {
   margin-right: auto;
+}
+.wd-dash-rail-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .wd-dash-rail-new {
   appearance: none;
@@ -439,4 +446,125 @@
     z-index: 19;
     background: rgba(15, 20, 25, 0.35);
   }
+}
+
+/* The Project view: a heading per project with a + at its right (New worktree there), one-line rows, and a card beside
+   the rail for the row under the pointer or the focus. */
+.wd-dash-rail-group-project {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.wd-dash-rail-group-project .wd-dash-rail-group-toggle {
+  flex: 1;
+  min-width: 0;
+}
+.wd-dash-rail-group-add {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: var(--space-4);
+  height: var(--space-4);
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+/* Easier to hit than its 16 px: the click reaches 4 px around it (24 px), so a near miss doesn't fold the group. */
+.wd-dash-rail-group-add::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--space-1));
+}
+.wd-dash-rail-group-add:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.wd-dash-rail-group-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* One line: the icon sits on the line's middle, not at the top of two. */
+.wd-dash-rail-item-compact {
+  align-items: center;
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+.wd-dash-rail-item-compact .wd-dash-rail-line {
+  align-items: center;
+}
+/* The card: fixed beside the rail, so the list's own scrolling box doesn't cut it. Read-only. */
+.wd-rail-card {
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  max-width: calc(100vw - var(--space-4));
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+.wd-rail-card-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.wd-rail-card-where,
+.wd-rail-card-note {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.wd-rail-card-state {
+  margin-top: var(--space-1);
+  overflow-wrap: anywhere;
+}
+.wd-rail-card-prs {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.wd-rail-card-prs li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.wd-rail-card-prs .wd-rail-pr-mark {
+  flex: none;
+  cursor: default;
+}
+.wd-rail-card-pr {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-2);
+}
+.wd-rail-card-pr-ref {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wd-rail-card-pr-title {
+  flex-basis: 100%;
+  order: 3;
+  overflow-wrap: anywhere;
+}
+.wd-rail-card-pr-stage {
+  color: var(--muted);
+}
+.wd-rail-card-prs + .wd-rail-card-note,
+.wd-rail-card-state + .wd-rail-card-note {
+  margin-top: var(--space-2);
 }

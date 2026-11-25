@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 import type { PrInfo } from '../../src/web/src/api/panes.js';
 import { displayStatus } from '../../src/web/src/state/session-display.js';
-import { RAIL_PR_MARKS, railName, railPrMarks, railPrsText, railStatus, railTime } from '../../src/web/src/state/rail-row.js';
+import { RAIL_PR_MARKS, railCard, railName, railPrMarks, railPrsText, railStatus, railTime } from '../../src/web/src/state/rail-row.js';
 
 const NOW = Date.parse('2026-11-25T12:00:00Z');
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
@@ -193,5 +193,33 @@ describe('railPrMarks: a dot per PR, at most five, then +N', () => {
     expect(railPrMarks(session(), [])).toEqual({ shown: [], more: [] });
     expect(railPrsText({ shown: [], more: [] })).toBe('');
     expect(railPrsText(railPrMarks(session(), [listed(8)]))).toBe('PR api #8 · open');
+  });
+});
+
+describe('railCard: what a Project row’s card says', () => {
+  it('the name whole, the project and branch, the state with its agent’s last line', () => {
+    const s = session({ attention: attention('working', 4, { summary: 'running the tests' }) });
+    const card = railCard(s, displayStatus(s, NOW), []);
+    expect(card.name).toBe('feat/stored-cards');
+    expect(card.where).toBe('api · feat/stored-cards');
+    expect(card.state).toBe('Working — running the tests');
+    expect(card.prs).toEqual([]);
+  });
+
+  it('a name you gave: the name, and the branch still said beside the project', () => {
+    const s = session({ title: 'Stored cards', titleIsYours: true });
+    const card = railCard(s, displayStatus(s, NOW), []);
+    expect(card.name).toBe('Stored cards');
+    expect(card.where).toBe('api · feat/stored-cards');
+  });
+
+  it('every PR, not five: its title from the list, its stage from the watch; one only the watch knows has no title', () => {
+    const many = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ repo: 'api', number: n, kind: 'in_review' }));
+    const s = session({ prStage: stage(many) });
+    const card = railCard(s, displayStatus(s, NOW), [listed(2), listed(99, true)]);
+    expect(card.prs).toHaveLength(8);
+    expect(card.prs[0]).toMatchObject({ label: 'api #1', title: null, stage: 'waiting for review', tone: 'plain' });
+    expect(card.prs[1]).toMatchObject({ label: 'api #2', title: listed(2).title });
+    expect(card.prs[7]).toMatchObject({ label: 'api #99', title: listed(99).title, stage: 'draft', tone: 'draft' });
   });
 });
