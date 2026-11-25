@@ -178,6 +178,7 @@ describe('the Ctrl+T box', () => {
     const input = container.querySelector<HTMLInputElement>('.wd-switcher-input')!;
     expect(input.value).toBe('keys');
     expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 4]); // all of it: typing replaces it
     await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
     expect(h.search.mock.calls[0].slice(0, 2)).toEqual(['s1', 'keys']);
     expect(container.textContent).toContain('Keys.cs');

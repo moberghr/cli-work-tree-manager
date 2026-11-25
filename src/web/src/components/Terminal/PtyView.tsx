@@ -90,24 +90,32 @@ function pathLinkProvider(
   const row = (y: number) => readRow(term.buffer.active.getLine(y));
   return {
     provideLinks(lineNumber, callback) {
-      // xterm numbers buffer lines from 1, getLine from 0.
-      const candidates = rowLinkCandidates(row, lineNumber - 1, term.cols);
-      if (candidates.length === 0) {
-        callback(undefined);
-        return;
-      }
-      void cache.lookup(candidates.map((c) => c.raw)).then((results) => {
-        const links = pickLinks(candidates, results).map((link): ILink => ({
-          range: toXtermRange(link.range),
-          text: link.raw,
-          activate: (e) => {
-            if (e.button === 0) on.activate(link);
+      // xterm waits for the callback before it asks about another row: every way out of here calls it.
+      try {
+        // xterm numbers buffer lines from 1, getLine from 0.
+        const candidates = rowLinkCandidates(row, lineNumber - 1, term.cols);
+        if (candidates.length === 0) {
+          callback(undefined);
+          return;
+        }
+        void cache.lookup(candidates.map((c) => c.raw)).then(
+          (results) => {
+            const links = pickLinks(candidates, results).map((link): ILink => ({
+              range: toXtermRange(link.range),
+              text: link.raw,
+              activate: (e) => {
+                if (e.button === 0) on.activate(link);
+              },
+              hover: () => on.hover(link),
+              leave: () => on.leave(),
+            }));
+            callback(links.length > 0 ? links : undefined);
           },
-          hover: () => on.hover(link),
-          leave: () => on.leave(),
-        }));
-        callback(links.length > 0 ? links : undefined);
-      });
+          () => callback(undefined),
+        );
+      } catch {
+        callback(undefined);
+      }
     },
   };
 }
@@ -567,6 +575,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       term.element?.removeEventListener('copy', onCopy, true);
       term.textarea?.removeEventListener('focus', onFocus);
       host.removeEventListener('contextmenu', onContextMenu);
+      host.title = '';
       pathLinks.dispose();
       pathCache.clear();
       hoveredPath.current = null;

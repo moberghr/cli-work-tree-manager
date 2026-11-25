@@ -112,32 +112,36 @@ export function revealCommand(target: string, platform: NodeJS.Platform = proces
   return { cmd: 'xdg-open', args: [path.dirname(target)] };
 }
 
-/** How long a just-started opener may take to say it could not start. */
+/** How long a just-started opener may take to say it failed. */
 const OPENER_SETTLE_MS = 500;
 
 /**
- * Start an opener (open / explorer.exe / xdg-open) and leave it running. Only a failure to start counts: explorer.exe
- * exits non-zero even when it opened the file, so its exit is not waited for. Resolves with the reason, or null.
+ * Start an opener (open / explorer.exe / xdg-open) and leave it running. Resolves with what went wrong, or null.
+ * `open` and `xdg-open` say a failure (no such file, no app for it) with a non-zero exit, usually at once: that is
+ * waited for, for the settle time at most. explorer.exe exits non-zero even when it opened the file, so only its
+ * failure to start counts.
  */
 function startOpener({ cmd, args }: LaunchCommand): Promise<string | null> {
+  const exitTells = cmd !== 'explorer.exe';
   return new Promise<string | null>((resolve) => {
     try {
       // Hidden and detached as openUrl's; keepCwdLookup: what it opens is something you work in (spawn.ts).
       const child = spawn(cmd, args, { stdio: 'ignore', detached: detachHere(), windowsHide: true, keepCwdLookup: true });
       const settle = setTimeout(() => resolve(null), OPENER_SETTLE_MS);
+      const done = (failed: string | null) => {
+        clearTimeout(settle);
+        resolve(failed);
+      };
       child.once('spawn', () => {
-        clearTimeout(settle);
-        resolve(null);
+        if (!exitTells) done(null);
       });
-      child.once('error', (err) => {
-        clearTimeout(settle);
-        resolve(err.message);
-      });
+      child.once('exit', (code) => done(exitTells && code ? `${cmd} failed (exit code ${code})` : null));
+      child.once('error', (err) => done(`could not start ${cmd}: ${err.message}`));
       child.unref();
     } catch (err) {
-      resolve((err as Error).message);
+      resolve(`could not start ${cmd}: ${(err as Error).message}`);
     }
-  }).then((failed) => (failed ? `could not start ${cmd}: ${failed}` : null));
+  });
 }
 
 /** Open `target` with the system's default app. Only for a file that is safe to hand to one (terminal-paths.ts decides). */

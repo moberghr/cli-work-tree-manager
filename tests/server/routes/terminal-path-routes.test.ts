@@ -135,6 +135,13 @@ describe('POST /api/sessions/:id/terminal-paths/open', () => {
     expect(await res.json()).toEqual({ error: 'could not start code: spawn code ENOENT' });
   });
 
+  it('a failure with no message is 500 with a plain one', async () => {
+    core.openTerminalPath.mockResolvedValueOnce({ error: 'failed' });
+    const res = await post(sessionIdFor(session), 'open', { path: 'a.ts', how: 'editor' });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'could not open it' });
+  });
+
   it('refuses a bad how, an empty path or one over 4096 characters, and starts nothing', async () => {
     const id = sessionIdFor(session);
     for (const body of [

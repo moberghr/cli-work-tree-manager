@@ -882,6 +882,83 @@ describe('PtyView — paths it prints (terminal-links.ts)', () => {
     handler.activate(new MouseEvent('click'), 'file:///tmp/x.html');
     await settle();
     expect(opens()).toEqual([{ path: 'file:///tmp/x.html', how: 'default' }]);
-    expect(document.querySelector('.wd-toast')?.textContent).toBe('Couldn’t open file:///tmp/x.html: it no longer exists.');
+    expect(document.querySelector('.wd-toast')?.textContent).toBe('Couldn’t open file:///tmp/x.html: there is no such file here.');
+  });
+
+  /** Hover the first link and right-click the terminal: the path menu's buttons. */
+  const openMenu = async (found: Wire) => {
+    const { term } = mount('s1');
+    show(term, [`see ${found.raw} now`]);
+    answers[found.raw] = found;
+    const links = (await linksOn(term, 1)) ?? [];
+    links[0].hover?.(new MouseEvent('mousemove'), found.raw);
+    const host = container.querySelector<HTMLElement>('.wd-pty-host')!;
+    act(() => void host.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })));
+    return { term, links, host, items: [...document.querySelectorAll<HTMLButtonElement>('.wd-row-menu-item')] };
+  };
+  const file: Wire = { raw: 'src/a.ts', path: '/w/src/a.ts', kind: 'file', opens: 'editor' };
+
+  it('the menu: Open asks for the default app, Reveal for the file manager', async () => {
+    const { items } = await openMenu(file);
+    act(() => items[0].click());
+    await settle();
+    expect(opens().at(-1)).toEqual({ path: 'src/a.ts', how: 'default' });
+    const again = await openMenu(file);
+    act(() => again.items[2].click());
+    await settle();
+    expect(opens().at(-1)).toEqual({ path: 'src/a.ts', how: 'reveal' });
+  });
+
+  it('Copy path writes the real path to the clipboard and says so', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { items } = await openMenu(file);
+    act(() => items[3].click());
+    await settle();
+    expect(writeText).toHaveBeenCalledWith('/w/src/a.ts');
+    expect(document.querySelector('.wd-toast')?.textContent).toBe('Copied /w/src/a.ts');
+  });
+
+  it('Copy path says so when the clipboard refuses', async () => {
+    const writeText = vi.fn(async () => Promise.reject(new Error('denied')));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { items } = await openMenu(file);
+    act(() => items[3].click());
+    await settle();
+    expect(document.querySelector('.wd-toast')?.textContent).toBe('Couldn’t copy the path.');
+  });
+
+  it('an ambiguous bare name has one menu item: the code search', async () => {
+    const asked = vi.fn();
+    window.addEventListener('work:code-search', asked);
+    try {
+      const { items } = await openMenu({ raw: 'server.ts:9', path: null, kind: 'ambiguous', opens: 'search' });
+      expect(items.map((b) => b.textContent)).toEqual(['Search the code for “server.ts”']);
+      act(() => items[0].click());
+    } finally {
+      window.removeEventListener('work:code-search', asked);
+    }
+    expect((asked.mock.calls[0][0] as CustomEvent).detail).toEqual({ sessionId: 's1', query: 'server.ts' });
+    expect(opens()).toEqual([]);
+  });
+
+  it('after unmount the link provider is gone and the right-click is the browser’s again', async () => {
+    const { term, links, host } = await openMenu(file);
+    act(() => document.querySelectorAll<HTMLButtonElement>('.wd-row-menu-item')[0].click());
+    await settle();
+    expect(links).toHaveLength(1);
+    expect(term.linkProviders).toHaveLength(1);
+    act(() => root.render(createElement('div')));
+    expect(term.linkProviders).toHaveLength(0);
+    const after = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    act(() => void host.dispatchEvent(after));
+    expect(after.defaultPrevented).toBe(false);
+  });
+
+  it('a lookup that rejects still answers xterm, with no links', async () => {
+    const { term } = mount('s1');
+    show(term, ['see src/a.ts now']);
+    fetchMock.mockImplementation(async () => Promise.reject(new Error('network down')));
+    expect(await linksOn(term, 1)).toBeUndefined();
   });
 });

@@ -283,7 +283,7 @@ describe('pathMenuItems — the right-click menu of a path', () => {
   });
 
   it('a failed open, in words', () => {
-    expect(openFailure('x.ts', 'missing')).toBe('Couldn’t open x.ts: it no longer exists.');
+    expect(openFailure('x.ts', 'missing')).toBe('Couldn’t open x.ts: there is no such file here.');
     expect(openFailure('x.ts', 'ambiguous')).toBe('Couldn’t open x.ts: several files have that name.');
     expect(openFailure('x.ts', 'spawn code ENOENT')).toBe('Couldn’t open x.ts: spawn code ENOENT');
   });

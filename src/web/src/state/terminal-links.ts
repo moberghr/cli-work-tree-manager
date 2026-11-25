@@ -276,9 +276,12 @@ export function platformOf(userAgentOrPlatform: string): Platform {
   return 'other';
 }
 
-/** The toast for an open that failed: the server's `missing` / `ambiguous` said in words. */
+/**
+ * The toast for an open that failed: the server's `missing` / `ambiguous` said in words. `missing` is also the answer
+ * for a path work does not look at (another machine's), so it does not claim the file was deleted.
+ */
 export function openFailure(raw: string, message: string): string {
-  if (message === 'missing') return `Couldn’t open ${raw}: it no longer exists.`;
+  if (message === 'missing') return `Couldn’t open ${raw}: there is no such file here.`;
   if (message === 'ambiguous') return `Couldn’t open ${raw}: several files have that name.`;
   return `Couldn’t open ${raw}: ${message}`;
 }

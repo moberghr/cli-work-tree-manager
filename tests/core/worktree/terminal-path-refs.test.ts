@@ -45,6 +45,13 @@ describe('findPathRefs: the forms of a path', () => {
   });
 });
 
+describe('findPathRefs: backslash relative paths', () => {
+  it('are found whole', () => {
+    expect(raws('see src\\web\\x.tsx now')).toEqual(['src\\web\\x.tsx']);
+    expect(raws('run .\\a\\b.ts:4')).toEqual(['.\\a\\b.ts:4']);
+  });
+});
+
 describe('findPathRefs: what is not a path', () => {
   it('web addresses and anything inside one', () => {
     expect(raws('see http://example.com/a/b.html')).toEqual([]);
@@ -149,6 +156,11 @@ describe('joinRows', () => {
     const full = 'x'.repeat(20);
     const j = joinRows([{ text: full }, { text: '' }], 20);
     expect(j.rows).toBe(1);
+  });
+
+  it('a row one short of the width joins the next, two short does not (cols - 1)', () => {
+    expect(joinRows([{ text: 'x'.repeat(9) }, { text: 'next' }], 10).rows).toBe(2);
+    expect(joinRows([{ text: 'x'.repeat(8) }, { text: 'next' }], 10).rows).toBe(1);
   });
 
   it('never joins more than 8 rows', () => {

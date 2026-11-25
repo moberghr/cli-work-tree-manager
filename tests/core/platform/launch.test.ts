@@ -1,23 +1,30 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 const spawned = vi.hoisted(() => [] as Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>);
-vi.mock('../../../src/core/platform/spawn.js', () => ({
-  default: Object.assign(
-    (cmd: string, args: string[], opts: Record<string, unknown>) => {
-      spawned.push({ cmd, args, opts });
-      return { unref: () => {} };
-    },
-    {
-      sync: (cmd: string, args: string[], opts: Record<string, unknown>) => {
+// Every child the mocked spawn returned: an EventEmitter with `unref`, so a test can make it fail, exit or spawn.
+const children = vi.hoisted(() => [] as Array<import('node:events').EventEmitter & { unref: () => void }>);
+vi.mock('../../../src/core/platform/spawn.js', async () => {
+  const { EventEmitter } = await import('node:events');
+  return {
+    default: Object.assign(
+      (cmd: string, args: string[], opts: Record<string, unknown>) => {
         spawned.push({ cmd, args, opts });
-        return { status: 0 };
+        const child = Object.assign(new EventEmitter(), { unref: () => {} });
+        children.push(child);
+        return child;
       },
-    },
-  ),
-}));
+      {
+        sync: (cmd: string, args: string[], opts: Record<string, unknown>) => {
+          spawned.push({ cmd, args, opts });
+          return { status: 0 };
+        },
+      },
+    ),
+  };
+});
 
 import {
   defaultAppCommand,
@@ -26,8 +33,12 @@ import {
   openInEditor,
   openUrl,
   openVSCode,
+  openWithDefaultApp,
   revealCommand,
+  revealInFileManager,
+  startEditor,
 } from '../../../src/core/platform/launch.js';
+import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
 import { getAiTool } from '../../../src/core/platform/ai-launcher.js';
 
 describe('openUrl', () => {
@@ -179,5 +190,81 @@ describe('launchAi: a prompt never reaches cmd.exe (--no-host)', () => {
     launchAi('/wt', getAiTool({}), { initialPrompt: prompt });
     expect(spawned.at(-1)!.cmd).toBe('claude');
     expect(spawned.at(-1)!.args.at(-1)).toBe(prompt);
+  });
+});
+
+describe('the openers: the default app and the file manager', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const lastChild = () => children.at(-1)!;
+  const tells = () => defaultAppCommand('/x/a.html').cmd !== 'explorer.exe'; // does this platform's opener say a failure by its exit?
+
+  it("openWithDefaultApp starts this platform's default-app command, hidden, with no stdio", () => {
+    void openWithDefaultApp('/x/a.html');
+    const { cmd, args } = defaultAppCommand('/x/a.html');
+    expect(spawned.at(-1)).toMatchObject({ cmd, args, opts: { windowsHide: true, stdio: 'ignore' } });
+  });
+
+  it('revealInFileManager starts the reveal command', () => {
+    void revealInFileManager('/x/a.html');
+    const { cmd, args } = revealCommand('/x/a.html');
+    expect(spawned.at(-1)).toMatchObject({ cmd, args, opts: { windowsHide: true, stdio: 'ignore' } });
+  });
+
+  it('a program that cannot start says so, with the reason', async () => {
+    const p = openWithDefaultApp('/x/a.html');
+    lastChild().emit('error', new Error('ENOENT'));
+    expect(await p).toBe(`could not start ${defaultAppCommand('/x/a.html').cmd}: ENOENT`);
+  });
+
+  it.runIf(process.platform !== 'win32')('open / xdg-open: a non-zero exit is a failure, a zero exit is not', async () => {
+    const cmd = defaultAppCommand('/x/a.html').cmd;
+    const failed = openWithDefaultApp('/x/a.html');
+    lastChild().emit('exit', 1);
+    expect(await failed).toBe(`${cmd} failed (exit code 1)`);
+    const ok = openWithDefaultApp('/x/a.html');
+    lastChild().emit('exit', 0);
+    expect(await ok).toBeNull();
+  });
+
+  it.runIf(process.platform !== 'win32')('open / xdg-open: nothing said within 500 ms counts as running', async () => {
+    vi.useFakeTimers();
+    const p = openWithDefaultApp('/x/a.html');
+    let settled = false;
+    void p.then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(499);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await p).toBeNull();
+  });
+
+  it.runIf(process.platform === 'win32')('explorer.exe: started is enough, and a non-zero exit is no failure', async () => {
+    expect(tells()).toBe(false);
+    const started = openWithDefaultApp('C:\\x\\a.html');
+    lastChild().emit('spawn');
+    expect(await started).toBeNull();
+    const exited = openWithDefaultApp('C:\\x\\a.html');
+    lastChild().emit('exit', 1);
+    expect(await exited).toBeNull();
+  });
+});
+
+describe('startEditor: which program', () => {
+  afterEach(() => saveConfig({} as WorkConfig));
+
+  it('the configured editor', async () => {
+    saveConfig({ editor: 'cursor' } as WorkConfig);
+    const p = startEditor('/wt/api');
+    expect(spawned.at(-1)).toMatchObject({ cmd: 'cursor', args: ['/wt/api'] });
+    children.at(-1)!.emit('exit', 0);
+    expect(await p).toBeNull();
+  });
+
+  it('code when none is configured; a failure names the editor', async () => {
+    saveConfig({} as WorkConfig);
+    const p = startEditor('/wt/api', { path: '/wt/api/a.ts', line: 3 });
+    expect(spawned.at(-1)).toMatchObject({ cmd: 'code', args: ['/wt/api', '--goto', '/wt/api/a.ts:3'] });
+    children.at(-1)!.emit('error', new Error('spawn code ENOENT'));
+    expect(await p).toBe('could not start code: spawn code ENOENT');
   });
 });

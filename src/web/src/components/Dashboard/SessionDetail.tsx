@@ -145,11 +145,12 @@ export function SessionDetail({
   useEffect(() => {
     const onSearch = (e: Event) => {
       const d = (e as CustomEvent<CodeSearchDetail>).detail;
-      if (d?.sessionId === session.id) setSearching(d.query);
+      // An archived session has no code to search (Ctrl+T does nothing there either).
+      if (d?.sessionId === session.id && !isArchived(session)) setSearching(d.query);
     };
     window.addEventListener(CODE_SEARCH_EVENT, onSearch);
     return () => window.removeEventListener(CODE_SEARCH_EVENT, onSearch);
-  }, [session.id]);
+  }, [session]);
   // A file it shows beside its terminal (`work show`), followed while this session is on screen.
   const shownFile = useShownFile(session.id);
   const openPlace = (p: CodePlace) => {
@@ -278,7 +279,13 @@ export function SessionDetail({
           <BranchesTab key={session.id} session={session} onShowBranch={showBranch} onShowDiff={() => onSelectSubTab('diff')} />
         )}
         {searching !== null && (
-          <CodeSearch sessionId={session.id} initialQuery={searching} onPick={openPlace} onClose={() => setSearching(null)} />
+          <CodeSearch
+            key={searching}
+            sessionId={session.id}
+            initialQuery={searching}
+            onPick={openPlace}
+            onClose={() => setSearching(null)}
+          />
         )}
         {/* From the ⋯ menu (and old links): no tab of its own, so it says what it is. */}
         {subTab === 'timeline' && (

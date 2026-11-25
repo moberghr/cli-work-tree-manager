@@ -279,3 +279,87 @@ describe('refusedPath: paths never looked at', () => {
     expect((await resolveTerminalPath({ paths: [api], isGroup: false }, '//attacker/share/a.png')).kind).toBe('missing');
   });
 });
+
+describe('resolveTerminalPath: refused paths are never looked at', () => {
+  it('a file:// host, two leading slashes and two leading backslashes: missing, and no stat or realpath', async () => {
+    const realpath = vi.spyOn(fs.realpathSync, 'native');
+    const stat = vi.spyOn(fs, 'statSync');
+    try {
+      for (const raw of ['file://attacker/share/a.png', '//h/s/a.png', '\\\\h\\s\\a.png']) {
+        expect(await resolveTerminalPath(single(), raw, io)).toEqual({ raw, path: null, kind: 'missing', opens: null });
+      }
+      expect(realpath).not.toHaveBeenCalled();
+      expect(stat).not.toHaveBeenCalled();
+    } finally {
+      realpath.mockRestore();
+      stat.mockRestore();
+    }
+  });
+
+  it('file://localhost is this machine: the file resolves and opens with the app', async () => {
+    const r = await resolveTerminalPath(single(), `file://localhost${path.join(api, 'mock.html')}`, io);
+    expect(r).toMatchObject({ path: real(api, 'mock.html'), kind: 'file', opens: 'app' });
+  });
+});
+
+describe('resolveTerminalPath: extensions and links', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = path.join(tmp, 'kinds');
+    for (const f of ['UP.HTML', 'Pic.PNG', 'run.SH']) write(path.join(dir, f));
+    fs.mkdirSync(path.join(dir, 'folder'));
+    fs.symlinkSync(path.join(dir, 'folder'), path.join(dir, 'link.html'));
+    fs.symlinkSync(path.join(dir, 'nowhere'), path.join(dir, 'dangling.html'));
+  });
+  const at = (f: string) => resolveTerminalPath(single(), path.join(dir, f), io);
+
+  it('the extension is judged in lower case', async () => {
+    expect((await at('UP.HTML')).opens).toBe('app');
+    expect((await at('Pic.PNG')).opens).toBe('app');
+    expect((await at('run.SH')).opens).toBe('editor');
+  });
+
+  it('a link named .html that points to a folder is a folder to reveal', async () => {
+    expect(await at('link.html')).toMatchObject({ path: real(dir, 'folder'), kind: 'dir', opens: 'reveal' });
+  });
+
+  it('a dangling link is missing', async () => {
+    expect((await at('dangling.html')).kind).toBe('missing');
+  });
+});
+
+describe('openTerminalPath: folders, editor windows and failures', () => {
+  const started = {
+    startEditor: vi.fn(async (..._a: unknown[]): Promise<string | null> => null),
+    openWithDefaultApp: vi.fn(async (..._a: unknown[]): Promise<string | null> => null),
+    revealInFileManager: vi.fn(async (..._a: unknown[]): Promise<string | null> => null),
+  };
+  const deps: OpenTerminalPathDeps = { ...started, io };
+  beforeEach(() => Object.values(started).forEach((f) => f.mockClear()));
+
+  it('how editor on a folder reveals it: the editor is not started', async () => {
+    expect(await openTerminalPath(single(), `${api}/src`, 'editor', deps)).toEqual({ ok: true, opened: real(api, 'src') });
+    expect(started.revealInFileManager).toHaveBeenCalledWith(real(api, 'src'));
+    expect(started.startEditor).not.toHaveBeenCalled();
+  });
+
+  it("a file in a sibling folder that shares the worktree's name as a prefix gets its own folder's window", async () => {
+    const file = path.join(tmp, 'api2', 'x.ts');
+    write(file);
+    await openTerminalPath(single(), file, 'editor', deps);
+    expect(started.startEditor).toHaveBeenCalledWith(real(tmp, 'api2'), { path: real(file) });
+  });
+
+  it("a failing file manager's or default app's reason reaches the result", async () => {
+    started.revealInFileManager.mockResolvedValueOnce('open failed (exit code 1)');
+    expect(await openTerminalPath(single(), 'README.md', 'reveal', deps)).toEqual({
+      error: 'failed',
+      message: 'open failed (exit code 1)',
+    });
+    started.openWithDefaultApp.mockResolvedValueOnce('could not start xdg-open: ENOENT');
+    expect(await openTerminalPath(single(), 'mock.html', 'default', deps)).toEqual({
+      error: 'failed',
+      message: 'could not start xdg-open: ENOENT',
+    });
+  });
+});
