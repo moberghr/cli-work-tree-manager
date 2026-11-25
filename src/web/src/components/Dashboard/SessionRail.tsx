@@ -16,13 +16,14 @@ import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
 import { otherBranchText, owedBadgeClass, RailPrMarks } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
-import { DISPLAY_LABEL, displayStatus, OLDER_GROUP, owedBadge, railGroups, type PrLookup } from '../../state/session-display.js';
+import { DISPLAY_LABEL, displayStatus, OLDER_GROUP, owedBadge, type PrLookup } from '../../state/session-display.js';
 import { railName, railPrMarks, railPrsText, railStatus, railTime, type RailPrMark } from '../../state/rail-row.js';
+import { groupsForView, RAIL_VIEWS, readRailView, writeRailView, type RailView } from '../../state/rail-views.js';
 import { moveSession } from '../../../../core/rail/session-order.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { accountLabel } from '../../state/accounts.js';
 import { snoozeLabel } from '../../../../core/rail/snooze.js';
-import { Badge, Input, Menu, type MenuItem } from '../../ui/index.js';
+import { Badge, Input, Menu, Segmented, type MenuItem } from '../../ui/index.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -104,6 +105,10 @@ export function railDetails(s: SessionSummary, now = new Date(), prs?: { shown: 
  * running; folded until you open it). Headings fold (remembered in this
  * browser). A color (right-click → Color) marks a row without moving it: a
  * bar down its left edge. Alt+1…9 opens the first nine rows as shown.
+ *
+ * That is the Mine view. The header's switch has State too (`state/rail-views.ts`): the same rows under Needs you,
+ * Working, Idle, Snoozed and Older, in your order inside each; nothing is dragged or placed there (a row's menu
+ * still pins and moves it in Mine). The view is remembered in this browser.
  */
 export function SessionRail({
   sessions,
@@ -128,11 +133,12 @@ export function SessionRail({
   // Naming a section: a new one (for the session it was asked from), or renaming one.
   const [naming, setNaming] = useState<{ kind: 'new'; sessionId: string | null } | { kind: 'rename'; sectionId: string } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
-  // Every current session in its group (the selected one and the pinned ones too, however old), then the rest of
-  // the older ones under Older.
+  const [view, setView] = useState<RailView>(readRailView);
+  // Mine: every current session in its group (the selected one and the pinned ones too, however old), then the rest
+  // of the older ones under Older. State: the same rows by what they need.
   const { groups } = useMemo(
-    () => railGroups(sessions, { order, layout, activeId: activeSessionId }),
-    [sessions, order, layout, activeSessionId],
+    () => groupsForView(view, sessions, { order, layout, activeId: activeSessionId }),
+    [view, sessions, order, layout, activeSessionId],
   );
   const anySessions = groups.some((g) => g.sessions.length > 0);
   const folded = (key: string) => isFolded(collapsed, key);
@@ -142,8 +148,19 @@ export function SessionRail({
   const groupOf = new Map(groups.flatMap((g) => g.sessions.map((s) => [s.id, g] as const)));
   // Older is not a section: a row is never placed into it or out of it, and moves only among its own kind.
   const inOlder = (id: string | null) => !!id && groupOf.get(id)?.key === OLDER_GROUP;
-  const canReorder = !!onReorder;
-  const canPlace = !!onPlace;
+  // Placement is Mine's: in State nothing is dragged, moved with Alt+↑/↓ or dropped onto a heading.
+  const mine = view === 'mine';
+  const canReorder = mine && !!onReorder;
+  const canPlace = mine && !!onPlace;
+  const changeView = (v: RailView) => {
+    setView(v);
+    writeRailView(v);
+    // Nothing half done in the view left behind: a drag, a section being named, its menu.
+    setDragId(null);
+    setDrop(null);
+    setNaming(null);
+    setSectionMenu(null);
+  };
 
   const toggle = (key: string) =>
     setCollapsed((prev) => {
@@ -277,6 +294,7 @@ export function SessionRail({
           colored
         }
         onDragStart={(e) => {
+          if (!canReorder && !canPlace) return;
           setDragId(s.id);
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', s.id);
@@ -376,8 +394,16 @@ export function SessionRail({
   let index = 0;
   return (
     <aside className="wd-dash-rail" role="navigation" aria-label="Sessions">
-      {/* The legend and New worktree. Finding a session by name is Ctrl+P or `/` (QuickSwitcher). */}
+      {/* The view switch, the legend and New worktree. Finding a session by name is Ctrl+P or `/` (QuickSwitcher). */}
       <header className="wd-dash-rail-header">
+        <Segmented
+          kind="tabs"
+          className="wd-dash-rail-views"
+          label="Group the sessions by"
+          options={RAIL_VIEWS}
+          value={view}
+          onChange={changeView}
+        />
         <StatusLegend />
         <button type="button" className="wd-dash-rail-new" onClick={onNewWorktree} title="New worktree" aria-label="New worktree">
           +
@@ -404,7 +430,7 @@ export function SessionRail({
             applyDrop();
           }}
         >
-          {naming?.kind === 'new' && (
+          {mine && naming?.kind === 'new' && (
             <li>
               <SectionNameInput initial="" placeholder="New section name" onSave={saveSectionName} onDone={() => setNaming(null)} />
             </li>
@@ -467,7 +493,7 @@ export function SessionRail({
                   </li>
                 )),
               ...rows.map((s) => renderRow(s, index++)),
-              !isFoldedNow && g.sessions.length === 0 && (
+              mine && !isFoldedNow && g.sessions.length === 0 && (
                 <li key={`e:${g.key}`} className="wd-dash-rail-group-empty">
                   {g.sectionId
                     ? `Drag a session here, or right-click one → Move to “${g.title}”.`
@@ -490,7 +516,11 @@ export function SessionRail({
             const place = onPlace
               ? railMenuItems(s, layout, {
                   place: (x, patch) => onPlace(x.id, patch),
-                  newSection: (x) => setNaming({ kind: 'new', sessionId: x.id }),
+                  // A section is Mine's: from State, name it there, where it will show.
+                  newSection: (x) => {
+                    if (!mine) changeView('mine');
+                    setNaming({ kind: 'new', sessionId: x.id });
+                  },
                 })
               : [];
             const rest = menuFor ? menuFor(s).map((item, i) => (i === 0 ? { ...item, separated: true } : item)) : [];

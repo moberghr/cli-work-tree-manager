@@ -10,13 +10,19 @@
   flex-direction: column;
   overflow: hidden;
 }
-/* The legend's ? and + on one row, at the right (the top bar already says "Sessions"). */
+/* The view switch at the left, the legend's ? and + at the right (the top bar already says "Sessions"). */
 .wd-dash-rail-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
   padding: 12px 10px 8px;
+}
+/* The switch (Segmented, ui.css) sits at the left, the buttons at the right. In a rail too narrow for one row (under
+   about 200 px) the buttons go to a second row, so the switch's labels stay whole. Placement only. */
+.wd-dash-rail-views {
+  margin-right: auto;
 }
 .wd-dash-rail-new {
   appearance: none;
