@@ -3,7 +3,16 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## Unreleased
+## 2.21.1 — 2026-11-25
+
+- **Spinners on macOS keep turning.** A working session's spinner in the
+  desktop app on macOS started over every time its row updated, so it
+  stuttered; it now turns smoothly, and all of them in step.
+
+## 2.10.0 – 2.21.0
+
+Described in the [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases);
+these shipped among them:
 
 - **Color your sessions.** Right-click a session in the rail → Color, and pick
   one of six (red, orange, yellow, green, blue, purple). Its row gets a thin

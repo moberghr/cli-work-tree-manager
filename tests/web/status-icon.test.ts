@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { StatusIcon } from '../../src/web/src/components/Dashboard/StatusIcon.js';
+import { SPIN_MS, StatusIcon, spinPhase } from '../../src/web/src/components/Dashboard/StatusIcon.js';
 import { DISPLAY_LABEL, type DisplayKind } from '../../src/web/src/state/session-display.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,5 +52,33 @@ describe('StatusIcon', () => {
     );
     expect(distinct.size).toBe(8);
     expect(shape('recent')).toBe(shape('quiet')); // both read "Idle"
+  });
+
+  it('the whole svg turns, never a group inside it (WebKit started that one over on every update of its row)', () => {
+    for (const kind of KINDS) {
+      act(() => root.render(createElement(StatusIcon, { kind })));
+      const svg = container.querySelector('svg')!;
+      const spins = ['working', 'background', 'archiving', 'restoring'].includes(kind);
+      expect(svg.classList.contains('wd-status-spin')).toBe(spins);
+      expect(svg.style.animationDelay !== '').toBe(spins);
+      expect(svg.querySelector('.wd-status-spin')).toBeNull();
+    }
+  });
+
+  it('a spinner keeps its element and its phase while its row updates', () => {
+    act(() => root.render(createElement(StatusIcon, { kind: 'working' })));
+    const svg = container.querySelector('svg')!;
+    const delay = svg.style.animationDelay;
+    // The row around it re-renders: a new status of the same kind, muted, labelled.
+    act(() => root.render(createElement(StatusIcon, { kind: 'background', labelled: true })));
+    act(() => root.render(createElement(StatusIcon, { kind: 'working', muted: true })));
+    expect(container.querySelector('svg')).toBe(svg);
+    expect(svg.style.animationDelay).toBe(delay);
+  });
+
+  it('starts where the wall clock is in a turn, so one drawn again carries on in step', () => {
+    expect(spinPhase(5 * SPIN_MS)).toBe('0ms');
+    expect(spinPhase(5 * SPIN_MS + 250)).toBe('-250ms');
+    expect(spinPhase(5 * SPIN_MS + SPIN_MS - 1)).toBe(`-${SPIN_MS - 1}ms`);
   });
 });
