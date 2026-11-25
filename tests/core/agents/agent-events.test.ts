@@ -72,6 +72,7 @@ describe('work’s hooks ride with the Claudes work starts, never the user’s s
     // A conversation's start: it is told it runs in work (work-intro.ts).
     expect(cmd('SessionStart')).toEqual(['/opt/node/bin/node /opt/work/dist/bin.js hook session-start']);
     expect(cmd('SessionEnd')).toEqual(['/opt/node/bin/node /opt/work/dist/bin.js hook session-end']);
+    expect(cmd('StopFailure')).toEqual(['/opt/node/bin/node /opt/work/dist/bin.js hook stop-failure']);
     expect(s.statusLine.command).toBe('/opt/node/bin/node /opt/work/dist/bin.js hook statusline');
     // config usage.statusLine: false — the user's own line stays theirs.
     expect(claudeSessionSettings({ statusLine: false, invocation })).not.toHaveProperty('statusLine');

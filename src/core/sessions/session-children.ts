@@ -207,3 +207,24 @@ export function coordinatorMessage(parentLabel: string, text: string): string {
 
 ${text.trim()}`;
 }
+
+/**
+ * What a session's turn that ended on an API error says, as its status line (`StopFailure`: Claude Code fires it
+ * instead of Stop). `error` is Claude Code's kind of error (rate_limit, overloaded, …; `unknown` for a network one). Pure.
+ */
+export function turnFailedText(error: unknown, details?: unknown): string {
+  const kind = typeof error === 'string' && error.trim() && error !== 'unknown' ? error.trim().replace(/_/g, ' ') : 'an API error';
+  const more = typeof details === 'string' && details.trim() ? `: ${details.trim().split('\n')[0]!.slice(0, 160)}` : '';
+  return `Stopped on ${kind === 'an API error' ? kind : `an API error (${kind})`}${more}. Its turn didn't finish: send it a message to carry on.`;
+}
+
+/**
+ * What work tells a coordinator when a session it started stopped on an API error (asked for: a coordinator waited
+ * an hour on a child shown as working, whose turn had ended on a network error). work's own words, not the child's. Pure.
+ */
+export function childStoppedMessage(childLabel: string, target: string, branch: string, failed: string): string {
+  return (
+    `work: the session "${childLabel}" you started stopped before finishing its turn. ${failed}\n` +
+    `It is idle now; a message sent to it while it was working may not have reached it. To carry on: \`work child send ${target} ${branch} -m "…"\`.`
+  );
+}

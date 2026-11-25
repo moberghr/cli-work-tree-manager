@@ -40,6 +40,8 @@ export function claudeSessionSettings(o: { statusLine: boolean; invocation?: Wor
   hooks.SessionStart = [{ hooks: [{ type: 'command', command: workCommand(['hook', 'session-start'], o.invocation), timeout: 10 }] }];
   // …and its exit: a turn or question it was in is over (session-status.ts markAgentEnded).
   hooks.SessionEnd = [{ hooks: [{ type: 'command', command: workCommand(['hook', 'session-end'], o.invocation), timeout: 10 }] }];
+  // …and a turn an API error ended (StopFailure, fired instead of Stop): it isn't working any more (hook.ts turnFailed).
+  hooks.StopFailure = [{ hooks: [{ type: 'command', command: workCommand(['hook', 'stop-failure'], o.invocation), timeout: 10 }] }];
   return {
     hooks,
     // A coordinator's own sessions (session-children.ts): `work child` acts only on the sessions the one running it

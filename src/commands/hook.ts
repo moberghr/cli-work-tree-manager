@@ -11,7 +11,8 @@ import { isInternalRun } from '../core/platform/internal-run.js';
 import { isOwnCheckout, ownCheckoutNote } from '../core/worktree/own-checkout.js';
 import { workSessionIntro } from '../core/sessions/work-intro.js';
 import { loadConfig } from '../core/platform/config.js';
-import { readWebUrl } from '../core/platform/web-discovery.js';
+import { callWorkWeb, readWebUrl } from '../core/platform/web-discovery.js';
+import { childStoppedMessage, parentOf, turnFailedText } from '../core/sessions/session-children.js';
 import { agentEnded, markAgentEnded, recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
 import { recordCheckedOutBranches } from '../core/sessions/session-branches.js';
 import { bestEffort, bestEffortAsync, logSwallowed } from '../core/platform/best-effort.js';
@@ -46,7 +47,9 @@ export type HookEvent =
   /** A conversation starts (or resumes, clears, compacts): what its agent is told about work (work-intro.ts). */
   | 'session-start'
   /** Its agent exits: a turn or question it was in is over (session-status.ts `markAgentEnded`). */
-  | 'session-end';
+  | 'session-end'
+  /** Its turn ended on an API error (Claude Code's StopFailure, fired instead of Stop): idle, said, its coordinator told. */
+  | 'stop-failure';
 
 const STATUS_EVENTS = new Set<HookEvent>(['status-prompt', 'status-stop', 'status-notify']);
 
@@ -197,6 +200,7 @@ const HOOK_EVENTS = [
   'turn-end',
   'session-start',
   'session-end',
+  'stop-failure',
 ] as const;
 
 /** `work hook <event> [--agent <id>]` without the yargs router (bin.ts's fast path). An
@@ -250,6 +254,41 @@ export async function sessionEnded(cwd: string, reason: unknown, now: Date = new
   if (!session) return false;
   await markAgentEnded(sessionIdFor(session), now);
   return true;
+}
+
+/**
+ * A turn in `cwd` ended on an API error (StopFailure): no Stop hook comes, so without this the session stayed "working"
+ * until its next prompt — and a coordinator waiting on it waited for good. Recorded as a stop whose line says what
+ * happened, and the coordinator that started it (if any) is told. Nothing outside a work session; never throws.
+ */
+export async function turnFailed(
+  payload: HookPayload,
+  cwd: string,
+  io: {
+    record?: (id: string, event: StatusEvent) => Promise<void>;
+    post?: (route: string, cwd: string) => Promise<void>;
+    tell?: (parentId: string, text: string) => Promise<unknown>;
+  } = {},
+): Promise<{ sessionId: string; told: string | null } | null> {
+  const session = findSessionForCwd(cwd);
+  if (!session) return null;
+  const id = sessionIdFor(session);
+  const text = turnFailedText(payload.error, payload.error_details);
+  await bestEffortAsync(`record the failed turn of ${session.target}:${session.branch}`, async () => {
+    await (io.record ?? recordStatusEvent)(id, { kind: 'stop', lastMessage: text });
+    return true;
+  });
+  await (io.post ?? postToWeb)('api/status-changed', cwd);
+  const link = bestEffort('read who started this session', () => parentOf(id), null);
+  if (!link) return { sessionId: id, told: null };
+  const label = session.title?.trim() || `${session.target} · ${session.branch}`;
+  const message = childStoppedMessage(label, session.target, session.branch, text);
+  const tell = io.tell ?? ((to: string, t: string) => callWorkWeb('POST', `/api/sessions/${to}/send`, { text: t }, 5000));
+  await bestEffortAsync(`tell ${link.parentId} its child stopped`, async () => {
+    await tell(link.parentId, message);
+    return true;
+  });
+  return { sessionId: id, told: link.parentId };
 }
 
 /** What a conversation starting in `cwd` is told about work: null outside a work session. */
@@ -396,6 +435,11 @@ async function handleHook(event: HookEvent, agentId = 'claude'): Promise<void> {
     // Its agent exited: a turn or question it was in is over.
     if (event === 'session-end') {
       await sessionEnded(cwd, payload.reason);
+      return;
+    }
+    // Its turn ended on an API error: no Stop comes (fire-and-forget: its output is ignored).
+    if (event === 'stop-failure') {
+      await turnFailed(payload, cwd);
       return;
     }
     // Its stdout becomes the conversation's context: that it runs in work, and how to reach the other sessions.
