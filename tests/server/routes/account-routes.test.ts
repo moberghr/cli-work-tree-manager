@@ -57,19 +57,10 @@ function setup(over: Partial<AccountSwitchDeps> = {}, lookOnly?: string) {
   return { app, post, events, log };
 }
 
-describe('DELETE /api/sessions/:id/account (review W6)', () => {
-  it('drops the switch waiting for its turn; 409 when none waits; the dev server cancels nothing', async () => {
-    const { app, post, events } = setup({ hostRuns: () => true, busy: () => true });
-    expect(await (await post('api', { to: 'work' })).json()).toMatchObject({ outcome: 'queued' });
-    const del = () => app.request('/api/sessions/api/account', { method: 'DELETE' });
-    const r = await del();
-    expect(r.status).toBe(200);
-    expect(events.at(-1)).toBe('sessions-changed');
-    const again = await del();
-    expect(again.status).toBe(409);
-    expect(((await again.json()) as { error: string }).error).toContain('no switch is waiting');
-    const dev = setup({}, 'the dev server switches nothing');
-    expect((await dev.app.request('/api/sessions/api/account', { method: 'DELETE' })).status).toBe(409);
+describe('DELETE /api/sessions/:id/account', () => {
+  it('is gone: a switch never waits, so there is nothing to cancel', async () => {
+    const { app } = setup();
+    expect((await app.request('/api/sessions/api/account', { method: 'DELETE' })).status).toBe(404);
   });
 });
 
@@ -115,14 +106,14 @@ describe('POST /api/sessions/:id/account', () => {
     expect(events).toEqual(['sessions-changed']);
   });
 
-  it('a running idle one is restarted (switched); a busy one is queued', async () => {
+  it('a running idle one is restarted (switched); a busy one too, at once, and the answer says its turn was interrupted', async () => {
     const a = setup({ hostRuns: () => true });
     expect(await (await a.post('api', { to: 'work' })).json()).toMatchObject({ outcome: 'switched' });
     expect(a.log).toEqual(['halt', 'move', 'record work', 'resume']);
     const b = setup({ hostRuns: () => true, busy: () => true });
     const res = await b.post('api', { to: 'work' });
-    expect(await res.json()).toEqual({ ok: true, outcome: 'queued' });
-    expect(b.log).toEqual([]);
+    expect(await res.json()).toEqual({ ok: true, outcome: 'switched', moved: 3, interrupted: true });
+    expect(b.log).toEqual(['halt', 'move', 'record work', 'resume']);
   });
 
   it('refusals come back as their status with the reason, and tell nobody', async () => {
@@ -327,7 +318,6 @@ describe('POST /api/accounts/:name/sessions (every session to one account)', () 
             ? { ok: false as const, status: 400 as const, error: 'Unknown account: nobody' }
             : { ok: true as const, outcome: 'switched' as const, moved: id.length };
         },
-        cancel: () => 'none' as const,
       } as never,
       broadcast: (e) => void events.push(e),
       sessions: () => all,

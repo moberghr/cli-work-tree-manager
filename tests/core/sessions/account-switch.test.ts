@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAccountSwitcher, type AccountSwitchDeps } from '../../../src/core/sessions/account-switch.js';
+import { createAccountSwitcher, INTERRUPTED, type AccountSwitchDeps } from '../../../src/core/sessions/account-switch.js';
 import type { AccountInfo } from '../../../src/core/agents/types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
-import { TURN_END_GRACE_MS } from '../../../src/core/pty/agent-restart.js';
 
 const now = new Date().toISOString();
 const session = (over: Partial<WorktreeSession> = {}): WorktreeSession => ({
@@ -31,7 +30,6 @@ function world(over: { s?: WorktreeSession | null; running?: boolean; outside?: 
     archiving: false,
     log: [] as string[],
     notes: [] as Array<[string, string]>,
-    timers: [] as Array<() => void>,
     failMove: null as string | null,
     failRecord: null as string | null,
     failRestart: null as string | null,
@@ -67,7 +65,6 @@ function world(over: { s?: WorktreeSession | null; running?: boolean; outside?: 
       if (w.failRestart && (w.failResumeOnAnyAccount || w.s?.account)) throw new Error(w.failRestart);
     },
     note: (id, text, level) => w.notes.push([level, text]),
-    later: (fn) => w.timers.push(fn),
   };
   return { w, sw: createAccountSwitcher(deps) };
 }
@@ -117,11 +114,19 @@ describe('switchAccount refusals', () => {
     expect(w.log).toEqual([]);
   });
 
-  it('a switch already waiting for its turn', async () => {
-    const { w, sw } = world({ busy: true });
-    expect(await sw.switchAccount(ID, 'work')).toMatchObject({ ok: true, outcome: 'queued' });
-    expect(await sw.switchAccount(ID, 'mac')).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('already waiting') });
-    expect(w.log).toEqual([]);
+  it('a switch already being done', async () => {
+    const { w } = world();
+    let release!: () => void;
+    const sw = createAccountSwitcher({ ...baseDeps(w), halt: () => new Promise((r) => (release = () => r('halted'))) });
+    const going = sw.switchAccount(ID, 'work');
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(await sw.switchAccount(ID, 'mac')).toMatchObject({
+      ok: false,
+      status: 409,
+      error: expect.stringContaining('already being done'),
+    });
+    release();
+    expect(await going).toMatchObject({ ok: true, outcome: 'switched' });
   });
 });
 
@@ -141,40 +146,16 @@ describe('switchAccount', () => {
     expect(w.notes).toEqual([['action', expect.stringContaining('restarted on it')]]);
   });
 
-  it('working or waiting on you: queued, nothing touched until its turn ends; then it moves and restarts', async () => {
+  it('working or waiting on you: switched at once — its turn is interrupted, and the answer and the note say so', async () => {
     const { w, sw } = world({ busy: true });
-    expect(await sw.switchAccount(ID, 'work')).toEqual({ ok: true, outcome: 'queued' });
-    expect(w.log).toEqual([]);
-    expect(sw.waiting()).toEqual([{ id: ID, to: 'work' }]);
-    expect(w.notes).toEqual([['info', expect.stringContaining('when its turn ends')]]);
-    // Its turn ends (the status hook): after the grace, it is idle now.
-    w.busy = false;
-    sw.turnEnded(ID);
-    w.timers.pop()!(); // the grace timer is the newest (the queue's own recheck was set when it was queued)
-    await vi.waitFor(() => expect(w.log).toEqual(['halt', 'move default→work', 'record work', 'resume halted on work']));
-    expect(sw.waiting()).toEqual([]);
-    expect(w.notes.at(-1)).toEqual(['action', expect.stringContaining('restarted on it')]);
-    expect(TURN_END_GRACE_MS).toBeGreaterThan(0);
+    expect(await sw.switchAccount(ID, 'work')).toEqual({ ok: true, outcome: 'switched', moved: 2, interrupted: true });
+    expect(w.log).toEqual(['halt', 'move default→work', 'record work', 'resume halted on work']);
+    expect(w.notes).toEqual([['action', expect.stringContaining(INTERRUPTED)]]);
   });
 
-  it('a queued switch whose Claude stopped meanwhile still records the account (not dropped as "stopped")', async () => {
-    const { w, sw } = world({ busy: true });
-    await sw.switchAccount(ID, 'work');
-    w.running = false;
-    w.busy = false;
-    await sw.retry();
-    expect(w.log).toEqual(['move default→work', 'record work']);
-    expect(w.s?.account).toBe('work');
-  });
-
-  it('a still-busy session at its turn end is looked at again, not switched under it', async () => {
-    const { w, sw } = world({ busy: true });
-    await sw.switchAccount(ID, 'work');
-    sw.turnEnded(ID);
-    w.timers.pop()!();
-    await Promise.resolve();
-    expect(w.log).toEqual([]);
-    expect(sw.waiting()).toHaveLength(1);
+  it('busy but not running in the host: recorded, nothing interrupted', async () => {
+    const { sw } = world({ busy: true, running: false });
+    expect(await sw.switchAccount(ID, 'work')).toEqual({ ok: true, outcome: 'recorded', moved: 2 });
   });
 });
 
@@ -259,17 +240,6 @@ describe('a failure keeps the old account', () => {
     expect(w.log).toEqual(['halt', 'move default→work', 'move work→default', 'resume halted on default']);
   });
 
-  it('a queued switch whose move fails when its turn ends is reported, and nothing stays pending', async () => {
-    const { w, sw } = world({ busy: true });
-    await sw.switchAccount(ID, 'work');
-    w.failMove = 'EBUSY';
-    w.busy = false;
-    await sw.retry();
-    expect(w.notes.at(-1)).toEqual(['warn', expect.stringContaining('stays on default')]);
-    expect(sw.waiting()).toEqual([]);
-    expect(w.s?.account).toBeUndefined();
-  });
-
   it('a restart that fails after the move: the account is recorded (the next start uses it), and it says so', async () => {
     const { w, sw } = world();
     w.failRestart = 'its agent did not stop';
@@ -305,7 +275,6 @@ function baseDeps(w = world().w): AccountSwitchDeps {
     halt: async () => 'halted',
     resume: async () => {},
     note: (id, text, level) => w.notes.push([level, text]),
-    later: (fn) => w.timers.push(fn),
   };
 }
 
@@ -355,27 +324,6 @@ describe('another Claude in its folders, an older PTY host (review W2, W4)', () 
     expect(w.s?.account).toBeUndefined();
   });
 
-  it('a queued switch finding another Claude there when its turn ends: not done, said, nothing stopped', async () => {
-    const { w } = world({ busy: true });
-    let other: string | null = null;
-    const sw = createAccountSwitcher({
-      ...baseDeps(w),
-      busy: () => w.busy,
-      halt: async () => {
-        w.log.push('halt');
-        return 'halted';
-      },
-      othersRunningIn: () => other,
-    });
-    expect(await sw.switchAccount(ID, 'work')).toMatchObject({ outcome: 'queued' });
-    other = '/wt/api/feat-x';
-    w.busy = false;
-    await sw.retry();
-    expect(w.log).toEqual([]);
-    expect(w.notes.at(-1)).toEqual(['warn', expect.stringContaining('a Claude outside this session runs in /wt/api/feat-x')]);
-    expect(sw.waiting()).toEqual([]);
-  });
-
   it('a PTY host from before accounts: refused before halting, nothing changed; not asked when it does not run in the host', async () => {
     const { w } = world();
     const asked: string[] = [];
@@ -401,37 +349,18 @@ describe('another Claude in its folders, an older PTY host (review W2, W4)', () 
   });
 });
 
-describe('a switch waiting for its turn: shown and cancellable (review W6)', () => {
-  it('pendingFor names where it goes while queued; cancel drops it, says so, and its turn end then does nothing', async () => {
-    const { w, sw } = world({ busy: true });
-    expect(sw.pendingFor(ID)).toBeNull();
-    await sw.switchAccount(ID, 'work');
-    expect(sw.pendingFor(ID)).toBe('work');
-    expect(sw.cancel(ID)).toBe('cancelled');
-    expect(sw.pendingFor(ID)).toBeNull();
-    expect(sw.waiting()).toEqual([]);
-    expect(w.notes.at(-1)).toEqual(['info', expect.stringContaining('cancelled')]);
-    w.busy = false;
-    await sw.retry();
-    expect(w.log).toEqual([]);
-    expect(w.s?.account).toBeUndefined();
-    // Nothing waits now; and it can be asked again.
-    expect(sw.cancel(ID)).toBe('none');
-    expect(await sw.switchAccount(ID, 'work')).toMatchObject({ ok: true, outcome: 'switched' });
-  });
-
-  it('a switch being done right now is not cancelled', async () => {
+describe('restartsAnyway: a switch being done (the agent restarter folds into it)', () => {
+  it('names where it goes while it is done, and nothing before or after', async () => {
     const { w } = world();
     let release!: () => void;
-    const sw = createAccountSwitcher({
-      ...baseDeps(w),
-      halt: () => new Promise((r) => (release = () => r('halted'))),
-    });
+    const sw = createAccountSwitcher({ ...baseDeps(w), halt: () => new Promise((r) => (release = () => r('halted'))) });
+    expect(sw.restartsAnyway(ID)).toBeNull();
     const going = sw.switchAccount(ID, 'work');
     await vi.waitFor(() => expect(release).toBeDefined());
-    expect(sw.cancel(ID)).toBe('running');
+    expect(sw.restartsAnyway(ID)).toBe('work');
     release();
-    expect(await going).toMatchObject({ ok: true, outcome: 'switched' });
+    await going;
+    expect(sw.restartsAnyway(ID)).toBeNull();
   });
 });
 

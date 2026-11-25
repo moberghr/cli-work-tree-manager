@@ -35,21 +35,14 @@ export function accountRow(a: AccountWire, current: string): { disabled: boolean
 export const loginText = (a: AccountWire): string => (a.loggedIn === null ? 'unknown' : a.loggedIn ? 'logged in' : 'not logged in');
 
 /** What a switch's outcome says in the toast. */
-export function switchText(outcome: AccountSwitchWire['outcome'], name: string): string {
-  if (outcome === 'switched') return `Moved to ${name}`;
-  if (outcome === 'queued') return 'Switches after its current turn';
+export function switchText(outcome: AccountSwitchWire['outcome'], name: string, interrupted = false): string {
+  if (outcome === 'switched') return interrupted ? `Moved to ${name}: its turn was interrupted, tell it to continue` : `Moved to ${name}`;
   return `Its next start uses ${name}`;
 }
 
 /** An account as a list names it: the one new sessions use marked "(default)" — unless its name already says so. */
 export const accountName = (a: { name: string; isDefault: boolean }): string =>
   a.isDefault && a.name !== DEFAULT_ACCOUNT ? `${a.name} (default)` : a.name;
-
-/** A switch waiting for its turn to end, in a few words (the header chip, the dialog). */
-export const pendingText = (to: string): string => `→ ${to} after this turn`;
-
-/** The rail tooltip's part for a switch waiting for its turn. */
-export const pendingLabel = (to: string | undefined): string => (to ? `moves to account ${to} after this turn` : '');
 
 /** What Claude account… says when there is nothing to move to: the accounts couldn't be read (and why), or there is only one. */
 export function noSwitchText(loadError: string | null): string {
@@ -71,9 +64,6 @@ export function accountAction(s: Pick<SessionSummary, 'agent' | 'archivedAt'>): 
   if (!canSwitchAccount(s)) return { kind: 'toast', text: 'Only a live session of an agent with accounts can change its account' };
   return { kind: 'open' };
 }
-
-/** The toast after the dialog cancelled a switch waiting for its turn. */
-export const cancelledText = (to: string): string => `It stays on its account: the switch to ${to} is cancelled`;
 
 // ---- the Accounts page ----
 

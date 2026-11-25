@@ -102,7 +102,7 @@ pre {
      never shrank back. */
   min-width: 0;
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--term-bg);
   padding: 8px;
   /* xterm's FitAddon sizes the grid from this box's computed height and
      width; with the page's border-box those include the padding, so the
@@ -120,7 +120,7 @@ pre {
    black bar. One class more specific than xterm.css's `.xterm .xterm-viewport`,
    which loads after this (with the terminal's chunk) and won a tie. */
 .wd-pty-host .xterm .xterm-viewport {
-  background-color: #1e1e1e;
+  background-color: var(--term-bg);
 }
 
 /* Review mode: no sidebar, full-bleed diff. */
@@ -805,9 +805,10 @@ pre {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9da5b4;
+  /* The palette's dim grey (bright black), halfway to its text so it reads on any terminal theme. */
+  color: color-mix(in srgb, var(--term-dim) 50%, var(--term-fg));
   font-size: 13px;
-  background: #1e1e1e;
+  background: var(--term-bg);
   pointer-events: none;
 }
 /* A start that failed: why, the countdown to the next try, and a button (so it takes clicks). */
@@ -821,6 +822,7 @@ pre {
 .wd-pty-failed p {
   margin: 0;
 }
+/* The palette's red, halfway to its text so it reads on any terminal theme: soft on a dark one, deep on a light one. */
 .wd-pty-failed p:first-child {
-  color: #e8b4b4;
+  color: color-mix(in srgb, var(--term-error) 50%, var(--term-fg));
 }

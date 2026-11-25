@@ -35,8 +35,7 @@ import type {
  *   GET  /api/accounts/:name/setup?from=x → AccountSetupWire: what copying x's setup to it would do (a read)
  *   POST /api/accounts/:name/setup {from}  → AccountSetupWire: it done (instructions, settings, tool servers, plugins; never a login)
  *   POST /api/accounts/:name/sessions {from?} → AccountSwitchAllWire: every session (or those on `from`) moved to it
- *   POST /api/sessions/:id/account  {to} → AccountSwitchWire: switched / queued (its turn first) / recorded (not running)
- *   DELETE /api/sessions/:id/account     → drop the switch waiting for its turn (409: none waits, or it is being done now)
+ *   POST /api/sessions/:id/account  {to} → AccountSwitchWire: switched (at once, even mid-turn) / recorded (not running)
  *
  * Every change broadcasts `accounts-changed`.
  */
@@ -250,15 +249,11 @@ export function mountAccountRoutes(
     }));
     if (!r.ok) return c.json({ error: r.error }, r.status);
     opts.broadcast('sessions-changed', { ts: Date.now() });
-    return c.json({ ok: true, outcome: r.outcome, ...(r.moved !== undefined ? { moved: r.moved } : {}) } satisfies AccountSwitchWire);
-  });
-
-  app.delete('/api/sessions/:id/account', (c) => {
-    if (opts.lookOnly) return c.json({ error: opts.lookOnly }, 409);
-    const r = opts.switcher.cancel(c.req.param('id'));
-    if (r === 'running') return c.json({ error: 'the switch is being done right now' }, 409);
-    if (r === 'none') return c.json({ error: 'no switch is waiting for its turn' }, 409);
-    opts.broadcast('sessions-changed', { ts: Date.now() });
-    return c.json({ ok: true });
+    return c.json({
+      ok: true,
+      outcome: r.outcome,
+      ...(r.moved !== undefined ? { moved: r.moved } : {}),
+      ...(r.interrupted ? { interrupted: true } : {}),
+    } satisfies AccountSwitchWire);
   });
 }

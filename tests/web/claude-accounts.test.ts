@@ -22,7 +22,6 @@ const {
   accountName,
   accountRow,
   canSwitchAccount,
-  cancelledText,
   currentAccount,
   hasMultipleAccounts,
   noSwitchText,
@@ -105,9 +104,8 @@ describe('account helpers', () => {
     expect(accountAction(session({ agent: codex })).kind).toBe('toast');
   });
 
-  it('the toasts after a switch and after a cancel (T4)', () => {
+  it('the toast after a switch (T4)', () => {
     expect(switchText('recorded', 'work')).toBe('Its next start uses work');
-    expect(cancelledText('work')).toBe('It stays on its account: the switch to work is cancelled');
   });
 
   it('the account dialog counts as an open dialog: the shortcuts stop meanwhile (T4)', () => {
@@ -141,7 +139,7 @@ describe('account helpers', () => {
 
   it('what each outcome says', () => {
     expect(switchText('switched', 'work')).toBe('Moved to work');
-    expect(switchText('queued', 'work')).toBe('Switches after its current turn');
+    expect(switchText('switched', 'work', true)).toBe('Moved to work: its turn was interrupted, tell it to continue');
     expect(switchText('recorded', 'work')).toBe('Its next start uses work');
   });
 
@@ -257,8 +255,8 @@ describe('AccountDialog', () => {
     expect(switchTo).toHaveBeenCalledWith('s1', 'work');
     expect(container.querySelector('.wd-spinner')).not.toBeNull();
     expect(submit().disabled).toBe(true);
-    await act(async () => finish({ ok: true, outcome: 'queued' }));
-    expect(props.onSwitched).toHaveBeenCalledWith('work', { ok: true, outcome: 'queued' });
+    await act(async () => finish({ ok: true, outcome: 'switched', interrupted: true }));
+    expect(props.onSwitched).toHaveBeenCalledWith('work', { ok: true, outcome: 'switched', interrupted: true });
   });
 
   it('a refusal stays in the dialog and lets you try again', async () => {
@@ -298,18 +296,10 @@ describe('the account chip and the rail tooltip', () => {
     expect(container.querySelector('.wd-account-chip')).toBeNull();
   });
 
-  it('a switch waiting for its turn shows where it goes, on the default account too', () => {
-    act(() => root.render(createElement(AccountChip, { session: session({ accountPending: 'work' }) })));
-    expect(container.querySelector('.wd-account-chip')!.textContent).toBe('account: default → work after this turn');
-    act(() => root.render(createElement(AccountChip, { session: session({ account: 'work', accountPending: 'default' }) })));
-    expect(container.querySelector('.wd-account-chip')!.textContent).toBe('account: work → default after this turn');
-  });
-
-  it('the rail tooltip mentions only a non-default account, and a switch waiting for its turn', () => {
+  it('the rail tooltip mentions only a non-default account', () => {
     expect(railDetails(session({ account: 'work' }))).toBe('\naccount work');
     expect(railDetails(session())).toBe('');
     expect(railDetails(session({ keepAfterMerge: true }))).toBe('\nkept after its PR merges');
-    expect(railDetails(session({ accountPending: 'work' }))).toBe('\nmoves to account work after this turn');
   });
 });
 
@@ -408,7 +398,7 @@ describe('UsageMeter names accounts', () => {
   });
 });
 
-describe('review fixes: names, a pending switch, a failed load', () => {
+describe('review fixes: names, a failed load', () => {
   it('accountName marks the default only when its name does not say so already', () => {
     expect(accountName({ name: 'default', isDefault: true })).toBe('default');
     expect(accountName({ name: 'work', isDefault: true })).toBe('work (default)');
@@ -443,48 +433,20 @@ describe('review fixes: names, a pending switch, a failed load', () => {
     expect(container.querySelector('.wd-usage-panel')!.textContent).toContain('account work (default)');
   });
 
-  it('the dialog shows a switch waiting for its turn and cancels it', async () => {
-    const cancelSwitch = vi.fn().mockResolvedValue(undefined);
-    const onCancelled = vi.fn();
+  it('the dialog says a switch is done at once, even mid-turn', async () => {
     act(() =>
       root.render(
         createElement(AccountDialog, {
-          session: session({ accountPending: 'work' }),
+          session: session(),
           onSwitched: vi.fn(),
           onClose: vi.fn(),
-          onCancelled,
           load: () => Promise.resolve(ACCOUNTS),
-          cancelSwitch,
         }),
       ),
     );
     await flush();
-    expect(container.textContent).toContain('→ work after this turn');
-    // No second switch while one waits.
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-    await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'Cancel the switch')!);
-    await flush();
-    expect(cancelSwitch).toHaveBeenCalledWith('s1');
-    expect(onCancelled).toHaveBeenCalledWith('work');
-  });
-
-  it('a cancel the server refuses (it is being done now) stays in the dialog', async () => {
-    const cancelSwitch = vi.fn().mockRejectedValue(new Error('the switch is being done right now'));
-    act(() =>
-      root.render(
-        createElement(AccountDialog, {
-          session: session({ accountPending: 'work' }),
-          onSwitched: vi.fn(),
-          onClose: vi.fn(),
-          load: () => Promise.resolve(ACCOUNTS),
-          cancelSwitch,
-        }),
-      ),
-    );
-    await flush();
-    await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'Cancel the switch')!);
-    await flush();
-    expect(container.querySelector('[role="alert"]')!.textContent).toContain('being done right now');
+    expect(container.textContent).toContain('right away, even mid-turn');
+    expect(container.textContent).not.toContain('Cancel the switch');
   });
 
   it('useAccounts says why a read failed (kept until one succeeds); ⇧C says so instead of "only one account"', async () => {

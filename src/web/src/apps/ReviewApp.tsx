@@ -19,7 +19,7 @@ import { DiffBusyChip } from '../components/Diff/DiffBusyChip.js';
 import { DiffUpdateChip } from '../components/Diff/DiffUpdateChip.js';
 import { DiffModeToggle } from '../components/Diff/DiffModeToggle.js';
 import { Segmented } from '../ui/index.js';
-import { ThemeToggle } from '../components/ThemeToggle.js';
+import { ThemeMenu } from '../components/ThemeMenu.js';
 import { VERSION } from '../version.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
 import { ReviewProvider } from '../state/ReviewProvider.js';
@@ -468,7 +468,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
         <span className="wd-web-version" title={`work-tree v${VERSION}`}>
           v{VERSION}
         </span>
-        <ThemeToggle />
+        <ThemeMenu />
         <DiffModeToggle />
         {hasBranchTab && (
           <Segmented

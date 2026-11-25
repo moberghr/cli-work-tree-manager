@@ -632,8 +632,6 @@ export interface SessionWire {
   agent?: SessionAgentWire;
   /** The account (login) its agent runs on, by its config name; absent = the default account. */
   account?: string;
-  /** The account a switch waiting for its turn to end will move it to (kept in work web's memory). */
-  accountPending?: string;
   /** What its archive kept (archived sessions; session-archive.ts). */
   archive?: SessionArchiveInfo;
   /** Its name: the one you gave it, else its first prompt, else its Jira key. */
@@ -1599,12 +1597,14 @@ export interface AccountRefusalWire {
   kind?: 'live' | 'archived';
 }
 
-/** POST /api/sessions/:id/account {to}: `switched` (its Claude restarted on it), `queued` (when its turn ends), `recorded` (not running: its next start). */
+/** POST /api/sessions/:id/account {to}: `switched` (its Claude restarted on it, at once — even mid-turn), `recorded` (not running: its next start). */
 export interface AccountSwitchWire {
   ok: true;
-  outcome: 'switched' | 'queued' | 'recorded';
+  outcome: 'switched' | 'recorded';
   /** How many conversation entries went across to the new account's folders. */
   moved?: number;
+  /** Its Claude was working or waiting on you: that turn was stopped (a switch doesn't wait), so tell it to continue. */
+  interrupted?: boolean;
 }
 
 /**
@@ -1981,6 +1981,8 @@ export interface SettingsWire {
   values: Record<string, unknown>;
   /** The user has a status line of their own (an agent's settings): the dashboard doesn't ask about work's (`StatusLineAsk`). */
   ownStatusLine?: boolean;
+  /** config.json's `terminal.colors`, written by hand: the terminal's own colours over its theme — only the ones that fit. */
+  terminalColors?: Record<string, string>;
   /** Where config.json is, for what isn't on the page. */
   configPath: string;
 }

@@ -1,6 +1,6 @@
 # Configuration
 
-Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`:
+Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`. `loadConfig` checks each key it models (a bad value is left to its default and goes at the next save) and keeps every other one as written — the Settings page's `theme` and `terminal`, a key written by hand or by a newer work — so a command that saves config.json (`saveConfig`: `work config remove-repo`, `add-group`, `remove-group`, `work init`) drops nothing it doesn't know. § WHEN work starts reading a key, model it in `loadConfig` (checked); a key only the Settings page reads (through `readSettings`) needs nothing there.
 - `worktreesRoot` — parent directory for all worktrees
 - `repos` — map of alias → repo path
 - `groups` — map of group name → array of repo aliases
@@ -13,6 +13,8 @@ Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`:
 - `hostEnv` — environment variable names a restored PTY-host session keeps from the shell that started it (secret-looking names never)
 - `agentsLowPriority` — start each session's agent below normal priority (default off): what it runs — builds, tests — inherits it, takes the idle cores and gives way to what you look at (`lowerPriority`, `pty-session.ts`: `os.setPriority` on the agent's pid right after the start; agents only, never a login terminal; a refusal is logged and the agent runs on). Read at each agent start (reported: two sessions' test runs and a compile filled a 15-watt CPU and typing froze)
 - `useBundledConpty` — Windows: terminals start on node-pty's bundled ConPTY instead of Windows' own (see PTY host)
+- `theme` — the app's colours (`system` | `light` | `dark` | `midnight` | `dracula` | `tokyo-night`, default `system`: follows the OS), on the Settings page's Theme section and in the theme menu on the top bar (see Appearance)
+- `terminal` — how work web's terminals look (see Appearance): `theme` (`app` — Match the app, the default | `default` | `midnight` | `dracula` | `tokyo-night` | `github-light`), `fontFamily`, `fontSize` (8–32), `lineHeight` (1–2), all on the Settings page; `colors` — single colours over the theme by xterm's names (`{ "background": "#101014", "brightBlue": "#7aa2f7" }`; `#rgb` or `#rrggbb`, with alpha `#rrggbbaa` for `selectionBackground` only), config.json only
 - `aiCommand` / `aiCommandFlags` — the agent new sessions run (Claude Code by default); `internalAgent` — the one that writes work's summaries; `assistantAgent` — the one the Ctrl+K assistant runs (both `claude` by default; see Agents)
 
 - `issues.rules` (a list): which project an issue starts in, a rule a line (`jira:PAY -> api`, `github:acme/web -> shop`); `issues.md`.

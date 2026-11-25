@@ -59,10 +59,7 @@
   font-size: 11px;
   color: var(--muted);
 }
-/* The account chip (AccountChip) is the stack chip's style (.wd-stack, .wd-overlap-link); a switch waiting for its turn after it. */
-.wd-account-pending {
-  color: var(--accent, inherit);
-}
+/* The account chip (AccountChip) is the stack chip's style (.wd-stack, .wd-overlap-link). */
 .wd-account-add-link {
   margin-right: auto;
 }
@@ -160,7 +157,7 @@
   min-height: 0;
   display: flex;
   margin: 0 16px;
-  background: #1e1e1e;
+  background: var(--term-bg);
 }
 .wd-account-login-term .wd-pty-host {
   flex: 1;
@@ -168,5 +165,5 @@
 }
 .wd-account-login-term > p {
   margin: 12px;
-  color: #d4d4d4;
+  color: var(--term-fg);
 }

@@ -199,8 +199,11 @@
   color: #6e7681;
   opacity: 0.7;
 }
+/* On the svg itself, in its own layer: WebKit then turns it off the main thread, and the row updating around it
+   doesn't start it over. 1s = SPIN_MS (StatusIcon.tsx), whose wall-clock delay keeps a redrawn one in phase. */
 .wd-status-spin {
-  transform-origin: 8px 8px;
+  transform-origin: 50% 50%;
+  will-change: transform;
   animation: wd-status-spin 1s linear infinite;
 }
 @keyframes wd-status-spin {
@@ -1282,7 +1285,7 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  background: #1e1e1e;
+  background: var(--term-bg);
 }
 .wd-assistant-body .wd-pty-host {
   flex: 1;
@@ -1310,7 +1313,7 @@
 .wd-term-slot {
   flex: 1;
   min-height: 0;
-  background: #1e1e1e;
+  background: var(--term-bg);
 }
 .wd-term-deck {
   position: fixed;

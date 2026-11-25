@@ -31,13 +31,13 @@ describe('switchAllSessions', () => {
     const order: string[] = [];
     const switchAccount = vi.fn(async (id: string, to: string): Promise<SwitchResult> => {
       order.push(`${id}→${to}`);
-      return id === 'api:feat/a' ? { ok: true, outcome: 'switched', moved: 3 } : { ok: true, outcome: 'queued' };
+      return id === 'api:feat/a' ? { ok: true, outcome: 'switched', moved: 3 } : { ok: true, outcome: 'switched', interrupted: true };
     });
     const rows = await switchAllSessions({ sessions: () => sessions, accountOf, idOf, switchAccount }, 'admin');
     expect(order).toEqual(['api:feat/a→admin', 'web:feat/c→admin']);
     expect(rows).toEqual([
       { id: 'api:feat/a', label: 'api · feat/a', outcome: 'switched' },
-      { id: 'web:feat/c', label: 'web · feat/c', outcome: 'queued' },
+      { id: 'web:feat/c', label: 'web · feat/c', outcome: 'switched', interrupted: true },
     ]);
   });
 
@@ -63,13 +63,22 @@ describe('switchAllSummary', () => {
         [
           { id: '1', label: 'a', outcome: 'switched' },
           { id: '2', label: 'b', outcome: 'switched' },
-          { id: '3', label: 'c', outcome: 'queued' },
+          { id: '3', label: 'c', outcome: 'switched', interrupted: true },
           { id: '4', label: 'd', outcome: 'recorded' },
           { id: '5', label: 'e', error: 'no' },
         ],
         'admin',
       ),
-    ).toBe('4 sessions moved to admin: 2 restarted on it, 1 when its turn ends, 1 on its next start; 1 refused');
+    ).toBe('4 sessions moved to admin: 3 restarted on it, 1 on its next start; 1 refused. 1 was mid-turn: tell it to continue');
+    expect(
+      switchAllSummary(
+        [
+          { id: '1', label: 'a', outcome: 'switched', interrupted: true },
+          { id: '2', label: 'b', outcome: 'switched', interrupted: true },
+        ],
+        'admin',
+      ),
+    ).toBe('2 sessions moved to admin: 2 restarted on it. 2 were mid-turn: tell them to continue');
     expect(switchAllSummary([{ id: '1', label: 'a', outcome: 'recorded' }], 'admin')).toBe('1 session moved to admin: 1 on its next start');
     expect(switchAllSummary([], 'admin')).toBe('No session to move: every one is on admin already.');
   });

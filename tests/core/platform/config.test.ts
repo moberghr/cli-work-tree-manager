@@ -220,6 +220,38 @@ describe('loadConfig', () => {
   });
 });
 
+describe('keys loadConfig does not model', () => {
+  it("kept as written through a load and a save: the Settings page's theme and terminal, even a value no list knows, and anything else", () => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    const file = path.join(tmpDir, '.work', 'config.json');
+    const written = {
+      theme: 'solarized',
+      terminal: { theme: 'midnight', fontSize: 15, colors: { background: '#101014', cursor: 'red', nope: '#fff' } },
+      fromANewerWork: { on: true },
+    };
+    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, ...written }));
+    saveConfig(loadConfig()!);
+    expect(JSON.parse(fs.readFileSync(file, 'utf-8'))).toMatchObject(written);
+  });
+
+  it('a key it models is still checked: a bad value goes', () => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    const file = path.join(tmpDir, '.work', 'config.json');
+    fs.writeFileSync(file, JSON.stringify({ worktreesRoot: '/w', repos: {}, launchViaHost: 'yes', notifications: 'on' }));
+    expect(loadConfig()).toMatchObject({ launchViaHost: undefined, notifications: false });
+    saveConfig(loadConfig()!);
+    const saved = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    expect(saved.launchViaHost).toBeUndefined();
+    expect(saved.notifications).toBe(false);
+  });
+
+  it('a file that is not an object adds nothing', () => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.work', 'config.json'), JSON.stringify(['a']));
+    expect(Object.keys(loadConfig()!)).not.toContain('0');
+  });
+});
+
 describe("the Time tab's settings (time)", () => {
   it('kept when loaded (reported: they were dropped, so a gap ticket never applied); a bad value is left to its default', () => {
     fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });

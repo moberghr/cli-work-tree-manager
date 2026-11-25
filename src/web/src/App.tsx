@@ -29,7 +29,8 @@ import { AskHost } from './components/AskHost.js';
  * so deep links work directly.
  */
 /** Wraps the router in the cross-cutting providers every view shares.
- *  ThemeProvider owns the light/dark preference; DiffModeProvider supplies
+ *  ThemeProvider gives the theme menu its controls over the page's
+ *  appearance store (state/appearance.ts); DiffModeProvider supplies
  *  the split/unified preference to the whole tree. AskHost shows every
  *  "are you sure?" (state/ask.ts) — never window.confirm. */
 export function App() {

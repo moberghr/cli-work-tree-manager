@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
+import { sharedCargoTarget } from './cargo-target.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DESKTOP = path.join(ROOT, 'desktop');
@@ -58,6 +59,13 @@ const cargoBin = path.join(os.homedir(), '.cargo', 'bin');
 if (spawn.sync('cargo', ['--version'], { stdio: 'ignore' }).status !== 0 && fs.existsSync(cargoBin)) {
   const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
   env[key] = `${cargoBin}${path.delimiter}${env[key] ?? ''}`;
+}
+// A worktree builds into the main checkout's target folder (cargo-target.mjs).
+const common = spawn.sync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: ROOT, encoding: 'utf8' });
+const target = sharedCargoTarget(ROOT, common.status === 0 ? common.stdout.trim() : null, env);
+if (target) {
+  env.CARGO_TARGET_DIR = target;
+  console.log(`Rust build shared with the main checkout: ${target}`);
 }
 let demoProc = null;
 if (demo) {

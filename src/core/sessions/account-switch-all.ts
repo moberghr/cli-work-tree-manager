@@ -3,7 +3,7 @@ import type { SwitchOutcome, SwitchResult } from './account-switch.js';
 /**
  * Move every session to one account in one go (asked for: an account ran out, and each session had to be switched
  * by hand). Each goes through the same switch as one session's (account-switch.ts): a live agent restarts on the new
- * account, a working one switches when its turn ends, one that isn't running starts there next time. Archived
+ * account (a working one too: its turn is interrupted), one that isn't running starts there next time. Archived
  * sessions stay where they are (their Restore decides). One after another: a restart at a time.
  */
 
@@ -20,6 +20,8 @@ export interface SwitchAllRow {
   label: string;
   /** How it went (absent: it was refused, `error` says why). */
   outcome?: SwitchOutcome;
+  /** Its turn was interrupted by the switch: tell it to continue. */
+  interrupted?: boolean;
   error?: string;
 }
 
@@ -56,24 +58,24 @@ export async function switchAllSessions<T extends SwitchAllSession>(
       status: 502,
       error: err instanceof Error ? err.message : String(err),
     }));
-    rows.push(r.ok ? { id, label, outcome: r.outcome } : { id, label, error: r.error });
+    rows.push(r.ok ? { id, label, outcome: r.outcome, ...(r.interrupted ? { interrupted: true } : {}) } : { id, label, error: r.error });
   }
   return rows;
 }
 
-/** "5 sessions moved to admin: 3 restarted on it, 1 when its turn ends, 1 on its next start; 1 refused". Pure. */
+/** "4 sessions moved to admin: 3 restarted on it, 1 on its next start; 1 refused. 1 was mid-turn: tell it to continue". Pure. */
 export function switchAllSummary(rows: readonly SwitchAllRow[], to: string): string {
   if (rows.length === 0) return `No session to move: every one is on ${to} already.`;
   const n = (o: SwitchOutcome) => rows.filter((r) => r.outcome === o).length;
   const moved = rows.filter((r) => r.outcome).length;
   const refused = rows.length - moved;
-  const parts = [
-    n('switched') ? `${n('switched')} restarted on it` : '',
-    n('queued') ? `${n('queued')} when its turn ends` : '',
-    n('recorded') ? `${n('recorded')} on its next start` : '',
-  ].filter(Boolean);
+  const cut = rows.filter((r) => r.interrupted).length;
+  const parts = [n('switched') ? `${n('switched')} restarted on it` : '', n('recorded') ? `${n('recorded')} on its next start` : ''].filter(
+    Boolean,
+  );
   return (
     `${moved} session${moved === 1 ? '' : 's'} moved to ${to}${parts.length ? `: ${parts.join(', ')}` : ''}` +
-    (refused ? `; ${refused} refused` : '')
+    (refused ? `; ${refused} refused` : '') +
+    (cut ? `. ${cut} ${cut === 1 ? 'was' : 'were'} mid-turn: tell ${cut === 1 ? 'it' : 'them'} to continue` : '')
   );
 }

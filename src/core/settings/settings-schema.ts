@@ -66,13 +66,17 @@ export const SETTING_PATTERNS = {
   customField: '^customfield_\\d+$',
   agentId: '^[\\w.-]+$',
   envName: '^[A-Za-z_][A-Za-z0-9_]*$',
+  /** A font name or several, comma-separated (the terminal's font; it refuses what would end a CSS value). */
+  fontFamily: '^[^;{}<>\\\\]+$',
 } as const;
 
-export type SettingSection = 'General' | 'Agents & terminals' | 'Pull requests' | 'Reviews' | 'Issues' | 'Time' | 'Archive & usage';
+export type SettingSection =
+  'General' | 'Agents & terminals' | 'Theme' | 'Pull requests' | 'Reviews' | 'Issues' | 'Time' | 'Archive & usage';
 
 export const SETTING_SECTIONS: readonly SettingSection[] = [
   'General',
   'Agents & terminals',
+  'Theme',
   'Pull requests',
   'Reviews',
   'Issues',
@@ -218,6 +222,72 @@ export const SETTINGS: readonly SettingField[] = [
     false,
     'at the next agent start (a running one: restart it)',
   ),
+  // ---- Theme
+  {
+    path: 'theme',
+    section: 'Theme',
+    label: 'App theme',
+    help: "The colours of the whole app; System follows the computer's light or dark mode.",
+    kind: {
+      type: 'choice',
+      options: [
+        { value: 'system', label: 'System' },
+        { value: 'light', label: 'Light' },
+        { value: 'dark', label: 'Dark' },
+        { value: 'midnight', label: 'Midnight' },
+        { value: 'dracula', label: 'Dracula' },
+        { value: 'tokyo-night', label: 'Tokyo Night' },
+      ],
+    },
+    default: 'system',
+  },
+  {
+    path: 'terminal.theme',
+    section: 'Theme',
+    label: 'Terminal theme',
+    help: "The colours of every terminal in work (sessions, the Ctrl+K assistant, an account's sign-in): they follow the app's theme unless you pick one here. On GitHub Light, switch Claude Code to its light theme (/theme) so its own colours read. Single colours can be changed in config.json (terminal.colors).",
+    kind: {
+      type: 'choice',
+      options: [
+        { value: 'app', label: 'Match the app' },
+        { value: 'default', label: 'Default dark' },
+        { value: 'midnight', label: 'Midnight' },
+        { value: 'dracula', label: 'Dracula' },
+        { value: 'tokyo-night', label: 'Tokyo Night' },
+        { value: 'github-light', label: 'GitHub Light' },
+      ],
+    },
+    default: 'app',
+  },
+  {
+    path: 'terminal.fontFamily',
+    section: 'Theme',
+    label: 'Terminal font',
+    help: "A font installed on this computer (work doesn't ship fonts). Several, comma-separated, are tried in order; work's own list comes after yours, so a name that isn't installed falls back to it.",
+    kind: {
+      type: 'text',
+      placeholder: 'Hack, JetBrains Mono…',
+      pattern: SETTING_PATTERNS.fontFamily,
+      patternError: "a font's name (Hack), or several separated by commas",
+    },
+    default: null,
+  },
+  {
+    path: 'terminal.fontSize',
+    section: 'Theme',
+    label: 'Terminal font size',
+    help: 'In pixels.',
+    kind: { type: 'number', min: 8, max: 32 },
+    default: 13,
+  },
+  {
+    path: 'terminal.lineHeight',
+    section: 'Theme',
+    label: 'Terminal line height',
+    help: '1 is as tight as today; 1.2 gives each line a little more room.',
+    kind: { type: 'number', min: 1, max: 2 },
+    default: 1,
+  },
   // ---- Pull requests
   bool(
     'prWatch.autoArchive',
@@ -489,7 +559,7 @@ export const SETTINGS: readonly SettingField[] = [
 
 /** What the Settings page says isn't on it (edit config.json for those: `work config edit`). */
 export const SETTINGS_ELSEWHERE =
-  'Repos and groups are on the Repos page, Claude accounts on Accounts, which PRs are reviewed on Reviews. Saved prompts, status hooks, the agent’s flags, the port range, git hosts and the Time tab’s hints, holidays and vacation are in config.json: work config edit opens it.';
+  'Repos and groups are on the Repos page, Claude accounts on Accounts, which PRs are reviewed on Reviews. Saved prompts, status hooks, the agent’s flags, the port range, git hosts, the terminal’s own colours over its theme (terminal.colors) and the Time tab’s hints, holidays and vacation are in config.json: work config edit opens it.';
 
 export const settingAt = (path: string): SettingField | undefined => SETTINGS.find((f) => f.path === path);
 

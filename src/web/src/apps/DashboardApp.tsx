@@ -74,7 +74,7 @@ import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.j
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
 import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
 import { AccountDialog } from '../components/Dashboard/AccountDialog.js';
-import { accountAction, cancelledText, switchText } from '../state/accounts.js';
+import { accountAction, switchText } from '../state/accounts.js';
 import { AccountsTab } from '../components/Dashboard/tabs/AccountsTab.js';
 import { SettingsTab } from '../components/Dashboard/tabs/SettingsTab.js';
 import { addedRepoText, canAddRepo, withWarnings } from '../state/add-repo.js';
@@ -93,6 +93,7 @@ import {
 } from '../state/dashboard-route.js';
 import { readRailFolded, writeRailFolded } from '../state/review-prefs.js';
 import { dashboardDialogOpen, modalOpen as aModalIsOpen } from '../state/modal-open.js';
+import { useAppearanceUpdates } from '../state/appearance.js';
 import { Menu, type MenuItem } from '../ui/index.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
@@ -140,6 +141,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     return parseHash(hash);
   });
   useEffect(() => saveLastRoute(route, safeLocalStorage()), [route]);
+  // The app's theme and the terminals' style (Settings → Theme), kept in config.json on this page: read now, in before a
+  // terminal's first replay (so it is fitted once), and again when a setting is saved.
+  useAppearanceUpdates();
   const [sessionRows, setSessions] = useState<SessionSummary[]>([]);
   // Archiving shows from the click (archive-pending.ts), before the server's own flag comes.
   const sessions = useMarkArchiving(sessionRows);
@@ -1195,12 +1199,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           onSwitched={(to, w) => {
             setSwitchingAccount(null);
             refetch.trigger();
-            showToast({ text: switchText(w.outcome, to) });
-          }}
-          onCancelled={(to) => {
-            setSwitchingAccount(null);
-            refetch.trigger();
-            showToast({ text: cancelledText(to) });
+            showToast({ text: switchText(w.outcome, to, w.interrupted) });
           }}
           onAddAccount={() => {
             setSwitchingAccount(null);

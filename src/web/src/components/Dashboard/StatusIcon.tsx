@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import type { DisplayKind } from '../../state/session-display.js';
 import { DISPLAY_LABEL, DISPLAY_MEANING } from '../../state/session-display.js';
 
@@ -19,25 +19,49 @@ export function StatusIcon({
   labelled?: boolean;
   /** Snoozed: the shape, greyed. */ muted?: boolean;
 }) {
+  // The spinner's phase, from the wall clock: one drawn again (a row remounted) carries on where it was, in step
+  // with every other, rather than starting over.
+  const [phase] = useState(spinPhase);
+  const spins = SPINS.has(kind);
   const a11y = labelled
     ? { role: 'img' as const, 'aria-label': DISPLAY_LABEL[kind], title: `${DISPLAY_LABEL[kind]}: ${DISPLAY_MEANING[kind]}` }
     : { 'aria-hidden': true as const };
   return (
     <span className={`wd-rail-dot wd-rail-dot-${kind} wd-status-icon${muted ? ' wd-status-icon-muted' : ''}`} {...a11y}>
-      <svg viewBox="0 0 16 16" width="14" height="14" focusable="false">
+      {/* The whole svg turns, not a group inside it (reported, on macOS): WebKit animates an svg's inner element on
+          the main thread and starts it over each time the row around it updates — a working session's does often. */}
+      <svg
+        viewBox="0 0 16 16"
+        width="14"
+        height="14"
+        focusable="false"
+        className={spins ? 'wd-status-spin' : undefined}
+        style={spins ? { animationDelay: phase } : undefined}
+      >
         {GLYPH[kind]}
       </svg>
     </span>
   );
 }
 
+/** The kinds drawn as the turning arc. */
+const SPINS: ReadonlySet<DisplayKind> = new Set(['working', 'background', 'archiving', 'restoring']);
+
+/** One turn (`wd-status-spin` in dashboard.css). */
+export const SPIN_MS = 1000;
+
+/** A negative delay that puts a spinner where the wall clock says it is in its turn. */
+export function spinPhase(now: number = Date.now()): string {
+  return `${-(now % SPIN_MS)}ms`;
+}
+
 const cut = 'var(--status-icon-cut, var(--bg))'; // the glyph inside a filled disc
 
 const ARC = (
-  <g className="wd-status-spin">
+  <>
     <circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
     <path d="M8 2.4a5.6 5.6 0 0 1 5.6 5.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-  </g>
+  </>
 );
 
 const GLYPH: Record<DisplayKind, ReactElement> = {

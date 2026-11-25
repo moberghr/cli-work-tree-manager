@@ -1,0 +1,180 @@
+# Terminal themes — spec
+
+- Date: 2026-11-23 · Branch: `feat/terminal-themes` (worktree `.claude/worktrees/terminal-themes`)
+- Scope: `new-feature` · Spec mode: standard · `security_impact`: none
+- Ambiguity gate: ran before drafting. The user chose config.json over per-browser storage, the 5 built-in themes plus `terminal.colors` overrides by hand in config.json (no colour editor), and the theme set Default dark / Midnight / Dracula / Tokyo Night / GitHub Light.
+
+## Summary
+
+Every terminal in work web (a session's, the Ctrl+K assistant's, an account sign-in's) is one `PtyView` whose look is hard-coded: 13 px, the Cascadia/SF Mono stack, `#1e1e1e` on `#d4d4d4`, xterm's default ANSI colours (`src/web/src/components/Terminal/PtyView.tsx:114-117`), and the same `#1e1e1e` repeated in five stylesheet rules. This adds a **Terminal** section to the Settings page — theme (5 built-ins), font family, font size, line height — kept in `~/.work/config.json` under `terminal.*`, plus `terminal.colors` written by hand to override any colour of the chosen theme. Open terminals restyle as soon as a setting is saved, without reconnecting.
+
+## Success criteria
+
+| Id | Criterion | Verification | Channel | Observable |
+|---|---|---|---|---|
+| SC1 | Each of the 5 themes defines all 21 colours (background, foreground, cursor, cursorAccent, selectionBackground, 16 ANSI) as hex; Default dark is today's look exactly (`#1e1e1e` / `#d4d4d4`, xterm's own Tango ANSI, cursor `#ffffff`, accent `#000000`, selection `#ffffff4d`). | `tests/core/settings/terminal-style.test.ts` | test-run | the theme tests pass |
+| SC2 | The schema has a `Terminal` section with `terminal.theme` (choice), `terminal.fontFamily` (text), `terminal.fontSize` (8–32), `terminal.lineHeight` (1–2); its choice options equal the theme module's ids and labels, its defaults equal the module's defaults; a value out of range or a font name with `;{}<>\` is refused. | `tests/core/settings/settings.test.ts` | test-run | the schema tests pass |
+| SC3 | `resolveTerminalStyle(values, colors)`: nothing set → today's options; each hand-written value that doesn't fit falls back to its own default (the others kept); a font name set is followed by the default stack; overrides apply only for known colour keys with a hex value. | `tests/core/settings/terminal-style.test.ts` | test-run | the resolve tests pass |
+| SC4 | `GET /api/settings` (`readSettings`) carries `terminalColors`: the valid entries of config.json's `terminal.colors`, nothing else; absent when there are none. | `tests/core/settings/settings.test.ts` | test-run | the settings-over-config tests pass |
+| SC5 | The SPA's terminal style store loads the settings once for every terminal, loads again on `settings-changed`, tells its subscribers, and sets `--term-bg` / `--term-fg` on `<html>`. | `tests/web/terminal-style.test.ts` | test-run | the store tests pass |
+| SC6 | An open terminal takes a changed theme, font, size or line height without reconnecting: xterm's options change, the grid is refitted and the PTY resized when its columns or rows changed; a terminal hidden in the deck refits when shown. | `tests/web/pty-view.test.ts` (same Terminal, same socket, options changed, a resize sent when the grid changed); then `work web` from this worktree: change the theme and the font size on Settings, look at an open session's terminal | test-run + browser | the restyle test passes, and the open terminal changes colours and size with no "Connecting…" |
+| SC7 | Type check, lint, format check, the whole test suite and the build pass. | `npm run typecheck && npm run lint && npm run format:check && npm test && npm run build` | build-output | every command exits 0 |
+
+## Architecture and design
+
+**One pure module, `src/core/settings/terminal-style.ts`** (import-free like `settings-schema.ts`, so the SPA and the server both import it): `TERMINAL_THEMES` (id → label + palette), `TERMINAL_COLOR_KEYS`, `DEFAULT_TERMINAL_FONT_FAMILY` (today's stack), `DEFAULT_TERMINAL_FONT_SIZE` 13, `DEFAULT_TERMINAL_LINE_HEIGHT` 1, `DEFAULT_TERMINAL_THEME` `'default'`, the ranges, `checkTerminalColors(raw)` (keeps known keys with `#rgb`/`#rrggbb`/`#rrggbbaa`), `resolveTerminalStyle(values, colors)` → `{ themeId, theme, fontFamily, fontSize, lineHeight }`. Field-by-field fallback: a hand edit that doesn't fit never breaks the terminal.
+
+Themes (palettes all MIT-licensed upstream; Midnight is work's own):
+- **Default dark** — today's look, xterm's defaults spelled out.
+- **Midnight** — near-black `#0d0d10`, crisp `#e4e4e7` text, a clean bright ANSI set (Warp-like feel, not Warp's).
+- **Dracula** — the official Dracula ANSI spec.
+- **Tokyo Night** — the "night" variant of the terminal ports.
+- **GitHub Light** — GitHub Light Default's terminal colours; its help says to switch Claude Code to its light theme (`/theme`).
+
+**Schema** (`settings-schema.ts`): a new `SettingSection` `'Terminal'` (after `'Agents & terminals'`), four fields. The schema stays import-free: its choice options and defaults are written there and a test ties them to the module. `SETTINGS_ELSEWHERE` mentions the terminal's own colours.
+
+**Server**: `readSettings` adds `terminalColors` (from raw config.json `terminal.colors`, through `checkTerminalColors`) to `SettingsWire` (optional field, `api-types.ts`). Writing is unchanged (the four fields go through the schema like every other; `terminal.colors` is only hand-written). The demo source is unchanged (no colours there: the field is optional).
+
+**SPA**: `src/web/src/state/terminal-style.ts` — a store shared by every `PtyView`: one `fetchSettings()` in flight at a time, the resolved style, subscribers, `useTerminalStyle()` (subscribes; re-loads on `settings-changed` through `useSse('/events', …)`, which shares one EventSource per URL). On every new style it sets `--term-bg` / `--term-fg` on `document.documentElement`. Until the first load: the defaults (today's look), so nothing flashes for anyone who never set anything.
+
+**PtyView**: the `Terminal` is built from the current style (ref, read inside the connect effect, so a change never reconnects); a second effect on the style applies it to a live terminal through a `restyle` ref the connect effect sets: `term.options.theme/fontFamily/fontSize/lineHeight`, then the existing `onResize()` (fits only when active; a hidden one refits when shown — `shown.current`).
+
+**CSS**: `tokens.css` defines `--term-bg: #1e1e1e; --term-fg: #d4d4d4` in `:root`; the six hard-coded terminal colours become `var(--term-bg)` / `var(--term-fg)` (`.wd-pty-host`, its `.xterm-viewport`, `.wd-pty-connecting`, `.wd-assistant-body`, `.wd-term-slot`, `.wd-account-login-term` and its `> p`); the connecting text's `#9da5b4` becomes a mix of the two so it reads on a light theme too.
+
+### Rejected alternatives
+- trap: per-browser localStorage (like light/dark) — the user chose config.json: one look in the browser and the desktop app, and it survives work web changing port.
+- trap: a separate `GET /api/terminal-style` route — it would need a route, a `SettingsSource` method and the demo's copy; the settings read already carries the four values, one optional field carries the colours.
+- trap: importing the palettes into `settings-schema.ts` — the schema is import-free by design; a test ties the option list and defaults to the module instead.
+- trap: bundling a font (JetBrains Mono, Hack) — weight in every install for a choice the user makes once; any installed font works by name.
+
+## Security and compliance impact
+
+`none`. No auth, secrets, PII or IAM path. The font name is the user's own text from their own config.json, checked by a pattern that refuses `;{}<>\` and passed to xterm as an option (canvas font), never into HTML. Colours are hex only. `readSettings` still returns only schema paths plus the checked colours — nothing else of config.json leaves it.
+
+## Change manifest
+
+| Path | Action | Purpose |
+|---|---|---|
+| `src/core/settings/terminal-style.ts` | create | themes, defaults, colour check, resolve (pure) |
+| `src/core/settings/settings-schema.ts` | modify | Terminal section, four fields, SETTINGS_ELSEWHERE |
+| `src/core/settings/settings-admin.ts` | modify | `readSettings` carries `terminalColors` |
+| `src/core/api-types.ts` | modify | `SettingsWire.terminalColors?` |
+| `tests/core/settings/terminal-style.test.ts` | create | SC1, SC3 |
+| `tests/core/settings/settings.test.ts` | modify | SC2, SC4 |
+| `tests/architecture/boundaries.test.ts` | modify | the SPA may import the new pure module (`SPA_SHARED`) |
+| `tests/web/settings-page.test.ts` | modify | the page now has 8 sections, Terminal among them |
+| `src/web/src/state/terminal-style.ts` | create | the SPA store + hook + CSS variables |
+| `src/web/src/components/Terminal/PtyView.tsx` | modify | built from the style, restyled live |
+| `src/web/src/styles/tokens.css` | modify | `--term-bg` / `--term-fg` defaults |
+| `src/web/src/styles/global.css` | modify | host, viewport, connecting overlay use the variables |
+| `src/web/src/styles/dashboard.css` | modify | assistant body, terminal slot use the variable |
+| `src/web/src/styles/pages/accounts.css` | modify | sign-in terminal box uses the variables |
+| `tests/web/terminal-style.test.ts` | create | SC5 |
+| `tests/web/pty-view.test.ts` | modify | the fake Terminal gets `options`; the store mocked; SC6 restyle test |
+| `.claude/references/work/terminal-appearance.md` | create (mechanical) | the area's reference |
+| `.claude/references/work/settings.md` | modify (mechanical) | the Terminal section |
+| `.claude/references/work/configuration.md` | modify (mechanical) | `terminal.*` keys |
+| `CLAUDE.md` | modify (mechanical) | list the new reference file |
+
+## Test manifest
+
+- `tests/core/settings/terminal-style.test.ts` — SC1, SC3
+- `tests/core/settings/settings.test.ts` — SC2, SC4
+- `tests/web/terminal-style.test.ts` — SC5
+- `tests/web/pty-view.test.ts` — SC6 (restyle without reconnect); the colours themselves by looking at the running app (xterm's canvas/WebGL doesn't render under jsdom)
+- `tests/architecture/boundaries.test.ts`, `tests/web/settings-page.test.ts` — kept true to the new module and section
+- SC7 by the commands.
+
+## Implementation batches
+
+- **B1 — core** (`terminal-style.ts`, `settings-schema.ts`, `settings-admin.ts`, `api-types.ts` + `tests/core/settings/*`, `tests/architecture/boundaries.test.ts`, `tests/web/settings-page.test.ts`): SC1–SC4.
+- **B2 — SPA** (store, `PtyView.tsx`, the four stylesheets + `tests/web/terminal-style.test.ts`, `tests/web/pty-view.test.ts`): SC5, SC6. Depends on B1. The store tolerates a failed settings fetch (keeps the style it has), so a page or test without the route still draws today's terminal.
+- **B3 — docs** (three reference files + `CLAUDE.md`), mechanical, inline. Depends on B2.
+
+## Risks and assumptions
+
+- [VERIFIED:node_modules/@xterm/xterm/lib/xterm.mjs] xterm's defaults are the Tango ANSI set, cursor `#ffffff`, accent `#000000`, selection `rgba(255,255,255,0.3)`.
+- [VERIFIED:node_modules/@xterm/xterm/typings/xterm.d.ts] `terminal.options` is settable at runtime (theme, fontFamily, fontSize, lineHeight).
+- [VERIFIED:src/web/src/api/events.ts] `useSse` shares one EventSource per URL (`acquireEventSource`), so each PtyView subscribing costs no connection.
+- [VERIFIED:src/web/src/state/settings-view.ts] the Settings page lists sections from `SETTING_SECTIONS`: a new section shows with no page change.
+- [VERIFIED:src/server/demo/demo-settings.ts] the demo checks settings through the same `checkSetting`: the new fields work there unchanged.
+- [VERIFIED:src/web/src/components/Terminal/PtyView.tsx] `onResize` fits only while active and `shown.current` refits when shown: a hidden terminal picks up a font change when shown.
+- A font name that isn't installed falls back to the default stack (it follows the user's). A web font is out of scope.
+- On GitHub Light, Claude Code in its dark theme draws some text light-on-light: the theme's help says to switch Claude's theme.
+- A font size change resizes the PTY: Claude redraws its screen, as on any window resize.
+- dirty-worktree: none (the worktree was clean at start; the main checkout's own changes are not in it).
+
+## Open questions
+
+None.
+
+## Prior Work Check
+
+`grep -rniE "terminal-?theme|termTheme|--term-bg|terminalStyle" src tests` → no matches. No existing terminal styling to reuse; the light/dark `ThemeProvider` is the app's, not the terminal's. Verdict: CLEAR.
+
+## Part 2 — the app's theme (added 2026-11-23, same PR)
+
+The user asked to theme the whole app, not only the terminal: a **Theme** section on the Settings page with the app and the terminal, the terminal following the app unless overridden. Their choices (AskUserQuestion): app themes System / Light / Dark / Midnight / Dracula / Tokyo Night; the terminal's new default is **Match the app**; the app's choice lives in config.json (the top-bar button writes it too); same PR #90.
+
+### Behaviour
+
+- `theme` (config.json, top level): `system` (default) | `light` | `dark` | `midnight` | `dracula` | `tokyo-night`. Absent = `system` = follow the OS (`prefers-color-scheme`), as today.
+- Light and Dark are today's Primer palettes. Midnight, Dracula and Tokyo Night are dark-based: `data-theme="dark"` (so hljs, diff.css and `color-scheme` stay dark) plus `data-app-theme="<id>"`, whose block in tokens.css redefines every colour token the dark block defines.
+- `terminal.theme` gains `app` ("Match the app"), its new default. Absent, `app` or unknown → the palette the app theme maps to: light → `github-light`, dark → `default` (today's #1e1e1e: no change for dark users), midnight/dracula/tokyo-night → the same-named palette. A palette id overrides.
+- The top-bar button flips light ↔ dark from the current base. In work web it writes `theme` to config.json (`saveSetting`), with the page updated at once. In `wd` (no settings API) it writes localStorage as today.
+- No flash: localStorage `wd:theme` caches the app theme (in work web it mirrors config.json; system/absent removes it). The boot script in index.html paints from it, and for a named theme sets `data-theme="dark"` + `data-app-theme`. `--term-bg` / `--term-fg` CSS defaults follow the base (light: GitHub Light's; dark: today's) and each named theme's, so a terminal frame never flashes the wrong colour before the settings arrive.
+- Upgrade: a light/dark choice made with the button before this change was per browser. In work web, config.json's value (System until set) now wins; one click on the button sets it again. `wd` keeps the browser's choice.
+
+### Design
+
+- `src/core/settings/app-theme.ts` (new, pure, import-free, in `SPA_SHARED`): `APP_THEMES` (`id`, `label`, `base: 'light' | 'dark'`, `terminal`: a palette id), `DEFAULT_APP_THEME = 'system'`, and `resolveAppTheme(value, osDark)` → `{ id, base, terminal }` (`id` never `system`; unknown → system).
+- `resolveTerminalStyle(values, colors?, follow = 'default')`: `follow` is the palette the app theme maps to.
+- Schema: the section `Terminal` becomes `Theme`. Fields: `theme` (App theme), `terminal.theme` (Terminal theme, options `app` + the 5 palettes, default `app`), `terminal.fontFamily`, `terminal.fontSize`, `terminal.lineHeight`. The theme option lists are written in the schema and held equal to the modules' by a test, as the font pattern is.
+- `loadConfig` reads `theme`, checked against the ids (the § rule in appearance.md).
+- SPA: `state/terminal-style.ts` becomes `state/appearance.ts`: one store for the page.
+  - It holds the settings' values (when the page has them), the localStorage cache and the OS scheme (a matchMedia listener).
+  - It derives the resolved app theme and the terminal style, stamps `data-theme` / `data-app-theme` / `--term-bg` / `--term-fg`, and tells subscribers only on a real change.
+  - Exports: `useTerminalStyle()` as before, `useAppearanceUpdates()` (the page's one subscription, was `useTerminalStyleUpdates`), `useAppTheme()`, `setAppTheme(id)`, `toggleAppTheme()`.
+  - `ThemeProvider` becomes a thin adapter over it, keeping its API (`theme` = base, `explicit`, `setTheme`, `toggle`), so `ThemeToggle` and `App.tsx` don't change.
+- diff.css: the three GitHub-dark surfaces become tokens: `--empty-bg` / `--ln-bg: var(--code-bg)`, `--status-binary-bg: var(--hover)`. The values are the same on Dark, and named themes follow.
+- Docs: `terminal-appearance.md` becomes `appearance.md` (git mv), covering both. Pointers are updated in CLAUDE.md, settings.md, configuration.md and pty-host.md.
+
+### Success criteria (part 2)
+
+- **SC8**: `resolveAppTheme`. System follows `osDark`, each id gives its base and terminal palette, unknown → system (tests/core/settings/app-theme.test.ts).
+- **SC9**: the terminal follows the app by default; a palette id overrides; unknown → follows (tests/core/settings/terminal-style.test.ts).
+- **SC10**: the Theme section lists App theme + the 4 terminal fields; the options and defaults equal the modules'; a save keeps `theme` (settings, config tests; SC15).
+- **SC11**: the store. A settings read sets the app theme and the attributes on `<html>`; the OS change is followed under System; the cache mirrors config; the toggle writes the setting in work web and localStorage in wd; the terminal palette follows (tests/web/appearance.test.ts, tests/web/theme-provider.test.ts).
+- **SC12**: every named theme's block in tokens.css defines every colour token of the dark block; fg, muted, accent and the semantic colours read ≥ 4.5:1 on its `--bg` (tests/web/theme-tokens.test.ts).
+- **SC13**: no flash. The boot script paints a cached named theme with `data-theme="dark"` + `data-app-theme` (a test runs the inline script in jsdom).
+- **SC14**: live in the demo, each app theme re-themes the whole page and the terminal follows; screenshots for the PR.
+
+## Part 3 — the review's suggestions (added 2026-11-23, same PR)
+
+The user asked for the suggestions left over from Part 2's review to be done too.
+
+- **config.json keeps what it doesn't model.** `loadConfig` now starts from the file as written and checks the keys it models over it, so a command that saves config.json keeps every other key — `theme` and `terminal` among them, an unknown value too (read as System / its default). This replaces Part 1's and Part 2's special-casing (`terminalConfigOf`, the `isAppThemeId` check, `TerminalConfig`), and `platform/config.ts` no longer imports `core/settings/`. The rejected alternative was a merge in `saveConfig`: about 100 callers (most of them tests) use it as a whole replacement.
+- **A choice's default is its label**: "Default: System.", "Default: Match the app." (`defaultText`), for every choice setting.
+- **The covers' text takes the palette**: the store stamps `--term-dim` (bright black) and `--term-error` (red), and Connecting… and a failed start mix them halfway with `--term-fg`. On Default dark the grey is a neutral one, about `#959595` (was the bluish `#9da5b4`), and the red a stronger `#d06a6a` (was the pink `#e8b4b4`).
+- **Highlighted code follows the named themes**: each colour in `hljs.css` is the fallback of a `--syn-*` property; Dark sets none (GitHub's, unchanged), Midnight, Dracula and Tokyo Night set theirs.
+- Not done: reusing `coalesce` for the store's reads. `coalesce` waits on a timer before its first run and returns no promise, and the store's first read must start at once and be awaited.
+
+### Success criteria (part 3)
+
+- **SC15**: a hand-written key loadConfig doesn't model (and `theme` / `terminal`, even with values no list knows) survives a load and a save; a modelled key with a bad value still goes (config tests).
+- **SC16**: the default of a choice setting shows as its option's label (settings tests).
+- **SC17**: the store stamps `--term-dim` / `--term-error` from the resolved palette; tokens.css's defaults are each palette's bright black and red (appearance, theme-tokens tests).
+- **SC18**: each named theme sets every `--syn-*` hljs.css reads, each at 4.5:1 or better on `--bg` and `--code-bg`; Dark sets none (theme-tokens test).
+
+## Part 4 — a theme menu instead of the light/dark button (added 2026-11-23, same PR)
+
+The user asked to remove the top bar's light/dark switch and offered either a quick theme switcher there or Settings only; they chose a quick theme menu, and the same on the review page.
+
+- The light/dark button (`ThemeToggle`) is gone; `ThemeMenu` takes its place on the top bar and the review page's toolbar: a palette button opening the shared `Menu` with one radio item per theme, ✓ on the one chosen (`MenuItem.checked`, new on the shared piece).
+- Where the theme is a setting (work web: the dashboard and its diff and review pages) it lists System, Light, Dark, Midnight, Dracula and Tokyo Night, and a pick saves `theme` at once (as Settings does); the top bar's adds More in Settings…. In `wd` it lists System, Light and Dark (the browser keeps the choice).
+- The store's app state says whether the theme is a setting (`setting`); `toggleAppTheme` and the provider's `toggle` / `explicit` went with the button.
+
+### Success criteria (part 4)
+
+- **SC19**: no light/dark button anywhere; the theme menu on the top bar and the review page, the chosen theme checked, a click on the button while open closes it (theme-provider test).
+- **SC20**: work web lists the six app themes (the top bar's with More in Settings…, which opens Settings) and a pick saves `theme`; `wd` lists System, Light and Dark and saves nothing (theme-provider, appearance tests).

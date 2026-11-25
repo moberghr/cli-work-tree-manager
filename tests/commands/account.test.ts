@@ -261,11 +261,12 @@ describe('work account switch', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('says what each outcome means: queued for its turn, recorded for a Claude that is not running', async () => {
+  it('says what each outcome means: an interrupted turn, recorded for a Claude that is not running', async () => {
     saveHistory([row()]);
-    callWeb.mockResolvedValue({ ok: true, body: { ok: true, outcome: 'queued' } });
+    callWeb.mockResolvedValue({ ok: true, body: { ok: true, outcome: 'switched', interrupted: true } });
     await run({ action: 'switch', name: 'api', folder: 'feat/x', to: 'work' });
-    expect(text()).toContain('when its turn ends');
+    expect(text()).toContain('restarted on it');
+    expect(text()).toContain('that turn was interrupted: tell it to continue');
     out = [];
     callWeb.mockResolvedValue({ ok: true, body: { ok: true, outcome: 'recorded', moved: 0 } });
     await run({ action: 'switch', name: 'api', folder: 'feat/x', to: 'work' });

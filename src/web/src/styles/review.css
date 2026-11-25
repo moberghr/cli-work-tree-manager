@@ -179,9 +179,9 @@
   margin-top: 0;
 }
 
-/* Light/dark theme toggle — a single square icon button matching the
+/* The theme menu's button — a single square icon button matching the
    segmented-control border/hover language. */
-.wd-theme-toggle {
+.wd-theme-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -195,7 +195,7 @@
   color: var(--muted);
   cursor: pointer;
 }
-.wd-theme-toggle:hover {
+.wd-theme-btn:hover {
   background: var(--hover);
   color: var(--fg);
 }

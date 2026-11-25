@@ -1,31 +1,20 @@
 import { useEffect, useState } from 'react';
 import type { AccountSwitchWire, AccountsWire } from '../../../../core/api-types.js';
-import { cancelAccountSwitch, fetchAccounts, switchSessionAccount, type SessionSummary } from '../../api/client.js';
-import {
-  accountName,
-  accountRow,
-  currentAccount,
-  hasMultipleAccounts,
-  loginText,
-  noSwitchText,
-  pendingText,
-} from '../../state/accounts.js';
+import { fetchAccounts, switchSessionAccount, type SessionSummary } from '../../api/client.js';
+import { accountName, accountRow, currentAccount, hasMultipleAccounts, loginText, noSwitchText } from '../../state/accounts.js';
 import { useBackdropClose } from '../../hooks/use-backdrop-close.js';
 import { Button } from '../../ui/index.js';
 
 interface Props {
   session: SessionSummary;
-  /** The session's Claude was moved, queued to move, or will start on the account (the toast says which). */
+  /** The session's Claude was moved (its turn interrupted, when it was working), or will start on the account (the toast says which). */
   onSwitched: (to: string, wire: AccountSwitchWire) => void;
   onClose: () => void;
-  /** The switch that waited for its turn was cancelled: it stays on its account. */
-  onCancelled?: (to: string) => void;
   /** The Accounts page's Add account (a login to move it to, or one to log in to). */
   onAddAccount?: () => void;
-  /** Test seams; default to GET /api/accounts, POST and DELETE /api/sessions/:id/account. */
+  /** Test seams; default to GET /api/accounts and POST /api/sessions/:id/account. */
   load?: () => Promise<AccountsWire>;
   switchTo?: (sessionId: string, to: string) => Promise<AccountSwitchWire>;
-  cancelSwitch?: (sessionId: string) => Promise<void>;
 }
 
 /**
@@ -39,11 +28,9 @@ export function AccountDialog({
   session,
   onSwitched,
   onClose,
-  onCancelled,
   onAddAccount,
   load = fetchAccounts,
   switchTo = switchSessionAccount,
-  cancelSwitch = cancelAccountSwitch,
 }: Props) {
   const [data, setData] = useState<AccountsWire | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,20 +51,6 @@ export function AccountDialog({
   }, [load]);
 
   const close = () => !busy && onClose();
-  const pending = session.accountPending;
-
-  async function cancel() {
-    if (busy || !pending) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await cancelSwitch(session.id);
-      onCancelled?.(pending);
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
-    }
-  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -115,17 +88,9 @@ export function AccountDialog({
         </header>
         <div className="wd-modal-body">
           <p className="wd-account-note">
-            Its conversation moves with it and the terminal stays: its Claude is stopped (after its turn, when it is working) and started
-            again on the new account, resuming where it was.
+            Its conversation moves with it and the terminal stays: its Claude is stopped (right away, even mid-turn) and started again on
+            the new account, resuming where it was.
           </p>
-          {pending && (
-            <p className="wd-account-note wd-account-pending-note" role="status">
-              Waiting for its turn to end: {pendingText(pending)}.{' '}
-              <Button onClick={() => void cancel()} disabled={busy}>
-                Cancel the switch
-              </Button>
-            </p>
-          )}
           {data === null && !loadError && <p className="wd-account-note">Loading the accounts…</p>}
           {loadError && (
             <p className="wd-modal-error" role="alert">
@@ -182,7 +147,7 @@ export function AccountDialog({
           <Button onClick={close} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" disabled={busy || !pick || !!pending}>
+          <Button variant="primary" type="submit" disabled={busy || !pick}>
             {busy ? 'Switching…' : 'Switch'}
           </Button>
         </footer>
