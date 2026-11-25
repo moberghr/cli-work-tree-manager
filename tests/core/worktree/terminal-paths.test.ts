@@ -12,6 +12,7 @@ vi.mock('../../../src/core/platform/launch.js', () => {
 
 import {
   openTerminalPath,
+  refusedPath,
   resolveTerminalPath,
   VIEWER_EXTENSIONS,
   type OpenTerminalPathDeps,
@@ -248,5 +249,33 @@ describe('openTerminalPath: what a click starts', () => {
       error: 'failed',
       message: 'could not start code: spawn code ENOENT',
     });
+  });
+});
+
+describe('refusedPath: paths never looked at', () => {
+  it('another machine: a file:// host, or two leading separators', () => {
+    expect(refusedPath('file://attacker/share/a.png', '/share/a.png')).toBe(true);
+    expect(refusedPath('file:////attacker/share/a.png', '//attacker/share/a.png')).toBe(true);
+    expect(refusedPath('\\\\attacker\\share\\a.png', '\\\\attacker\\share\\a.png')).toBe(true);
+    expect(refusedPath('//attacker/share/a.png', '//attacker/share/a.png')).toBe(true);
+    expect(refusedPath('\\\\?\\C:\\x.html', '\\\\?\\C:\\x.html')).toBe(true);
+  });
+
+  it('this machine: no host, or localhost', () => {
+    expect(refusedPath('file:///tmp/a.html', '/tmp/a.html')).toBe(false);
+    expect(refusedPath('file://localhost/tmp/a.html', '/tmp/a.html')).toBe(false);
+    expect(refusedPath('src/a.ts:10', 'src/a.ts')).toBe(false);
+  });
+
+  it('on Windows, a colon after the drive letter (an alternate stream)', () => {
+    expect(refusedPath('C:\\x\\a.txt:x.html', 'C:\\x\\a.txt:x.html', 'win32')).toBe(true);
+    expect(refusedPath('C:\\x\\a.txt', 'C:\\x\\a.txt', 'win32')).toBe(false);
+    expect(refusedPath('a.txt:x.html', 'a.txt:x.html', 'darwin')).toBe(false);
+  });
+
+  it('a network path resolves as missing without being looked at', async () => {
+    const r = await resolveTerminalPath({ paths: [api], isGroup: false }, 'file://attacker/share/a.png');
+    expect(r).toEqual({ raw: 'file://attacker/share/a.png', path: null, kind: 'missing', opens: null });
+    expect((await resolveTerminalPath({ paths: [api], isGroup: false }, '//attacker/share/a.png')).kind).toBe('missing');
   });
 });

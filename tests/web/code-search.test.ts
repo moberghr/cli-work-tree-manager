@@ -172,6 +172,17 @@ describe('the Ctrl+T box', () => {
     expect(onPick).toHaveBeenCalledWith({ repo: 'api', path: 'src/Keys.cs', line: 2 });
   });
 
+  it('opened with a query (a bare name clicked in the terminal): the box starts with it, and it is searched for', async () => {
+    vi.useFakeTimers();
+    act(() => root.render(createElement(CodeSearch, { sessionId: 's1', initialQuery: 'keys', onPick: vi.fn(), onClose: vi.fn() })));
+    const input = container.querySelector<HTMLInputElement>('.wd-switcher-input')!;
+    expect(input.value).toBe('keys');
+    expect(document.activeElement).toBe(input);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
+    expect(h.search.mock.calls[0].slice(0, 2)).toEqual(['s1', 'keys']);
+    expect(container.textContent).toContain('Keys.cs');
+  });
+
   it('↓ before any results is no harm: once they come, Enter opens the first', async () => {
     vi.useFakeTimers();
     const onPick = vi.fn();

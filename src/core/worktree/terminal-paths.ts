@@ -61,6 +61,20 @@ function found(raw: string, at: OnDisk, line: number | undefined): TerminalPathW
 
 const missing = (raw: string): TerminalPathWire => ({ raw, path: null, kind: 'missing', opens: null });
 
+/**
+ * A path that is never looked at, whatever is there. Another machine's — a `file://` address with a host, or a path
+ * starting with two separators (`\\host\share`, `//host/share`, `\\?\…`): on Windows merely asking whether it exists
+ * connects to that machine and sends it the user's credentials. And on Windows a `:` after the drive letter (a file's
+ * alternate stream, `a.txt:x.html`), whose type is not what its name says.
+ */
+export function refusedPath(raw: string, p: string, platform: NodeJS.Platform = process.platform): boolean {
+  const host = /^file:\/\/([^/]*)/i.exec(raw)?.[1];
+  if (host && host.toLowerCase() !== 'localhost') return true;
+  if (/^[\\/]{2}/.test(p)) return true;
+  if (platform === 'win32' && p.replace(/^[A-Za-z]:/, '').includes(':')) return true;
+  return false;
+}
+
 /** Folders a relative path is tried against, in order: a group's own folder, then each repo's worktree. */
 function relativeRoots(session: Session): string[] {
   const group = groupRoot(session);
@@ -106,7 +120,7 @@ export async function resolveTerminalPath(session: Session, raw: string, io: Ter
     const split = splitLine(raw);
     const p = split.path;
     const line = split.line !== undefined && split.line <= MAX_TERMINAL_LINE ? split.line : undefined;
-    if (!p) return missing(raw);
+    if (!p || refusedPath(raw, p)) return missing(raw);
 
     if (/^~(?=$|[\\/])/.test(p)) {
       const at = onDisk(path.join(os.homedir(), p.slice(1)));

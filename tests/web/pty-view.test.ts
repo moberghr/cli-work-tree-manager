@@ -29,7 +29,7 @@ const h = vi.hoisted(() => {
     /** Its root (the browser's copy event arrives on it). */
     element = document.createElement('div');
     /** Its cells (none here: the copy falls back to the plain selection, as it does when they disagree). */
-    buffer = { active: { getLine: () => undefined } };
+    buffer: { active: { getLine: (y: number) => unknown } } = { active: { getLine: () => undefined } };
     /** Where the selection starts (its column: the first line's text began there). */
     selectionStart = { x: 0, y: 0 };
     constructor(readonly opts: unknown) {
@@ -72,6 +72,12 @@ const h = vi.hoisted(() => {
     }
     attachCustomKeyEventHandler(fn: KeyHandler) {
       this.keyHandler = fn;
+    }
+    // The path links' provider (terminal-links.ts has their tests).
+    linkProviders: unknown[] = [];
+    registerLinkProvider(p: unknown) {
+      this.linkProviders.push(p);
+      return { dispose: () => void (this.linkProviders = this.linkProviders.filter((x) => x !== p)) };
     }
     hasSelection() {
       return this.selection.length > 0;
@@ -756,5 +762,126 @@ describe('PtyView', () => {
     act(() => root.render(createElement('div')));
     expect(ws.closed).toBe(true);
     expect(term.disposed).toBe(true);
+  });
+});
+
+describe('PtyView — paths it prints (terminal-links.ts)', () => {
+  interface LinkLike {
+    text: string;
+    range: unknown;
+    activate: (e: MouseEvent, text: string) => void;
+    hover?: (e: MouseEvent, text: string) => void;
+    leave?: (e: MouseEvent, text: string) => void;
+  }
+  type Provider = { provideLinks: (y: number, cb: (links: LinkLike[] | undefined) => void) => void };
+  type Wire = { raw: string; path: string | null; kind: string; opens: string | null };
+
+  // A buffer line as xterm gives it: one cell per character.
+  const cells = (text: string) => ({
+    isWrapped: false,
+    length: 80,
+    getCell: (x: number) => ({ getChars: () => text[x] ?? '', getWidth: () => 1 }),
+  });
+  const show = (term: InstanceType<typeof h.FakeTerminal>, rows: string[]) => {
+    term.buffer = { active: { getLine: (y: number) => (rows[y] === undefined ? undefined : cells(rows[y])) } };
+  };
+  const linksOn = (term: InstanceType<typeof h.FakeTerminal>, lineNumber: number) =>
+    new Promise<LinkLike[] | undefined>((resolve) => (term.linkProviders[0] as Provider).provideLinks(lineNumber, resolve));
+  const settle = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+
+  let answers: Record<string, Wire>;
+  let openStatus: number;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    answers = {};
+    openStatus = 200;
+    fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { paths?: string[] };
+      if (url.endsWith('/terminal-paths/resolve'))
+        return new Response(
+          JSON.stringify({ results: (body.paths ?? []).map((p) => answers[p] ?? { raw: p, path: null, kind: 'missing', opens: null }) }),
+        );
+      if (url.endsWith('/terminal-paths/open'))
+        return new Response(JSON.stringify(openStatus === 200 ? { ok: true, opened: 'x' } : { error: 'missing' }), { status: openStatus });
+      return new Response('{}');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  const opens = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/terminal-paths/open')).map(([, init]) => JSON.parse(String(init.body)));
+
+  it('a path that exists is a link: a plain click opens it, its right-click menu says where it is', async () => {
+    const { term } = mount('s1');
+    show(term, ['', 'see src/a.ts and gone.ts now']);
+    answers['src/a.ts'] = { raw: 'src/a.ts', path: '/w/src/a.ts', kind: 'file', opens: 'editor' };
+    const links = (await linksOn(term, 2)) ?? [];
+    expect(links.map((l) => [l.text, l.range])).toEqual([['src/a.ts', { start: { x: 5, y: 2 }, end: { x: 12, y: 2 } }]]);
+
+    links[0].activate(new MouseEvent('mouseup', { button: 1 }), 'src/a.ts');
+    links[0].activate(new MouseEvent('mouseup', { button: 0 }), 'src/a.ts');
+    await settle();
+    expect(opens()).toEqual([{ path: 'src/a.ts', how: 'default' }]);
+
+    const host = container.querySelector<HTMLElement>('.wd-pty-host')!;
+    links[0].hover?.(new MouseEvent('mousemove'), 'src/a.ts');
+    expect(host.title).toBe('/w/src/a.ts');
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 });
+    act(() => void host.dispatchEvent(menu));
+    expect(menu.defaultPrevented).toBe(true);
+    expect([...document.querySelectorAll('.wd-row-menu-item')].map((b) => b.textContent)).toEqual([
+      'Open',
+      'Open in editor',
+      expect.stringMatching(/^(Reveal in Finder|Show in Explorer|Show in file manager)$/),
+      'Copy path',
+    ]);
+    expect(document.querySelector('.wd-row-menu-footer')?.textContent).toBe('/w/src/a.ts');
+    act(() => document.querySelectorAll<HTMLButtonElement>('.wd-row-menu-item')[1].click());
+    await settle();
+    expect(opens().at(-1)).toEqual({ path: 'src/a.ts', how: 'editor' });
+    expect(document.querySelector('.wd-row-menu')).toBeNull();
+
+    // Off the link: the browser's own menu.
+    links[0].leave?.(new MouseEvent('mouseleave'), 'src/a.ts');
+    expect(host.title).toBe('');
+    const plain = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    act(() => void host.dispatchEvent(plain));
+    expect(plain.defaultPrevented).toBe(false);
+  });
+
+  it('a path that does not exist is no link, nor is anything when the server refuses', async () => {
+    const { term } = mount('s1');
+    show(term, ['see gone.ts here']);
+    expect(await linksOn(term, 1)).toBeUndefined();
+    fetchMock.mockImplementation(async () => new Response('{"error":"unknown session"}', { status: 404 }));
+    show(term, ['see other.ts here']);
+    expect(await linksOn(term, 1)).toBeUndefined();
+  });
+
+  it('a bare name several files have opens the code search with it typed in', async () => {
+    const { term } = mount('s1');
+    show(term, ['in SessionRail.tsx:202']);
+    answers['SessionRail.tsx:202'] = { raw: 'SessionRail.tsx:202', path: null, kind: 'ambiguous', opens: 'search' };
+    const links = (await linksOn(term, 1)) ?? [];
+    const asked = vi.fn();
+    window.addEventListener('work:code-search', asked);
+    try {
+      links[0].activate(new MouseEvent('mouseup', { button: 0 }), links[0].text);
+    } finally {
+      window.removeEventListener('work:code-search', asked);
+    }
+    expect((asked.mock.calls[0][0] as CustomEvent).detail).toEqual({ sessionId: 's1', query: 'SessionRail.tsx' });
+    expect(opens()).toEqual([]);
+  });
+
+  it('a file:// hyperlink opens on the server; a failure says so in a toast', async () => {
+    const { term } = mount('s1');
+    openStatus = 404;
+    const handler = (term.opts as { linkHandler: { activate: (e: MouseEvent, uri: string) => void } }).linkHandler;
+    handler.activate(new MouseEvent('mouseup', { button: 2 }), 'file:///tmp/x.html'); // a right-click's release
+    handler.activate(new MouseEvent('click'), 'file:///tmp/x.html');
+    await settle();
+    expect(opens()).toEqual([{ path: 'file:///tmp/x.html', how: 'default' }]);
+    expect(document.querySelector('.wd-toast')?.textContent).toBe('Couldn’t open file:///tmp/x.html: it no longer exists.');
   });
 });

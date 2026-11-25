@@ -363,6 +363,21 @@ export function openInEditor(
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, file ?? {});
 }
 
+/** Which of the paths a session's terminal shows exist, and how a click opens each: one result per path, in the order asked. */
+export function resolveTerminalPaths(sessionId: string, paths: string[]): Promise<import('../../../core/api-types.js').TerminalPathsWire> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/terminal-paths/resolve`, { paths });
+}
+
+/** How to open a path from the terminal: `default` is the server's choice by its kind (terminal-paths.ts). */
+export type TerminalPathHow = 'default' | 'editor' | 'reveal';
+
+/** Open a path the terminal shows (as printed, `:line` included): the server resolves it again. Rejects with its reason. */
+export function openTerminalPath(sessionId: string, path: string, how: TerminalPathHow): Promise<{ ok: true; opened: string }> {
+  return postJson<{ ok: true; opened: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/terminal-paths/open`, { path, how }).catch(
+    (e) => Promise.reject(reason(e)),
+  );
+}
+
 /**
  * Add a repo to a session folder (add-repo.ts): checked out into the folder on the session's
  * branch (the branch it has, else made from `base`). Throws with the server's reason when refused.
