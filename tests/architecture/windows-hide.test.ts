@@ -117,7 +117,8 @@ describe('every process work starts says windowsHide (no console windows flashin
       'commands/run.ts',
       'commands/shared/setup-completions.ts',
       'server/routes/repo-routes.ts',
-      'server/routes/worktree-routes.ts',
+      // The open-editor route's spawn moved here (`startEditor`), beside the default-app and reveal openers.
+      'core/platform/launch.ts',
     ])
       expect(importers.map((f) => f.rel)).toContain(rel);
     for (const f of importers) expect(starterCalls(f.text), f.rel).not.toBeNull();

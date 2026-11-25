@@ -19,7 +19,15 @@ vi.mock('../../../src/core/platform/spawn.js', () => ({
   ),
 }));
 
-import { editorArgs, launchAi, openInEditor, openUrl, openVSCode } from '../../../src/core/platform/launch.js';
+import {
+  defaultAppCommand,
+  editorArgs,
+  launchAi,
+  openInEditor,
+  openUrl,
+  openVSCode,
+  revealCommand,
+} from '../../../src/core/platform/launch.js';
 import { getAiTool } from '../../../src/core/platform/ai-launcher.js';
 
 describe('openUrl', () => {
@@ -77,6 +85,33 @@ describe('editorArgs', () => {
   it('an editor it does not know gets the file alone, never a made-up line flag', () => {
     expect(editorArgs('notepad', folder, file)).toEqual([file.path]);
     expect(editorArgs('vim', folder, file)).toEqual([file.path]);
+  });
+});
+
+describe('defaultAppCommand: the system opens a file with its own app', () => {
+  it('open on macOS, explorer.exe on Windows, xdg-open elsewhere, the path as the one argument', () => {
+    expect(defaultAppCommand('/tmp/mock up.html', 'darwin')).toEqual({ cmd: 'open', args: ['/tmp/mock up.html'] });
+    expect(defaultAppCommand('C:\\Users\\me\\mock up.html', 'win32')).toEqual({
+      cmd: 'explorer.exe',
+      args: ['C:\\Users\\me\\mock up.html'],
+    });
+    expect(defaultAppCommand('/tmp/mock up.html', 'linux')).toEqual({ cmd: 'xdg-open', args: ['/tmp/mock up.html'] });
+  });
+});
+
+describe('revealCommand: shown in the file manager, never opened', () => {
+  it('Finder selects it (open -R)', () => {
+    expect(revealCommand('/Applications/Thing.app', 'darwin')).toEqual({ cmd: 'open', args: ['-R', '/Applications/Thing.app'] });
+  });
+
+  it('Explorer selects it: `/select,<path>` is ONE argument', () => {
+    const r = revealCommand('C:\\work\\my repo\\run.cmd', 'win32');
+    expect(r).toEqual({ cmd: 'explorer.exe', args: ['/select,C:\\work\\my repo\\run.cmd'] });
+    expect(r.args).toHaveLength(1);
+  });
+
+  it('elsewhere its folder is opened (no common way to select a file)', () => {
+    expect(revealCommand('/home/me/src/run.sh', 'linux')).toEqual({ cmd: 'xdg-open', args: ['/home/me/src'] });
   });
 });
 

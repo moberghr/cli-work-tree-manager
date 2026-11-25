@@ -44,6 +44,7 @@ import type {
   AccountsWire,
   PtyHostRestartWire,
   TerminalTicketWire,
+  TerminalPathsWire,
 } from '../../core/api-types.js';
 import { demoUsage } from './demo-usage.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
@@ -987,6 +988,14 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     c.json({ error: 'Demo mode: opening local apps is simulated — there is no real worktree.' }, 501);
   app.post('/api/sessions/:id/open-editor', (c) => noLocalApps(c));
   app.post('/api/sessions/:id/open-terminal', (c) => noLocalApps(c));
+  // No real files behind the demo's terminals: no path in them exists, and none is opened.
+  app.post('/api/sessions/:id/terminal-paths/resolve', async (c) => {
+    const body: unknown = await c.req.json().catch(() => ({}));
+    const asked = body && typeof body === 'object' && 'paths' in body && Array.isArray(body.paths) ? body.paths : [];
+    const paths = asked.filter((p): p is string => typeof p === 'string').slice(0, 50);
+    return c.json({ results: paths.map((raw) => ({ raw, path: null, kind: 'missing', opens: null })) } satisfies TerminalPathsWire);
+  });
+  app.post('/api/sessions/:id/terminal-paths/open', (c) => noLocalApps(c));
   app.get('/api/sessions/:id/terminal/health', (c) => c.json({ ok: true }));
   // Its terminals are pretend ones over its own socket: the tab goes through that, as through work web's relay.
   app.post('/api/terminals/:id/ticket', (c) => c.json({ fallback: true } satisfies TerminalTicketWire));

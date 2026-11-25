@@ -1274,6 +1274,29 @@ export interface CodeFileWire {
   reason?: 'binary' | 'too-large';
 }
 
+// ---- paths in a session's terminal (terminal-paths.ts) -----------------------------
+
+/** What a path from the terminal is on disk: `ambiguous` is a bare file name several listed files have. */
+export type TerminalPathKind = 'file' | 'dir' | 'ambiguous' | 'missing';
+/** How a plain click opens it: the system's default app (viewer types only), the editor, the file manager, the code search. */
+export type TerminalPathOpens = 'app' | 'editor' | 'reveal' | 'search';
+
+/** One path from a terminal's text, as the server found it. `path` is the real path on disk (null when missing or ambiguous). */
+export interface TerminalPathWire {
+  /** The text as the terminal showed it, `:line` included. */
+  raw: string;
+  path: string | null;
+  kind: TerminalPathKind;
+  opens: TerminalPathOpens | null;
+  /** A file's line from `:line` / `:line:col`. */
+  line?: number;
+}
+
+/** POST /api/sessions/:id/terminal-paths/resolve — one result per path asked, in the same order. */
+export interface TerminalPathsWire {
+  results: TerminalPathWire[];
+}
+
 // ---- agent usage (core/usage/) -----------------------------------------------------
 
 /** Tokens, with what was read from the prompt cache apart: `input` is the rest of the prompt. */
