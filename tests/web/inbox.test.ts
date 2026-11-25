@@ -336,7 +336,9 @@ describe('SessionRail with attention', () => {
     const names = [...container.querySelectorAll('.wd-dash-rail-name')].map((n) => n.textContent);
     expect(names).toHaveLength(46); // every current one + the selected old one
     expect(names).toContain('old-b');
-    expect(text(container)).toContain('+2 older');
+    const older = [...container.querySelectorAll('.wd-dash-rail-group-toggle')].find((b) => b.textContent?.includes('Older'))!;
+    expect(older.querySelector('.wd-dash-rail-group-count')?.textContent).toBe('2'); // the other two, under a folded Older
+    expect(older.getAttribute('aria-expanded')).toBe('false');
   });
 });
 

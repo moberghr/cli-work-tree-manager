@@ -110,10 +110,12 @@ export function QuickSwitcher({
 /**
  * Ctrl+P opens and closes it — from anywhere, a terminal included (caught in
  * the capture phase, like Ctrl+K; there it stands in for the shell's Ctrl+P,
- * which ↑ also does), and never the desktop app's print dialog. Not over
- * another dialog (New worktree, Delete, Ship): a pick would navigate out from
- * under a confirmation in progress. Closed without a pick, focus goes back
- * where it was (the terminal).
+ * which ↑ also does), and never the desktop app's print dialog. `/` opens it
+ * too, but not while typing in a field or a terminal (its input is a
+ * textarea, so `/` in Claude still reaches Claude). Neither over another
+ * dialog (New worktree, Delete, Ship) or a menu: a pick would navigate out
+ * from under a confirmation in progress. Closed without a pick, focus goes
+ * back where it was (the terminal).
  */
 export function useQuickSwitcher(): { open: boolean; close: (picked: boolean) => void } {
   const [open, setOpen] = useState(false);
@@ -127,18 +129,33 @@ export function useQuickSwitcher(): { open: boolean; close: (picked: boolean) =>
     if (!picked && before?.isConnected) setTimeout(() => before.focus(), 0);
   }, []);
   useEffect(() => {
+    const show = () => {
+      focusBefore.current = document.activeElement as HTMLElement | null;
+      openRef.current = true;
+      setOpen(true);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'p') return;
       e.preventDefault(); // never the print dialog
       e.stopPropagation();
       if (openRef.current) return close(false);
       if (modalOpen()) return;
-      focusBefore.current = document.activeElement as HTMLElement | null;
-      openRef.current = true;
-      setOpen(true);
+      show();
+    };
+    const onSlash = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || openRef.current) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (modalOpen()) return; // a dialog, or a menu (MODAL_SELECTOR has them)
+      e.preventDefault();
+      show();
     };
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onSlash);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keydown', onSlash);
+    };
   }, [close]);
   return { open, close };
 }

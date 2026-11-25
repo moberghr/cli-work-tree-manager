@@ -301,7 +301,8 @@ describe('SessionRail rows', () => {
     // Not open, still two lines: its project on the left, its PR on the right —
     // never what its Claude said last (that's the session's header).
     expect(row.querySelector('.wd-dash-rail-summary')?.textContent).toBe('api');
-    expect(row.querySelector('.wd-dash-rail-sub .wd-pr-chip')?.textContent).toBe('#42');
+    expect(row.querySelector('.wd-dash-rail-sub .wd-rail-pr-mark')?.getAttribute('aria-label')).toBe('api #42 · open');
+    expect(row.getAttribute('title')).toContain('PR api #42 · open'); // the row shows a dot: its number is on hover
     expect(row.textContent).not.toContain('Claude needs your permission');
     expect(row.getAttribute('title')).toContain('Claude needs your permission to use Bash');
     // Its +/− lines are the Diff tab's, not the list's.

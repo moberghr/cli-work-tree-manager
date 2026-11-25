@@ -67,19 +67,28 @@ export function railSessions(
   return { current: applyManualOrder(stableSessionOrder(current), order), older: applyManualOrder(stableSessionOrder(older), order) };
 }
 
+/** The rail's heading for the older sessions (`railGroups`). Not a section: nothing is placed into it or out of it. */
+export const OLDER_GROUP = 'older';
+
 /**
- * What the rail shows, in groups (Pinned, your sections, the rest): the
- * current sessions, plus — while the older ones are folded away — the
- * pinned ones and the selected one, which always stay visible. `hidden`:
- * how many older ones the "+N older" button stands for.
+ * What the rail shows, in groups (Pinned, your sections, the rest), then the
+ * older sessions under one more heading, `Older`, last (folded until you
+ * open it: SessionRail). The pinned ones and the selected one stay where
+ * they were, in their own groups, older or not; `Older` holds the rest of
+ * them and is left out when there are none.
  */
 export function railGroups(
   sessions: SessionSummary[],
-  opts: { now?: number; order?: readonly string[]; layout: RailLayout; activeId?: string | null; showOlder?: boolean },
-): { groups: RailGroup<SessionSummary>[]; hidden: number } {
+  opts: { now?: number; order?: readonly string[]; layout: RailLayout; activeId?: string | null },
+): { groups: RailGroup<SessionSummary>[] } {
   const { current, older } = railSessions(sessions, opts.now ?? Date.now(), opts.order ?? []);
-  const kept = opts.showOlder ? older : older.filter((s) => s.id === opts.activeId || opts.layout.places[s.id]?.pinned);
-  return { groups: groupRail([...current, ...kept], opts.layout), hidden: older.length - kept.length };
+  const keep = (s: SessionSummary) => s.id === opts.activeId || !!opts.layout.places[s.id]?.pinned;
+  const rest = older.filter((s) => !keep(s));
+  const groups = groupRail([...current, ...older.filter(keep)], opts.layout);
+  if (rest.length === 0) return { groups };
+  // Nothing current and nothing of yours placed: Older alone, not under an empty "Other" and its hint.
+  const above = groups.length === 1 && groups[0].key === 'rest' && groups[0].sessions.length === 0 ? [] : groups;
+  return { groups: [...above, { key: OLDER_GROUP, title: 'Older', sessions: rest }] };
 }
 
 /**

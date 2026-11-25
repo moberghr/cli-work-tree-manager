@@ -50,7 +50,7 @@ import { fetchSetup } from '../api/panes.js';
 import { needsSetup } from '../state/setup.js';
 import { fetchProjects, fetchPrs, fetchReviews, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
 import { reviewsWaiting } from '../state/review-view.js';
-import { isArchived, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
+import { isArchived, OLDER_GROUP, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
@@ -725,15 +725,17 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         return;
       }
       // j / k — move down/up through the rail, in the order it shows them
-      // (the rail reports its rows: older ones unfolded, headings folded, a
-      // search); before it has, the same grouping it starts with. (Walking
+      // (the rail reports its rows: headings folded or not, Older among
+      // them); before it has, the same grouping it starts with. (Walking
       // all sessions by recency jumped to rows the rail doesn't show.)
       if (e.key === 'j' || e.key === 'k') {
         const byId = new Map(sessions.map((s) => [s.id, s]));
         const shown = railShownRef.current.map((id) => byId.get(id)).filter((s): s is SessionSummary => !!s);
         const sorted = shown.length
           ? shown
-          : railGroups(sessions, { order: sessionOrder, layout: railLayout, activeId: route.sessionId }).groups.flatMap((g) => g.sessions);
+          : railGroups(sessions, { order: sessionOrder, layout: railLayout, activeId: route.sessionId })
+              .groups.filter((g) => g.key !== OLDER_GROUP) // folded at first
+              .flatMap((g) => g.sessions);
         if (sorted.length === 0) return;
         const currentIdx = route.sessionId ? sorted.findIndex((s) => s.id === route.sessionId) : -1;
         const delta = e.key === 'j' ? 1 : -1;

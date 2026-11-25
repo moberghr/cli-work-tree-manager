@@ -14,22 +14,11 @@ import {
 import { newSectionId, railMenuItems, tagClass } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
-import { otherBranchText, owedBadgeClass, RailPrPills } from './SessionBits.js';
+import { otherBranchText, owedBadgeClass, RailPrMarks } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
-import {
-  DISPLAY_LABEL,
-  displayStatus,
-  owedBadge,
-  railGroups,
-  waitingOnOthers,
-  railSessions,
-  sessionMatches,
-  type DisplayKind,
-  type PrLookup,
-} from '../../state/session-display.js';
-import { relativeTime } from '../../utils/time.js';
+import { DISPLAY_LABEL, displayStatus, OLDER_GROUP, owedBadge, railGroups, type PrLookup } from '../../state/session-display.js';
+import { railName, railPrMarks, railPrsText, railStatus, railTime, type RailPrMark } from '../../state/rail-row.js';
 import { moveSession } from '../../../../core/rail/session-order.js';
-import { lastActiveAt } from '../../state/session-display.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { accountLabel } from '../../state/accounts.js';
 import { snoozeLabel } from '../../../../core/rail/snooze.js';
@@ -60,8 +49,8 @@ interface Props {
   onPlace?: (id: string, patch: PlacePatch) => void;
   /** Set when sections can be added, renamed, reordered, removed (one change at a time, applied by the server). */
   onSections?: (op: SectionOp) => Promise<void>;
-  /** The rows as shown, top to bottom (older ones unfolded, headings folded,
-   *  a search), whenever that changes — so j/k walk what's on screen. */
+  /** The rows as shown, top to bottom (headings folded or not, Older among
+   *  them), whenever that changes — so j/k walk what's on screen. */
   onShownChange?: (ids: string[]) => void;
 }
 
@@ -75,17 +64,18 @@ export function backgroundLine(b: { what: string | null; command?: boolean }): s
 
 /**
  * What a rail row doesn't show on its face, for its tooltip: what runs in
- * the background while its prompt is free, until when it's snoozed, what it waits on, where its PRs stand (the pills show which
- * are open), notes waiting for Claude, your note, where its Claude runs.
+ * the background while its prompt is free, until when it's snoozed, what it waits on, its PRs by number
+ * with where each stands (the row shows them as dots: `prs`, else the PR watch's line), notes waiting for
+ * Claude, your note, where its Claude runs.
  * Not its +/− lines: those are the Diff tab's. Pure (`now` for the snooze's wording).
  */
-export function railDetails(s: SessionSummary, now = new Date()): string {
+export function railDetails(s: SessionSummary, now = new Date(), prs?: { shown: RailPrMark[]; more: RailPrMark[] }): string {
   const c = s.agents ?? s.claudes;
   const bits = [
     s.attention?.background ? backgroundLine(s.attention.background) : '',
     s.snoozed ? `snoozed ${snoozeLabel(s.snoozed, now)}` : '',
     s.blockedBy?.length ? `waits on ${s.blockedBy.map((b) => b.label).join(', ')}` : '',
-    s.prStage?.text ?? '',
+    (prs && railPrsText(prs)) || (s.prStage?.text ?? ''),
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
     s.hasNote ? 'has notes' : '',
     s.keepAfterMerge ? 'kept after its PR merges' : '',
@@ -96,31 +86,12 @@ export function railDetails(s: SessionSummary, now = new Date()): string {
 }
 
 /**
- * The right-hand slot: what waits on you about it first (the pink badge:
- * "1 reply", "merge", "CI" — the icon says only what its Claude is doing),
- * else how long its Claude has been at what the icon shows, else "in review"
- * when its PR waits on others, else when it was last used.
- */
-function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string; title?: string } {
-  // A time ("4m") is set in monospace (.wd-mono): it lines up row under row.
-  if (kind === 'archiving') return { text: 'archiving…', cls: 'wd-rail-slot-archiving' };
-  if (kind === 'restoring') return { text: 'restoring…', cls: 'wd-rail-slot-archiving' };
-  if (s.snoozed) return { text: 'snoozed', cls: 'wd-rail-slot-snoozed' };
-  const owed = owedBadge(s);
-  if (owed) return { text: owed.text, cls: owedBadgeClass(owed), title: owed.title };
-  const since = s.attention?.since ?? s.lastAccessedAt;
-  if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs wd-mono' };
-  if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working wd-mono' };
-  if (kind === 'background') return { text: relativeTime(since), cls: 'wd-rail-slot-background wd-mono' };
-  if (waitingOnOthers(s)) return { text: 'in review', cls: 'wd-rail-slot-waiting', title: s.prStage?.text };
-  return { text: relativeTime(lastActiveAt(s)), cls: 'wd-mono' };
-}
-
-/**
  * Left navigation rail — every non-archived session as a compact two-line
- * row (Emdash-style): branch + status slot, then `target · summary` with the
- * diff size and PR badge. Always visible across dashboard tabs so the user
- * can context-switch in one click without losing the lens they're on.
+ * row, the same four places on every row (`state/rail-row.ts`): its name (a
+ * branch's `feat/` muted) and a time, then its project and one status (what
+ * you owe, else snoozed, else in review), `keep` and a dot per PR. Always
+ * visible across dashboard tabs so the user can context-switch in one click
+ * without losing the lens they're on.
  *
  * Order is yours: drag a row (or Alt+↑/↓ on it) and it stays there, in
  * every window (state.db). Rows you never placed come first, in the stable
@@ -129,9 +100,10 @@ function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: 
  *
  * Grouped too, when you want: pinned sessions on top, then your sections
  * (right-click a row → Pin / Move to / New section…, or drag it under a
- * heading), then the rest. Headings fold (remembered in this browser).
- * A color (right-click → Color) marks a row without moving it: a bar down
- * its left edge. Alt+1…9 opens the first nine rows as shown.
+ * heading), then the rest, then Older (not entered in 14 days and not
+ * running; folded until you open it). Headings fold (remembered in this
+ * browser). A color (right-click → Color) marks a row without moving it: a
+ * bar down its left edge. Alt+1…9 opens the first nine rows as shown.
  */
 export function SessionRail({
   sessions,
@@ -148,10 +120,6 @@ export function SessionRail({
   onSections,
   onShownChange,
 }: Props) {
-  const [showOlder, setShowOlder] = useState(false);
-  const [query, setQuery] = useState('');
-  const searchRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; before: boolean } | { group: string } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -160,54 +128,31 @@ export function SessionRail({
   // Naming a section: a new one (for the session it was asked from), or renaming one.
   const [naming, setNaming] = useState<{ kind: 'new'; sessionId: string | null } | { kind: 'rename'; sectionId: string } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
-  const searching = query.trim() !== '';
-  const total = useMemo(() => railSessions(sessions, Date.now(), []), [sessions]);
-  const anySessions = total.current.length + total.older.length > 0;
-  // Every current session, plus older ones only on request — and the
-  // selected one and the pinned ones always stay visible. A search looks
-  // through the older sessions too, in one list.
-  const { groups, hidden } = useMemo(() => {
-    if (searching) {
-      const { current, older } = railSessions(sessions, Date.now(), order ?? []);
-      return {
-        groups: [
-          { key: 'search', title: null, sessions: [...current, ...older].filter((s) => sessionMatches(s, query)) },
-        ] as RailGroup<SessionSummary>[],
-        hidden: 0,
-      };
-    }
-    return railGroups(sessions, { order, layout, activeId: activeSessionId, showOlder });
-  }, [sessions, order, layout, activeSessionId, showOlder, searching, query]);
+  // Every current session in its group (the selected one and the pinned ones too, however old), then the rest of
+  // the older ones under Older.
+  const { groups } = useMemo(
+    () => railGroups(sessions, { order, layout, activeId: activeSessionId }),
+    [sessions, order, layout, activeSessionId],
+  );
+  const anySessions = groups.some((g) => g.sessions.length > 0);
+  const folded = (key: string) => isFolded(collapsed, key);
   // A folded group still shows the selected row.
-  const rowsOf = (g: RailGroup<SessionSummary>) => (collapsed.has(g.key) ? g.sessions.filter((s) => s.id === activeSessionId) : g.sessions);
+  const rowsOf = (g: RailGroup<SessionSummary>) => (folded(g.key) ? g.sessions.filter((s) => s.id === activeSessionId) : g.sessions);
   const visible = groups.flatMap(rowsOf);
   const groupOf = new Map(groups.flatMap((g) => g.sessions.map((s) => [s.id, g] as const)));
-  // Moving a row among search results would scramble the full order.
-  const canReorder = !!onReorder && !searching;
-  const canPlace = !!onPlace && !searching;
+  // Older is not a section: a row is never placed into it or out of it, and moves only among its own kind.
+  const inOlder = (id: string | null) => !!id && groupOf.get(id)?.key === OLDER_GROUP;
+  const canReorder = !!onReorder;
+  const canPlace = !!onPlace;
 
   const toggle = (key: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
-      if (!next.delete(key)) next.add(key);
+      const mark = foldMark(key);
+      if (!next.delete(mark)) next.add(mark);
       writeCollapsed(next);
       return next;
     });
-
-  // `/` jumps to the search box — not while typing somewhere (a terminal's
-  // input included, so `/` in Claude still reaches Claude).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
-      const el = document.activeElement as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (modalOpen() || document.querySelector('[role="menu"]')) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   // Alt+1…9 opens the rail's first nine rows as shown (pinned first) — from
   // anywhere, a terminal included (capture phase, before xterm takes it), but
@@ -257,9 +202,9 @@ export function SessionRail({
   const move = (id: string, beforeId: string | null) => {
     if (canReorder) onReorder?.(moveSession(shownIds, id, beforeId, order ?? []));
   };
-  // Dropped into another group: it moves there (pinned, a section, or out of one).
+  // Dropped into another group: it moves there (pinned, a section, or out of one). Never into or out of Older.
   const moveToGroup = (id: string, g: RailGroup<SessionSummary> | undefined) => {
-    if (!canPlace || !g || groupOf.get(id)?.key === g.key) return;
+    if (!canPlace || !g || g.key === OLDER_GROUP || inOlder(id) || groupOf.get(id)?.key === g.key) return;
     onPlace?.(id, placeForGroup(g));
   };
   const endDrag = () => {
@@ -298,13 +243,13 @@ export function SessionRail({
   const renderRow = (s: SessionSummary, index: number) => {
     const kind = displayStatus(s);
     const isActive = s.id === activeSessionId;
-    // Your name for it, when you gave one; else its branch.
-    const named = s.titleIsYours && !!s.title;
-    const label = named ? s.title! : s.branch || s.target;
+    // Your name for it, when you gave one; else its branch (its `feat/` apart, drawn muted).
+    const name = railName(s);
     const other = otherBranchText(s);
     const behind = behindText(s);
-    const slot = statusSlot(s, kind);
-    const prs = prsFor?.(s) ?? [];
+    const time = railTime(s, kind);
+    const status = railStatus(s);
+    const marks = railPrMarks(s, prsFor?.(s) ?? []);
     const summary = s.attention?.summary;
     // Your color for it: a bar down the row's edge (its own spot, so never read as a status), one block with its neighbours of that color.
     const color = sessionColor(layout, s);
@@ -338,6 +283,11 @@ export function SessionRail({
         }}
         onDragOver={(e) => {
           if (!dragId) return;
+          if (inOlder(dragId) !== inOlder(s.id)) {
+            // Across Older's edge: no drop here (a release moves nothing).
+            if (drop) setDrop(null);
+            return;
+          }
           e.preventDefault();
           const r = e.currentTarget.getBoundingClientRect();
           const before = e.clientY < r.top + r.height / 2;
@@ -373,38 +323,49 @@ export function SessionRail({
           title={
             `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.stackedOn ? ` · stacked on ${s.stackedOn.branch}` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
             (summary ? ` — ${summary}` : '') +
-            railDetails(s) +
+            railDetails(s, new Date(), marks) +
             (color ? `\nColor: ${RAIL_COLOR_LABEL[color]}` : '') +
             (index < 9 ? `\nAlt+${index + 1}` : '')
           }
         >
           <StatusIcon kind={kind} labelled muted={!!s.snoozed} />
+          {/* Every row the same four places: its name and a time, then its project (and branch, when you named
+              it) and one status, with `keep` and its PRs' dots at the right. The rest is in the tooltip. */}
           <span className="wd-dash-rail-lines">
             <span className="wd-dash-rail-line">
-              <span className={'wd-dash-rail-name' + (named ? '' : ' wd-mono')}>{label}</span>
-              {color && <span className="wd-visually-hidden">Color: {RAIL_COLOR_LABEL[color]}</span>}
-              <span
-                className={slot.cls.includes('wd-badge') ? slot.cls + ' wd-dash-rail-slot-pill' : 'wd-dash-rail-slot ' + slot.cls}
-                title={slot.title}
-              >
-                {slot.text}
+              <span className={'wd-dash-rail-name' + (name.named ? '' : ' wd-mono')}>
+                {name.prefix && <span className="wd-dash-rail-prefix">{name.prefix}</span>}
+                {name.rest}
               </span>
+              {color && <span className="wd-visually-hidden">Color: {RAIL_COLOR_LABEL[color]}</span>}
+              <span className={'wd-dash-rail-slot ' + time.cls}>{time.text}</span>
             </span>
-            {/* Every row the same two lines: the name and its time (or count), then
-                its project (and branch, when you named it) and its PRs on the right.
-                Where it stands is the session's header, and the row's tooltip. */}
             <span className="wd-dash-rail-line wd-dash-rail-sub">
               <span className="wd-dash-rail-summary">
                 {s.target}
-                {named ? ` · ${s.branch}` : ''}
+                {name.named ? ` · ${s.branch}` : ''}
               </span>
+              {status?.kind === 'owed' ? (
+                <span className={owedBadgeClass(status.owed, ' wd-dash-rail-status-pill')} title={status.title}>
+                  {status.text}
+                </span>
+              ) : (
+                status && (
+                  <span
+                    className={'wd-dash-rail-status ' + (status.kind === 'snoozed' ? 'wd-rail-slot-snoozed' : 'wd-rail-slot-waiting')}
+                    title={status.title}
+                  >
+                    {status.text}
+                  </span>
+                )
+              )}
               {/* Kept once its PR merges (its menu's Keep after its PR merges): said on the row, beside the PRs it is about. */}
               {s.keepAfterMerge && (
                 <Badge dashed className="wd-rail-keep" title={KEEP_TITLE}>
                   keep
                 </Badge>
               )}
-              <RailPrPills session={s} prs={prs} />
+              <RailPrMarks marks={marks} />
             </span>
           </span>
         </button>
@@ -415,42 +376,18 @@ export function SessionRail({
   let index = 0;
   return (
     <aside className="wd-dash-rail" role="navigation" aria-label="Sessions">
+      {/* The legend and New worktree. Finding a session by name is Ctrl+P or `/` (QuickSwitcher). */}
       <header className="wd-dash-rail-header">
-        {anySessions && (
-          <Input
-            ref={searchRef}
-            className="wd-dash-rail-search"
-            type="search"
-            placeholder="Search sessions   /"
-            title="Filter this list (/). Ctrl+P jumps to any session from anywhere, a terminal included; Alt+1…9 opens the first nine rows."
-            aria-label="Search sessions"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setQuery('');
-                e.currentTarget.blur();
-              } else if (e.key === 'Enter' && visible[0]) {
-                onSelect(visible[0].id);
-              } else if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                listRef.current?.querySelector<HTMLButtonElement>('.wd-dash-rail-item')?.focus();
-              }
-            }}
-          />
-        )}
         <StatusLegend />
         <button type="button" className="wd-dash-rail-new" onClick={onNewWorktree} title="New worktree" aria-label="New worktree">
           +
         </button>
       </header>
-      {searching && visible.length === 0 && <p className="wd-dash-rail-empty">No session matches “{query.trim()}”.</p>}
       {!anySessions ? (
         <p className="wd-dash-rail-empty">No worktrees yet. Click + to create one.</p>
       ) : (
         <ul
           className="wd-dash-rail-list"
-          ref={listRef}
           onDragOver={(e) => {
             // Anywhere in the list while a row is dragged (a row or a heading set where first): keep the drop allowed.
             if (dragId && drop) e.preventDefault();
@@ -473,8 +410,9 @@ export function SessionRail({
             </li>
           )}
           {groups.map((g) => {
-            const folded = collapsed.has(g.key);
+            const isFoldedNow = folded(g.key);
             const rows = rowsOf(g);
+            const older = g.key === OLDER_GROUP;
             const dropHere = drop && 'group' in drop && drop.group === g.key;
             return [
               g.title !== null &&
@@ -493,6 +431,11 @@ export function SessionRail({
                     className={'wd-dash-rail-group' + (dropHere ? ' wd-dash-rail-group-drop' : '')}
                     onDragOver={(e) => {
                       if (!dragId || !canPlace) return;
+                      if (older || inOlder(dragId)) {
+                        // Older is not a section: nothing goes into it or out of it.
+                        if (drop) setDrop(null);
+                        return;
+                      }
                       e.preventDefault();
                       if (!dropHere) setDrop({ group: g.key });
                     }}
@@ -500,17 +443,23 @@ export function SessionRail({
                     <button
                       type="button"
                       className="wd-dash-rail-group-toggle"
-                      aria-expanded={!folded}
+                      aria-expanded={!isFoldedNow}
                       onClick={() => toggle(g.key)}
                       onContextMenu={(e) => {
                         if (!g.sectionId || !onSections) return;
                         e.preventDefault();
                         setSectionMenu({ id: g.sectionId, x: e.clientX, y: e.clientY });
                       }}
-                      title={g.sectionId ? 'Fold or unfold; right-click to rename, move or remove it' : 'Fold or unfold'}
+                      title={
+                        g.sectionId
+                          ? 'Fold or unfold; right-click to rename, move or remove it'
+                          : older
+                            ? 'Sessions not entered in the last 14 days and not running. Fold or unfold'
+                            : 'Fold or unfold'
+                      }
                     >
                       <span className="wd-dash-rail-group-caret" aria-hidden="true">
-                        {folded ? '▸' : '▾'}
+                        {isFoldedNow ? '▸' : '▾'}
                       </span>
                       <span className="wd-dash-rail-group-name">{g.title}</span>
                       <span className="wd-dash-rail-group-count">{g.sessions.length}</span>
@@ -518,7 +467,7 @@ export function SessionRail({
                   </li>
                 )),
               ...rows.map((s) => renderRow(s, index++)),
-              !folded && g.sessions.length === 0 && (
+              !isFoldedNow && g.sessions.length === 0 && (
                 <li key={`e:${g.key}`} className="wd-dash-rail-group-empty">
                   {g.sectionId
                     ? `Drag a session here, or right-click one → Move to “${g.title}”.`
@@ -527,25 +476,6 @@ export function SessionRail({
               ),
             ];
           })}
-          {hidden > 0 && (
-            <li className="wd-dash-rail-overflow">
-              <button
-                type="button"
-                className="wd-dash-rail-older"
-                onClick={() => setShowOlder(true)}
-                title="Sessions not entered in the last 14 days and not running"
-              >
-                +{hidden} older
-              </button>
-            </li>
-          )}
-          {showOlder && !searching && total.older.length > 0 && (
-            <li className="wd-dash-rail-overflow">
-              <button type="button" className="wd-dash-rail-older" onClick={() => setShowOlder(false)}>
-                Hide older
-              </button>
-            </li>
-          )}
         </ul>
       )}
       {menu && (
@@ -593,8 +523,23 @@ export function SessionRail({
 }
 
 const COLLAPSED_KEY = 'work-web:rail-collapsed';
+/** In the stored list: you opened Older, which starts folded. */
+const OLDER_OPEN = 'older:open';
 
-/** Which groups you folded: this browser's, not every window's (a view preference). */
+/**
+ * The stored list's entry that turns a heading from how it starts: a heading's key once you folded it (they start
+ * unfolded); for Older, which starts folded, `older:open` once you opened it.
+ */
+function foldMark(key: string): string {
+  return key === OLDER_GROUP ? OLDER_OPEN : key;
+}
+
+/** Is this heading folded, by the stored list? Older is until you open it; the rest are once you fold them. */
+function isFolded(stored: ReadonlySet<string>, key: string): boolean {
+  return key === OLDER_GROUP ? !stored.has(OLDER_OPEN) : stored.has(key);
+}
+
+/** Which groups you folded (and whether you opened Older): this browser's, not every window's (a view preference). */
 function readCollapsed(): Set<string> {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');

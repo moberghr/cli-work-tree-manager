@@ -112,7 +112,7 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 
 | Feature | What it does for you |
 |:---|:---|
-| **Session list (the rail)** | Every session on the left, on every page, with its status, project and PR pills. Pin sessions to the top, put them under your own headings, drag them into your order. |
+| **Session list (the rail)** | Every session on the left, on every page, with its status, project and a dot per PR. Pin sessions to the top, put them under your own headings, drag them into your order. |
 | **Sessions table** | Status, summary, changes and last activity for every session, with filters and grouping. Switch between **Live · Archived · All**, with **Restore** on archived rows. |
 | **Select several** | Archive, restore, snooze, prompt or delete many sessions at once. |
 | **Today** | What each session did today, yesterday or this week: your prompts, its finished turns, its PRs. **Copy as Markdown** gives you a standup note. |
@@ -244,7 +244,7 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 | `Ctrl+P` | Quick switcher | `r` | Catch me up |
 | `Ctrl+K` | Ask | `o` / `⇧T` | Open in editor / terminal (Windows) |
 | `Ctrl+T` | Search the code (desktop app) | `f` | Fork |
-| `/` | Search sessions | `⇧S` | Ship |
+| `/` | Quick switcher (as `Ctrl+P`) | `⇧S` | Ship |
 | `g i`, `g s`, `g d` | Inbox, Sessions, Today | `F2` | Rename |
 | | | `⇧A` | Add a repo (a session folder) |
 

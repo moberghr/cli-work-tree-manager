@@ -81,8 +81,11 @@ describe('the rail sets a branch and a time in monospace, not words', () => {
     expect(name(titled).textContent).toBe('Refunds');
     expect(name(titled).classList.contains('wd-mono')).toBe(false);
 
+    // Snoozed: its slot is still a time; "snoozed" is words, on its second line.
     const snoozy = row('feat/snoozy');
-    expect(slot(snoozy).textContent).toBe('snoozed');
-    expect(slot(snoozy).classList.contains('wd-mono')).toBe(false);
+    expect(slot(snoozy).classList.contains('wd-mono')).toBe(true);
+    const status = snoozy.querySelector('.wd-dash-rail-status')!;
+    expect(status.textContent).toBe('snoozed');
+    expect(status.classList.contains('wd-mono')).toBe(false);
   });
 });
