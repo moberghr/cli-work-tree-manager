@@ -22,6 +22,9 @@ describe('refuseReason', () => {
     expect(refuseReason({ method: 'DELETE', host: H, origin: 'http://127.0.0.1:9999' }, P)).toBe('foreign origin');
     expect(refuseReason({ method: 'GET', upgrade: true, host: H, origin: 'https://evil.example' }, P)).toBe('foreign origin');
     expect(refuseReason({ method: 'POST', host: H, origin: 'null' }, P)).toBe('foreign origin');
+    // A sandboxed page (a session's shown HTML) reading work web, even where the browser sends no Sec-Fetch-Site.
+    expect(refuseReason({ method: 'GET', host: H, origin: 'null' }, P)).toBe('foreign origin');
+    expect(refuseReason({ method: 'HEAD', host: H, origin: 'null' }, P)).toBe('foreign origin');
     expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'cross-site' }, P)).toBe('cross-site request');
     expect(refuseReason({ method: 'GET', host: 'evil.example' }, P)).toBe('bad host');
   });

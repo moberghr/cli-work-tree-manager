@@ -420,6 +420,9 @@ export interface AgentAdapter {
   instructionsImport?(relPath: string): string;
   /** Folders whose changes mean it did something (its conversations, its process state): work web watches them to refresh the dashboard at once. */
   activityRoots?(): string[];
+  /** The folders where it writes a session's scratch files (an artifact's HTML before it is published): the pane beside
+   *  the terminal may show a file in one of these, as well as the session's own files; absent: only those. */
+  tempFolders?(session: Pick<WorktreeSession, 'paths' | 'isGroup'>): string[];
   /** Installing work's skills for it (skills.ts); absent: it isn't told about `work`'s commands. */
   skills?: AgentSkills;
   /** Its settings in a folder work runs it in (the Ctrl+K assistant); absent: only the instructions file is written, and it asks before every command. */

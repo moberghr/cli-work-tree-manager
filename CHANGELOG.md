@@ -3,6 +3,16 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **HTML and artifacts beside the terminal.** The pane beside a session's
+  terminal now draws HTML as a page — Claude's artifacts included, read from
+  its scratch folder before they are published — interactive, in a sandbox
+  that keeps it away from work and your terminals. A click on an HTML,
+  Markdown or image path in the terminal opens it there (right-click → Show
+  beside the terminal), and the pane has Open in app and Show in Finder.
+  Published claude.ai artifacts still open in the browser.
+
 ## 2.21.1 — 2026-11-25
 
 - **Spinners on macOS keep turning.** A working session's spinner in the

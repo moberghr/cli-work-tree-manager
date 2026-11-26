@@ -6,11 +6,13 @@ import {
   logicalStart,
   MAX_PATH_CHARS,
   openFailure,
+  pathAction,
   pathMenuItems,
   pickLinks,
   platformOf,
   readRow,
   rowLinkCandidates,
+  showsBeside,
   toXtermRange,
   type LinkCandidate,
   type LinkRow,
@@ -260,6 +262,25 @@ describe('pathMenuItems — the right-click menu of a path', () => {
     ]);
     expect(pathMenuItems(file('x.ts'), 'windows').find((i) => i.id === 'reveal')?.label).toBe('Show in Explorer');
     expect(pathMenuItems(file('x.ts'), 'other').find((i) => i.id === 'reveal')?.label).toBe('Show in file manager');
+  });
+
+  it("Markdown, HTML (an artifact) and images can be shown beside the terminal: first in the menu; an SVG or code can't", () => {
+    for (const f of ['spec.md', 'artifact.html', 'old.HTM', 'shot.png', 'photo.jpeg'])
+      expect(pathMenuItems(file(f), 'mac')[0]).toEqual({ id: 'show', label: 'Show beside the terminal' });
+    for (const f of ['logo.svg', 'x.ts', 'Makefile']) expect(pathMenuItems(file(f), 'mac').map((i) => i.id)).not.toContain('show');
+    expect(showsBeside('/w/a/B.Markdown')).toBe(true);
+    expect(showsBeside(null)).toBe(false);
+  });
+
+  it('a click on a file the pane draws shows it beside the terminal; other files open, an ambiguous name is searched', () => {
+    expect(pathAction('click', file('artifact.html'))).toBe('show');
+    expect(pathAction('click', file('spec.md'))).toBe('show');
+    expect(pathAction('click', file('x.ts'))).toBe('open');
+    expect(pathAction('click', file('logo.svg'))).toBe('open');
+    expect(pathAction('click', { raw: 'a.ts', path: null, kind: 'ambiguous', opens: 'search' })).toBe('search');
+    expect(pathAction('click', { raw: 'site', path: '/w/site', kind: 'dir', opens: 'reveal' })).toBe('open');
+    // A menu pick is what was picked.
+    expect(pathAction('editor', file('spec.md'))).toBe('editor');
   });
 
   it('a folder is only revealed, never opened', () => {

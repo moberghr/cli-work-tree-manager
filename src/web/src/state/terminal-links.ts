@@ -238,8 +238,24 @@ export function createPathCache(
   };
 }
 
-export type PathMenuId = 'open' | 'editor' | 'reveal' | 'copy' | 'search';
+export type PathMenuId = 'show' | 'open' | 'editor' | 'reveal' | 'copy' | 'search';
+
+/** What the pane beside the terminal draws (core/sessions/shown-file.ts `shownKind`): Markdown, HTML, an image. A click on
+ *  one shows it there; the rest open as before. An SVG isn't one: drawn there it could run a script. */
+export function showsBeside(file: string | null): boolean {
+  const ext = (file ?? '').slice((file ?? '').lastIndexOf('.') + 1).toLowerCase();
+  return ['md', 'markdown', 'mdx', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'].includes(ext);
+}
 export type Platform = 'mac' | 'windows' | 'other';
+
+/** What a plain click ('click') or a menu pick does with a path: show it beside the terminal, open it, search for it,
+ *  copy it. A click on a file the pane draws shows it there (falling back to open when the session can't show it). Pure. */
+export function pathAction(id: PathMenuId | 'click', result: TerminalPathWire): PathMenuId {
+  if (id !== 'click') return id;
+  if (result.kind === 'ambiguous') return 'search';
+  if (result.kind === 'file' && showsBeside(result.path)) return 'show';
+  return 'open';
+}
 
 /** The right-click menu of a path: a file opens three ways, a folder is only revealed, an ambiguous name is searched for. */
 export function pathMenuItems(result: TerminalPathWire, platform: Platform): Array<{ id: PathMenuId; label: string }> {
@@ -247,7 +263,13 @@ export function pathMenuItems(result: TerminalPathWire, platform: Platform): Arr
   const copy = { id: 'copy' as const, label: 'Copy path' };
   switch (result.kind) {
     case 'file':
-      return [{ id: 'open', label: 'Open' }, { id: 'editor', label: 'Open in editor' }, reveal, copy];
+      return [
+        ...(showsBeside(result.path) ? [{ id: 'show' as const, label: 'Show beside the terminal' }] : []),
+        { id: 'open', label: 'Open' },
+        { id: 'editor', label: 'Open in editor' },
+        reveal,
+        copy,
+      ];
     case 'dir':
       return [reveal, copy];
     case 'ambiguous':
@@ -257,7 +279,7 @@ export function pathMenuItems(result: TerminalPathWire, platform: Platform): Arr
   }
 }
 
-function revealLabel(platform: Platform): string {
+export function revealLabel(platform: Platform): string {
   if (platform === 'mac') return 'Reveal in Finder';
   if (platform === 'windows') return 'Show in Explorer';
   return 'Show in file manager';

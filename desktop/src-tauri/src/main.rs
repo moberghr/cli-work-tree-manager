@@ -468,11 +468,14 @@ fn main() {
             }
             // The Inbox count on the taskbar / Dock icon (badge.rs): in the dev app too.
             builder = builder.initialization_script(updates::TASKBAR_MARKER);
+            // The secret the page's asks carry: a page framed in the window doesn't get it (updates::page_ask).
+            builder = builder.initialization_script(updates::ask_secret_script(updates::ask_secret()));
             let taskbar = app.handle().clone();
             builder = builder
-                // The page's asks to the app: a navigation to http://work-desktop.invalid/<ask>,
-                // cancelled here — Check for updates, Restart, or "send me the status".
-                .on_navigation(move |url| match updates::page_ask(url.host_str(), url.path()) {
+                // The page's asks to the app: a navigation to http://work-desktop.invalid/<secret>/<ask>,
+                // cancelled here — Check for updates, Restart, or "send me the status". One without the
+                // secret (a framed page's) is cancelled and does nothing.
+                .on_navigation(move |url| match updates::page_ask(url.host_str(), url.path(), updates::ask_secret()) {
                     Some(updates::PageAsk::Hello) => {
                         updates::repeat_latest();
                         false

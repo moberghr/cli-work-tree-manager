@@ -258,6 +258,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ shown: null }) : notFound(c),
   );
   app.get('/api/sessions/:id/show/image', (c) => c.json({ error: 'it shows no image' }, 404));
+  app.get('/api/sessions/:id/show/text', (c) => c.json({ error: 'it shows no scratch file' }, 404));
+  app.get('/api/sessions/:id/show/page', (c) => c.json({ error: 'it shows no page' }, 404));
   // A session's own changes as a review (made up: the demo's PR review, as local changes), prepared on a click.
   const localReviews = new Set<string>();
   const demoLocalReview = (w: { id: string; branch: string }): SessionReviewWire => {

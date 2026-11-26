@@ -21,8 +21,9 @@
  *     upgrades: `Origin` must be absent (non-browser callers — the Claude
  *     hooks, `wd`, the CLI — send none) or exactly our own origin. Browsers
  *     always send Origin on cross-origin POSTs and on every WebSocket, and a
- *     page can't forge it. `Origin: null` (sandboxed frames, file://) is
- *     refused.
+ *     page can't forge it.
+ *   - `Origin: null` (sandboxed frames, file://) is refused on every
+ *     method: the browser sends it on a sandboxed page's fetch, GETs too.
  */
 
 export function allowedHost(host: string | undefined, port: number): boolean {
@@ -58,6 +59,8 @@ export function refuseReason(req: RequestFacts, port: number): string | null {
     req.secFetchDest === 'document';
   // same-site = another localhost port (your dev servers, say): the
   // dashboard itself is always same-origin, so treat it like cross-site.
+  // A sandboxed page (a session's shown HTML) or a file:// one: never ours, whatever the method.
+  if (req.origin === 'null') return 'foreign origin';
   if ((req.secFetchSite === 'cross-site' || req.secFetchSite === 'same-site') && !pageLoad) return 'cross-site request';
   if (mutating && !allowedOrigin(req.origin, port)) return 'foreign origin';
   return null;

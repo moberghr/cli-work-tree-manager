@@ -9,7 +9,7 @@ import { sessionIdFor } from '../core/sessions/session-id.js';
 
 /**
  * `work show <file>` — show a file of this session beside its terminal in the dashboard (a spec you are asked to
- * approve, a plan, a screenshot); `work show --close` takes it away. Meant for an agent to run when it wants you to
+ * approve, a plan, a screenshot, an artifact's HTML from the agent's scratch folder); `work show --close` takes it away. Meant for an agent to run when it wants you to
  * read something: it reads the file's path only, and changes nothing.
  */
 export const showCommand: CommandModule = {
@@ -17,7 +17,11 @@ export const showCommand: CommandModule = {
   describe: 'Show a file of this session beside its terminal in the dashboard (--close: stop showing it)',
   builder: (yargs) =>
     yargs
-      .positional('file', { type: 'string', describe: 'The file to show (Markdown is rendered, an image is drawn, the rest is text)' })
+      .positional('file', {
+        type: 'string',
+        describe:
+          "The file to show: in this session's folders, or its agent's scratch folder (Markdown rendered, HTML drawn sandboxed, an image drawn, the rest as text)",
+      })
       .option('close', { type: 'boolean', describe: 'Stop showing a file' }),
   handler: async (argv) => {
     const fail = (message: string) => {

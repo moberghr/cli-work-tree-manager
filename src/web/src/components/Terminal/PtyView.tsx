@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { cornerBadge, LatencyMeter, type LatencyReading } from '../../state/keystroke-latency.js';
 import { observeLongFrames, TerminalPerfLog } from '../../state/terminal-perf.js';
 import { openTerminalSocket } from '../../api/terminal-socket.js';
-import { sendTerminalPerf } from '../../api/client.js';
+import { sendTerminalPerf, showSessionPath } from '../../api/client.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { startFailure, startRetryDelay } from '../../state/terminal-start.js';
 import { ask } from '../../state/ask.js';
@@ -20,6 +20,7 @@ import {
   pickLinks,
   platformOf,
   readRow,
+  pathAction,
   rowLinkCandidates,
   toXtermRange,
   type CodeSearchDetail,
@@ -65,9 +66,10 @@ function openPath(sessionId: string, raw: string, how: TerminalPathHow, say: Say
 }
 
 /** A plain click on a path link ('click'), or a pick from its right-click menu. */
-function runPathAction(sessionId: string, id: PathMenuId | 'click', link: PickedLink, say: Say): void {
+function runPathAction(sessionId: string, picked: PathMenuId | 'click', link: PickedLink, say: Say): void {
   const { raw, result } = link;
-  if (id === 'search' || (id === 'click' && result.kind === 'ambiguous')) {
+  const id = pathAction(picked, result);
+  if (id === 'search') {
     // A bare name several files have: SessionDetail opens the code search with it typed in.
     window.dispatchEvent(new CustomEvent<CodeSearchDetail>(CODE_SEARCH_EVENT, { detail: { sessionId, query: bareName(raw) } }));
   } else if (id === 'copy') {
@@ -78,6 +80,14 @@ function runPathAction(sessionId: string, id: PathMenuId | 'click', link: Picked
         () => say({ text: `Copied ${path}` }),
         () => say({ kind: 'error', text: 'Couldn’t copy the path.' }),
       );
+  } else if (id === 'show') {
+    // Markdown, HTML (an artifact), an image: beside the terminal. One the session can't show (a file elsewhere on the
+    // disk) opens as before on a click; asked for from the menu, it says why not.
+    const file = result.path ?? raw;
+    showSessionPath(sessionId, file).catch((err: Error) => {
+      if (picked === 'click') openPath(sessionId, raw, 'default', say);
+      else say({ kind: 'error', text: err.message });
+    });
   } else {
     openPath(sessionId, raw, id === 'editor' || id === 'reveal' ? id : 'default', say);
   }

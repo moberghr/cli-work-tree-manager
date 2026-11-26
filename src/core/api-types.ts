@@ -2042,7 +2042,8 @@ export interface SessionLocalReviewWire {
 
 /** GET /api/sessions/:id/show: the file a session shows beside its terminal (core/sessions/shown-file.ts), or none. */
 export interface SessionShownWire {
-  shown: (import('./sessions/shown-file.js').ShownFile & { kind: import('./sessions/shown-file.js').ShownKind }) | null;
+  /** `abs`: where it is on disk (the pane's Open in app / Show in Finder); absent from an older server. */
+  shown: (import('./sessions/shown-file.js').ShownFile & { kind: import('./sessions/shown-file.js').ShownKind; abs?: string }) | null;
 }
 
 /** GET /api/sessions/:id/review/current: whether the kept review is of the changes as they are now. */

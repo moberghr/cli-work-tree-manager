@@ -96,4 +96,4 @@ work hook <event>                                  # Internal — run by the Cla
 work install-skills                                # Internal — give each agent work's skills its own way (hidden; npm's postinstall and the desktop app run the same as dist/install-skills-bin.js, never the whole CLI, so an install writes nothing to ~/.work)
 ```
 
-- `work show <file>` / `work show --close`: show a file of this folder's session beside its terminal in the dashboard (see session-navigation.md, "A file beside the terminal"). Reads only; needs work web running.
+- `work show <file>` / `work show --close`: show a file of this folder's session — or of its agent's scratch folder (an artifact's HTML) — beside its terminal in the dashboard (see session-navigation.md, "A file beside the terminal"). Reads only; needs work web running.

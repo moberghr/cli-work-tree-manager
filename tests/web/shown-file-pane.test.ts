@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
-import { ShownFilePane } from '../../src/web/src/components/Dashboard/ShownFilePane.js';
+import { SHOWN_FRAME_SANDBOX, SHOWN_REFRESH_MS, ShownFilePane } from '../../src/web/src/components/Dashboard/ShownFilePane.js';
+import { SHOWN_PAGE_SANDBOX } from '../../src/server/routes/session-show-routes.js';
 import { markdownOutline } from '../../src/web/src/state/shown-file.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -135,5 +136,77 @@ describe('ShownFilePane', () => {
     );
     await flush();
     expect(text(container.querySelector('.wd-shown-body'))).toBe('It is too large to show here.');
+  });
+
+  it('an HTML page (an artifact) is drawn in a frame with the same sandbox its response carries, and reloads only when it changed', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval'] });
+    try {
+      const pages = ['<h1>v1</h1>', '<h1>v1</h1>', '<h1>v2</h1>'];
+      let reads = 0;
+      act(() =>
+        root.render(
+          createElement(ShownFilePane, {
+            session,
+            shown: { repo: '', path: 'artifact.html', at: 't1', kind: 'html', temp: '/tmp/claude-501/-w/c/scratchpad/artifact.html' },
+            load: async () => Promise.reject(new Error('a scratch file is not read through the Code tab')),
+            loadTemp: async () => ({ text: pages[Math.min(reads++, pages.length - 1)] }),
+          }),
+        ),
+      );
+      await flush();
+      const frame = () => container.querySelector('iframe.wd-shown-frame')!;
+      expect(frame().getAttribute('sandbox')).toBe(SHOWN_FRAME_SANDBOX);
+      expect(SHOWN_FRAME_SANDBOX).toBe(SHOWN_PAGE_SANDBOX);
+      expect(frame().getAttribute('src')).toBe('/api/sessions/s1/show/page?at=t1&v=0');
+      // Read again, the same: the frame stays (a reload would reset the page).
+      await act(async () => void vi.advanceTimersByTime(SHOWN_REFRESH_MS));
+      await flush();
+      expect(frame().getAttribute('src')).toBe('/api/sessions/s1/show/page?at=t1&v=0');
+      // Changed: drawn again.
+      await act(async () => void vi.advanceTimersByTime(SHOWN_REFRESH_MS));
+      await flush();
+      expect(frame().getAttribute('src')).toBe('/api/sessions/s1/show/page?at=t1&v=1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Open in app and the reveal take where it is on disk; a scratch file has no Code tab button', async () => {
+    const opened: string[] = [];
+    act(() =>
+      root.render(
+        createElement(ShownFilePane, {
+          session,
+          shown: { repo: '', path: 'notes.md', at: 't1', kind: 'markdown', temp: '/tmp/s/notes.md', abs: '/tmp/s/notes.md' },
+          onOpenCode: () => undefined,
+          loadTemp: async () => ({ text: '# Notes' }),
+          open: async (id, p, how) => void opened.push(`${id} ${p} ${how}`),
+        }),
+      ),
+    );
+    await flush();
+    const button = (label: RegExp) => [...container.querySelectorAll('button')].find((b) => label.test(b.textContent ?? ''));
+    expect(button(/^Code tab$/)).toBeUndefined();
+    act(() => button(/^Open in app$/)!.click());
+    act(() => button(/^(Reveal in Finder|Show in Explorer|Show in file manager)$/)!.click());
+    await flush();
+    expect(opened).toEqual(['s1 /tmp/s/notes.md default', 's1 /tmp/s/notes.md reveal']);
+  });
+
+  it('a failed open says why, in the pane', async () => {
+    act(() =>
+      root.render(
+        createElement(ShownFilePane, {
+          session,
+          shown: { repo: 'api', path: 'docs/spec.md', at: 't1', kind: 'markdown', abs: '/w/api/docs/spec.md' },
+          load: async () => ({ text: '# Spec' }),
+          open: async () => Promise.reject(new Error('No program opens it.')),
+        }),
+      ),
+    );
+    await flush();
+    act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Open in app')!.click());
+    await flush();
+    expect(text(container.querySelector('.wd-shown-note'))).toBe('No program opens it.');
   });
 });

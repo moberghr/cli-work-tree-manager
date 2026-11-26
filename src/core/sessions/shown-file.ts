@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import { refusedPath } from '../worktree/terminal-paths.js';
 
 /**
  * A file a session shows beside its terminal (asked for: an agent wrote a spec and asked for approval, and reading
@@ -7,7 +9,9 @@ import path from 'node:path';
  * contents, an image as an image, anything else as text — and follows the file as it changes.
  *
  * Only a file the Code tab would show: inside one of the session's folders and not ignored by git (the routes check
- * through `codeFilePath`). What is shown is work web's memory: gone with a restart, as the pane's content is the file.
+ * through `codeFilePath`) — or one in its agent's own scratch folders (`tempFolders`: Claude writes an artifact's HTML
+ * there before it publishes it), judged on the real path (`findTempFile`). What is shown is work web's memory: gone
+ * with a restart, as the pane's content is the file.
  */
 
 export interface ShownFile {
@@ -17,14 +21,18 @@ export interface ShownFile {
   path: string;
   /** When it was shown (ISO): a file shown again is shown anew. */
   at: string;
+  /** A file of the agent's scratch folders, not one the Code tab lists: its real path (`repo` is '', `path` its name). */
+  temp?: string;
 }
 
-export type ShownKind = 'markdown' | 'image' | 'text';
+export type ShownKind = 'markdown' | 'image' | 'html' | 'text';
 
 /** How a shown file is drawn, from its name. An SVG is text: drawn as an image it could carry a script. Pure. */
 export function shownKind(file: string): ShownKind {
   const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
   if (ext === 'md' || ext === 'markdown' || ext === 'mdx') return 'markdown';
+  // Drawn in a sandboxed frame (its own origin, scripts on: an artifact is often interactive), never as part of the page.
+  if (ext === 'html' || ext === 'htm') return 'html';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'].includes(ext)) return 'image';
   return 'text';
 }
@@ -69,13 +77,105 @@ export function locateInSession(s: { paths: readonly string[]; isGroup?: boolean
   return { repo: holding.repo, path: rel };
 }
 
+/** Whether a real path is inside one of these folders (themselves real paths): a file under one, never the folder. Pure. */
+export function insideFolders(real: string, folders: readonly string[], platform: NodeJS.Platform = process.platform): boolean {
+  const fold = (p: string) => {
+    const n = p.replace(/\\/g, '/').replace(/\/+$/, '');
+    return platform === 'win32' ? n.toLowerCase() : n;
+  };
+  const target = fold(real);
+  return folders.some((f) => {
+    const root = fold(f);
+    return root.length > 0 && target.length > root.length + 1 && target.startsWith(`${root}/`);
+  });
+}
+
+export interface TempIo {
+  realpath(p: string): Promise<string>;
+  stat(p: string): Promise<{ isFile(): boolean; size: number }>;
+}
+const realTempIo: TempIo = { realpath: (p) => fs.promises.realpath(p), stat: (p) => fs.promises.stat(p) };
+
+/**
+ * A file in the agent's scratch folders, as it is on disk: its real path (links followed — one pointing out of them is
+ * refused) and size, or why not. The folders are taken as given: real paths already, checked by whoever named them
+ * (`sessionTempFolders`), never resolved here, so a folder that is a link can't widen what is shown. Another machine's
+ * path is refused before anything is looked at (`refusedPath`). Checked again on every read, so a file swapped for a
+ * link afterwards is refused then.
+ */
+export async function findTempFile(
+  file: string,
+  folders: readonly string[],
+  io: TempIo = realTempIo,
+  platform: NodeJS.Platform = process.platform,
+): Promise<{ real: string; size: number } | { error: string }> {
+  if (refusedPath(file, file, platform) || !(platform === 'win32' ? path.win32 : path.posix).isAbsolute(file))
+    return { error: 'not a local absolute path' };
+  let real: string;
+  try {
+    real = await io.realpath(file);
+  } catch {
+    return { error: 'not there' };
+  }
+  if (!insideFolders(real, folders, platform)) return { error: 'outside' };
+  try {
+    const st = await io.stat(real);
+    if (!st.isFile()) return { error: 'not a file' };
+    return { real, size: st.size };
+  } catch {
+    return { error: 'not there' };
+  }
+}
+
+/**
+ * A shown file's bytes, read without following a link put in its place since it was checked (`O_NOFOLLOW`; Windows has
+ * none, and its scratch folder is the user's own), only a plain file, and never more than `limit`: past it, 'too large'.
+ */
+export async function readShownFile(real: string, limit: number): Promise<{ bytes: Buffer } | { error: 'not there' | 'too large' }> {
+  let fh: fs.promises.FileHandle;
+  try {
+    fh = await fs.promises.open(real, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  } catch {
+    return { error: 'not there' };
+  }
+  try {
+    const st = await fh.stat();
+    if (!st.isFile()) return { error: 'not there' };
+    if (st.size > limit) return { error: 'too large' };
+    const buf = Buffer.alloc(limit + 1);
+    let n = 0;
+    while (n < buf.length) {
+      const { bytesRead } = await fh.read(buf, n, buf.length - n, n);
+      if (bytesRead === 0) break;
+      n += bytesRead;
+    }
+    return n > limit ? { error: 'too large' } : { bytes: buf.subarray(0, n) };
+  } catch {
+    return { error: 'not there' };
+  } finally {
+    await fh.close().catch(() => undefined);
+  }
+}
+
+/** Where a shown file is on disk, for the pane's Open in app / Show in Finder: a temp file's real path, else its repo's folder joined with its path. Pure. */
+export function shownAbsolute(
+  s: { paths: readonly string[]; isGroup?: boolean },
+  f: Pick<ShownFile, 'repo' | 'path' | 'temp'>,
+): string | null {
+  if (f.temp) return f.temp;
+  const root =
+    f.repo === '' ? (s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : null) : s.paths.find((p) => path.basename(norm(p)) === f.repo);
+  return root ? path.join(root, ...f.path.split('/')) : null;
+}
+
 /** The files sessions show, in memory (one a session: showing another replaces it). */
 export function createShownFiles(deps: { onChange: (sessionId: string) => void; now?: () => Date }) {
   const shown = new Map<string, ShownFile>();
   return {
     get: (sessionId: string): ShownFile | null => shown.get(sessionId) ?? null,
-    show(sessionId: string, file: { repo: string; path: string }): ShownFile {
-      const next = { repo: file.repo, path: file.path, at: (deps.now?.() ?? new Date()).toISOString() };
+    show(sessionId: string, file: { repo: string; path: string; temp?: string }): ShownFile {
+      const next: ShownFile = { repo: file.repo, path: file.path, at: (deps.now?.() ?? new Date()).toISOString() };
+      if (file.temp) next.temp = file.temp;
       shown.set(sessionId, next);
       deps.onChange(sessionId);
       return next;

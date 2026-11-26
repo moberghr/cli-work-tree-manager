@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ASK_URL } from './use-desktop.js';
+import { askUrl } from './use-desktop.js';
 import { sendDesktopAsk } from '../state/desktop-asks.js';
 import { badgeAsk, inTaskbarApp, newlyNeedingYou, readFlashOn, writeFlashOn } from '../state/taskbar.js';
 
@@ -23,7 +23,7 @@ export function useTaskbar(
   const { ready } = opts;
 
   useEffect(() => {
-    if (inApp && ready) sendDesktopAsk(`${ASK_URL}${badgeAsk(inboxCount)}`, goRef.current);
+    if (inApp && ready) sendDesktopAsk(askUrl(badgeAsk(inboxCount)), goRef.current);
   }, [inApp, ready, inboxCount]);
 
   // What was waiting when the list first came isn't news: only a session that starts waiting after it flashes.
@@ -32,7 +32,7 @@ export function useTaskbar(
     if (!ready) return;
     const before = seen.current;
     seen.current = needingYou;
-    if (inApp && flashOn && before && newlyNeedingYou(before, needingYou)) sendDesktopAsk(`${ASK_URL}attention`, goRef.current);
+    if (inApp && flashOn && before && newlyNeedingYou(before, needingYou)) sendDesktopAsk(askUrl('attention'), goRef.current);
   }, [inApp, ready, flashOn, needingYou]);
 
   const setFlashOn = useCallback((on: boolean) => {

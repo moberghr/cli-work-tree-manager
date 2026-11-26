@@ -1,4 +1,5 @@
 import { claudeStartupQuestion } from './startup-question.js';
+import { sessionTempFolders } from './temp-folders.js';
 import path from 'node:path';
 import { backgroundWorkSince, listTranscripts, listUsageFiles } from './files.js';
 import { backgroundCommandNames, backgroundCommandsRunning } from './background-commands.js';
@@ -101,6 +102,8 @@ export const claudeAgent: AgentAdapter = {
   events: claudeEvents,
   // Its transcripts, and the per-process state files (a Claude opened or closed in a terminal tab shows at once), of every account.
   activityRoots: () => [...new Set([...claudeProjectsRoots(), ...claudeSessionsDirs()])],
+  // Its scratch folders for the session (an artifact's HTML before it is published): the pane beside the terminal shows files there.
+  tempFolders: (s) => sessionTempFolders(s),
   live: { running: (table) => readLiveClaudes(undefined, undefined, table) },
   input: {
     submit: typeThenEnter,

@@ -9,13 +9,23 @@ import { sendDesktopAsk } from '../state/desktop-asks.js';
  * app. The app marks its window before the page loads (`__workDesktop`),
  * sends where its update stands as a `work-desktop` event (with the download
  * percentage), and takes the page's asks as a navigation to its own host,
- * which it cancels (desktop/src-tauri/src/updates.rs: ASK_HOST, page_ask).
+ * which it cancels (desktop/src-tauri/src/updates.rs: ASK_HOST, page_ask), with this launch's secret (`askUrl`).
  * In a browser tab none of this exists: the hook says null.
  */
 
 /** desktop/src-tauri/src/updates.rs ASK_HOST: `.invalid` never resolves, so outside the app it goes nowhere. */
 export const ASK_URL = 'http://work-desktop.invalid/';
 export type DesktopAsk = 'hello' | 'check' | 'restart';
+
+/**
+ * Where an ask goes: with the secret the app hands its own page at each launch (updates.rs `ask_secret_script`), which
+ * a page framed in the window — a session's shown HTML — never gets, so it can't ask. An app from before the secret
+ * hands none: then the old address.
+ */
+export function askUrl(what: string): string {
+  const secret = (window as unknown as { __workDesktopAsk?: unknown }).__workDesktopAsk;
+  return typeof secret === 'string' && /^[0-9a-f]{32}$/.test(secret) ? `${ASK_URL}${secret}/${what}` : `${ASK_URL}${what}`;
+}
 
 interface Marker {
   app?: boolean;
@@ -41,7 +51,7 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
     const on = (e: Event) => setUpdate(parse((e as CustomEvent).detail));
     window.addEventListener('work-desktop', on);
     // Up: ask for where the update stands (the app sent it before this page, or a reload, was there).
-    sendDesktopAsk(`${ASK_URL}hello`, goRef.current);
+    sendDesktopAsk(askUrl('hello'), goRef.current);
     return () => window.removeEventListener('work-desktop', on);
   }, [inApp]);
 
@@ -67,7 +77,7 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
       checkAsked.current = Math.floor(Date.now() / 1000);
       setNote(null);
     }
-    sendDesktopAsk(`${ASK_URL}${what}`, goRef.current);
+    sendDesktopAsk(askUrl(what), goRef.current);
   }, []);
 
   // Until the app's updater has said where it stands (or when it runs none: a dev build,

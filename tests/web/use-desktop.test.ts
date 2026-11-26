@@ -3,14 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { UpdateWire } from '../../src/core/api-types.js';
-import { ASK_URL, desktopWire, useDesktop } from '../../src/web/src/hooks/use-desktop.js';
+import { ASK_URL, askUrl, desktopWire, useDesktop } from '../../src/web/src/hooks/use-desktop.js';
 import { ASK_GAP_MS } from '../../src/web/src/state/desktop-asks.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let container: HTMLDivElement;
 let root: Root;
-const w = window as unknown as { __workDesktop?: unknown };
+const w = window as unknown as { __workDesktop?: unknown; __workDesktopAsk?: unknown };
 beforeEach(() => {
   vi.useFakeTimers(); // asks go out one at a time (desktop-asks.ts): `drain` lets the gaps pass
   container = document.createElement('div');
@@ -21,6 +21,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   delete w.__workDesktop;
+  delete w.__workDesktopAsk;
   act(() => void vi.runAllTimers());
   vi.useRealTimers();
 });
@@ -105,5 +106,21 @@ describe('desktopWire', () => {
     expect(v).toMatchObject({ running: '2.0.2', install: 'desktop', available: { version: '2.0.3', how: 'restart' }, whatsNew: '2.0.0' });
     // Before work web answered: the app alone.
     expect(desktopWire(null, { appVersion: '2.0.2', state: 'current' })).toMatchObject({ running: '2.0.2', available: null });
+  });
+});
+
+/** A page framed in the window (a session's shown HTML) can't ask the app anything: asks carry a secret it never gets. */
+describe('askUrl', () => {
+  it("with the launch's secret when the app handed one, the old address from an app that hands none", () => {
+    const k = '0123456789abcdef0123456789abcdef';
+    w.__workDesktopAsk = k;
+    expect(askUrl('restart')).toBe(`http://work-desktop.invalid/${k}/restart`);
+    expect(askUrl('badge/3')).toBe(`http://work-desktop.invalid/${k}/badge/3`);
+    for (const bad of ['', 'short', `${k}/x`, 42, null]) {
+      w.__workDesktopAsk = bad;
+      expect(askUrl('hello')).toBe(`${ASK_URL}hello`);
+    }
+    delete w.__workDesktopAsk;
+    expect(askUrl('check')).toBe('http://work-desktop.invalid/check');
   });
 });

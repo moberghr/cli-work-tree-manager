@@ -394,6 +394,27 @@ export async function showSessionFile(sessionId: string, repo: string, path: str
   return body;
 }
 
+/** Show a file by where it is on disk (POST …/show {file}): a session's file, or one in its agent's scratch folder — a
+ *  path clicked in the terminal. Throws the server's reason when refused. */
+export async function showSessionPath(sessionId: string, file: string): Promise<SessionShown> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file }),
+  });
+  const body = (await res.json().catch(() => ({}))) as SessionShown & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `show: ${res.status}`);
+  return body;
+}
+
+/** A shown scratch file's text (GET …/show/text), as the Code tab's read answers. */
+export async function fetchShownText(sessionId: string): Promise<{ text: string | null; reason?: string }> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show/text`);
+  const body = (await res.json().catch(() => ({}))) as { text?: string | null; reason?: string; error?: string };
+  if (!res.ok) throw new Error(body.error ?? `read: ${res.status}`);
+  return { text: body.text ?? null, ...(body.reason ? { reason: body.reason } : {}) };
+}
+
 /** Stop showing it (DELETE …/show). */
 export async function closeSessionShown(sessionId: string): Promise<void> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, { method: 'DELETE' });

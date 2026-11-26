@@ -64,11 +64,14 @@ pub enum PageAsk {
     Attention,
 }
 
-/// A navigation to http://work-desktop.invalid/<ask>, as an ask. Pure: anything else is none.
-pub fn page_ask(host: Option<&str>, path: &str) -> Option<PageAsk> {
-    if host != Some(ASK_HOST) {
+/// A navigation to http://work-desktop.invalid/<secret>/<ask>, as an ask. Pure: anything else is none — the same ask
+/// without this launch's secret too. The secret is what keeps a page framed in the window (a session's shown HTML,
+/// which runs its own scripts in a sandbox) from asking: only the window's own page is handed it (`ask_secret_script`).
+pub fn page_ask(host: Option<&str>, path: &str, secret: &str) -> Option<PageAsk> {
+    if host != Some(ASK_HOST) || secret.is_empty() {
         return None;
     }
+    let path = path.strip_prefix('/')?.strip_prefix(secret)?;
     match path {
         "/hello" => Some(PageAsk::Hello),
         "/check" => Some(PageAsk::Check),
@@ -83,6 +86,30 @@ pub fn page_ask(host: Option<&str>, path: &str) -> Option<PageAsk> {
             n.parse().ok().map(PageAsk::Badge)
         }
     }
+}
+
+/// This launch's ask secret: 128 bits, hex, made once. From std's `RandomState` (seeded from the OS's randomness):
+/// no crate for it, and it only has to be unguessable by a page in the window, for as long as the app runs.
+pub fn ask_secret() -> &'static str {
+    static SECRET: OnceLock<String> = OnceLock::new();
+    SECRET.get_or_init(|| {
+        use std::collections::hash_map::RandomState;
+        use std::hash::{BuildHasher, Hasher};
+        let half = |salt: u64| {
+            let mut h = RandomState::new().build_hasher();
+            h.write_u64(salt);
+            h.write_u128(SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+            h.finish()
+        };
+        format!("{:016x}{:016x}", half(1), half(2))
+    })
+}
+
+/// Run before the page's own scripts on every load: hands the window's own page the ask secret. Only the top window:
+/// on Windows WebView2 runs these scripts in every frame, a sandboxed one too, and a frame from another origin can't
+/// read the top window's variables.
+pub fn ask_secret_script(secret: &str) -> String {
+    format!("if (window === window.top) window.__workDesktopAsk = \"{secret}\";")
 }
 
 /// Run before the page's own scripts on every load, the dev app's too: it may show the Inbox count on the taskbar.
@@ -414,20 +441,44 @@ mod tests {
 
     #[test]
     fn the_window_asks_on_its_own_host_only() {
-        assert_eq!(page_ask(Some("work-desktop.invalid"), "/restart"), Some(PageAsk::Restart));
-        assert_eq!(page_ask(Some("work-desktop.invalid"), "/check"), Some(PageAsk::Check));
-        assert_eq!(page_ask(Some("work-desktop.invalid"), "/hello"), Some(PageAsk::Hello));
-        assert_eq!(page_ask(Some("work-desktop.invalid"), "/rm"), None);
-        assert_eq!(page_ask(Some("work-desktop.invalid"), "/badge/3"), Some(PageAsk::Badge(3)));
-        assert_eq!(page_ask(Some("work-desktop.invalid"), "/badge/0"), Some(PageAsk::Badge(0)));
-        assert_eq!(page_ask(Some("work-desktop.invalid"), "/attention"), Some(PageAsk::Attention));
+        let k = "0123456789abcdef0123456789abcdef";
+        let ask = |path: &str| page_ask(Some("work-desktop.invalid"), path, k);
+        assert_eq!(ask(&format!("/{k}/restart")), Some(PageAsk::Restart));
+        assert_eq!(ask(&format!("/{k}/check")), Some(PageAsk::Check));
+        assert_eq!(ask(&format!("/{k}/hello")), Some(PageAsk::Hello));
+        assert_eq!(ask(&format!("/{k}/rm")), None);
+        assert_eq!(ask(&format!("/{k}/badge/3")), Some(PageAsk::Badge(3)));
+        assert_eq!(ask(&format!("/{k}/badge/0")), Some(PageAsk::Badge(0)));
+        assert_eq!(ask(&format!("/{k}/attention")), Some(PageAsk::Attention));
         for bad in ["/badge/", "/badge/-1", "/badge/12345", "/badge/3x", "/badge/3/4", "/badge/%33"] {
-            assert_eq!(page_ask(Some("work-desktop.invalid"), bad), None, "{bad}");
+            assert_eq!(ask(&format!("/{k}{bad}")), None, "{bad}");
         }
-        assert_eq!(page_ask(Some("127.0.0.1"), "/badge/3"), None);
+        assert_eq!(page_ask(Some("127.0.0.1"), &format!("/{k}/badge/3"), k), None);
         // work web's own pages navigate as usual.
-        assert_eq!(page_ask(Some("127.0.0.1"), "/restart"), None);
-        assert_eq!(page_ask(None, "/restart"), None);
+        assert_eq!(page_ask(Some("127.0.0.1"), &format!("/{k}/restart"), k), None);
+        assert_eq!(page_ask(None, &format!("/{k}/restart"), k), None);
+    }
+
+    #[test]
+    fn an_ask_without_the_secret_is_none() {
+        let k = "0123456789abcdef0123456789abcdef";
+        // A framed page (a session's shown HTML) doesn't have it: the old form, a wrong or partial secret, are nothing.
+        for bad in ["/restart", "/check", "/hello", "/badge/3", "/0123456789abcdef/restart", "/0123456789abcdef0123456789abcdeX/restart"] {
+            assert_eq!(page_ask(Some("work-desktop.invalid"), bad, k), None, "{bad}");
+        }
+        assert_eq!(page_ask(Some("work-desktop.invalid"), &format!("/{k}x/restart"), k), None);
+        // No secret: nothing is an ask.
+        assert_eq!(page_ask(Some("work-desktop.invalid"), "//restart", ""), None);
+    }
+
+    #[test]
+    fn the_secret_is_long_random_hex_and_only_the_top_window_gets_it() {
+        let k = ask_secret();
+        assert_eq!(k.len(), 32);
+        assert!(k.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(k, ask_secret(), "one a launch");
+        let js = ask_secret_script(k);
+        assert_eq!(js, format!("if (window === window.top) window.__workDesktopAsk = \"{k}\";"));
     }
 
     #[test]
