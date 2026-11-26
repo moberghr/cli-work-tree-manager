@@ -70,7 +70,7 @@ const get = async (a: Hono) => (await (await a.request(`/api/sessions/${id}/show
 describe('session show routes', () => {
   it('nothing until shown; an absolute path inside the session shows it, with how it is drawn, and tells the pages', async () => {
     const a = app();
-    expect(await get(a)).toEqual({ shown: null });
+    expect(await get(a)).toEqual({ shown: null, pane: null });
     const res = await post(a, { file: path.join(wt, 'docs', 'spec.md') });
     expect(res.status).toBe(200);
     expect(((await res.json()) as SessionShownWire).shown).toMatchObject({ repo: 'wt', path: 'docs/spec.md', kind: 'markdown' });
@@ -91,17 +91,20 @@ describe('session show routes', () => {
     expect((await post(a, { file: path.join(wt, 'docs', 'spec.md') }, archivedId)).status).toBe(409);
     expect((await post(a, { file: 'x' }, 'nope')).status).toBe(404);
     // Nothing was shown, nothing announced.
-    expect(await get(a)).toEqual({ shown: null });
+    expect(await get(a)).toEqual({ shown: null, pane: null });
     expect(events).toEqual([]);
   });
 
   it('close takes it away, by DELETE or by `work show --close` (a POST)', async () => {
     const a = app();
     await post(a, { file: path.join(wt, 'docs', 'spec.md') });
-    expect((await (await a.request(`/api/sessions/${id}/show`, { method: 'DELETE' })).json()) as SessionShownWire).toEqual({ shown: null });
+    expect((await (await a.request(`/api/sessions/${id}/show`, { method: 'DELETE' })).json()) as SessionShownWire).toEqual({
+      shown: null,
+      pane: null,
+    });
     await post(a, { file: path.join(wt, 'docs', 'spec.md') });
     expect(((await (await post(a, { close: true })).json()) as SessionShownWire).shown).toBeNull();
-    expect(await get(a)).toEqual({ shown: null });
+    expect(await get(a)).toEqual({ shown: null, pane: null });
   });
 
   it('serves the shown file’s bytes only when it is an image, never to be sniffed or run', async () => {
@@ -139,7 +142,7 @@ describe('session show routes', () => {
     expect((await post(a, { file: path.join(home, 'elsewhere.html') })).status).toBe(404);
     fs.symlinkSync(path.join(home, 'elsewhere.html'), path.join(scratch, 'link.html'));
     expect((await post(a, { file: path.join(scratch, 'link.html') })).status).toBe(404);
-    expect(await get(a)).toEqual({ shown: null });
+    expect(await get(a)).toEqual({ shown: null, pane: null });
   });
 
   it("a scratch file's text, as the Code tab answers; none for a listed file (the Code tab reads that)", async () => {
@@ -198,5 +201,46 @@ describe('session show routes', () => {
         port,
       ),
     ).toBeNull();
+  });
+
+  describe('the pane beside the terminal (`work show --diff`, a pane tab)', () => {
+    it("opens on the session's Diff, Review or Code; showing a file opens it on the file; close closes it", async () => {
+      const a = app();
+      const diff = (await (await post(a, { view: 'diff' })).json()) as SessionShownWire;
+      expect(diff.pane).toMatchObject({ tab: 'diff' });
+      expect(diff.shown).toBeNull();
+      expect((await get(a)).pane?.tab).toBe('diff');
+      expect(((await (await post(a, { view: 'review' })).json()) as SessionShownWire).pane?.tab).toBe('review');
+      const file = (await (await post(a, { file: path.join(wt, 'docs', 'spec.md') })).json()) as SessionShownWire;
+      expect(file.pane?.tab).toBe('file');
+      // Another view keeps the file, for its tab.
+      const code = (await (await post(a, { view: 'code' })).json()) as SessionShownWire;
+      expect(code.pane).toMatchObject({ tab: 'code' });
+      expect(code.pane?.place).toBeUndefined();
+      expect(code.shown?.path).toBe('docs/spec.md');
+      expect(events.length).toBe(4);
+      expect(await (await post(a, { close: true })).json()).toEqual({ shown: null, pane: null });
+    });
+
+    it('the Code view at a place: a file the Code tab lists, its line (`work show --code file:line`)', async () => {
+      const a = app();
+      const at = (await (await post(a, { view: 'code', file: path.join(wt, 'docs', 'spec.md'), line: 12 })).json()) as SessionShownWire;
+      expect(at.pane).toMatchObject({ tab: 'code', place: { repo: 'wt', path: 'docs/spec.md', line: 12 } });
+      const noLine = (await (await post(a, { view: 'code', repo: 'wt', path: 'docs/spec.md', line: -3 })).json()) as SessionShownWire;
+      expect(noLine.pane?.place).toEqual({ repo: 'wt', path: 'docs/spec.md' });
+      // Not one it lists, or outside the session: refused, and the pane stays as it was.
+      expect((await post(a, { view: 'code', file: path.join(wt, 'ignored.md') })).status).toBe(404);
+      expect((await post(a, { view: 'code', file: path.join(home, 'elsewhere.html') })).status).toBe(404);
+      expect((await get(a)).pane?.place).toEqual({ repo: 'wt', path: 'docs/spec.md' });
+    });
+
+    it('refuses an unknown view, and the file tab while no file is shown', async () => {
+      const a = app();
+      expect((await post(a, { view: 'terminal' })).status).toBe(400);
+      expect((await post(a, { view: 7 })).status).toBe(400);
+      expect((await post(a, { view: 'file' })).status).toBe(409);
+      expect((await get(a)).pane).toBeNull();
+      expect(events).toEqual([]);
+    });
   });
 });

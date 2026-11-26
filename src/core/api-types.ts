@@ -2044,6 +2044,8 @@ export interface SessionLocalReviewWire {
 export interface SessionShownWire {
   /** `abs`: where it is on disk (the pane's Open in app / Show in Finder); absent from an older server. */
   shown: (import('./sessions/shown-file.js').ShownFile & { kind: import('./sessions/shown-file.js').ShownKind; abs?: string }) | null;
+  /** The pane beside the terminal: which view is on (null: closed). Absent from an older server: open on the file when one is shown. */
+  pane?: import('./sessions/shown-file.js').PaneView | null;
 }
 
 /** GET /api/sessions/:id/review/current: whether the kept review is of the changes as they are now. */

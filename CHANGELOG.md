@@ -5,6 +5,13 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ## Unreleased
 
+- **Diff, Code and Review beside the terminal.** The pane beside a session's
+  terminal now has tabs: the file it shows, and the session's Diff, Code and
+  Review, so you can read the changes while you talk to Claude. Open it with
+  "Open side pane" on the Terminal tab, or "Beside the terminal" on the Diff,
+  Code or Review tab; drag its edge to make it wider or narrower (remembered).
+  Claude can open it too: `work show --diff`, `--review`, or
+  `--code src/file.ts:42` to show the code at a line.
 - **HTML and artifacts beside the terminal.** The pane beside a session's
   terminal now draws HTML as a page — Claude's artifacts included, read from
   its scratch folder before they are published — interactive, in a sandbox

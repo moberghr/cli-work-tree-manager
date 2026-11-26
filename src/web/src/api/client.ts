@@ -374,6 +374,7 @@ export async function copyAccountSetup(to: string, from: string): Promise<Accoun
 
 /** Move every session on another account to `name` (POST /api/accounts/:name/sessions). Throws the server's reason when refused. */
 type SessionShown = import('../../../core/api-types.js').SessionShownWire;
+type PaneTab = NonNullable<SessionShown['pane']>['tab'];
 
 /** The file a session shows beside its terminal (GET …/show), or none. */
 export async function fetchSessionShown(sessionId: string): Promise<SessionShown> {
@@ -416,6 +417,22 @@ export async function fetchShownText(sessionId: string): Promise<{ text: string 
 }
 
 /** Stop showing it (DELETE …/show). */
+/** Open the pane beside the session's terminal on one of its views (POST …/show {view}). Throws the server's reason when refused. */
+export async function openSessionPane(
+  sessionId: string,
+  view: PaneTab,
+  place?: { repo: string; path: string; line?: number },
+): Promise<SessionShown> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ view, ...(place ?? {}) }),
+  });
+  const body = (await res.json().catch(() => ({}))) as SessionShown & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `open: ${res.status}`);
+  return body;
+}
+
 export async function closeSessionShown(sessionId: string): Promise<void> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/show`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`close: ${res.status}`);

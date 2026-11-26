@@ -667,3 +667,16 @@ describe('demo server: keep after its PR merges', () => {
     expect((await keep(first.id, 'yes')).status).toBe(400);
   });
 });
+
+describe('demo server: the pane beside the terminal', () => {
+  it('opens on its made-up Diff, Code and Review; shows no file; closes', async () => {
+    const id = (await sessions())[0]!.id;
+    expect(await get(`/api/sessions/${id}/show`)).toEqual({ shown: null, pane: null });
+    const opened = (await (await send('POST', `/api/sessions/${id}/show`, { view: 'review' })).json()) as { pane: { tab: string } };
+    expect(opened.pane.tab).toBe('review');
+    expect(((await get(`/api/sessions/${id}/show`)) as { pane: { tab: string } }).pane.tab).toBe('review');
+    expect((await send('POST', `/api/sessions/${id}/show`, { file: '/x/a.md' })).status).toBe(404);
+    expect(await (await send('POST', `/api/sessions/${id}/show`, { close: true })).json()).toEqual({ shown: null, pane: null });
+    expect((await send('POST', `/api/sessions/nope/show`, { view: 'diff' })).status).toBe(404);
+  });
+});

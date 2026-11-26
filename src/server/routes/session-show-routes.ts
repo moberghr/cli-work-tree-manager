@@ -7,9 +7,11 @@ import {
   findTempFile,
   imageType,
   locateInSession,
+  PANE_TABS,
   readShownFile,
   shownAbsolute,
   shownKind,
+  type PaneTab,
   type ShownFile,
 } from '../../core/sessions/shown-file.js';
 import type { WorktreeSession } from '../../core/sessions/session-types.js';
@@ -36,7 +38,8 @@ export const SHOWN_PAGE_SANDBOX = 'allow-scripts allow-popups allow-forms';
  *
  *   GET    /api/sessions/:id/show         SessionShownWire: what it shows, or nothing (a read)
  *   POST   /api/sessions/:id/show         {file} (an absolute path: `work show`, a click in the terminal) or {repo, path}:
- *                                         show it; {close: true}: stop
+ *                                         show it; {view: file|diff|code|review} (+ for code {file} or {repo, path},
+ *                                         and {line}): open the pane on that view; {close: true}: close the pane
  *   DELETE /api/sessions/:id/show         stop showing it
  *   GET    /api/sessions/:id/show/text    a scratch file's text, as the Code tab's read answers (a read)
  *   GET    /api/sessions/:id/show/image   the shown file's bytes, when it is an image (a read)
@@ -63,9 +66,11 @@ export function mountSessionShowRoutes(app: Hono, deps: SessionShowDeps): { drop
   const wire = (id: string): SessionShownWire => {
     const f = shown.get(id);
     const s = findSession(id);
-    if (!f || !s) return { shown: null };
+    const pane = shown.pane(id);
+    if (!s) return { shown: null, pane: null };
+    if (!f) return { shown: null, pane };
     const abs = shownAbsolute(s, f);
-    return { shown: { ...f, kind: shownKind(f.path), ...(abs ? { abs } : {}) } };
+    return { shown: { ...f, kind: shownKind(f.path), ...(abs ? { abs } : {}) }, pane };
   };
 
   app.get('/api/sessions/:id/show', (c) => {
@@ -79,10 +84,38 @@ export function mountSessionShowRoutes(app: Hono, deps: SessionShowDeps): { drop
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
     if (session.archivedAt) return c.json({ error: 'It is archived: restore it first.' }, 409);
-    const body = (await c.req.json().catch(() => ({}))) as { file?: unknown; repo?: unknown; path?: unknown; close?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      file?: unknown;
+      repo?: unknown;
+      path?: unknown;
+      line?: unknown;
+      close?: unknown;
+      view?: unknown;
+    };
     // `work show --close`: the command speaks POST only.
     if (body.close === true) {
       shown.close(id);
+      return c.json(wire(id));
+    }
+    // A view of the session's own in the pane: `work show --diff`, a pane tab, Beside the terminal.
+    if (body.view !== undefined) {
+      if (typeof body.view !== 'string' || !PANE_TABS.includes(body.view as PaneTab))
+        return c.json({ error: `view is one of ${PANE_TABS.join(', ')}` }, 400);
+      const tab = body.view as PaneTab;
+      let place: { repo: string; path: string; line?: number } | undefined;
+      if (tab === 'code' && (body.file !== undefined || body.path !== undefined)) {
+        const file = typeof body.file === 'string' && body.file ? body.file : null;
+        const at = file
+          ? locateInSession(session, file)
+          : typeof body.repo === 'string' && typeof body.path === 'string' && body.path
+            ? { repo: body.repo, path: body.path.replace(/\\/g, '/') }
+            : null;
+        const found = at ? await locate(session, at.repo, at.path) : { error: 'outside' };
+        if (!at || 'error' in found) return c.json({ error: 'That file isn’t one the Code tab lists for this session.' }, 404);
+        const line = typeof body.line === 'number' && Number.isInteger(body.line) && body.line > 0 ? body.line : undefined;
+        place = { ...at, ...(line ? { line } : {}) };
+      }
+      if (!shown.open(id, tab, place)) return c.json({ error: 'It shows no file.' }, 409);
       return c.json(wire(id));
     }
     const file = typeof body.file === 'string' && body.file ? body.file : null;

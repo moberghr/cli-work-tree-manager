@@ -1,8 +1,10 @@
 import { SessionReviewTab } from './tabs/SessionReviewTab.js';
-import { ShownFilePane } from './ShownFilePane.js';
-import { useShownFile } from '../../hooks/use-shown-file.js';
+import { SIDE_PANE_SPEC, SidePane } from './SidePane.js';
+import { useSessionShown } from '../../hooks/use-shown-file.js';
+import { ResizeDivider, useResizableSize } from '../Layout/ResizeDivider.js';
+import { Button } from '../../ui/index.js';
 import { reviewTabMeta } from '../../state/review-view.js';
-import { showSessionFile } from '../../api/client.js';
+import { openSessionPane, showSessionFile } from '../../api/client.js';
 import { SessionProcesses } from './SessionProcesses.js';
 import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
@@ -151,8 +153,20 @@ export function SessionDetail({
     window.addEventListener(CODE_SEARCH_EVENT, onSearch);
     return () => window.removeEventListener(CODE_SEARCH_EVENT, onSearch);
   }, [session]);
-  // A file it shows beside its terminal (`work show`), followed while this session is on screen.
-  const shownFile = useShownFile(session.id);
+  // What it shows beside its terminal (`work show`, the pane's tabs), followed while this session is on screen.
+  const { shown: shownFile, pane, set: setShown } = useSessionShown(session.id);
+  const { size: paneWidth, setSize: setPaneWidth } = useResizableSize(SIDE_PANE_SPEC);
+  const splitRef = useRef<HTMLDivElement>(null);
+  // Diff / Code / Review beside the terminal: the pane opens on it and the Terminal tab comes to the front.
+  const besideTab = subTab === 'diff' || subTab === 'code' || subTab === 'review' ? subTab : null;
+  const putBeside = (view: 'diff' | 'code' | 'review') =>
+    openSessionPane(session.id, view).then(
+      (w) => {
+        setShown({ shown: w.shown, pane: w.pane ?? null });
+        onSelectSubTab('term');
+      },
+      () => undefined,
+    );
   const openPlace = (p: CodePlace) => {
     // Never the same number twice for the page (CodeView applies each pick once, remembered per session).
     setGoto({ ...p, seq: ++pickSeq, sessionId: session.id });
@@ -223,6 +237,28 @@ export function SessionDetail({
             onClick={() => onSelectSubTab('branches')}
           />
         )}
+        {!isArchived(session) && besideTab && (
+          <Button
+            variant="link"
+            tone="muted"
+            className="wd-session-beside"
+            title="Show it in the pane beside the terminal"
+            onClick={() => void putBeside(besideTab)}
+          >
+            Beside the terminal ⇥
+          </Button>
+        )}
+        {!isArchived(session) && subTab === 'term' && !pane && (
+          <Button
+            variant="link"
+            tone="muted"
+            className="wd-session-beside"
+            title="Open a pane beside the terminal: the Diff, Code or Review"
+            onClick={() => void putBeside('diff')}
+          >
+            Open side pane ⇥
+          </Button>
+        )}
       </nav>
       <div className={'wd-session-subtab-body' + (subTab === 'diff' && diffFull ? ' wd-diff-full' : '')}>
         {subTab === 'diff' && (
@@ -235,8 +271,13 @@ export function SessionDetail({
           />
         )}
         {subTab === 'term' && (
-          // With a file shown, the terminal takes the left and the file the right: the deck follows the slot's size.
-          <div className={'wd-term-split' + (shownFile ? ' wd-term-split-shown' : '')}>
+          // With the pane open, the terminal takes the left and the pane the right (its width dragged, remembered):
+          // the deck follows the slot's size.
+          <div
+            ref={splitRef}
+            className={'wd-term-split' + (pane ? ' wd-term-split-shown' : '')}
+            style={{ [SIDE_PANE_SPEC.cssVar as string]: `${paneWidth}px` }}
+          >
             {onTermSlot ? (
               // The dashboard's terminal deck draws the terminal over this slot,
               // so it stays connected when you switch away and back.
@@ -244,13 +285,17 @@ export function SessionDetail({
             ) : (
               <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
             )}
-            {shownFile && (
-              <ShownFilePane
-                key={`${shownFile.repo}/${shownFile.path}`}
-                session={session}
-                shown={shownFile}
-                onOpenCode={() => openPlace({ repo: shownFile.repo, path: shownFile.path })}
-              />
+            {pane && (
+              <>
+                <ResizeDivider layoutRef={splitRef} size={paneWidth} onCommit={setPaneWidth} spec={SIDE_PANE_SPEC} />
+                <SidePane
+                  session={session}
+                  pane={pane}
+                  shown={shownFile}
+                  onWire={setShown}
+                  onOpenCode={() => shownFile && openPlace({ repo: shownFile.repo, path: shownFile.path })}
+                />
+              </>
             )}
           </div>
         )}

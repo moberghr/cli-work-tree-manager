@@ -168,21 +168,58 @@ export function shownAbsolute(
   return root ? path.join(root, ...f.path.split('/')) : null;
 }
 
-/** The files sessions show, in memory (one a session: showing another replaces it). */
+/** What the pane beside a session's terminal shows: the shown file, or one of the session's own views. */
+export type PaneTab = 'file' | 'diff' | 'code' | 'review';
+export const PANE_TABS: readonly PaneTab[] = ['file', 'diff', 'code', 'review'];
+
+/** A place the Code view opens at (`work show --code <file>:<line>`). */
+export interface PanePlace {
+  repo: string;
+  path: string;
+  line?: number;
+}
+
+export interface PaneView {
+  tab: PaneTab;
+  /** When it was asked for (ISO): asked again, the pane goes to it again (a new place in Code). */
+  at: string;
+  /** Code only: where to open. */
+  place?: PanePlace;
+}
+
+/**
+ * What sessions show beside their terminals, in memory: the pane (which view is on, or none: closed) and the file it
+ * shows (one a session: showing another replaces it). Showing a file opens the pane on it; closing the pane forgets it.
+ */
 export function createShownFiles(deps: { onChange: (sessionId: string) => void; now?: () => Date }) {
   const shown = new Map<string, ShownFile>();
+  const panes = new Map<string, PaneView>();
+  const now = () => (deps.now?.() ?? new Date()).toISOString();
   return {
     get: (sessionId: string): ShownFile | null => shown.get(sessionId) ?? null,
+    pane: (sessionId: string): PaneView | null => panes.get(sessionId) ?? null,
     show(sessionId: string, file: { repo: string; path: string; temp?: string }): ShownFile {
-      const next: ShownFile = { repo: file.repo, path: file.path, at: (deps.now?.() ?? new Date()).toISOString() };
+      const next: ShownFile = { repo: file.repo, path: file.path, at: now() };
       if (file.temp) next.temp = file.temp;
       shown.set(sessionId, next);
+      panes.set(sessionId, { tab: 'file', at: next.at });
       deps.onChange(sessionId);
       return next;
     },
-    /** False when it showed nothing. */
+    /** Opens the pane on a view. Null (nothing changes) for the file's when no file is shown. */
+    open(sessionId: string, tab: PaneTab, place?: PanePlace): PaneView | null {
+      if (tab === 'file' && !shown.has(sessionId)) return null;
+      const view: PaneView = { tab, at: now() };
+      if (tab === 'code' && place) view.place = place;
+      panes.set(sessionId, view);
+      deps.onChange(sessionId);
+      return view;
+    },
+    /** Closes the pane and forgets its file. False when it showed nothing. */
     close(sessionId: string): boolean {
-      if (!shown.delete(sessionId)) return false;
+      const had = panes.delete(sessionId) || shown.has(sessionId);
+      shown.delete(sessionId);
+      if (!had) return false;
       deps.onChange(sessionId);
       return true;
     },

@@ -13,6 +13,8 @@ interface Props {
   shown: Shown;
   /** Asked to close (the default tells the server, which tells every window). */
   onClose?: () => void;
+  /** Its own × (false: it sits in the side pane, whose × closes it). */
+  closable?: boolean;
   /** Open it in the Code tab. */
   onOpenCode?: () => void;
   /** Test seam; defaults to the Code tab's read. */
@@ -38,6 +40,7 @@ export function ShownFilePane({
   session,
   shown,
   onClose,
+  closable = true,
   onOpenCode,
   load = fetchCodeFile,
   loadTemp = fetchShownText,
@@ -116,9 +119,11 @@ export function ShownFilePane({
               Code tab
             </button>
           )}
-          <button type="button" className="wd-link-button" onClick={close} aria-label="Close" title="Stop showing it">
-            ×
-          </button>
+          {closable && (
+            <button type="button" className="wd-link-button" onClick={close} aria-label="Close" title="Stop showing it">
+              ×
+            </button>
+          )}
         </span>
       </header>
       {note && <p className="wd-start-note wd-shown-note">{note}</p>}

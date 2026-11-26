@@ -72,6 +72,35 @@ describe('createShownFiles', () => {
     expect(shown.get('s1')).toBeNull();
     expect(changed).toEqual(['s1', 's1', 's1']);
   });
+
+  it("the pane: a view of the session's, the file's only while one is shown; showing a file opens it there; close forgets both", () => {
+    const changed: string[] = [];
+    let now = new Date('2026-11-26T10:00:00Z');
+    const shown = createShownFiles({ onChange: (id) => void changed.push(id), now: () => now });
+    expect(shown.pane('s1')).toBeNull();
+    expect(shown.open('s1', 'file')).toBeNull();
+    expect(changed).toEqual([]);
+    expect(shown.open('s1', 'diff')).toEqual({ tab: 'diff', at: now.toISOString() });
+    // A place is the Code view's alone.
+    expect(shown.open('s1', 'review', { repo: 'api', path: 'a.ts' })).toEqual({ tab: 'review', at: now.toISOString() });
+    now = new Date('2026-11-26T10:01:00Z');
+    expect(shown.open('s1', 'code', { repo: 'api', path: 'a.ts', line: 3 })).toEqual({
+      tab: 'code',
+      at: now.toISOString(),
+      place: { repo: 'api', path: 'a.ts', line: 3 },
+    });
+    shown.show('s1', { repo: 'api', path: 'spec.md' });
+    expect(shown.pane('s1')?.tab).toBe('file');
+    expect(shown.open('s1', 'diff')?.tab).toBe('diff');
+    expect(shown.get('s1')?.path).toBe('spec.md');
+    expect(shown.close('s1')).toBe(true);
+    expect(shown.pane('s1')).toBeNull();
+    expect(shown.get('s1')).toBeNull();
+    // A pane open on a view with no file closes too.
+    shown.open('s2', 'review');
+    expect(shown.close('s2')).toBe(true);
+    expect(shown.close('s2')).toBe(false);
+  });
 });
 
 describe('insideFolders', () => {

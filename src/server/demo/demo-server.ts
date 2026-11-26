@@ -247,16 +247,38 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ events } satisfies TimelineWire);
   });
 
-  // A file a session shows beside its terminal: the demo shows none, and takes a show without drawing one (its files are made up).
+  // The pane beside a session's terminal: its made-up Diff, Code and Review open there (in memory, as work web's);
+  // a file is never shown (its files are made up).
+  // Its own small map: core/sessions/shown-file.ts reads files, which the demo never loads (demo-separation.test.ts).
+  const paneViews = new Map<string, { tab: 'diff' | 'code' | 'review'; at: string }>();
+  const panes = {
+    pane: (id: string) => paneViews.get(id) ?? null,
+    open: (id: string, tab: 'diff' | 'code' | 'review') => void paneViews.set(id, { tab, at: new Date(scenario.clockMs()).toISOString() }),
+    close: (id: string) => void paneViews.delete(id),
+  };
+  const known = (id: string) => scenario.list().some((x) => x.id === id);
   app.get('/api/sessions/:id/show', (c) =>
-    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ shown: null }) : notFound(c),
+    known(c.req.param('id')) ? c.json({ shown: null, pane: panes.pane(c.req.param('id')) }) : notFound(c),
   );
-  app.post('/api/sessions/:id/show', (c) =>
-    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ error: 'The demo has no files to show.' }, 404) : notFound(c),
-  );
-  app.delete('/api/sessions/:id/show', (c) =>
-    scenario.list().some((x) => x.id === c.req.param('id')) ? c.json({ shown: null }) : notFound(c),
-  );
+  app.post('/api/sessions/:id/show', async (c) => {
+    const id = c.req.param('id');
+    if (!known(id)) return notFound(c);
+    const body = (await c.req.json().catch(() => ({}))) as { view?: unknown; close?: unknown };
+    if (body.close === true) {
+      panes.close(id);
+      return c.json({ shown: null, pane: null });
+    }
+    if (body.view === 'diff' || body.view === 'code' || body.view === 'review') {
+      panes.open(id, body.view);
+      return c.json({ shown: null, pane: panes.pane(id) });
+    }
+    return c.json({ error: 'The demo has no files to show.' }, 404);
+  });
+  app.delete('/api/sessions/:id/show', (c) => {
+    if (!known(c.req.param('id'))) return notFound(c);
+    panes.close(c.req.param('id'));
+    return c.json({ shown: null, pane: null });
+  });
   app.get('/api/sessions/:id/show/image', (c) => c.json({ error: 'it shows no image' }, 404));
   app.get('/api/sessions/:id/show/text', (c) => c.json({ error: 'it shows no scratch file' }, 404));
   app.get('/api/sessions/:id/show/page', (c) => c.json({ error: 'it shows no page' }, 404));

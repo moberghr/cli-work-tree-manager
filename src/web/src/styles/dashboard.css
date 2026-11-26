@@ -3464,7 +3464,8 @@ td.wd-st-col-when {
   margin-right: 8px;
 }
 
-/* A file a session shows beside its terminal (ShownFilePane): the terminal left, the file right. */
+/* The pane beside a session's terminal (SidePane): the terminal left, the pane right at its dragged width
+   (--side-pane-width, SIDE_PANE_SPEC), never leaving the terminal less than a narrow column. */
 .wd-term-split {
   flex: 1;
   min-height: 0;
@@ -3474,14 +3475,89 @@ td.wd-st-col-when {
   min-width: 0;
 }
 .wd-term-split-shown > .wd-term-slot {
-  flex: 1 1 50%;
+  flex: 1 1 0;
+  min-width: 240px;
 }
-.wd-shown {
-  flex: 1 1 50%;
+.wd-term-split > .wd-resize-divider {
+  width: 4px;
+  flex-shrink: 0;
+}
+.wd-side-pane {
+  flex: 0 0 var(--side-pane-width, 640px);
+  max-width: calc(100% - 244px);
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
+  background: var(--bg);
+  /* What's in it lays itself out by the pane's width, not the window's (the diff below). */
+  container-type: inline-size;
+}
+.wd-side-pane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.wd-side-pane-tabs {
+  min-width: 0;
+  overflow-x: auto;
+}
+.wd-side-pane-file-tab {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.wd-side-pane-close {
+  margin-left: auto;
+}
+/* As the session's tab body (session.css): each view fills it and scrolls inside. */
+.wd-side-pane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wd-side-pane-body > .wd-web-review-layout {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+.wd-side-pane-body > .wd-web-review-layout > .wd-web-review-main {
+  height: auto;
+  min-height: 0;
+}
+/* A narrow pane: the diff's file tree above the diff, as in a narrow window, rather than leaving it a sliver. */
+@container (max-width: 760px) {
+  /* Shares, not the tree's own height: a % cap has nothing definite to take it from here, and a long tree left the
+     diff 0 px. */
+  .wd-side-pane-body > .wd-web-review-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 2fr) minmax(0, 5fr);
+  }
+  .wd-side-pane-body > .wd-web-review-layout > .wd-web-review-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .wd-side-pane-body > .wd-web-review-layout > .wd-resize-divider {
+    display: none;
+  }
+}
+.wd-session-beside {
+  margin-left: auto;
+  align-self: center;
+}
+.wd-shown {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
 }
 .wd-shown-head {
