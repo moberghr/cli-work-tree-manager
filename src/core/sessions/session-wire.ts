@@ -105,6 +105,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     isGroup: s.isGroup,
     paths: s.paths,
     repos: wireRepos(s),
+    ...(isBaseCheckout(s) ? { baseCheckout: true as const } : {}),
     folder: s.isGroup,
     baseBranch: s.baseBranch,
     issueKey: s.issueKey,
@@ -217,6 +218,21 @@ export function wireRepos(
   const recorded = recordedRepos(s);
   if (recorded) return recorded.map((r) => r.alias);
   return sessionRepos(s, s.isGroup ? config() : null).map((r) => r.alias);
+}
+
+/**
+ * A repo's own checkout (`work tree api` with no branch), not a worktree work made: its path is the configured repo's
+ * (as `baseCheckoutSession`). The Project view puts it first in its project's card. Config read once per change.
+ */
+export function isBaseCheckout(
+  s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths'>,
+  config: () => Pick<WorkConfig, 'repos'> | null = repoConfig,
+): boolean {
+  if (s.isGroup || !s.paths[0]) return false;
+  const repo = config()?.repos[s.target];
+  if (!repo) return false;
+  const norm = (p: string) => path.resolve(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  return norm(s.paths[0]) === norm(repo);
 }
 
 let configCache: { key: string; value: Pick<WorkConfig, 'repos' | 'groups'> | null } | null = null;

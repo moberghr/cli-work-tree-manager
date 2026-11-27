@@ -84,21 +84,24 @@ function remount(over: Partial<Parameters<typeof SessionRail>[0]> = {}) {
   root = createRoot(container);
   return render(over);
 }
+/** A heading's name: a group's, or a Project card's (its own button). */
+const HEADING_NAME = '.wd-dash-rail-group-name, .wd-rail-pcard-name';
 /** The list as shown: headings as `# name`, rows by branch. */
 const shown = () =>
-  [...container.querySelectorAll('.wd-dash-rail-group-name, .wd-dash-rail-name')].map((n) =>
-    n.classList.contains('wd-dash-rail-group-name') ? `# ${n.textContent}` : n.textContent,
+  [...container.querySelectorAll(`${HEADING_NAME}, .wd-dash-rail-name`)].map((n) =>
+    n.classList.contains('wd-dash-rail-name') ? n.textContent : `# ${n.textContent}`,
   );
 const counts = () =>
-  [...container.querySelectorAll('.wd-dash-rail-group-toggle')].map(
-    (b) => `${b.querySelector('.wd-dash-rail-group-name')!.textContent} ${b.querySelector('.wd-dash-rail-group-count')!.textContent}`,
+  [...container.querySelectorAll('li.wd-dash-rail-group')].map(
+    (li) => `${li.querySelector(HEADING_NAME)!.textContent} ${li.querySelector('.wd-dash-rail-group-count')!.textContent}`,
   );
 const tab = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent === label)!;
 const choose = (label: string) => act(() => tab(label).click());
+/** A heading's fold button, by its name. */
 const heading = (name: string) =>
-  [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-group-toggle')].find(
-    (b) => b.querySelector('.wd-dash-rail-group-name')?.textContent === name,
-  )!;
+  [...container.querySelectorAll('li.wd-dash-rail-group')]
+    .find((li) => li.querySelector(HEADING_NAME)?.textContent === name)!
+    .querySelector<HTMLButtonElement>('.wd-dash-rail-group-toggle')!;
 const row = (branch: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find(
     (b) => b.querySelector('.wd-dash-rail-name')?.textContent === branch,
@@ -120,6 +123,26 @@ function drag(el: Element, type: string) {
 }
 
 describe('the rail’s view switch', () => {
+  // Reported: the three labels ran past a narrow rail's edge. There, one button names the view and opens a menu (rail.css).
+  it('a narrow rail’s button: names the view, opens a menu of the three with the one on checked, and switches', () => {
+    render();
+    const pick = container.querySelector<HTMLButtonElement>('.wd-dash-rail-view-pick')!;
+    expect(pick.textContent).toContain('Mine');
+    expect(pick.getAttribute('aria-haspopup')).toBe('menu');
+    act(() => pick.click());
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"]')];
+    expect(items.map((i) => i.textContent)).toEqual([
+      expect.stringContaining('Mine'),
+      expect.stringContaining('State'),
+      expect.stringContaining('Project'),
+    ]);
+    expect(items[0].getAttribute('aria-checked')).toBe('true');
+    act(() => items[2].click());
+    expect(localStorage.getItem('work-web:rail-view')).toBe('project');
+    expect(container.querySelector('.wd-dash-rail-view-pick')!.textContent).toContain('Project');
+    expect(tab('Project').getAttribute('aria-selected')).toBe('true');
+  });
+
   it('Mine · State · Project in the header, before the legend and +, Mine on at first: the rail as it was', () => {
     render();
     const header = container.querySelector('.wd-dash-rail-header')!;
@@ -545,6 +568,66 @@ describe('the Project view', () => {
     drag(container.querySelector('.wd-dash-rail-list')!, 'drop');
     expect(props.onPlace).not.toHaveBeenCalled();
     expect(props.onReorder).not.toHaveBeenCalled();
+  });
+
+  // Asked for (the mockups' A): each project a card, its own checkout first, its name opening it, its color its edge.
+  it('each project a card: its heading the top, its rows the rest, the last row closing it; Older is no card', () => {
+    project();
+    const pieces = (name: string) => {
+      const head = [...container.querySelectorAll('li.wd-dash-rail-group')].find(
+        (li) => li.querySelector(HEADING_NAME)?.textContent === name,
+      )!;
+      const out = [head];
+      for (let n = head.nextElementSibling; n && !n.classList.contains('wd-dash-rail-group'); n = n.nextElementSibling) out.push(n);
+      return out.map((li) => [...li.classList].filter((c) => c.startsWith('wd-rail-pcard')).join(' '));
+    };
+    expect(pieces('api')).toEqual(['wd-rail-pcard wd-rail-pcard-head', 'wd-rail-pcard', 'wd-rail-pcard wd-rail-pcard-end']);
+    const older = [...container.querySelectorAll('li.wd-dash-rail-group')].find((li) => li.textContent?.includes('Older'))!;
+    expect(older.classList.contains('wd-rail-pcard')).toBe(false);
+    // Folded: the heading closes the card itself.
+    act(() => heading('api').click());
+    expect(pieces('api')).toEqual(['wd-rail-pcard wd-rail-pcard-head wd-rail-pcard-end']);
+  });
+
+  it("its own checkout first, marked; the card's name opens it (no own checkout: the name folds)", () => {
+    const base = session('main', {
+      target: 'api',
+      branch: 'main',
+      baseCheckout: true,
+      lastAccessedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+    const props = project({ sessions: [...PROJECTS, base] });
+    expect(shown().slice(0, 4)).toEqual(['# api', 'main', 'feat/a', 'feat/b']);
+    expect(row('main').querySelector('.wd-rail-home')).not.toBeNull();
+    expect(row('feat/a').querySelector('.wd-rail-home')).toBeNull();
+    const name = (n: string) => [...container.querySelectorAll<HTMLButtonElement>('.wd-rail-pcard-name')].find((b) => b.textContent === n)!;
+    expect(name('api').title).toBe("Open api's own checkout (main)");
+    act(() => name('api').click());
+    expect(props.onSelect).toHaveBeenLastCalledWith('main');
+    act(() => name('web').click());
+    expect(shown()).not.toContain('feat/w');
+  });
+
+  it("the project's color is the card's edge; a row draws a bar only for a color of its own", () => {
+    project({
+      layout: { sections: [], places: { a: { color: 'purple' }, b: { color: 'orange' } }, projectColors: { api: 'orange' } },
+    });
+    const api = [...container.querySelectorAll<HTMLElement>('li.wd-dash-rail-group')].find(
+      (li) => li.querySelector(HEADING_NAME)?.textContent === 'api',
+    )!;
+    expect(api.style.getPropertyValue('--rail-pcard')).toBe('var(--tag-orange)');
+    expect(row('feat/a').closest('li')!.className).toContain('wd-tag-purple');
+    // The project's own color again: the card says it, no bar.
+    expect(row('feat/b').closest('li')!.className).not.toContain('wd-dash-rail-colored');
+    expect(row('feat/b').closest('li')!.style.getPropertyValue('--rail-pcard')).toBe('var(--tag-orange)');
+    // No color: a plain card.
+    const web = [...container.querySelectorAll<HTMLElement>('li.wd-dash-rail-group')].find(
+      (li) => li.querySelector(HEADING_NAME)?.textContent === 'web',
+    )!;
+    expect(web.style.getPropertyValue('--rail-pcard')).toBe('');
+    // Mine keeps a bar per row, the project's color too.
+    choose('Mine');
+    expect(row('feat/b').closest('li')!.className).toContain('wd-dash-rail-colored');
   });
 
   it('Alt+1…9 follows Project’s rows', () => {

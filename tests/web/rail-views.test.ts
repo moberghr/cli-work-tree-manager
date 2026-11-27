@@ -4,6 +4,8 @@ import type { SessionSummary } from '../../src/web/src/api/client.js';
 import type { RailLayout } from '../../src/core/rail/rail-layout.js';
 import { OLDER_GROUP, railGroups } from '../../src/web/src/state/session-display.js';
 import {
+  baseFirst,
+  cardHome,
   groupsForView,
   projectGroups,
   projectOfGroup,
@@ -253,5 +255,23 @@ describe('the stored view', () => {
     });
     expect(readRailView()).toBe('mine');
     expect(() => writeRailView('state')).not.toThrow();
+  });
+});
+
+/** The Project view's cards (asked for: the repo's own checkout easy to find, at a card's top). */
+describe('baseFirst / cardHome', () => {
+  it("a project's own checkout first, the rest in their order; the card's name opens the most recently entered one", () => {
+    const a = session('a');
+    const home = session('main', { branch: 'main', baseCheckout: true, lastAccessedAt: ago(30) });
+    const older = session('master', { branch: 'master', baseCheckout: true, lastAccessedAt: ago(300) });
+    const b = session('b');
+    expect(baseFirst([a, older, b, home]).map((s) => s.id)).toEqual(['master', 'main', 'a', 'b']);
+    expect(cardHome([a, older, b, home])?.id).toBe('main');
+    expect(cardHome([a, b])).toBeNull();
+  });
+
+  it('projectGroups puts it first in its project', () => {
+    const { groups } = projectGroups([session('a1'), session('main', { branch: 'main', baseCheckout: true })], { now: NOW });
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(['main', 'a1']);
   });
 });

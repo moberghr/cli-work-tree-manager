@@ -3,6 +3,20 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.22.2 — 2026-11-27
+
+- **Project view: a card per project.** Each project in the rail's Project
+  view is a card: its name on top (a click opens the repo's own checkout),
+  that checkout first, marked with a house, then its worktrees. A project's
+  color is the card's edge; a session with a color of its own keeps its bar.
+- **The rail's view switch fits a narrow rail.** Below about 260 px the
+  Mine · State · Project labels become one button naming the view, with a
+  menu of the three, instead of running past the rail's edge.
+- **A path broken over two lines is one link.** When Claude Code wraps a long
+  path early (at a `/`, its size at the end of the next line), the two halves
+  are one link again; and a path printed right after a label, like
+  `[image]/tmp/shot.png`, is found without the label.
+
 ## 2.22.1 — 2026-11-27
 
 - **Copied text keeps its characters on macOS.** A copy from a session's

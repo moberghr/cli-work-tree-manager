@@ -18,6 +18,46 @@
   justify-content: flex-end;
   gap: 6px;
   padding: 12px 10px 8px;
+  /* Its width decides the switch: the three labels, or one button with a menu (below). */
+  container: rail-head / inline-size;
+}
+/* A rail too narrow for the three labels (they ran past its edge): one button naming the view, with a menu of the
+   three (SessionRail's view menu); the ? and + stay on its row. */
+.wd-dash-rail-view-pick {
+  display: none;
+  appearance: none;
+  align-items: center;
+  gap: var(--space-1);
+  margin-right: auto;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.wd-dash-rail-view-pick:hover {
+  background: var(--hover);
+}
+.wd-dash-rail-view-pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.wd-dash-rail-view-caret {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+@container rail-head (max-width: 259px) {
+  .wd-dash-rail-views {
+    display: none;
+  }
+  .wd-dash-rail-view-pick {
+    display: inline-flex;
+  }
 }
 /* The switch (Segmented, ui.css) sits at the left, the buttons at the right. In a rail too narrow for one row (under
    about 260 px with its three labels) the two buttons go to a second row together, so the switch's labels stay
@@ -458,6 +498,79 @@
 .wd-dash-rail-group-project .wd-dash-rail-group-toggle {
   flex: 1;
   min-width: 0;
+}
+/* Each project a card (the mockups' A): its heading the card's top, its rows the rest, drawn from the list's own items
+   so keys, drag and Alt+1…9 are as in the other views. The project's color (config `colors`) is the card's left edge
+   (`--rail-pcard`, set on each piece); a row draws its own bar only for a color of its own. */
+.wd-dash-rail-list > .wd-rail-pcard {
+  margin-inline: var(--space-1);
+  border: 1px solid var(--border);
+  border-block: 0;
+  border-left: 3px solid var(--rail-pcard, var(--border));
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+.wd-dash-rail-list > .wd-rail-pcard-head {
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+.wd-dash-rail-list > .wd-rail-pcard-head:not(.wd-rail-pcard-end) {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.wd-dash-rail-list > .wd-rail-pcard-end {
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  padding-bottom: var(--space-1);
+}
+.wd-dash-rail-list > .wd-rail-pcard-head.wd-rail-pcard-end {
+  border-radius: var(--radius-lg);
+}
+.wd-dash-rail-list > .wd-rail-pcard:not(.wd-rail-pcard-head) {
+  padding-top: 1px;
+}
+/* A row's own color, inside its card's edge. */
+.wd-rail-pcard.wd-dash-rail-colored::before {
+  left: var(--space-1);
+}
+.wd-dash-rail-group-project .wd-rail-pcard-fold {
+  flex: none;
+  width: auto;
+}
+/* The project's name: what the card is, in its own words (not the small capitals of a heading); a click opens the
+   repo's own checkout. */
+.wd-rail-pcard-name {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--fg);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wd-rail-pcard-name:hover {
+  color: var(--accent);
+}
+.wd-rail-pcard-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+.wd-rail-pcard-head .wd-dash-rail-group-count {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.wd-rail-home {
+  flex: none;
+  color: var(--muted);
 }
 .wd-dash-rail-group-add {
   appearance: none;

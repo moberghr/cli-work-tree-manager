@@ -563,6 +563,8 @@ export interface SessionOverlap {
  *  work web and the demo) sends. */
 export interface SessionWire {
   id: string;
+  /** A repo's own checkout, not a worktree work made (session-wire.ts `isBaseCheckout`): first in its Project card. */
+  baseCheckout?: true;
   /** Being archived right now (archiving.ts: the button, Ship, the PR watch, cleanup): shown as Archiving until it's gone. */
   archiving?: true;
   /** Its Claude was stopped by work while idle (idle sleep, `work stop`) and hasn't run since: Asleep —

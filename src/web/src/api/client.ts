@@ -108,6 +108,8 @@ export interface SessionSummary {
   baseBranch?: string;
   issueKey?: string;
   createdAt: string;
+  /** A repo's own checkout, not a worktree work made: first in its Project card (SessionWire.baseCheckout). */
+  baseCheckout?: true;
   lastAccessedAt: string;
   /** Dashboard-only; absent when fetching from the wd -c review server. */
   draftCount?: number;

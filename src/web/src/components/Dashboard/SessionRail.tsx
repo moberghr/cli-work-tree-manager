@@ -6,6 +6,7 @@ import {
   placeForGroup,
   RAIL_COLOR_LABEL,
   type PlacePatch,
+  type RailColor,
   type RailGroup,
   type RailLayout,
   type SectionOp,
@@ -27,7 +28,7 @@ import {
   type RailCard,
   type RailPrMark,
 } from '../../state/rail-row.js';
-import { groupsForView, projectOfGroup, RAIL_VIEWS, readRailView, writeRailView, type RailView } from '../../state/rail-views.js';
+import { cardHome, groupsForView, projectOfGroup, RAIL_VIEWS, readRailView, writeRailView, type RailView } from '../../state/rail-views.js';
 import { moveSession } from '../../../../core/rail/session-order.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { accountLabel } from '../../state/accounts.js';
@@ -147,6 +148,8 @@ export function SessionRail({
   const [naming, setNaming] = useState<{ kind: 'new'; sessionId: string | null } | { kind: 'rename'; sectionId: string } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
   const [view, setView] = useState<RailView>(readRailView);
+  // The narrow rail's view menu, where its button is.
+  const [viewMenu, setViewMenu] = useState<{ x: number; y: number } | null>(null);
   // The Project view's card: the row it is for and where that row is. Shown after a short wait on hover, at once on focus.
   const [card, setCard] = useState<{ id: string; top: number; left: number } | null>(null);
   const cardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -318,7 +321,11 @@ export function SessionRail({
   };
   const moveSection = (id: string, by: -1 | 1) => void onSections?.({ op: 'move', id, by }).catch(() => {});
 
-  const renderRow = (s: SessionSummary, index: number) => {
+  /**
+   * A row; in the Project view, a piece of its project's card (`inCard`: the project's color, and whether it is the card's
+   * last row). There the project's color is the card's edge, so a row draws its own bar only for a color of its own.
+   */
+  const renderRow = (s: SessionSummary, index: number, inCard?: { color?: RailColor; end: boolean }) => {
     const kind = displayStatus(s);
     const isActive = s.id === activeSessionId;
     // Your name for it, when you gave one; else its branch (its `feat/` apart, drawn muted).
@@ -330,11 +337,14 @@ export function SessionRail({
     const marks = railPrMarks(s, prsFor?.(s) ?? []);
     const summary = s.attention?.summary;
     // Your color for it: a bar down the row's edge (its own spot, so never read as a status), one block with its neighbours of that color.
-    const color = sessionColor(layout, s);
-    const colored = color ? ` wd-dash-rail-colored ${tagClass(color)}` : '';
+    const own = layout.places[s.id]?.color;
+    const color = inCard ? (own && own !== inCard.color ? own : undefined) : sessionColor(layout, s);
+    const piece = inCard ? ` wd-rail-pcard${inCard.end ? ' wd-rail-pcard-end' : ''}` : '';
+    const pieceStyle = inCard?.color ? ({ ['--rail-pcard' as string]: `var(--tag-${inCard.color})` } as React.CSSProperties) : undefined;
+    const colored = (color ? ` wd-dash-rail-colored ${tagClass(color)}` : '') + piece;
     if (onRename && renamingId === s.id) {
       return (
-        <li key={s.id} className={colored.trim() || undefined}>
+        <li key={s.id} className={colored.trim() || undefined} style={pieceStyle}>
           <RenameRow
             session={s}
             dot={<StatusIcon kind={kind} />}
@@ -378,6 +388,7 @@ export function SessionRail({
           (over ? (over.before ? ' wd-dash-rail-drop-before' : ' wd-dash-rail-drop-after') : '') +
           colored
         }
+        style={pieceStyle}
         onDragStart={(e) => {
           if (!canReorder && !canPlace) return;
           setDragId(s.id);
@@ -451,6 +462,7 @@ export function SessionRail({
             // Project: one line. Its heading says the project; `keep`, the branch of one you named and the rest are in the card.
             <span className="wd-dash-rail-lines">
               <span className="wd-dash-rail-line">
+                {s.baseCheckout && <HomeIcon />}
                 {nameEl}
                 {colorEl}
                 {statusEl}
@@ -499,6 +511,23 @@ export function SessionRail({
           value={view}
           onChange={changeView}
         />
+        {/* A rail too narrow for the three (rail.css's container query): one button naming the view, a menu of the three. */}
+        <button
+          type="button"
+          className="wd-dash-rail-view-pick"
+          aria-haspopup="menu"
+          aria-expanded={viewMenu !== null}
+          title="Group the sessions by"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setViewMenu(viewMenu ? null : { x: r.left, y: r.bottom + 4 });
+          }}
+        >
+          {RAIL_VIEWS.find((v) => v.value === view)?.label}
+          <span aria-hidden="true" className="wd-dash-rail-view-caret">
+            ▾
+          </span>
+        </button>
         {/* One piece: in a rail too narrow for one row the two go to the next row together. */}
         <span className="wd-dash-rail-actions">
           <StatusLegend />
@@ -540,6 +569,15 @@ export function SessionRail({
             const older = g.key === OLDER_GROUP;
             const project = projectOfGroup(g.key);
             const dropHere = drop && 'group' in drop && drop.group === g.key;
+            // Project: each project a card — its heading the card's top, its rows the rest, the project's color its edge.
+            const cardColor = project !== null ? layout.projectColors?.[project] : undefined;
+            const cardStyle = cardColor ? ({ ['--rail-pcard' as string]: `var(--tag-${cardColor})` } as React.CSSProperties) : undefined;
+            const home = project !== null ? cardHome(g.sessions) : null;
+            const fold = (
+              <span className="wd-dash-rail-group-caret" aria-hidden="true">
+                {isFoldedNow ? '▸' : '▾'}
+              </span>
+            );
             return [
               g.title !== null &&
                 (naming?.kind === 'rename' && naming.sectionId === g.sectionId ? (
@@ -557,8 +595,10 @@ export function SessionRail({
                     className={
                       'wd-dash-rail-group' +
                       (dropHere ? ' wd-dash-rail-group-drop' : '') +
-                      (project !== null ? ' wd-dash-rail-group-project' : '')
+                      (project !== null ? ' wd-dash-rail-group-project wd-rail-pcard wd-rail-pcard-head' : '') +
+                      (project !== null && rows.length === 0 ? ' wd-rail-pcard-end' : '')
                     }
+                    style={cardStyle}
                     onDragOver={(e) => {
                       if (!dragId || !canPlace) return;
                       if (older || inOlder(dragId)) {
@@ -570,30 +610,53 @@ export function SessionRail({
                       if (!dropHere) setDrop({ group: g.key });
                     }}
                   >
-                    <button
-                      type="button"
-                      className="wd-dash-rail-group-toggle"
-                      aria-expanded={!isFoldedNow}
-                      onClick={() => toggle(g.key)}
-                      onContextMenu={(e) => {
-                        if (!g.sectionId || !onSections) return;
-                        e.preventDefault();
-                        setSectionMenu({ id: g.sectionId, x: e.clientX, y: e.clientY });
-                      }}
-                      title={
-                        g.sectionId
-                          ? 'Fold or unfold; right-click to rename, move or remove it'
-                          : older
-                            ? 'Sessions not entered in the last 14 days and not running. Fold or unfold'
-                            : 'Fold or unfold'
-                      }
-                    >
-                      <span className="wd-dash-rail-group-caret" aria-hidden="true">
-                        {isFoldedNow ? '▸' : '▾'}
-                      </span>
-                      <span className="wd-dash-rail-group-name">{g.title}</span>
-                      <span className="wd-dash-rail-group-count">{g.sessions.length}</span>
-                    </button>
+                    {project !== null ? (
+                      // A card's top: fold it, its name (opens the repo's own checkout, when it has a session), the count, +.
+                      <>
+                        <button
+                          type="button"
+                          className="wd-dash-rail-group-toggle wd-rail-pcard-fold"
+                          aria-expanded={!isFoldedNow}
+                          aria-label={`${isFoldedNow ? 'Unfold' : 'Fold'} ${project}`}
+                          title="Fold or unfold"
+                          onClick={() => toggle(g.key)}
+                        >
+                          {fold}
+                        </button>
+                        <button
+                          type="button"
+                          className="wd-rail-pcard-name"
+                          onClick={() => (home ? onSelect(home.id) : toggle(g.key))}
+                          title={home ? `Open ${project}'s own checkout (${home.branch})` : 'Fold or unfold'}
+                        >
+                          {g.title}
+                        </button>
+                        <span className="wd-dash-rail-group-count">{g.sessions.length}</span>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="wd-dash-rail-group-toggle"
+                        aria-expanded={!isFoldedNow}
+                        onClick={() => toggle(g.key)}
+                        onContextMenu={(e) => {
+                          if (!g.sectionId || !onSections) return;
+                          e.preventDefault();
+                          setSectionMenu({ id: g.sectionId, x: e.clientX, y: e.clientY });
+                        }}
+                        title={
+                          g.sectionId
+                            ? 'Fold or unfold; right-click to rename, move or remove it'
+                            : older
+                              ? 'Sessions not entered in the last 14 days and not running. Fold or unfold'
+                              : 'Fold or unfold'
+                        }
+                      >
+                        {fold}
+                        <span className="wd-dash-rail-group-name">{g.title}</span>
+                        <span className="wd-dash-rail-group-count">{g.sessions.length}</span>
+                      </button>
+                    )}
                     {project !== null && (
                       <button
                         type="button"
@@ -607,7 +670,7 @@ export function SessionRail({
                     )}
                   </li>
                 )),
-              ...rows.map((s) => renderRow(s, index++)),
+              ...rows.map((s, i) => renderRow(s, index++, project !== null ? { color: cardColor, end: i === rows.length - 1 } : undefined)),
               mine && !isFoldedNow && g.sessions.length === 0 && (
                 <li key={`e:${g.key}`} className="wd-dash-rail-group-empty">
                   {g.sectionId
@@ -666,6 +729,14 @@ export function SessionRail({
           })()}
         />
       )}
+      {viewMenu && (
+        <Menu
+          x={viewMenu.x}
+          y={viewMenu.y}
+          onClose={() => setViewMenu(null)}
+          items={RAIL_VIEWS.map((v) => ({ label: v.label, hint: v.hint, checked: v.value === view, run: () => changeView(v.value) }))}
+        />
+      )}
       {sectionMenu && (
         <Menu
           x={sectionMenu.x}
@@ -687,6 +758,16 @@ export function SessionRail({
         />
       )}
     </aside>
+  );
+}
+
+/** A repo's own checkout, in its Project card (first, and what the card's name opens). */
+function HomeIcon() {
+  return (
+    <svg className="wd-rail-home" width="11" height="11" viewBox="0 0 12 12" role="img" aria-label="Its own checkout">
+      <title>Its own checkout</title>
+      <path d="M2 6 L6 2.5 L10 6 M3.2 5 V10 H8.8 V5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
   );
 }
 

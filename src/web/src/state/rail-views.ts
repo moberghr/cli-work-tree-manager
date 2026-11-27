@@ -10,10 +10,15 @@ import { displayStatus, OLDER_GROUP, owedBadge, railGroups, railSessions, type D
 export type RailView = 'mine' | 'state' | 'project';
 
 /** The rail header's switch, in its order. */
-export const RAIL_VIEWS: ReadonlyArray<{ value: RailView; label: string; title: string }> = [
-  { value: 'mine', label: 'Mine', title: 'Your order: pins, sections, where you dragged them' },
-  { value: 'state', label: 'State', title: 'By what each needs now: Needs you, Working, Idle, Snoozed' },
-  { value: 'project', label: 'Project', title: 'By project: one heading each, with a + to start another worktree there' },
+export const RAIL_VIEWS: ReadonlyArray<{ value: RailView; label: string; title: string; hint: string }> = [
+  { value: 'mine', label: 'Mine', title: 'Your order: pins, sections, where you dragged them', hint: 'your order' },
+  { value: 'state', label: 'State', title: 'By what each needs now: Needs you, Working, Idle, Snoozed', hint: 'needs you…' },
+  {
+    value: 'project',
+    label: 'Project',
+    title: 'By project: a card each, its own checkout first, with a + to start another worktree there',
+    hint: 'by repo',
+  },
 ];
 
 const VIEW_KEY = 'work-web:rail-view';
@@ -92,8 +97,9 @@ export function projectOfGroup(key: string): string | null {
 
 /**
  * The Project view's groups: one per project (a session's `target`: its repo, or its group's name), keys
- * `project:<name>`, in alphabetical order whatever the case, each in the rail's order (`railSessions`); then Older as
- * in State: the selected older session and one that needs you stay under their project.
+ * `project:<name>`, in alphabetical order whatever the case, each in the rail's order (`railSessions`) with its base
+ * checkout first (`baseFirst`); then Older as in State: the selected older session and one that needs you stay under
+ * their project.
  */
 export function projectGroups(
   sessions: SessionSummary[],
@@ -106,10 +112,21 @@ export function projectGroups(
   for (const s of [...current, ...older.filter(shown)]) by.set(s.target, [...(by.get(s.target) ?? []), s]);
   const groups: RailGroup<SessionSummary>[] = [...by.keys()]
     .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()) || a.localeCompare(b))
-    .map((name) => ({ key: PROJECT_PREFIX + name, title: name, sessions: by.get(name)! }));
+    .map((name) => ({ key: PROJECT_PREFIX + name, title: name, sessions: baseFirst(by.get(name)!) }));
   const rest = older.filter((s) => !shown(s));
   if (rest.length > 0) groups.push({ key: OLDER_GROUP, title: 'Older', sessions: rest });
   return { groups };
+}
+
+/** A project's sessions with its base checkout first (its card's top row, what the card's name opens); the rest as they were. Pure. */
+export function baseFirst(sessions: SessionSummary[]): SessionSummary[] {
+  return [...sessions.filter((s) => s.baseCheckout), ...sessions.filter((s) => !s.baseCheckout)];
+}
+
+/** The session a Project card's name opens: its base checkout, the most recently entered when there are several. Pure. */
+export function cardHome(sessions: SessionSummary[]): SessionSummary | null {
+  const base = sessions.filter((s) => s.baseCheckout);
+  return base.sort((a, b) => b.lastAccessedAt.localeCompare(a.lastAccessedAt))[0] ?? null;
 }
 
 /** The rail's groups in a view: what the rail draws and what j/k walk before the rail has said what it shows. */

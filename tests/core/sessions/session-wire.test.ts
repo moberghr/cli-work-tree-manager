@@ -17,7 +17,7 @@ vi.mock('../../../src/core/sessions/session-meta.js', () => ({
 }));
 vi.mock('../../../src/core/conversations/context-usage.js', () => ({ readContextUsage: () => null }));
 
-import { reviewThreadsOf, sessionWire, wireRepos } from '../../../src/core/sessions/session-wire.js';
+import { isBaseCheckout, reviewThreadsOf, sessionWire, wireRepos } from '../../../src/core/sessions/session-wire.js';
 import { OUTPUT_WORKING_MS, statusFromOutput } from '../../../src/core/pty/output-status.js';
 
 const s = {
@@ -165,5 +165,19 @@ describe('statusFromOutput (pure)', () => {
     expect(statusFromOutput({ tool: 'claude', lastOutputAt: at(0), startedAt: '' }, now)).toBeNull();
     expect(statusFromOutput({ lastOutputAt: at(0), startedAt: '' }, now)).toBeNull(); // an older host: no tool
     expect(statusFromOutput({ tool: 'opencode', startedAt: '' }, now)).toBeNull();
+  });
+});
+
+/** A repo's own checkout goes first in its Project card: its path is the configured repo's. */
+describe('isBaseCheckout', () => {
+  const config = () => ({ repos: { api: '/src/api', web: 'C:\\src\\web' } });
+  it("the configured repo's path (case, slashes and a trailing slash aside); not a worktree, not a group, not unknown", () => {
+    expect(isBaseCheckout({ target: 'api', isGroup: false, paths: ['/src/api'] }, config)).toBe(true);
+    expect(isBaseCheckout({ target: 'api', isGroup: false, paths: ['/src/api/'] }, config)).toBe(true);
+    expect(isBaseCheckout({ target: 'api', isGroup: false, paths: ['/wt/api/feat-x'] }, config)).toBe(false);
+    expect(isBaseCheckout({ target: 'api', isGroup: true, paths: ['/src/api'] }, config)).toBe(false);
+    expect(isBaseCheckout({ target: 'gone', isGroup: false, paths: ['/src/api'] }, config)).toBe(false);
+    expect(isBaseCheckout({ target: 'api', isGroup: false, paths: [] }, config)).toBe(false);
+    expect(isBaseCheckout({ target: 'api', isGroup: false, paths: ['/src/api'] }, () => null)).toBe(false);
   });
 });
