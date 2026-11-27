@@ -22,7 +22,7 @@ const deps = (over: Partial<SendDeps> = {}, delivered: 'typed' | 'next-turn' | n
     runningOutside: () => false,
     start: vi.fn(async () => true),
     state: () => 'idle',
-    archived: () => false,
+    archived: () => null,
     ...over,
   };
 };
@@ -71,10 +71,13 @@ describe('sendToSession', () => {
   it('refused: empty, too long, archived', async () => {
     expect(await sendToSession('s', '   ', deps())).toMatchObject({ ok: false, status: 400 });
     expect(await sendToSession('s', 'x'.repeat(MAX_SEND_CHARS + 1), deps())).toMatchObject({ ok: false, status: 400 });
-    expect(await sendToSession('s', 'x', deps({ archived: () => true }))).toMatchObject({
+    // Saying how to bring it back: there is no `work restore` (an agent tried commands until `work tree` worked; `work start` restores it).
+    expect(
+      await sendToSession('s', 'x', deps({ archived: () => ({ target: 'straumur-backend', branch: 'deploy-monitor' }) })),
+    ).toMatchObject({
       ok: false,
       status: 409,
-      error: expect.stringContaining('archived'),
+      error: expect.stringContaining('`work start straumur-backend deploy-monitor`'),
     });
   });
 

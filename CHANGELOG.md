@@ -3,6 +3,17 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.22.1 — 2026-11-27
+
+- **Copied text keeps its characters on macOS.** A copy from a session's
+  terminal (or a reply copied with its formatting) pasted with every
+  character past ASCII mangled where the other app read the formatted copy:
+  `❯` came out as `‚ùØ`, `·` as `¬∑`. The formatted copy now says it is UTF-8.
+- **`work start` restores an archived session.** It brings the session back
+  as it was (worktree, uncommitted work, conversation), then starts its agent.
+  `work send` to an archived session now says to `work start` it, instead of
+  "restore it first", which left Claude trying commands until one worked.
+
 ## 2.22.0 — 2026-11-27
 
 - **Diff, Code and Review beside the terminal.** The pane beside a session's

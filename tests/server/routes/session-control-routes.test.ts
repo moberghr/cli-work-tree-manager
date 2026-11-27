@@ -36,7 +36,7 @@ function app(over: Partial<ControlDeps> = {}) {
     screen: vi.fn(async () => '❯ Done.'),
     lastReply: () => ({ text: REPLY }),
     state: () => 'idle',
-    archived: () => false,
+    archived: () => null,
     ...over,
   };
   const a = new Hono();
@@ -124,7 +124,9 @@ describe('POST /api/sessions/:id/agent/start | stop', () => {
     expect((await post(app({ resume: async () => false }).a, `/api/sessions/${id}/agent/start`)).status).toBe(502);
     expect((await post(a, '/api/sessions/nope/agent/start')).status).toBe(404);
     saveHistory([{ ...s, archivedAt: '2026-10-01T00:00:00Z' }]);
-    expect((await post(a, `/api/sessions/${id}/agent/start`)).status).toBe(409);
+    const refused = await post(a, `/api/sessions/${id}/agent/start`);
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toContain('`work start api feat/x`');
   });
 
   it('start: never a second Claude on a conversation running outside work, unless forced', async () => {

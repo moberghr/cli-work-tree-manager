@@ -28,9 +28,19 @@ export interface SendDeps {
   /** Start its Claude in the host, resuming its conversation, its first message saying a note is attached (NOTE_NUDGE). */
   start: (id: string) => Promise<boolean>;
   state: (id: string) => AgentState | null;
-  archived: (id: string) => boolean;
+  /** Archived: which session (to say how to restore it); null when it isn't. */
+  archived: (id: string) => { target: string; branch: string } | null;
   /** Its agent still runs as started `--unsafe` before the retirement (legacy-unsafe.ts). REMOVE IN THE NEXT RELEASE. */
   stillUnsafe?: (id: string) => LegacyUnsafe | null;
+}
+
+/**
+ * Why an archived session can't be sent to, and how to bring it back: there is no `work restore`, and an agent told
+ * only "restore it first" tried commands until `work tree` worked (reported). `work start <alias> <branch>` restores it
+ * as it was — worktree, uncommitted work, conversation — and starts its agent in the background. Pure.
+ */
+export function archivedRefusal(s: { target: string; branch: string }): string {
+  return `it is archived: \`work start ${s.target} ${s.branch}\` restores it (as it was, its conversation too) and starts it; then try again`;
 }
 
 export type SendResult = { ok: true; how: SendHow; sentAt: string } | { ok: false; status: 400 | 409 | 502; error: string };
@@ -39,7 +49,8 @@ export async function sendToSession(id: string, text: string, deps: SendDeps, op
   const body = text.trim();
   if (!body) return { ok: false, status: 400, error: 'the message is empty' };
   if (body.length > MAX_SEND_CHARS) return { ok: false, status: 400, error: `the message is over ${MAX_SEND_CHARS} characters` };
-  if (deps.archived(id)) return { ok: false, status: 409, error: 'it is archived: restore it first' };
+  const archived = deps.archived(id);
+  if (archived) return { ok: false, status: 409, error: archivedRefusal(archived) };
   // It would act on this unreviewed, and it may have come from another agent (legacy-unsafe.ts; remove next release).
   const unsafe = deps.stillUnsafe?.(id);
   if (unsafe) return { ok: false, status: 409, error: stillUnsafeMessage(unsafe) };

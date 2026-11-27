@@ -60,7 +60,7 @@ Other actions go through the user's normal commands (`work remove`, `work tree`)
 
 Each takes `<alias> <branch>` (or the session for the current folder):
 - `work send <alias> <branch> -m "…" [--wait] [--timeout 15m]` — a message to its agent, now: typed into its terminal if it's idle, started for it (resuming its conversation) if it isn't running, on its next turn otherwise. `--wait` waits for that turn and prints the reply. Send only what the user asked to send.
-- `work start` / `work stop <alias> <branch>` — start its agent in the background (resuming), or stop it (the conversation is kept).
+- `work start` / `work stop <alias> <branch>` — start its agent in the background (resuming), or stop it (the conversation is kept). `work start` on an archived session restores it first (worktree, uncommitted work and conversation as they were), then starts it; `work send` refuses an archived one, so `work start` it, then send.
 - `work answer <alias> <branch> --allow | --deny` — answer its permission prompt, the inbox's Allow / Deny. Run `work answer` without a flag first and show the user the exact request (`Bash: npm test`); approve only what they approved. It is never pre-allowed, so the user is asked before it runs; don't look for a way around that.
 
 ## Coordinating sessions of your own

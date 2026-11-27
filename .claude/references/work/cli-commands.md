@@ -46,7 +46,7 @@ work read [target] [branch] [--last N] [--json]    # A session's latest messages
 work screen [target] [branch]                      # Its terminal as plain text, as it is now (PTY host; starts nothing)
 work send [target] [branch] -m "…"|--file f [--wait] [--timeout 15m]  # A message to its agent now: typed in when idle in the host, its Claude started when not running, its next turn otherwise; --wait prints the reply
 work wait [target] [branch] [--timeout 15m] [--json]  # Until it finishes its turn or asks you something (exit 2 on timeout)
-work start|stop [target] [branch]                  # Start its agent in the PTY host (resuming its conversation) / stop it
+work start|stop [target] [branch]                  # Start its agent in the PTY host (resuming its conversation; an archived one is restored first) / stop it
 work restart [target] [branch] [--outdated|--all]  # Restart agents in place (conversation resumed, terminals kept): now when idle, after its turn when working or waiting on you; --outdated = the ones running a version from before their tool updated. Never pre-allowed
 work answer [target] [branch] [--allow|--deny]     # The permission prompt it waits on (no flag: shows it); --allow/--deny answers that exact request — never pre-allowed
 work coordinate [target] [branch] [--on|--off] [--adopt <t> <b>] [--release <t> <b>]  # --adopt: coordinate a session that already exists (grants too); --release lets it go. Grant a session the say-so to drive sessions it starts (`work child`) without asking each time; never pre-allowed (core/sessions/session-children.ts)

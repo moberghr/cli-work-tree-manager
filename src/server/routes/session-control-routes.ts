@@ -6,7 +6,7 @@ import { agentsBySession } from '../../core/sessions/live-agents.js';
 import { liveAgents } from '../../core/agents/index.js';
 import { markAgentStopped, readStatus } from '../../core/status/session-status.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
-import { sendToSession, type SendDeps } from '../../core/sessions/session-control.js';
+import { archivedRefusal, sendToSession, type SendDeps } from '../../core/sessions/session-control.js';
 import { legacyUnsafeCheck } from '../../core/sessions/legacy-unsafe-io.js';
 import type { AgentControlWire, LastReplyWire, ScreenWire, SendWire } from '../../core/api-types.js';
 import { agentOf } from '../../core/agents/index.js';
@@ -54,7 +54,10 @@ function realDeps(app: Hono): ControlDeps {
     start: async (id) => !!(await ensurePty(id, { initialPrompt: NOTE_NUDGE }).catch(() => null)),
     resume: async (id) => !!(await ensurePty(id).catch(() => null)),
     state: (id) => readStatus(id)?.state ?? null,
-    archived: (id) => !!findSession(id)?.archivedAt,
+    archived: (id) => {
+      const s = findSession(id);
+      return s?.archivedAt ? { target: s.target, branch: s.branch } : null;
+    },
     // From before --unsafe was retired (legacy-unsafe.ts; remove next release).
     stillUnsafe: legacyUnsafeCheck(ptyPids),
     // `work stop`: recorded like a sleep, so the Terminal tab starts it again when opened.
@@ -99,7 +102,7 @@ export function mountSessionControlRoutes(
     const id = c.req.param('id');
     const s = findSession(id);
     if (!s) return c.json({ error: 'unknown session' }, 404);
-    if (s.archivedAt) return c.json({ error: 'it is archived: restore it first' }, 409);
+    if (s.archivedAt) return c.json({ error: archivedRefusal(s) }, 409);
     if (deps.hostRuns(id)) return c.json({ how: 'running' } satisfies AgentControlWire);
     // A second Claude on the same conversation broke the user's own terminal once (terminal-ws.ts).
     if (deps.runningOutside(id) && (await body(c)).force !== true) {

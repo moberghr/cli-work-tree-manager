@@ -16,7 +16,7 @@ vi.mock('../../src/core/platform/web-discovery.js', async (orig) => ({
   }),
 }));
 
-const { upsertSession } = await import('../../src/core/sessions/history.js');
+const { setSessionArchived, upsertSession } = await import('../../src/core/sessions/history.js');
 const { sessionIdFor } = await import('../../src/core/sessions/session-id.js');
 const { recordStatusEvent } = await import('../../src/core/status/session-status.js');
 const { encodeProjectDir } = await import('../../src/core/agents/claude/activity.js');
@@ -173,6 +173,39 @@ describe('work start | stop | screen', () => {
     answer = () => ({ ok: false, status: 0, error: 'work web is not running (start it with `work web`, or open the desktop app)' });
     await run(startCommand, {});
     expect(errors.join('\n')).toContain('work web is not running');
+  });
+
+  // Asked for: an agent told "restore it first" tried commands until `work tree` worked.
+  it("an archived session is restored first (work web's Restore), then started", async () => {
+    await setSessionArchived('api', 'feat/x', true);
+    answer = (route) => ({
+      ok: true,
+      body: route.endsWith('/archive') ? { ok: true, warnings: ['its dev server was not restarted'] } : { how: 'started' },
+    });
+    await run(startCommand, { target: 'api', branch: 'feat/x' });
+    expect(calls.map((c) => `${c.method} ${c.route} ${JSON.stringify(c.body)}`)).toEqual([
+      `POST /api/sessions/${id}/archive {"archived":false}`,
+      `POST /api/sessions/${id}/agent/start {"force":false}`,
+    ]);
+    expect(out.join('\n')).toContain('is archived: restoring it');
+    expect(out.join('\n')).toContain('its dev server was not restarted');
+    expect(out.at(-1)).toBe('api · feat/x: restored and started (`work attach` to watch it)');
+  });
+
+  it("a restore that fails stops there, saying why; one that worked but couldn't start says it was restored", async () => {
+    await setSessionArchived('api', 'feat/x', true);
+    answer = (route) =>
+      route.endsWith('/archive') ? { ok: false, status: 500, error: 'the branch is gone' } : { ok: true, body: { how: 'started' } };
+    await run(startCommand, { target: 'api', branch: 'feat/x' });
+    expect(calls.map((c) => c.route)).toEqual([`/api/sessions/${id}/archive`]);
+    expect(errors.at(-1)).toContain("Couldn't restore it: the branch is gone");
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+    calls.length = 0;
+    answer = (route) =>
+      route.endsWith('/archive') ? { ok: true, body: { ok: true } } : { ok: false, status: 502, error: 'the host said no' };
+    await run(startCommand, { target: 'api', branch: 'feat/x' });
+    expect(errors.at(-1)).toContain("Restored it, but couldn't start its agent: the host said no");
   });
 });
 
