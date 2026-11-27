@@ -559,6 +559,17 @@ describe('PtyView', () => {
     term.element.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
     expect(data.get('text/plain')).toBe(whole);
+    // A table goes as HTML too, said to be UTF-8 (macOS mangled ❯ and · in a paste otherwise).
+    term.selection = ['❯ Here:', '| a · b | ✻ |', '|---|---|', '| 1 | 2 |'].join('\n');
+    term.selectionStart = { x: 0, y: 0 };
+    data.clear();
+    term.element.dispatchEvent(
+      Object.assign(new Event('copy', { bubbles: true, cancelable: true }), {
+        clipboardData: { setData: (t: string, v: string) => data.set(t, v) },
+      }),
+    );
+    expect(data.get('text/html')).toMatch(/^<meta charset="utf-8">/);
+    expect(data.get('text/html')).toContain('a · b');
   });
 
   it('leaves Ctrl+V to the browser (it pastes; xterm would have sent ^V and swallowed the key)', () => {

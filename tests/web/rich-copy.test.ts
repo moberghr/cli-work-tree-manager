@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { markdownHtml, styleTables, writeRich } from '../../src/web/src/state/rich-copy.js';
+import { clipboardHtml, markdownHtml, styleTables, writeRich } from '../../src/web/src/state/rich-copy.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -35,11 +35,20 @@ describe('writeRich', () => {
     await writeRich({ text: 't', html: '<b>t</b>' });
     const item = write.mock.calls[0][0][0] as FakeItem;
     expect(Object.keys(item.parts)).toEqual(['text/plain', 'text/html']);
-    expect(await item.parts['text/html'].text()).toBe('<b>t</b>');
+    expect(await item.parts['text/html'].text()).toBe('<meta charset="utf-8"><b>t</b>');
     await writeRich({ text: 'plain', html: null });
     expect(writeText).toHaveBeenLastCalledWith('plain');
     write.mockRejectedValueOnce(new Error('NotAllowedError'));
     await writeRich({ text: 'still', html: '<b>still</b>' });
     expect(writeText).toHaveBeenLastCalledWith('still');
+  });
+});
+
+/** Reported: a copy pasted elsewhere on macOS came out as "‚ùØ create work session", every character past ASCII mangled. */
+describe('clipboardHtml', () => {
+  it('says the HTML is UTF-8 (macOS reads it as Mac Roman or Latin-1 otherwise), once', () => {
+    expect(clipboardHtml('<p>❯ done · ✻</p>')).toBe('<meta charset="utf-8"><p>❯ done · ✻</p>');
+    expect(clipboardHtml('<meta charset="utf-8"><p>x</p>')).toBe('<meta charset="utf-8"><p>x</p>');
+    expect(clipboardHtml("  <META CHARSET='utf-8'><p>x</p>")).toBe("  <META CHARSET='utf-8'><p>x</p>");
   });
 });

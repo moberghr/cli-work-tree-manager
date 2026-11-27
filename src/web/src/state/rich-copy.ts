@@ -27,6 +27,15 @@ export function markdownHtml(md: string): string {
   return styleTables(DOMPurify.sanitize(String(raw), { USE_PROFILES: { html: true } }));
 }
 
+/**
+ * The HTML as it goes on the clipboard: saying it is UTF-8. Without that, macOS reads the clipboard's HTML in a legacy
+ * encoding — Mac Roman or Latin-1 — so every character past ASCII came out mangled where it was pasted (❯ as ‚ùØ,
+ * · as ¬∑); measured with AppKit's own HTML reader. Chrome adds the same line to the HTML it copies. Pure.
+ */
+export function clipboardHtml(html: string): string {
+  return /^\s*<meta charset=/i.test(html) ? html : `<meta charset="utf-8">${html}`;
+}
+
 export const escapeHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -42,7 +51,7 @@ export async function writeRich(parts: { text: string; html: string | null }): P
       await clip.write([
         new ClipboardItem({
           'text/plain': new Blob([parts.text], { type: 'text/plain' }),
-          'text/html': new Blob([parts.html], { type: 'text/html' }),
+          'text/html': new Blob([clipboardHtml(parts.html)], { type: 'text/html' }),
         }),
       ]);
       return;

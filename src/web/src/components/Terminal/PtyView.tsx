@@ -9,7 +9,7 @@ import { startFailure, startRetryDelay } from '../../state/terminal-start.js';
 import { ask } from '../../state/ask.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
 import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
-import { writeRich } from '../../state/rich-copy.js';
+import { clipboardHtml, writeRich } from '../../state/rich-copy.js';
 import { openTerminalPath, resolveTerminalPaths, type TerminalPathHow } from '../../api/panes.js';
 import {
   bareName,
@@ -381,7 +381,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       ev.stopImmediatePropagation();
       const { text, html } = selected();
       ev.clipboardData.setData('text/plain', text);
-      if (html) ev.clipboardData.setData('text/html', html);
+      if (html) ev.clipboardData.setData('text/html', clipboardHtml(html));
     };
     term.element?.addEventListener('copy', onCopy, true);
 
