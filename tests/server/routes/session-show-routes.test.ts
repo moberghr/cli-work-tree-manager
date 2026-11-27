@@ -130,7 +130,13 @@ describe('session show routes', () => {
     const res = await post(a, { file });
     expect(res.status).toBe(200);
     const shown = ((await res.json()) as SessionShownWire).shown!;
-    expect(shown).toMatchObject({ repo: '', path: 'artifact.html', kind: 'html', temp: fs.realpathSync(file), abs: fs.realpathSync(file) });
+    expect(shown).toMatchObject({
+      repo: '',
+      path: 'artifact.html',
+      kind: 'html',
+      temp: fs.realpathSync.native(file),
+      abs: fs.realpathSync.native(file),
+    });
     // A listed file says where it is too (the pane's Open in app / Show in Finder).
     expect(((await (await post(a, { file: path.join(wt, 'docs', 'spec.md') })).json()) as SessionShownWire).shown?.abs).toBe(
       path.join(wt, 'docs', 'spec.md'),

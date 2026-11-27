@@ -44,7 +44,7 @@ describe('sessionTempFolders (real folders)', () => {
   const session = { paths: ['/w/feat-x'], isGroup: false };
 
   beforeEach(() => {
-    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'claude-temp-')));
+    dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'claude-temp-')));
     root = path.join(dir, 'claude-x');
     fs.mkdirSync(path.join(root, '-w-feat-x'), { recursive: true, mode: 0o700 });
     fs.chmodSync(root, 0o700);
