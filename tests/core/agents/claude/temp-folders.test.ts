@@ -20,13 +20,14 @@ describe('claudeTempRoot', () => {
 });
 
 describe('claudeTempFolders', () => {
-  it('one per folder its Claude runs in, named as its projects folders are', () => {
+  // macOS and Linux paths (Windows resolves them onto a drive, and its root is %TEMP%\\claude).
+  it.skipIf(process.platform === 'win32')('one per folder its Claude runs in, named as its projects folders are', () => {
     expect(claudeTempFolders({ paths: ['/Users/me/source/repos/work-tree'], isGroup: false }, '/tmp/claude-501')).toEqual([
       '/tmp/claude-501/-Users-me-source-repos-work-tree',
     ]);
   });
 
-  it('a group: its root and each repo', () => {
+  it.skipIf(process.platform === 'win32')('a group: its root and each repo', () => {
     expect(claudeTempFolders({ paths: ['/w/feat-x/api', '/w/feat-x/web'], isGroup: true }, '/tmp/claude-501')).toEqual([
       '/tmp/claude-501/-w-feat-x',
       '/tmp/claude-501/-w-feat-x-api',

@@ -28,7 +28,9 @@ export interface TempFolderIo {
   realpath(p: string): string;
   lstat(p: string): { isDirectory(): boolean; isSymbolicLink(): boolean; uid: number; mode: number };
 }
-const realIo: TempFolderIo = { realpath: (p) => fs.realpathSync(p), lstat: (p) => fs.lstatSync(p) };
+// The OS's own realpath, as the file's is resolved (findTempFile): on Windows it also turns a short 8.3 name
+// (`C:\Users\RUNNER~1\…`, often %TEMP%'s) into the long one, so the folder and the file are named alike.
+const realIo: TempFolderIo = { realpath: (p) => fs.realpathSync.native(p), lstat: (p) => fs.lstatSync(p) };
 
 /**
  * The scratch root as it really is, or null when it can't be trusted. `/tmp` is shared by every user, so anyone could

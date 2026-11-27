@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { showBody, splitFileLine } from '../../src/commands/show.js';
 
@@ -16,7 +17,7 @@ describe('splitFileLine', () => {
 describe('showBody', () => {
   const cwd = '/w/feat';
   it('a file by its absolute path; --close; --diff and --review alone', () => {
-    expect(showBody({ file: 'docs/spec.md' }, cwd)).toEqual({ file: '/w/feat/docs/spec.md' });
+    expect(showBody({ file: 'docs/spec.md' }, cwd)).toEqual({ file: path.resolve(cwd, 'docs/spec.md') });
     expect(showBody({ close: true }, cwd)).toEqual({ close: true });
     expect(showBody({ diff: true }, cwd)).toEqual({ view: 'diff' });
     expect(showBody({ review: true }, cwd)).toEqual({ view: 'review' });
@@ -24,8 +25,8 @@ describe('showBody', () => {
 
   it('--code, at a file and line when given', () => {
     expect(showBody({ code: true }, cwd)).toEqual({ view: 'code' });
-    expect(showBody({ code: true, file: 'src/a.ts:40' }, cwd)).toEqual({ view: 'code', file: '/w/feat/src/a.ts', line: 40 });
-    expect(showBody({ code: true, file: '/abs/b.ts' }, cwd)).toEqual({ view: 'code', file: '/abs/b.ts' });
+    expect(showBody({ code: true, file: 'src/a.ts:40' }, cwd)).toEqual({ view: 'code', file: path.resolve(cwd, 'src/a.ts'), line: 40 });
+    expect(showBody({ code: true, file: '/abs/b.ts' }, cwd)).toEqual({ view: 'code', file: path.resolve(cwd, '/abs/b.ts') });
   });
 
   it('says what is wrong: nothing asked, two asked, a file with --diff', () => {

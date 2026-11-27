@@ -128,7 +128,8 @@ describe('findTempFile (real files)', () => {
   let own: string;
   let other: string;
   beforeEach(() => {
-    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-temp-')));
+    // The OS's realpath, as sessionTempFolders names the folders (Windows: the long name, not RUNNER~1).
+    dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-temp-')));
     own = path.join(dir, 'own');
     other = path.join(dir, 'other');
     fs.mkdirSync(path.join(own, 'conv', 'scratchpad'), { recursive: true });
@@ -172,7 +173,7 @@ describe('findTempFile (real files)', () => {
 describe('readShownFile', () => {
   let dir: string;
   beforeEach(() => {
-    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-read-')));
+    dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-read-')));
     fs.writeFileSync(path.join(dir, 'page.html'), '<h1>hi</h1>');
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

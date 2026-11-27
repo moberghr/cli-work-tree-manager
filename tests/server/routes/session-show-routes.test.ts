@@ -55,7 +55,7 @@ function app() {
       return { real: full, size: fs.statSync(full).size };
     },
     // Real folders, as sessionTempFolders names them (macOS's tmpdir is under a link).
-    tempFolders: () => [fs.realpathSync(path.join(home, 'tmp-claude'))],
+    tempFolders: () => [fs.realpathSync.native(path.join(home, 'tmp-claude'))],
   });
   return a;
 }
