@@ -3,7 +3,7 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## Unreleased
+## 2.22.0 — 2026-11-27
 
 - **Diff, Code and Review beside the terminal.** The pane beside a session's
   terminal now has tabs: the file it shows, and the session's Diff, Code and
@@ -19,6 +19,29 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   Markdown or image path in the terminal opens it there (right-click → Show
   beside the terminal), and the pane has Open in app and Show in Finder.
   Published claude.ai artifacts still open in the browser.
+- **Click a file path in the terminal.** A path a session prints in its
+  terminal is a link: a click opens it (Markdown, HTML and images beside the
+  terminal, others in your editor), and right-click has Open, Open in editor,
+  Reveal in Finder and Copy path. A bare file name that several files share
+  opens the code search with it typed in.
+- **The session rail, reshaped.** Every row has one shape: the name and a
+  time, then the project, one status and a dot per PR in its stage's colour.
+  Older sessions fold under an "Older" heading, and / opens the Ctrl+P
+  switcher (the rail's search box is gone). A switch in the rail's header
+  picks the view: **Mine** (your order and sections), **State** (Needs you,
+  Working, Idle, Snoozed, Older, each with its count) or **Project** (one
+  heading per project, with a + for a new worktree in it, and a card with the
+  session's branch, state and PRs when you point at a row).
+- **A turn that ends on an API error ends the turn.** When a rate limit, an
+  overload or a network error stops Claude mid-turn, the session goes idle
+  with a line saying what happened, instead of reading "working" until its
+  next prompt, and a coordinator waiting on it is told how to carry on.
+- **Context shown against 1M for current models.** Fable, Sonnet 5, Haiku 5.5
+  and the other current models read their context against a 1M window, not
+  200k; only older models (Claude 3.x and 4 up to 4.5) count 200k.
+- **A session's branches are its own.** A session on a repo's own checkout no
+  longer lists every branch that checkout ever had: its branches are read
+  from the reflog only since the session began.
 
 ## 2.21.1 — 2026-11-25
 
