@@ -1,6 +1,6 @@
 // Paths printed in a session's terminal as links (PtyView): the candidates on a row, which of them exist (asked of the
 // server, cached), and the right-click menu of one. Pure: no React, no xterm, no fetch — PtyView passes those in.
-import { findPathRefs, joinRows, splitLine, type TermRow } from '../../../core/worktree/terminal-path-refs.js';
+import { findPathRefs, joinRows, rowContinues, splitLine, type TermRow } from '../../../core/worktree/terminal-path-refs.js';
 import type { TerminalPathWire } from '../../../core/api-types.js';
 
 /** The event a click on an ambiguous bare name sends: SessionDetail opens the code search with `query` typed in. */
@@ -66,18 +66,13 @@ export interface PickedLink extends LinkCandidate {
 /** As joinRows: a logical line is at most this many rows. */
 const MAX_ROWS = 8;
 
-/** The rule joinRows joins by: the lower row is a soft wrap, or the upper is (nearly) full and the lower has text. */
-function continues(upper: TermRow, lower: TermRow, cols: number): boolean {
-  return !!lower.wrapped || (upper.text.length >= cols - 1 && /\S/.test(lower.text));
-}
-
 /** The first row of the logical line row `y` belongs to: up while the row above continues onto it, at most 8 rows. */
 export function logicalStart(getRow: (y: number) => TermRow | undefined, y: number, cols: number): number {
   let start = y;
   for (let n = 1; n < MAX_ROWS; n++) {
     const above = getRow(start - 1);
     const row = getRow(start);
-    if (!above || !row || !continues(above, row, cols)) break;
+    if (!above || !row || !rowContinues(above, row, cols)) break;
     start--;
   }
   return start;

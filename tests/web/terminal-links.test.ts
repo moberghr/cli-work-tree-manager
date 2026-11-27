@@ -47,6 +47,20 @@ describe('logicalStart — the first row of the line a row belongs to', () => {
 });
 
 describe('rowLinkCandidates — the paths that touch a row', () => {
+  it('a path broken at a separator before the edge (reported): one link over both rows, hovered on either', () => {
+    const get = screen([
+      { text: '  › [image]/tmp/claude-501/-Users-me-repo/scratchpad' },
+      { text: '           /pinned-full.png                (334.7KB)' },
+    ]);
+    const joined = rowLinkCandidates(get, 1, 120).find((c) => c.joined);
+    expect(joined).toEqual({
+      raw: '/tmp/claude-501/-Users-me-repo/scratchpad/pinned-full.png',
+      range: { start: { x: 11, y: 0 }, end: { x: 26, y: 1 } },
+      joined: true,
+    });
+    expect(rowLinkCandidates(get, 0, 120).find((c) => c.joined)).toEqual(joined);
+  });
+
   it('a path on one row: its columns, 0-based, end inclusive', () => {
     const get = screen([{ text: 'see src/web/x.tsx:12 now' }]);
     expect(rowLinkCandidates(get, 0, 80)).toEqual([

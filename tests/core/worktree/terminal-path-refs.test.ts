@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findPathRefs, joinRows, splitLine } from '../../../src/core/worktree/terminal-path-refs.js';
+import { findPathRefs, joinRows, rowContinues, splitLine } from '../../../src/core/worktree/terminal-path-refs.js';
 
 const raws = (text: string): string[] => findPathRefs(text).map((r) => r.raw);
 
@@ -185,5 +185,42 @@ describe('joinRows', () => {
 
   it('handles no rows', () => {
     expect(joinRows([], 80)).toEqual({ text: '', map: [], rows: 0 });
+  });
+});
+
+/** Reported: a path Claude Code broke before the screen's edge, at a separator, could be clicked on neither row. */
+describe('rowContinues: a path broken at a separator before the edge', () => {
+  // As drawn: the size sits at the end of the second row, so the first stops well short of the edge.
+  const row1 = '  › [image]/private/tmp/claude-501/-Users-me-source-repos-grupa-clanstvo/16fbc319/scratchpad';
+  const row2 = '           /pinned-full.png                                              (334.7KB)';
+
+  it('joins it, without the indent, into one path (the [image] label left out)', () => {
+    expect(rowContinues({ text: row1 }, { text: row2 }, 160)).toBe(true);
+    const j = joinRows([{ text: row1 }, { text: row2 }], 160);
+    expect(j.rows).toBe(2);
+    expect(raws(j.text)).toEqual(['/private/tmp/claude-501/-Users-me-source-repos-grupa-clanstvo/16fbc319/scratchpad/pinned-full.png']);
+  });
+
+  it('broken after a separator, the next row starting with the rest of a name', () => {
+    expect(rowContinues({ text: 'see /tmp/work/scratchpad/' }, { text: '   pinned-full.png' }, 160)).toBe(true);
+    expect(raws(joinRows([{ text: 'see /tmp/work/scratchpad/' }, { text: '   pinned-full.png' }], 160).text)).toEqual([
+      '/tmp/work/scratchpad/pinned-full.png',
+    ]);
+  });
+
+  it('not prose, nor a row with no path at its end, nor onto an empty row', () => {
+    expect(rowContinues({ text: 'Looking at them at full size' }, { text: '/tmp/x.png' }, 160)).toBe(false);
+    expect(rowContinues({ text: 'see /tmp/a.png and more' }, { text: '/tmp/b.png' }, 160)).toBe(false);
+    expect(rowContinues({ text: 'see /tmp/a/' }, { text: '   ' }, 160)).toBe(false);
+    // A row that ends in a path and a next that starts with a word: two lines.
+    expect(rowContinues({ text: 'wrote /tmp/a/b.png' }, { text: '  Next I will' }, 160)).toBe(false);
+  });
+});
+
+describe('findPathRefs: a label stuck to a path', () => {
+  it('[image] before a path is not part of it; a bracketed word on its own is not a path', () => {
+    expect(raws('› [image]/tmp/shots/a.png (12KB)')).toEqual(['/tmp/shots/a.png']);
+    expect(raws('[file]~/notes/todo.md')).toEqual(['~/notes/todo.md']);
+    expect(raws('[image] and [link]')).toEqual([]);
   });
 });

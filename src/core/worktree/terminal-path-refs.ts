@@ -12,6 +12,8 @@ export interface PathRef {
 // A space only stays inside a path as `%20` in a `file://` address.
 const CHUNK = /[^\s,;"'`<>|]+/g;
 const LEADING_WRAPPERS = '([{';
+/** `[image]` (any `[word]`) right before an anchored path. */
+const LABEL = /^\[[A-Za-z][\w -]*\](?=[/\\~.]|[A-Za-z]:[\\/])/;
 const TRAILING_PUNCTUATION = '.,;:)]}"\'`>';
 const LINE_SUFFIX = /(?::\d+){1,2}$/;
 // A segment of a path: no spaces, no characters a file name cannot hold on Windows, no prose punctuation.
@@ -72,6 +74,9 @@ export function findPathRefs(text: string): PathRef[] {
   for (let m = CHUNK.exec(text); m; m = CHUNK.exec(text)) {
     let start = m.index;
     let end = m.index + m[0].length;
+    // A label stuck to the front of a path, as Claude Code prints an image it read: `[image]/tmp/shot.png`.
+    const label = LABEL.exec(text.slice(start, end));
+    if (label) start += label[0].length;
     while (start < end && LEADING_WRAPPERS.includes(text[start])) start++;
     while (end > start && TRAILING_PUNCTUATION.includes(text[end - 1])) end--;
     if (end <= start) continue;
@@ -122,10 +127,31 @@ export interface JoinedRows {
 
 const MAX_JOINED_ROWS = 8;
 
+/** The last piece of a row, when it holds a path separator. */
+const PATH_TAIL = /[^\s,;"'`<>|]*[\\/][^\s,;"'`<>|]*$/;
+
 /**
- * Joins rows[0] with the rows it continues onto. A row continues onto the next when the next is a soft wrap (`wrapped`), or
- * when it is (nearly) full and the next has text: Claude Code breaks long lines itself and indents the continuation, so
- * that indent is dropped. Stops at the first row that does not continue, and at 8 rows.
+ * Whether `upper` continues onto `lower` — one logical line broken over two rows:
+ * - `lower` is a soft wrap (xterm's `wrapped`);
+ * - `upper` is (nearly) full and `lower` has text: Claude Code breaks long lines itself and indents the continuation;
+ * - a path broken at one of its separators before the edge (reported: Claude Code put `…/scratchpad` on one row and
+ *   `/pinned-full.png` on the next, the file's size at the end of that one, and neither half could be clicked): `upper`
+ *   ends in a piece holding a separator, and either it ends with one or `lower` starts (after its indent) with one.
+ * A join that makes a path that isn't there costs nothing: the pieces of each row are still tried (terminal-links.ts).
+ */
+export function rowContinues(upper: TermRow, lower: TermRow, cols: number): boolean {
+  if (lower.wrapped) return true;
+  if (!/\S/.test(lower.text)) return false;
+  if (upper.text.length >= cols - 1) return true;
+  const tail = PATH_TAIL.exec(upper.text)?.[0];
+  if (!tail) return false;
+  const head = lower.text.trimStart();
+  return /[\\/]$/.test(tail) ? /^[^\s,;"'`<>|]/.test(head) : /^[\\/][^\s\\/]/.test(head);
+}
+
+/**
+ * Joins rows[0] with the rows it continues onto (`rowContinues`); a continuation that isn't a soft wrap loses its indent.
+ * Stops at the first row that does not continue, and at 8 rows.
  */
 export function joinRows(rows: TermRow[], cols: number): JoinedRows {
   const joined: JoinedRows = { text: '', map: [], rows: 0 };
@@ -142,13 +168,8 @@ export function joinRows(rows: TermRow[], cols: number): JoinedRows {
   while (joined.rows < rows.length && joined.rows < MAX_JOINED_ROWS) {
     const prev = rows[joined.rows - 1];
     const next = rows[joined.rows];
-    if (next.wrapped) {
-      append(joined.rows, 0);
-    } else if (prev.text.length >= cols - 1 && /\S/.test(next.text)) {
-      append(joined.rows, next.text.length - next.text.trimStart().length);
-    } else {
-      break;
-    }
+    if (!rowContinues(prev, next, cols)) break;
+    append(joined.rows, next.wrapped ? 0 : next.text.length - next.text.trimStart().length);
   }
   return joined;
 }
